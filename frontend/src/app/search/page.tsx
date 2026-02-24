@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { searchTokens } from "@/lib/api";
 import { SearchBar } from "@/components/SearchBar";
 import Link from "next/link";
-import { Suspense } from "react";
+import { Suspense, useEffect } from "react";
 
 function SearchContent() {
   const searchParams = useSearchParams();
@@ -17,8 +17,12 @@ function SearchContent() {
     enabled: !!q,
   });
 
+  useEffect(() => {
+    document.title = q ? `Search: ${q} | Meme Lineage Agent` : "Search | Meme Lineage Agent";
+  }, [q]);
+
   return (
-    <div className="space-y-8">
+    <div className="space-y-8" aria-live="polite">
       <SearchBar />
 
       {isLoading && (

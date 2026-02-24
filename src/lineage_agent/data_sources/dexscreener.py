@@ -64,17 +64,6 @@ class DexScreenerClient:
             return []
         return data.get("pairs") or []
 
-    async def get_pair(
-        self, chain_id: str, pair_address: str
-    ) -> Optional[dict[str, Any]]:
-        """Return data for a specific pair."""
-        url = f"{self._base_url}/latest/dex/pairs/{chain_id}/{pair_address}"
-        data = await self._get(url)
-        if data is None:
-            return None
-        pairs = data.get("pairs") or []
-        return pairs[0] if pairs else None
-
     # ------------------------------------------------------------------
     # Conversion helpers (sync – pure data transforms)
     # ------------------------------------------------------------------

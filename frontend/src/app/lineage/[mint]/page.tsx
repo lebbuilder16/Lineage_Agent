@@ -2,6 +2,7 @@
 
 import { useParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
+import { useEffect } from "react";
 import Link from "next/link";
 import { fetchLineage, ApiError } from "@/lib/api";
 import { LineageCard } from "@/components/LineageCard";
@@ -19,6 +20,13 @@ export default function LineagePage() {
     queryFn: () => fetchLineage(mint),
     enabled: !!mint,
   });
+
+  useEffect(() => {
+    const name = data?.root?.name || data?.query_token?.name;
+    document.title = name
+      ? `${name} Lineage | Meme Lineage Agent`
+      : `Lineage: ${mint?.slice(0, 8)}… | Meme Lineage Agent`;
+  }, [data, mint]);
 
   return (
     <div className="space-y-8">

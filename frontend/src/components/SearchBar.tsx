@@ -29,6 +29,7 @@ export function SearchBar() {
           value={value}
           onChange={(e) => setValue(e.target.value)}
           placeholder="Enter a Solana mint address or token name…"
+          aria-label="Search for a Solana token by mint address or name"
           className="w-full rounded-xl border border-[var(--border)] bg-[var(--card)]
                      px-5 py-4 pr-28 text-base outline-none
                      placeholder:text-[var(--muted)]

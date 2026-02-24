@@ -59,7 +59,19 @@ async def test_root_redirects(client):
 
 @pytest.mark.anyio
 async def test_lineage_invalid_mint(client):
+    # Too short
     resp = await client.get("/lineage", params={"mint": "short"})
+    assert resp.status_code == 400
+    assert "base58" in resp.json()["detail"].lower()
+
+
+@pytest.mark.anyio
+async def test_lineage_invalid_mint_non_base58(client):
+    """Non-base58 chars (0, O, I, l) should be rejected."""
+    resp = await client.get(
+        "/lineage",
+        params={"mint": "0OIl" + "A" * 40},  # contains invalid base58 chars
+    )
     assert resp.status_code == 400
 
 
@@ -113,7 +125,9 @@ async def test_lineage_internal_error(client):
             },
         )
     assert resp.status_code == 500
-    assert "boom" in resp.json()["detail"]
+    # Internal error details should NOT leak to the client
+    assert resp.json()["detail"] == "Internal server error"
+    assert "boom" not in resp.json()["detail"]
 
 
 # ------------------------------------------------------------------

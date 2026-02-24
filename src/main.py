@@ -78,3 +78,8 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
+def _cli_entry() -> None:
+    """Entry-point for ``pyproject.toml`` ``[project.scripts]``."""
+    main()

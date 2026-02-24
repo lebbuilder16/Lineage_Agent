@@ -17,6 +17,7 @@ from config import (
     CACHE_TTL_SECONDS,
     DEXSCREENER_BASE_URL,
     IMAGE_SIMILARITY_THRESHOLD,
+    MAX_CONCURRENT_RPC,
     MAX_DERIVATIVES,
     NAME_SIMILARITY_THRESHOLD,
     REQUEST_TIMEOUT,
@@ -81,6 +82,23 @@ def _get_rpc_client() -> SolanaRpcClient:
             endpoint=SOLANA_RPC_ENDPOINT, timeout=REQUEST_TIMEOUT
         )
     return _rpc_client
+
+
+async def init_clients() -> None:
+    """Eagerly create the singleton HTTP clients (called at startup)."""
+    _get_dex_client()
+    _get_rpc_client()
+
+
+async def close_clients() -> None:
+    """Close singleton HTTP clients gracefully (called at shutdown)."""
+    global _dex_client, _rpc_client
+    if _dex_client is not None:
+        await _dex_client.close()
+        _dex_client = None
+    if _rpc_client is not None:
+        await _rpc_client.close()
+        _rpc_client = None
 
 
 # ---------------------------------------------------------------------------
@@ -170,7 +188,7 @@ async def detect_lineage(mint_address: str) -> LineageResult:
         pre_filtered.append((candidate, name_sim, sym_sim))
 
     # Enrich all pre-filtered candidates concurrently (bounded)
-    sem = asyncio.Semaphore(5)  # max 5 concurrent RPC calls
+    sem = asyncio.Semaphore(MAX_CONCURRENT_RPC)
 
     async def _enrich(
         candidate: TokenSearchResult, name_sim: float, sym_sim: float

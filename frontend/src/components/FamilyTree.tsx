@@ -164,7 +164,21 @@ export function FamilyTree({ data }: Props) {
         ref={canvasRef}
         className="w-full"
         style={{ height: "380px" }}
+        aria-label={`Family tree showing ${data.root?.name || "root token"} and ${data.derivatives.length} derivative${data.derivatives.length === 1 ? "" : "s"}`}
+        role="img"
       />
+      {/* Accessible fallback for screen readers */}
+      <div className="sr-only">
+        <p>Root token: {data.root?.name || data.root?.mint}</p>
+        <ul>
+          {data.derivatives.slice(0, 20).map((d) => (
+            <li key={d.mint}>
+              {d.name || d.symbol || d.mint.slice(0, 8)} - similarity score{" "}
+              {(d.evidence.composite_score * 100).toFixed(0)}%
+            </li>
+          ))}
+        </ul>
+      </div>
       <div className="mt-2 flex items-center justify-center gap-4 text-xs text-[var(--muted)]">
         <span className="flex items-center gap-1">
           <span className="inline-block w-3 h-3 rounded-full bg-[#33a6ff]" /> Root

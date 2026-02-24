@@ -80,11 +80,12 @@ async def compute_image_similarity(
     if not url_a or not url_b:
         return 0.0
 
-    # Download both images concurrently
-    hash_a, hash_b = await asyncio.gather(
-        _phash_from_url(url_a, timeout),
-        _phash_from_url(url_b, timeout),
-    )
+    # Download both images concurrently via a shared client
+    async with httpx.AsyncClient(timeout=timeout) as shared_client:
+        hash_a, hash_b = await asyncio.gather(
+            _phash_from_url(url_a, timeout, client=shared_client),
+            _phash_from_url(url_b, timeout, client=shared_client),
+        )
 
     if hash_a is None or hash_b is None:
         return 0.0
@@ -95,12 +96,20 @@ async def compute_image_similarity(
     return similarity
 
 
-async def _phash_from_url(url: str, timeout: int = 10):
-    """Download an image and compute its perceptual hash."""
+async def _phash_from_url(url: str, timeout: int = 10, client: httpx.AsyncClient | None = None):
+    """Download an image and compute its perceptual hash.
+
+    If *client* is provided it will be reused (no overhead from creating
+    a fresh TCP connection per call).
+    """
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
+        if client is not None:
             resp = await client.get(url)
             resp.raise_for_status()
+        else:
+            async with httpx.AsyncClient(timeout=timeout) as _client:
+                resp = await _client.get(url)
+                resp.raise_for_status()
         img = Image.open(io.BytesIO(resp.content)).convert("RGB")
         return imagehash.phash(img)
     except Exception as exc:  # noqa: BLE001

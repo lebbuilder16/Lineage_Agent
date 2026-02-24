@@ -120,15 +120,6 @@ class SolanaRpcClient:
 
         return (deployer, created_at)
 
-    async def get_account_info(
-        self, address: str
-    ) -> Optional[dict[str, Any]]:
-        """Raw ``getAccountInfo`` call."""
-        return await self._call(
-            "getAccountInfo",
-            [address, {"encoding": "jsonParsed"}],
-        )
-
     # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------

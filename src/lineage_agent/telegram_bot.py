@@ -18,7 +18,7 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters
 
 from config import TELEGRAM_BOT_TOKEN
 from .lineage_detector import detect_lineage, search_tokens
@@ -29,6 +29,18 @@ logging.basicConfig(
     level=logging.INFO,
 )
 logger = logging.getLogger(__name__)
+
+
+# ------------------------------------------------------------------
+# Markdown escaping helper
+# ------------------------------------------------------------------
+
+_MD_V2_SPECIAL = set(r"_*[]()~`>#+-=|{}.!")
+
+
+def _esc(text: str) -> str:
+    """Escape special characters for Telegram MarkdownV2."""
+    return "".join(f"\\{c}" if c in _MD_V2_SPECIAL else c for c in text)
 
 
 # ------------------------------------------------------------------
@@ -45,8 +57,33 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "*Commands:*\n"
         "• /lineage `<mint>` – Detect the lineage of a token\n"
         "• /search `<name>` – Search tokens by name or symbol\n"
+        "• /help – Show this help message\n"
     )
     await update.message.reply_text(text, parse_mode="Markdown")
+
+
+async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Send help / usage instructions."""
+    text = (
+        "🧬 *Meme Lineage Agent – Help*\n\n"
+        "*Commands:*\n"
+        "• /lineage `<mint>` – Detect the lineage of a Solana token\n"
+        "• /search `<name>` – Search tokens by name or symbol\n"
+        "• /help – Show this message\n\n"
+        "*Examples:*\n"
+        "• `/lineage DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263`\n"
+        "• `/search bonk`\n\n"
+        "Paste a Solana mint address or type a token name to get started."
+    )
+    await update.message.reply_text(text, parse_mode="Markdown")
+
+
+async def unknown_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Respond to unrecognised messages/commands."""
+    await update.message.reply_text(
+        "❓ I don't understand that command.\n"
+        "Use /help to see available commands."
+    )
 
 
 async def lineage_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -141,8 +178,16 @@ def main() -> None:
 
     application = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
     application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("help", help_cmd))
     application.add_handler(CommandHandler("lineage", lineage_cmd))
     application.add_handler(CommandHandler("search", search_cmd))
+    # Catch-all for unknown commands / messages
+    application.add_handler(
+        MessageHandler(filters.COMMAND, unknown_cmd)
+    )
+    application.add_handler(
+        MessageHandler(filters.TEXT & ~filters.COMMAND, unknown_cmd)
+    )
 
     logger.info("Starting bot…")
     application.run_polling()
