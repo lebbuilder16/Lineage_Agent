@@ -5,7 +5,7 @@
 #   fly deploy                 (subsequent deploys)
 #   fly secrets set KEY=VALUE  (set environment variables)
 
-app = "lineage-agent-api"
+app = "lineage-agent"
 primary_region = "cdg"  # Paris – adjust to your preference
 
 [build]

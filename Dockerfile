@@ -36,6 +36,8 @@ WORKDIR /app
 COPY frontend/package.json frontend/package-lock.json* ./
 RUN npm ci
 COPY frontend/ .
+# Ensure public/ exists even if the project has no static assets yet
+RUN mkdir -p public
 RUN npm run build
 
 
@@ -44,7 +46,7 @@ FROM node:20-alpine AS frontend
 WORKDIR /app
 COPY --from=frontend-builder /app/.next/standalone ./
 COPY --from=frontend-builder /app/.next/static .next/static
-COPY --from=frontend-builder /app/public ./public 2>/dev/null || true
+COPY --from=frontend-builder /app/public ./public
 
 ENV PORT=3000
 EXPOSE 3000
