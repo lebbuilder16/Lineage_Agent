@@ -1,118 +1,169 @@
 "use client";
 
 import type { LineageResult } from "@/lib/api";
-import { useEffect, useRef, useState } from "react";
-import dynamic from "next/dynamic";
-
-// Dynamically import react-force-graph-2d with SSR disabled
-const ForceGraph2D = dynamic(() => import("react-force-graph-2d"), {
-  ssr: false,
-  loading: () => (
-    <div className="flex items-center justify-center h-[400px]">
-      <div className="h-8 w-8 rounded-full border-4 border-[var(--accent)] border-t-transparent animate-spin" />
-    </div>
-  ),
-});
+import { useEffect, useRef } from "react";
 
 interface Props {
   data: LineageResult;
 }
 
 /**
- * Interactive family tree using a force-directed graph layout.
+ * Interactive family tree rendered with HTML Canvas.
+ * Pure implementation — no external graph library required.
  */
 export function FamilyTree({ data }: Props) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [width, setWidth] = useState(700);
-  const [mounted, setMounted] = useState(false);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
-    setMounted(true);
-    if (containerRef.current) {
-      setWidth(containerRef.current.clientWidth - 32);
+    const canvas = canvasRef.current;
+    if (!canvas || !data.root) return;
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    ctx.scale(dpr, dpr);
+
+    const W = rect.width;
+    const H = rect.height;
+
+    // Clear
+    ctx.clearRect(0, 0, W, H);
+
+    const root = data.root;
+    const derivatives = data.derivatives.slice(0, 20);
+
+    // Root position (center top)
+    const rootX = W / 2;
+    const rootY = 60;
+    const rootR = 28;
+
+    // Layout derivatives in a semicircle below the root
+    const count = derivatives.length;
+    const arcRadius = Math.min(W * 0.38, 200);
+    const arcCenterY = rootY + arcRadius + 40;
+
+    const nodes: { x: number; y: number; r: number; label: string; score: number; isRoot: boolean }[] = [];
+
+    // Root node
+    nodes.push({
+      x: rootX,
+      y: rootY,
+      r: rootR,
+      label: root.name || root.symbol || root.mint.slice(0, 6),
+      score: 1,
+      isRoot: true,
+    });
+
+    // Derivative nodes arranged in arc
+    for (let i = 0; i < count; i++) {
+      const d = derivatives[i];
+      const angle = Math.PI * 0.15 + (Math.PI * 0.7 * i) / Math.max(count - 1, 1);
+      const x = rootX + arcRadius * Math.cos(angle - Math.PI / 2 + Math.PI * 0.15);
+      const y = arcCenterY + arcRadius * 0.55 * Math.sin(angle - Math.PI / 2 + Math.PI * 0.15);
+      const score = d.evidence.composite_score;
+      const r = 12 + score * 10;
+
+      nodes.push({
+        x,
+        y: Math.min(y, H - 30),
+        r,
+        label: (d.name || d.symbol || d.mint.slice(0, 6)).slice(0, 10),
+        score,
+        isRoot: false,
+      });
     }
-    const handleResize = () => {
-      if (containerRef.current) {
-        setWidth(containerRef.current.clientWidth - 32);
+
+    // Draw links (from root to each derivative)
+    for (let i = 1; i < nodes.length; i++) {
+      const n = nodes[i];
+      const alpha = 0.15 + n.score * 0.5;
+      const width = 1 + n.score * 2.5;
+
+      ctx.beginPath();
+      ctx.moveTo(rootX, rootY + rootR);
+      // Curved line
+      const cpY = (rootY + rootR + n.y - n.r) / 2;
+      ctx.quadraticCurveTo(rootX, cpY, n.x, n.y - n.r);
+      ctx.strokeStyle = `rgba(51, 166, 255, ${alpha})`;
+      ctx.lineWidth = width;
+      ctx.stroke();
+    }
+
+    // Draw nodes
+    for (const n of nodes) {
+      // Shadow
+      ctx.beginPath();
+      ctx.arc(n.x, n.y, n.r + 2, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(0, 0, 0, 0.3)";
+      ctx.fill();
+
+      // Node circle
+      ctx.beginPath();
+      ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2);
+      if (n.isRoot) {
+        const grad = ctx.createRadialGradient(n.x, n.y, 0, n.x, n.y, n.r);
+        grad.addColorStop(0, "#5bbfff");
+        grad.addColorStop(1, "#1b87f5");
+        ctx.fillStyle = grad;
+      } else {
+        const g = Math.round(n.score * 100 + 60);
+        ctx.fillStyle = `rgb(${60}, ${g}, ${Math.min(g + 40, 200)})`;
       }
-    };
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
-  }, []);
+      ctx.fill();
+
+      // Border
+      ctx.strokeStyle = n.isRoot ? "#fff" : "rgba(255,255,255,0.2)";
+      ctx.lineWidth = n.isRoot ? 2 : 1;
+      ctx.stroke();
+
+      // Crown for root
+      if (n.isRoot) {
+        ctx.font = "14px serif";
+        ctx.textAlign = "center";
+        ctx.fillText("👑", n.x, n.y - n.r - 4);
+      }
+
+      // Label
+      ctx.font = `${n.isRoot ? "bold 11px" : "10px"} Inter, sans-serif`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "top";
+      ctx.fillStyle = "#e2e8f0";
+      ctx.fillText(n.label, n.x, n.y + n.r + 4);
+
+      // Score badge for derivatives
+      if (!n.isRoot) {
+        ctx.font = "bold 9px monospace";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillStyle = "#fff";
+        ctx.fillText(`${(n.score * 100).toFixed(0)}`, n.x, n.y);
+      }
+    }
+  }, [data]);
 
   if (!data.root) return null;
 
-  const root = data.root;
-  const nodes = [
-    {
-      id: root.mint,
-      label: root.name || root.symbol || root.mint.slice(0, 8),
-      isRoot: true,
-      val: 20,
-    },
-    ...data.derivatives.map((d) => ({
-      id: d.mint,
-      label: d.name || d.symbol || d.mint.slice(0, 8),
-      isRoot: false,
-      val: 8 + (d.evidence.composite_score ?? 0) * 12,
-    })),
-  ];
-
-  const links = data.derivatives.map((d) => ({
-    source: root.mint,
-    target: d.mint,
-    value: d.evidence.composite_score,
-  }));
-
-  if (!mounted) {
-    return (
-      <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-6 animate-fade-in">
-        <h3 className="font-bold text-lg mb-4">🌳 Family Tree</h3>
-        <div className="flex items-center justify-center h-[200px]">
-          <div className="h-8 w-8 rounded-full border-4 border-[var(--accent)] border-t-transparent animate-spin" />
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div
-      ref={containerRef}
-      className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4 animate-fade-in overflow-hidden"
-    >
-      <h3 className="font-bold text-lg mb-2">🌳 Family Tree</h3>
-      <ForceGraph2D
-        graphData={{ nodes, links }}
-        width={width}
-        height={400}
-        backgroundColor="transparent"
-        nodeLabel={(n: any) => n.label}
-        nodeColor={(n: any) => (n.isRoot ? "#33a6ff" : "#475569")}
-        linkColor={() => "rgba(148,163,184,0.25)"}
-        linkWidth={(l: any) => 1 + (l.value ?? 0) * 3}
-        nodeCanvasObject={(node: any, ctx: CanvasRenderingContext2D, globalScale: number) => {
-          const r = Math.sqrt(node.val ?? 8) * 2;
-          ctx.beginPath();
-          ctx.arc(node.x, node.y, r, 0, 2 * Math.PI);
-          ctx.fillStyle = node.isRoot ? "#33a6ff" : "#475569";
-          ctx.fill();
-
-          if (globalScale > 1.2) {
-            ctx.font = `${10 / globalScale}px Inter, sans-serif`;
-            ctx.textAlign = "center";
-            ctx.textBaseline = "top";
-            ctx.fillStyle = "#e2e8f0";
-            ctx.fillText(node.label, node.x, node.y + r + 2);
-          }
-        }}
-        nodePointerAreaPaint={(node: any, colour: string, ctx: CanvasRenderingContext2D) => {
-          const r = Math.sqrt(node.val ?? 8) * 2 + 2;
-          ctx.beginPath();
-          ctx.arc(node.x, node.y, r, 0, 2 * Math.PI);
-          ctx.fillStyle = colour;
-          ctx.fill();
-        }}
+    <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4 animate-fade-in">
+      <h3 className="font-bold text-lg mb-3">🌳 Family Tree</h3>
+      <canvas
+        ref={canvasRef}
+        className="w-full"
+        style={{ height: "380px" }}
       />
+      <div className="mt-2 flex items-center justify-center gap-4 text-xs text-[var(--muted)]">
+        <span className="flex items-center gap-1">
+          <span className="inline-block w-3 h-3 rounded-full bg-[#33a6ff]" /> Root
+        </span>
+        <span className="flex items-center gap-1">
+          <span className="inline-block w-3 h-3 rounded-full bg-[#475569]" /> Derivative
+        </span>
+        <span>Line thickness = similarity score</span>
+      </div>
     </div>
   );
 }
