@@ -2,26 +2,42 @@
 
 import type { LineageResult } from "@/lib/api";
 import { useEffect, useRef, useState } from "react";
+import dynamic from "next/dynamic";
+
+// Dynamically import react-force-graph-2d with SSR disabled
+const ForceGraph2D = dynamic(() => import("react-force-graph-2d"), {
+  ssr: false,
+  loading: () => (
+    <div className="flex items-center justify-center h-[400px]">
+      <div className="h-8 w-8 rounded-full border-4 border-[var(--accent)] border-t-transparent animate-spin" />
+    </div>
+  ),
+});
 
 interface Props {
   data: LineageResult;
 }
 
 /**
- * Interactive family tree using a pure-canvas force-directed layout.
- *
- * We use `react-force-graph-2d` if available, otherwise fall back to
- * a static SVG representation.
+ * Interactive family tree using a force-directed graph layout.
  */
 export function FamilyTree({ data }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [ForceGraph, setForceGraph] = useState<any>(null);
+  const [width, setWidth] = useState(700);
+  const [mounted, setMounted] = useState(false);
 
-  // Dynamic import (react-force-graph-2d is browser-only)
   useEffect(() => {
-    import("react-force-graph-2d").then((mod) =>
-      setForceGraph(() => mod.default)
-    );
+    setMounted(true);
+    if (containerRef.current) {
+      setWidth(containerRef.current.clientWidth - 32);
+    }
+    const handleResize = () => {
+      if (containerRef.current) {
+        setWidth(containerRef.current.clientWidth - 32);
+      }
+    };
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
   }, []);
 
   if (!data.root) return null;
@@ -48,24 +64,12 @@ export function FamilyTree({ data }: Props) {
     value: d.evidence.composite_score,
   }));
 
-  if (!ForceGraph) {
-    // Fallback: static SVG
+  if (!mounted) {
     return (
       <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-6 animate-fade-in">
         <h3 className="font-bold text-lg mb-4">🌳 Family Tree</h3>
-        <div className="flex flex-wrap gap-3 items-center justify-center min-h-[200px]">
-          <div className="rounded-full bg-[var(--accent)] w-16 h-16 flex items-center justify-center text-xs text-white font-bold">
-            👑 Root
-          </div>
-          {data.derivatives.slice(0, 12).map((d) => (
-            <div
-              key={d.mint}
-              className="rounded-full bg-[var(--card-hover)] w-10 h-10 flex items-center justify-center text-[10px] text-[var(--muted)] border border-[var(--border)]"
-              title={d.name || d.mint}
-            >
-              {(d.name || d.symbol || "?").slice(0, 3)}
-            </div>
-          ))}
+        <div className="flex items-center justify-center h-[200px]">
+          <div className="h-8 w-8 rounded-full border-4 border-[var(--accent)] border-t-transparent animate-spin" />
         </div>
       </div>
     );
@@ -77,9 +81,9 @@ export function FamilyTree({ data }: Props) {
       className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4 animate-fade-in overflow-hidden"
     >
       <h3 className="font-bold text-lg mb-2">🌳 Family Tree</h3>
-      <ForceGraph
+      <ForceGraph2D
         graphData={{ nodes, links }}
-        width={containerRef.current?.clientWidth ?? 700}
+        width={width}
         height={400}
         backgroundColor="transparent"
         nodeLabel={(n: any) => n.label}

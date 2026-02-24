@@ -47,6 +47,13 @@ app.add_middleware(
 # ------------------------------------------------------------------
 
 
+@app.get("/", tags=["system"], include_in_schema=False)
+def root():
+    """Redirect to Swagger UI."""
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url="/docs")
+
+
 @app.get("/health", tags=["system"])
 def health() -> dict:
     """Simple health check."""
