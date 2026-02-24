@@ -19,6 +19,7 @@ from typing import Any, Optional
 import httpx
 
 from ._retry import async_http_get
+from ..circuit_breaker import CircuitBreaker, CircuitOpenError
 
 logger = logging.getLogger(__name__)
 
@@ -37,11 +38,16 @@ _TOKEN_LIST_TTL = 300  # 5 minutes
 class JupiterClient:
     """Async client for the Jupiter aggregator API."""
 
-    def __init__(self, timeout: int = 15) -> None:
+    def __init__(
+        self,
+        timeout: int = 15,
+        circuit_breaker: CircuitBreaker | None = None,
+    ) -> None:
         self._timeout = timeout
         self._client: httpx.AsyncClient | None = None
         self._verified_tokens: list[dict[str, Any]] = []
         self._verified_tokens_ts: float = 0.0
+        self._cb = circuit_breaker
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
@@ -56,14 +62,30 @@ class JupiterClient:
             await self._client.aclose()
 
     async def _get(self, url: str, params: dict | None = None) -> Any:
-        """GET with retry + exponential backoff (delegates to shared util)."""
+        """GET with retry + exponential backoff, guarded by circuit breaker."""
         client = await self._get_client()
+
+        async def _do() -> Any:
+            result = await async_http_get(
+                client, url, params=params,
+                max_retries=_MAX_RETRIES, backoff_base=_BACKOFF_BASE,
+                label="Jupiter",
+            )
+            if result is None:
+                raise httpx.RequestError("Jupiter: all retries exhausted")
+            return result
+
+        if self._cb is not None:
+            try:
+                return await self._cb.call(_do)
+            except CircuitOpenError:
+                logger.warning("Jupiter circuit OPEN – fast-failing %s", url)
+                return None
+            except Exception:
+                return None
         return await async_http_get(
-            client,
-            url,
-            params=params,
-            max_retries=_MAX_RETRIES,
-            backoff_base=_BACKOFF_BASE,
+            client, url, params=params,
+            max_retries=_MAX_RETRIES, backoff_base=_BACKOFF_BASE,
             label="Jupiter",
         )
 

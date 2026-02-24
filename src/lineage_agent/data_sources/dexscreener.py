@@ -15,6 +15,7 @@ from typing import Any, Optional
 import httpx
 
 from ..models import TokenMetadata, TokenSearchResult
+from ..circuit_breaker import CircuitBreaker, CircuitOpenError
 from ._retry import async_http_get
 
 logger = logging.getLogger(__name__)
@@ -27,10 +28,16 @@ _BACKOFF_BASE = 1.0  # seconds
 class DexScreenerClient:
     """Async wrapper around the DexScreener REST API."""
 
-    def __init__(self, base_url: str, timeout: int = 15) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        timeout: int = 15,
+        circuit_breaker: CircuitBreaker | None = None,
+    ) -> None:
         self._base_url = base_url.rstrip("/")
         self._timeout = timeout
         self._client: httpx.AsyncClient | None = None
+        self._cb = circuit_breaker
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
@@ -134,14 +141,30 @@ class DexScreenerClient:
     async def _get(
         self, url: str, params: dict | None = None
     ) -> Optional[dict[str, Any]]:
-        """GET with retry + exponential backoff (delegates to shared util)."""
+        """GET with retry + exponential backoff, guarded by circuit breaker."""
         client = await self._get_client()
+
+        async def _do() -> dict[str, Any]:
+            result = await async_http_get(
+                client, url, params=params,
+                max_retries=_MAX_RETRIES, backoff_base=_BACKOFF_BASE,
+                label="DexScreener",
+            )
+            if result is None:
+                raise httpx.RequestError("DexScreener: all retries exhausted")
+            return result
+
+        if self._cb is not None:
+            try:
+                return await self._cb.call(_do)
+            except CircuitOpenError:
+                logger.warning("DexScreener circuit OPEN – fast-failing %s", url)
+                return None
+            except Exception:
+                return None
         return await async_http_get(
-            client,
-            url,
-            params=params,
-            max_retries=_MAX_RETRIES,
-            backoff_base=_BACKOFF_BASE,
+            client, url, params=params,
+            max_retries=_MAX_RETRIES, backoff_base=_BACKOFF_BASE,
             label="DexScreener",
         )
 

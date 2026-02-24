@@ -24,6 +24,7 @@ import re
 import time
 from contextlib import asynccontextmanager
 
+import sentry_sdk
 from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
@@ -38,8 +39,12 @@ from config import (
     CORS_ORIGINS,
     RATE_LIMIT_LINEAGE,
     RATE_LIMIT_SEARCH,
+    SENTRY_DSN,
+    SENTRY_ENVIRONMENT,
+    SENTRY_TRACES_SAMPLE_RATE,
     SOLANA_RPC_ENDPOINT,
 )
+from .circuit_breaker import get_all_statuses as cb_statuses
 from .lineage_detector import (
     close_clients,
     detect_lineage,
@@ -52,6 +57,34 @@ from .models import BatchLineageRequest, BatchLineageResponse, LineageResult, To
 # Initialise structured logging early
 setup_logging()
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Sentry – initialise before anything else so startup errors are captured
+# ---------------------------------------------------------------------------
+if SENTRY_DSN:
+    sentry_sdk.init(
+        dsn=SENTRY_DSN,
+        environment=SENTRY_ENVIRONMENT,
+        traces_sample_rate=SENTRY_TRACES_SAMPLE_RATE,
+        send_default_pii=False,
+        # Don't capture 4xx client errors as Sentry events
+        before_send=lambda event, hint: (
+            None
+            if (hint.get("exc_info") and
+                isinstance(hint["exc_info"][1], HTTPException) and
+                (hint["exc_info"][1].status_code or 500) < 500)
+            else event
+        ),
+    )
+    logger.info("Sentry initialised (env=%s)", SENTRY_ENVIRONMENT)
+else:
+    logger.info("SENTRY_DSN not set – error tracking disabled")
+
+# ---------------------------------------------------------------------------
+# Track startup time for uptime reporting
+# ---------------------------------------------------------------------------
+_start_time = time.monotonic()
+
 
 # ---------------------------------------------------------------------------
 # Base58 validation regex (Solana addresses are 32-44 base58 chars)
@@ -145,8 +178,25 @@ async def root():
 
 @app.get("/health", tags=["system"])
 async def health() -> dict:
-    """Simple health check."""
-    return {"status": "ok"}
+    """Health check including uptime, circuit breaker states, and cache stats."""
+    from .data_sources._clients import cache
+
+    uptime_s = round(time.monotonic() - _start_time, 1)
+
+    # Cache stats (best-effort – not all backends expose stats)
+    cache_info: dict = {}
+    try:
+        size = len(cache._store) if hasattr(cache, "_store") else None
+        cache_info = {"backend": type(cache).__name__, "entries": size}
+    except Exception:
+        cache_info = {"backend": type(cache).__name__}
+
+    return {
+        "status": "ok",
+        "uptime_seconds": uptime_s,
+        "cache": cache_info,
+        "circuit_breakers": cb_statuses(),
+    }
 
 
 @app.get("/lineage", response_model=LineageResult, tags=["lineage"])

@@ -1,3 +1,6 @@
+// @ts-check
+const { withSentryConfig } = require("@sentry/nextjs");
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: "standalone",
@@ -35,4 +38,11 @@ const nextConfig = {
   },
 };
 
-module.exports = nextConfig;
+module.exports = withSentryConfig(nextConfig, {
+  // Silent by default, warn on errors
+  silent: true,
+  // Don't upload source maps unless SENTRY_AUTH_TOKEN is set
+  disableSourceMapUpload: !process.env.SENTRY_AUTH_TOKEN,
+  // Tunnel Sentry requests through /api/monitoring to avoid ad-blockers
+  tunnelRoute: "/monitoring",
+});

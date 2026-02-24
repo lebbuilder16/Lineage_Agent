@@ -15,6 +15,7 @@ from typing import Any, Optional
 import httpx
 
 from ._retry import async_http_post_json
+from ..circuit_breaker import CircuitBreaker, CircuitOpenError
 
 logger = logging.getLogger(__name__)
 
@@ -26,11 +27,17 @@ _BACKOFF_BASE = 1.5  # seconds
 class SolanaRpcClient:
     """Async Solana JSON-RPC client."""
 
-    def __init__(self, endpoint: str, timeout: int = 15) -> None:
+    def __init__(
+        self,
+        endpoint: str,
+        timeout: int = 15,
+        circuit_breaker: CircuitBreaker | None = None,
+    ) -> None:
         self._endpoint = endpoint.rstrip("/")
         self._timeout = timeout
         self._client: httpx.AsyncClient | None = None
         self._id_counter = 0
+        self._cb = circuit_breaker
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
@@ -126,7 +133,7 @@ class SolanaRpcClient:
     # ------------------------------------------------------------------
 
     async def _call(self, method: str, params: list[Any]) -> Any:
-        """JSON-RPC call with retry + exponential backoff (shared util)."""
+        """JSON-RPC call with retry + exponential backoff, guarded by circuit breaker."""
         self._id_counter += 1
         payload = {
             "jsonrpc": "2.0",
@@ -135,11 +142,27 @@ class SolanaRpcClient:
             "params": params,
         }
         client = await self._get_client()
+
+        async def _do() -> Any:
+            result = await async_http_post_json(
+                client, self._endpoint, json_payload=payload,
+                max_retries=_MAX_RETRIES, backoff_base=_BACKOFF_BASE,
+                label=f"Solana RPC ({method})",
+            )
+            if result is None:
+                raise httpx.RequestError(f"Solana RPC {method}: all retries exhausted")
+            return result
+
+        if self._cb is not None:
+            try:
+                return await self._cb.call(_do)
+            except CircuitOpenError:
+                logger.warning("Solana RPC circuit OPEN – fast-failing %s", method)
+                return None
+            except Exception:
+                return None
         return await async_http_post_json(
-            client,
-            self._endpoint,
-            json_payload=payload,
-            max_retries=_MAX_RETRIES,
-            backoff_base=_BACKOFF_BASE,
+            client, self._endpoint, json_payload=payload,
+            max_retries=_MAX_RETRIES, backoff_base=_BACKOFF_BASE,
             label=f"Solana RPC ({method})",
         )

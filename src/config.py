@@ -114,6 +114,21 @@ RATE_LIMIT_LINEAGE: str = os.getenv("RATE_LIMIT_LINEAGE", "10/minute")
 RATE_LIMIT_SEARCH: str = os.getenv("RATE_LIMIT_SEARCH", "30/minute")
 
 # ---------------------------------------------------------------------------
+# Sentry (error tracking)
+# ---------------------------------------------------------------------------
+SENTRY_DSN: str = os.getenv("SENTRY_DSN", "")
+SENTRY_ENVIRONMENT: str = os.getenv("SENTRY_ENVIRONMENT", "production")
+SENTRY_TRACES_SAMPLE_RATE: float = _parse_float(
+    "SENTRY_TRACES_SAMPLE_RATE", "0.1", low=0.0, high=1.0
+)
+
+# ---------------------------------------------------------------------------
+# Circuit breaker
+# ---------------------------------------------------------------------------
+CB_FAILURE_THRESHOLD: int = _parse_int("CB_FAILURE_THRESHOLD", "5", minimum=1)
+CB_RECOVERY_TIMEOUT: float = float(os.getenv("CB_RECOVERY_TIMEOUT", "30"))
+
+# ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
 LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO").upper()
