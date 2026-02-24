@@ -56,7 +56,7 @@ Lineage_Agent/
 │   ├── src/lib/api.ts            # API client
 │   ├── e2e/                      # Playwright end-to-end tests
 │   └── playwright.config.ts
-├── tests/                        # Python test suite (113+ tests)
+├── tests/                        # Python test suite (157+ tests)
 ├── pyproject.toml                # Build config, ruff, mypy, pytest
 ├── requirements.txt              # Python dependencies
 ├── Dockerfile                    # Multi-stage backend + frontend
@@ -131,6 +131,8 @@ docker compose up --build -d
 | --- | --- | --- |
 | `GET` | `/health` | Health check |
 | `GET` | `/lineage?mint=<MINT>` | Full lineage detection for a token |
+| `POST` | `/lineage/batch` | Batch lineage detection (up to 10 mints) |
+| `WS` | `/ws/lineage` | WebSocket progress streaming for lineage |
 | `GET` | `/search?q=<QUERY>&limit=20&offset=0` | Search tokens by name/symbol (paginated) |
 
 All endpoints return JSON. Rate limits are applied per-IP (configurable).
@@ -167,6 +169,8 @@ variables. Copy `.env.example` to `.env` and adjust as needed.
 | `WEIGHT_DEPLOYER` | float | `0.20` | Scoring weight for deployer match |
 | `WEIGHT_TEMPORAL` | float | `0.15` | Scoring weight for temporal proximity |
 | `CACHE_TTL_SECONDS` | int | `300` | Cache time-to-live in seconds |
+| `CACHE_BACKEND` | string | `memory` | Cache backend: `memory` (TTLCache) or `sqlite` (persistent) |
+| `CACHE_SQLITE_PATH` | string | `data/cache.db` | Path to SQLite cache database (when `CACHE_BACKEND=sqlite`) |
 | `MAX_DERIVATIVES` | int | `50` | Maximum derivatives to return |
 | `MAX_CONCURRENT_RPC` | int | `5` | Concurrent RPC request limit |
 | `REQUEST_TIMEOUT` | int | `15` | HTTP request timeout in seconds |
@@ -193,7 +197,7 @@ source .venv/bin/activate
 python -m pytest tests/ -v
 ```
 
-The test suite includes 113+ tests covering:
+The test suite includes 157+ tests covering:
 - API endpoints (rate limiting, validation, error handling)
 - Cache layer (TTL, SQLite persistence)
 - Data sources (DexScreener, Solana RPC)
@@ -223,7 +227,41 @@ See `.github/workflows/ci.yml` for details.
 
 ---
 
-## Changelog (v2.0.0)
+## Changelog (v3.0.0)
+
+### Security & Performance (P0)
+- Telegram bot: generic error messages hide internal details
+- Base58 mint validation in Telegram `/lineage` command
+- Jupiter price enrichment integrated into lineage detection
+- SQLiteCache backend (configurable via `CACHE_BACKEND` env var)
+
+### Reliability (P1)
+- `IMAGE_SIMILARITY_THRESHOLD` post-filter in enrichment pipeline
+- Removed dead `requests` dependency
+- Shared `httpx.AsyncClient` for image downloads
+- Per-mint RPC result caching with 24h TTL
+- Docker non-root user + enhanced `.dockerignore`
+
+### Testing & CI (P2)
+- 157+ tests (up from 113): SQLiteCache, Jupiter, logging, CLI modules
+- `--cov-fail-under=70` in CI
+- `pip-audit` security audit step
+- Playwright E2E in frontend CI job
+
+### Polish (P3)
+- Telegram bot: MarkdownV2 formatting with proper escaping
+- Removed `sys.path.insert` hacks (relying on pyproject.toml pythonpath)
+- Frontend: fixed "derivatves" → "derivatives" typo
+- Frontend: OG metadata + favicon configuration
+- Frontend: 429 rate-limit handling with Retry-After in API client
+- Docker Compose: healthcheck, `service_healthy` condition, removed deprecated `version`
+
+### New Features (P4)
+- `POST /lineage/batch` endpoint: analyse up to 10 mints concurrently
+- `WS /ws/lineage` WebSocket endpoint: real-time progress streaming
+- Dark/Light mode toggle with localStorage persistence
+
+### v2.0.0 (previous)
 
 ### Security & Stability
 - Per-IP rate limiting on all endpoints (slowapi)

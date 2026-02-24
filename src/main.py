@@ -12,11 +12,6 @@ import argparse
 import asyncio
 import json
 import logging
-import sys
-import os
-
-# Ensure ``src/`` is on the import path
-sys.path.insert(0, os.path.dirname(__file__))
 
 from lineage_agent.lineage_detector import detect_lineage
 

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "meme-lineage-agent"
-version = "2.0.0"
+version = "3.0.0"
 description = "Detect memecoin lineage on Solana – find the root token and its clones."
 readme = "README.md"
 license = {text = "MIT"}

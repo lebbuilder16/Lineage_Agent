@@ -2,7 +2,22 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Light mode (default) */
 :root {
+  --foreground: #1e293b;
+  --background: #f8fafc;
+  --card: #ffffff;
+  --card-hover: #f1f5f9;
+  --border: #e2e8f0;
+  --muted: #64748b;
+  --accent: #2563eb;
+  --success: #16a34a;
+  --warning: #d97706;
+  --danger: #dc2626;
+}
+
+/* Dark mode */
+.dark {
   --foreground: #e2e8f0;
   --background: #0f172a;
   --card: #1e293b;

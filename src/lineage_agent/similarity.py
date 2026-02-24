@@ -65,11 +65,15 @@ async def compute_image_similarity(
     url_a: str,
     url_b: str,
     timeout: int = 10,
+    client: Optional[httpx.AsyncClient] = None,
 ) -> float:
     """Perceptual-hash similarity between two images fetched by URL.
 
     Returns 1.0 when the hashes are identical and approaches 0.0 as
     difference grows.
+
+    If *client* is provided it is reused for both downloads (avoids
+    creating a fresh TCP connection per call).
     """
     if not _PIL_AVAILABLE:
         logger.warning(
@@ -80,12 +84,19 @@ async def compute_image_similarity(
     if not url_a or not url_b:
         return 0.0
 
-    # Download both images concurrently via a shared client
-    async with httpx.AsyncClient(timeout=timeout) as shared_client:
+    if client is not None:
+        # Use the caller-provided long-lived client
         hash_a, hash_b = await asyncio.gather(
-            _phash_from_url(url_a, timeout, client=shared_client),
-            _phash_from_url(url_b, timeout, client=shared_client),
+            _phash_from_url(url_a, timeout, client=client),
+            _phash_from_url(url_b, timeout, client=client),
         )
+    else:
+        # Fallback: create a short-lived client
+        async with httpx.AsyncClient(timeout=timeout) as shared_client:
+            hash_a, hash_b = await asyncio.gather(
+                _phash_from_url(url_a, timeout, client=shared_client),
+                _phash_from_url(url_b, timeout, client=shared_client),
+            )
 
     if hash_a is None or hash_b is None:
         return 0.0

@@ -3,9 +3,11 @@ REST API for the Meme Lineage Agent using FastAPI.
 
 Endpoints
 ---------
-GET /health              - Health check
-GET /lineage?mint=<MINT> - Full lineage detection for a token
-GET /search?q=<QUERY>    - Search for tokens by name / symbol
+GET  /health              - Health check
+GET  /lineage?mint=<MINT> - Full lineage detection for a token
+POST /lineage/batch       - Batch lineage detection (up to 10 mints)
+WS   /ws/lineage           - WebSocket progress streaming for lineage
+GET  /search?q=<QUERY>    - Search for tokens by name / symbol
 
 Security features:
 - Rate limiting via slowapi (per-IP)
@@ -16,17 +18,13 @@ Security features:
 
 from __future__ import annotations
 
+import asyncio
 import logging
-import os
 import re
-import sys
 import time
 from contextlib import asynccontextmanager
 
-# Ensure ``src/`` is on the path so ``config`` can be found
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -49,7 +47,7 @@ from .lineage_detector import (
     search_tokens,
 )
 from .logging_config import generate_request_id, request_id_ctx, setup_logging
-from .models import LineageResult, TokenSearchResult
+from .models import BatchLineageRequest, BatchLineageResponse, LineageResult, TokenSearchResult
 
 # Initialise structured logging early
 setup_logging()
@@ -90,7 +88,7 @@ async def lifespan(application: FastAPI):
 app = FastAPI(
     title="Meme Lineage Agent API",
     description="Detect memecoin lineage on Solana - find the root token and its clones.",
-    version="2.0.0",
+    version="3.0.0",
     lifespan=lifespan,
 )
 
@@ -103,7 +101,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
     allow_credentials=True,
-    allow_methods=["GET"],
+    allow_methods=["GET", "POST"],
     allow_headers=["Content-Type", "Accept"],
 )
 
@@ -170,6 +168,92 @@ async def get_lineage(
         raise HTTPException(
             status_code=500, detail="Internal server error"
         ) from exc
+
+
+@app.post(
+    "/lineage/batch",
+    response_model=BatchLineageResponse,
+    tags=["lineage"],
+)
+@limiter.limit(RATE_LIMIT_LINEAGE)
+async def batch_lineage(
+    request: Request,
+    body: BatchLineageRequest,
+) -> BatchLineageResponse:
+    """Analyse multiple mints concurrently (max 10, 3 at a time)."""
+    # Validate all mints
+    for mint in body.mints:
+        if not _BASE58_RE.match(mint):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid mint address: {mint}",
+            )
+
+    sem = asyncio.Semaphore(3)
+    results: dict[str, LineageResult | str] = {}
+
+    async def _analyse(mint: str) -> None:
+        async with sem:
+            try:
+                results[mint] = await detect_lineage(mint)
+            except Exception:
+                logger.exception("Batch lineage failed for %s", mint)
+                results[mint] = "Internal server error"
+
+    await asyncio.gather(*[_analyse(m) for m in body.mints])
+    return BatchLineageResponse(results=results)
+
+
+# ------------------------------------------------------------------
+# WebSocket: real-time lineage progress
+# ------------------------------------------------------------------
+
+@app.websocket("/ws/lineage")
+async def ws_lineage(websocket: WebSocket):
+    """Stream lineage analysis progress to the client.
+
+    Protocol:
+    1. Client connects and sends JSON: ``{"mint": "<address>"}``
+    2. Server sends progress events:  ``{"step": "...", "progress": 0-100}``
+    3. Server sends final result:     ``{"done": true, "result": {...}}``
+       or error:                      ``{"done": true, "error": "..."}``
+    4. Connection closes.
+    """
+    await websocket.accept()
+    try:
+        data = await websocket.receive_json()
+        mint = data.get("mint", "")
+
+        if not mint or not _BASE58_RE.match(mint):
+            await websocket.send_json({"done": True, "error": "Invalid mint address"})
+            await websocket.close()
+            return
+
+        # Send progress steps while running detect_lineage
+        await websocket.send_json({"step": "Starting analysis", "progress": 0})
+
+        async def _run_with_progress() -> LineageResult:
+            await websocket.send_json({"step": "Fetching token metadata", "progress": 20})
+            result = await detect_lineage(mint)
+            await websocket.send_json({"step": "Analysis complete", "progress": 100})
+            return result
+
+        result = await _run_with_progress()
+        await websocket.send_json({"done": True, "result": result.model_dump()})
+
+    except WebSocketDisconnect:
+        logger.info("WebSocket client disconnected during lineage analysis")
+    except Exception:
+        logger.exception("WebSocket lineage error")
+        try:
+            await websocket.send_json({"done": True, "error": "Internal server error"})
+        except Exception:
+            pass
+    finally:
+        try:
+            await websocket.close()
+        except Exception:
+            pass
 
 
 @app.get(

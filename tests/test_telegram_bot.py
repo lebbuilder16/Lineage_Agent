@@ -15,6 +15,10 @@ from lineage_agent.models import (
 )
 from lineage_agent.telegram_bot import lineage_cmd, search_cmd, start
 
+# Valid base58 mint for tests (44 chars, no 0/O/I/l)
+_VALID_MINT = "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263"
+_VALID_MINT2 = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+
 
 def _make_update(text: str = "", args: list[str] | None = None):
     """Create a minimal mock Update + Context."""
@@ -61,15 +65,24 @@ class TestLineageCmd:
         assert "Usage" in text
 
     @pytest.mark.asyncio
+    async def test_invalid_mint(self):
+        """Non-base58 addresses should be rejected immediately."""
+        update, context = _make_update(args=["0OIlBadMint"])
+        await lineage_cmd(update, context)
+        update.message.reply_text.assert_called_once()
+        text = update.message.reply_text.call_args[0][0]
+        assert "Invalid" in text
+
+    @pytest.mark.asyncio
     async def test_success(self):
         fake_result = LineageResult(
-            mint="TestMint123456789012345678901234567890abc",
+            mint=_VALID_MINT,
             query_token=TokenMetadata(
-                mint="TestMint123456789012345678901234567890abc",
+                mint=_VALID_MINT,
                 name="TestToken",
             ),
             root=TokenMetadata(
-                mint="TestMint123456789012345678901234567890abc",
+                mint=_VALID_MINT,
                 name="TestToken",
                 symbol="TT",
             ),
@@ -85,9 +98,7 @@ class TestLineageCmd:
             family_size=2,
         )
 
-        update, context = _make_update(
-            args=["TestMint123456789012345678901234567890abc"]
-        )
+        update, context = _make_update(args=[_VALID_MINT])
 
         with patch(
             "lineage_agent.telegram_bot.detect_lineage",
@@ -106,7 +117,8 @@ class TestLineageCmd:
 
     @pytest.mark.asyncio
     async def test_error(self):
-        update, context = _make_update(args=["BadMint"])
+        """Internal errors should return a generic message, not the traceback."""
+        update, context = _make_update(args=[_VALID_MINT])
 
         with patch(
             "lineage_agent.telegram_bot.detect_lineage",
@@ -115,20 +127,22 @@ class TestLineageCmd:
         ):
             await lineage_cmd(update, context)
 
+        # "Analyzing…" + error message
         assert update.message.reply_text.call_count == 2
         error_text = update.message.reply_text.call_args_list[1][0][0]
-        assert "Error" in error_text
+        assert "Something went wrong" in error_text
+        assert "RPC timeout" not in error_text
 
     @pytest.mark.asyncio
     async def test_no_derivatives(self):
         fake_result = LineageResult(
-            mint="SoleMint",
-            root=TokenMetadata(mint="SoleMint", name="Alone"),
+            mint=_VALID_MINT,
+            root=TokenMetadata(mint=_VALID_MINT, name="Alone"),
             confidence=1.0,
             derivatives=[],
             family_size=1,
         )
-        update, context = _make_update(args=["SoleMint"])
+        update, context = _make_update(args=[_VALID_MINT])
 
         with patch(
             "lineage_agent.telegram_bot.detect_lineage",
@@ -151,13 +165,13 @@ class TestLineageCmd:
             for i in range(8)
         ]
         fake_result = LineageResult(
-            mint="RootMint",
-            root=TokenMetadata(mint="RootMint", name="Root"),
+            mint=_VALID_MINT,
+            root=TokenMetadata(mint=_VALID_MINT, name="Root"),
             confidence=0.8,
             derivatives=derivs,
             family_size=9,
         )
-        update, context = _make_update(args=["RootMint"])
+        update, context = _make_update(args=[_VALID_MINT])
 
         with patch(
             "lineage_agent.telegram_bot.detect_lineage",
@@ -228,6 +242,7 @@ class TestSearchCmd:
 
     @pytest.mark.asyncio
     async def test_error(self):
+        """Internal errors should return a generic message."""
         update, context = _make_update(args=["crash"])
 
         with patch(
@@ -238,7 +253,8 @@ class TestSearchCmd:
             await search_cmd(update, context)
 
         text = update.message.reply_text.call_args[0][0]
-        assert "Error" in text
+        assert "Something went wrong" in text
+        assert "API down" not in text
 
     @pytest.mark.asyncio
     async def test_multi_word_query(self):

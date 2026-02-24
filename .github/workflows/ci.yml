@@ -33,11 +33,16 @@ jobs:
 
       - name: Type-check with mypy
         run: |
-          pip install mypy types-requests
+          pip install mypy
           mypy src/ --ignore-missing-imports --no-strict-optional
 
+      - name: Audit dependencies for vulnerabilities
+        run: |
+          pip install pip-audit
+          pip-audit -r requirements.txt || true
+
       - name: Run tests with coverage
-        run: pytest --cov=lineage_agent --cov-report=term-missing --cov-report=xml
+        run: pytest --cov=lineage_agent --cov-report=term-missing --cov-report=xml --cov-fail-under=70
 
       - name: Upload coverage artifact
         if: matrix.python-version == '3.12'
@@ -72,6 +77,14 @@ jobs:
 
       - name: Build
         run: npm run build
+        env:
+          NEXT_PUBLIC_API_URL: http://localhost:8000
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Run Playwright E2E tests
+        run: npx playwright test --reporter=list
         env:
           NEXT_PUBLIC_API_URL: http://localhost:8000
 

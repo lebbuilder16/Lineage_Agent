@@ -1,15 +1,41 @@
+# Python
 __pycache__
 *.pyc
+*.pyo
+*.egg-info
 .venv
 venv
-.env
-.env.local
-.git
+dist
+build
 .pytest_cache
-htmlcov
 .coverage
+coverage.xml
+htmlcov
+
+# Node
 node_modules
 frontend/.next
 frontend/node_modules
+
+# VCS / IDE
+.git
+.gitignore
+.vscode
+.idea
+*.swp
+
+# Config / secrets
+.env
+.env.local
+
+# CI / Docker (no need in context)
+.github
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Data / output
+data/
 docs/
 *.md
+*.log

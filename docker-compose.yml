@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   backend:
     build:
@@ -14,6 +12,12 @@ services:
       - API_HOST=0.0.0.0
       - API_PORT=8000
       - CORS_ORIGINS=http://localhost:3000,http://frontend:3000
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     restart: unless-stopped
 
   frontend:
@@ -27,5 +31,5 @@ services:
       - NEXT_PUBLIC_API_URL=http://localhost:8000
     depends_on:
       backend:
-        condition: service_started
+        condition: service_healthy
     restart: unless-stopped

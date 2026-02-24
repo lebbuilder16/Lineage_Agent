@@ -102,3 +102,23 @@ class TokenSearchResult(BaseModel):
     market_cap_usd: Optional[float] = None
     liquidity_usd: Optional[float] = None
     dex_url: str = ""
+
+
+# ---------------------------------------------------------------------------
+# Batch request / response (for POST /lineage/batch)
+# ---------------------------------------------------------------------------
+class BatchLineageRequest(BaseModel):
+    """Request body for the batch lineage endpoint."""
+
+    mints: list[str] = Field(
+        ..., min_length=1, max_length=10, description="1-10 Solana mint addresses"
+    )
+
+
+class BatchLineageResponse(BaseModel):
+    """Response for a batch lineage request."""
+
+    results: dict[str, LineageResult | str] = Field(
+        ...,
+        description="Mapping mint → LineageResult on success or error string on failure",
+    )

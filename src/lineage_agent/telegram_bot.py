@@ -11,17 +11,16 @@ Commands
 from __future__ import annotations
 
 import logging
-import sys
-import os
-
-# Ensure ``src/`` is on the path so ``config`` can be found
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+import re
 
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters
 
 from config import TELEGRAM_BOT_TOKEN
 from .lineage_detector import detect_lineage, search_tokens
+
+# Base58 validation regex (same as in api.py)
+_BASE58_RE = re.compile(r"^[1-9A-HJ-NP-Za-km-z]{32,44}$")
 
 # Configure logging
 logging.basicConfig(
@@ -53,66 +52,79 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     text = (
         "🧬 *Meme Lineage Agent*\n\n"
         "I help you identify the *root token* and its clones "
-        "in the Solana memecoin ecosystem.\n\n"
+        "in the Solana memecoin ecosystem\\.\n\n"
         "*Commands:*\n"
-        "• /lineage `<mint>` – Detect the lineage of a token\n"
-        "• /search `<name>` – Search tokens by name or symbol\n"
-        "• /help – Show this help message\n"
+        "• /lineage `<mint>` \\– Detect the lineage of a token\n"
+        "• /search `<name>` \\– Search tokens by name or symbol\n"
+        "• /help \\– Show this help message\n"
     )
-    await update.message.reply_text(text, parse_mode="Markdown")
+    await update.message.reply_text(text, parse_mode="MarkdownV2")
 
 
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Send help / usage instructions."""
     text = (
-        "🧬 *Meme Lineage Agent – Help*\n\n"
+        "🧬 *Meme Lineage Agent \\– Help*\n\n"
         "*Commands:*\n"
-        "• /lineage `<mint>` – Detect the lineage of a Solana token\n"
-        "• /search `<name>` – Search tokens by name or symbol\n"
-        "• /help – Show this message\n\n"
+        "• /lineage `<mint>` \\– Detect the lineage of a Solana token\n"
+        "• /search `<name>` \\– Search tokens by name or symbol\n"
+        "• /help \\– Show this message\n\n"
         "*Examples:*\n"
         "• `/lineage DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263`\n"
         "• `/search bonk`\n\n"
-        "Paste a Solana mint address or type a token name to get started."
+        "Paste a Solana mint address or type a token name to get started\\."
     )
-    await update.message.reply_text(text, parse_mode="Markdown")
+    await update.message.reply_text(text, parse_mode="MarkdownV2")
 
 
 async def unknown_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Respond to unrecognised messages/commands."""
     await update.message.reply_text(
-        "❓ I don't understand that command.\n"
-        "Use /help to see available commands."
+        "❓ I don't understand that command\\.\n"
+        "Use /help to see available commands\\.",
+        parse_mode="MarkdownV2",
     )
 
 
 async def lineage_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle the /lineage command."""
     if not context.args:
-        await update.message.reply_text("Usage: /lineage <mint-address>")
+        await update.message.reply_text("Usage: /lineage <mint\\-address>", parse_mode="MarkdownV2")
         return
 
     mint = context.args[0]
+
+    if not _BASE58_RE.match(mint):
+        await update.message.reply_text(
+            "❌ Invalid Solana mint address\\. Expected 32\\-44 base58 characters\\.",
+            parse_mode="MarkdownV2",
+        )
+        return
+
     logger.info("Received lineage request for %s", mint)
-    await update.message.reply_text("🔍 Analyzing lineage… please wait.")
+    await update.message.reply_text("🔍 Analyzing lineage… please wait\\.", parse_mode="MarkdownV2")
 
     try:
         result = await detect_lineage(mint)
-    except Exception as exc:
-        logger.exception("Lineage detection error")
-        await update.message.reply_text(f"❌ Error: {exc}")
+    except Exception:
+        logger.exception("Lineage detection error for %s", mint)
+        await update.message.reply_text(
+            "❌ Something went wrong while analyzing this token\\. Please try again later\\.",
+            parse_mode="MarkdownV2",
+        )
         return
 
     root = result.root
-    root_name = root.name if root else "Unknown"
+    root_name = _esc(root.name) if root and root.name else "Unknown"
     root_mint = root.mint if root else mint
 
     # Build a rich lineage card
+    conf_pct = f"{result.confidence:.0%}"
     lines = [
         f"🧬 *Lineage Card*\n",
         f"📌 *Queried mint:* `{mint}`",
-        f"👑 *Root:* {root_name} (`{root_mint[:8]}…`)",
-        f"🎯 *Confidence:* {result.confidence:.0%}",
+        f"👑 *Root:* {root_name} \\(`{root_mint[:8]}…`\\)",
+        f"🎯 *Confidence:* {_esc(conf_pct)}",
         f"👨‍👧‍👦 *Family size:* {result.family_size}",
     ]
 
@@ -121,22 +133,23 @@ async def lineage_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         for i, d in enumerate(result.derivatives[:5], 1):
             score = d.evidence.composite_score
             liq = f"${d.liquidity_usd:,.0f}" if d.liquidity_usd else "n/a"
+            dname = _esc(d.name or d.symbol or d.mint[:8])
             lines.append(
-                f"  {i}. {d.name or d.symbol or d.mint[:8]} "
-                f"– score {score:.2f}, liq {liq}"
+                f"  {i}\\. {dname} "
+                f"\\– score {_esc(f'{score:.2f}')}, liq {_esc(liq)}"
             )
         if len(result.derivatives) > 5:
             lines.append(f"  _…and {len(result.derivatives) - 5} more_")
     else:
-        lines.append("\n✅ No derivatives/clones found.")
+        lines.append("\n✅ No derivatives/clones found\\.")
 
-    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+    await update.message.reply_text("\n".join(lines), parse_mode="MarkdownV2")
 
 
 async def search_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle the /search command."""
     if not context.args:
-        await update.message.reply_text("Usage: /search <token-name>")
+        await update.message.reply_text("Usage: /search <token\\-name>", parse_mode="MarkdownV2")
         return
 
     query = " ".join(context.args)
@@ -144,24 +157,30 @@ async def search_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
     try:
         results = await search_tokens(query)
-    except Exception as exc:
-        logger.exception("Search error")
-        await update.message.reply_text(f"❌ Error: {exc}")
+    except Exception:
+        logger.exception("Search error for '%s'", query)
+        await update.message.reply_text(
+            "❌ Something went wrong while searching\\. Please try again later\\.",
+            parse_mode="MarkdownV2",
+        )
         return
 
     if not results:
-        await update.message.reply_text(f"No tokens found for *{query}*.", parse_mode="Markdown")
+        await update.message.reply_text(
+            f"No tokens found for *{_esc(query)}*\\.",
+            parse_mode="MarkdownV2",
+        )
         return
 
-    lines = [f"🔎 *Search results for '{query}':*\n"]
+    lines = [f"🔎 *Search results for '{_esc(query)}':*\n"]
     for i, t in enumerate(results[:10], 1):
         mcap = f"${t.market_cap_usd:,.0f}" if t.market_cap_usd else "n/a"
         lines.append(
-            f"{i}. *{t.name}* ({t.symbol}) – mcap {mcap}\n"
+            f"{i}\\. *{_esc(t.name)}* \\({_esc(t.symbol)}\\) \\– mcap {_esc(mcap)}\n"
             f"   `{t.mint}`"
         )
 
-    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+    await update.message.reply_text("\n".join(lines), parse_mode="MarkdownV2")
 
 
 # ------------------------------------------------------------------

@@ -82,40 +82,58 @@ export class ApiError extends Error {
 
 /* ---------- Fetch helpers ------------------------------------------- */
 
+const MAX_RETRIES = 2;
+
 async function fetchJSON<T>(
   path: string,
   timeoutMs: number = DEFAULT_TIMEOUT_MS,
 ): Promise<T> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let lastError: unknown;
 
-  try {
-    const res = await fetch(`${API_BASE}${path}`, {
-      signal: controller.signal,
-    });
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
 
-    if (!res.ok) {
-      let detail = `HTTP ${res.status}`;
-      try {
-        const body = await res.json();
-        if (body?.detail) detail = body.detail;
-      } catch {
-        // fallback to status text
-        detail = res.statusText || detail;
+    try {
+      const res = await fetch(`${API_BASE}${path}`, {
+        signal: controller.signal,
+      });
+
+      // --- 429 rate-limited: honour Retry-After header then retry ----------
+      if (res.status === 429 && attempt < MAX_RETRIES) {
+        const retryAfter = res.headers.get("Retry-After");
+        const waitMs = retryAfter ? Math.min(Number(retryAfter) * 1000, 30_000) : 2_000;
+        await new Promise((r) => setTimeout(r, waitMs));
+        continue;
       }
-      throw new ApiError(res.status, detail);
-    }
 
-    return await res.json();
-  } catch (err) {
-    if (err instanceof ApiError) throw err;
-    if (err instanceof DOMException && err.name === "AbortError") {
-      throw new ApiError(0, "Request timed out – the backend may be processing a large analysis. Try again.");
+      if (!res.ok) {
+        let detail = `HTTP ${res.status}`;
+        try {
+          const body = await res.json();
+          if (body?.detail) detail = body.detail;
+        } catch {
+          // fallback to status text
+          detail = res.statusText || detail;
+        }
+        throw new ApiError(res.status, detail);
+      }
+
+      return await res.json();
+    } catch (err) {
+      lastError = err;
+      if (err instanceof ApiError) throw err;
+      if (err instanceof DOMException && err.name === "AbortError") {
+        throw new ApiError(0, "Request timed out – the backend may be processing a large analysis. Try again.");
+      }
+      throw err;
+    } finally {
+      clearTimeout(timer);
     }
-    throw err;
-  } finally {
-    clearTimeout(timer);
   }
+
+  // All retries exhausted (only reachable for 429s)
+  throw new ApiError(429, "Rate limited – please wait a moment and try again.");
 }
 
 /* ---------- Endpoints ----------------------------------------------- */

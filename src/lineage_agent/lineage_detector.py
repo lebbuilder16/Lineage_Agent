@@ -11,9 +11,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Optional
+from typing import Any, Optional
+
+import httpx
 
 from config import (
+    CACHE_BACKEND,
+    CACHE_SQLITE_PATH,
     CACHE_TTL_SECONDS,
     DEXSCREENER_BASE_URL,
     IMAGE_SIMILARITY_THRESHOLD,
@@ -29,8 +33,9 @@ from config import (
     WEIGHT_SYMBOL,
     WEIGHT_TEMPORAL,
 )
-from .cache import TTLCache
+from .cache import SQLiteCache, TTLCache
 from .data_sources.dexscreener import DexScreenerClient
+from .data_sources.jupiter import JupiterClient
 from .data_sources.solana_rpc import SolanaRpcClient
 from .models import (
     DerivativeInfo,
@@ -55,7 +60,15 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 _dex_client: Optional[DexScreenerClient] = None
 _rpc_client: Optional[SolanaRpcClient] = None
-_cache = TTLCache(default_ttl=CACHE_TTL_SECONDS)
+_jup_client: Optional[JupiterClient] = None
+_img_client: Optional[httpx.AsyncClient] = None
+
+# Cache: choose backend based on config
+_cache: TTLCache | SQLiteCache
+if CACHE_BACKEND == "sqlite":
+    _cache = SQLiteCache(db_path=CACHE_SQLITE_PATH, default_ttl=CACHE_TTL_SECONDS)
+else:
+    _cache = TTLCache(default_ttl=CACHE_TTL_SECONDS)
 
 _WEIGHTS = {
     "name": WEIGHT_NAME,
@@ -84,21 +97,61 @@ def _get_rpc_client() -> SolanaRpcClient:
     return _rpc_client
 
 
+def _get_jup_client() -> JupiterClient:
+    global _jup_client
+    if _jup_client is None:
+        _jup_client = JupiterClient(timeout=REQUEST_TIMEOUT)
+    return _jup_client
+
+
+def _get_img_client() -> httpx.AsyncClient:
+    """Return a long-lived httpx client for image downloads."""
+    global _img_client
+    if _img_client is None or _img_client.is_closed:
+        _img_client = httpx.AsyncClient(timeout=REQUEST_TIMEOUT)
+    return _img_client
+
+
 async def init_clients() -> None:
     """Eagerly create the singleton HTTP clients (called at startup)."""
     _get_dex_client()
     _get_rpc_client()
+    _get_jup_client()
+    _get_img_client()
 
 
 async def close_clients() -> None:
     """Close singleton HTTP clients gracefully (called at shutdown)."""
-    global _dex_client, _rpc_client
+    global _dex_client, _rpc_client, _jup_client, _img_client
     if _dex_client is not None:
         await _dex_client.close()
         _dex_client = None
     if _rpc_client is not None:
         await _rpc_client.close()
         _rpc_client = None
+    if _jup_client is not None:
+        await _jup_client.close()
+        _jup_client = None
+    if _img_client is not None:
+        await _img_client.aclose()
+        _img_client = None
+
+
+# ---------------------------------------------------------------------------
+# Async-safe cache helpers (TTLCache is sync, SQLiteCache is async)
+# ---------------------------------------------------------------------------
+
+async def _cache_get(key: str) -> Any:
+    result = _cache.get(key)
+    if asyncio.iscoroutine(result):
+        return await result
+    return result
+
+
+async def _cache_set(key: str, value: Any) -> None:
+    result = _cache.set(key, value)
+    if asyncio.iscoroutine(result):
+        await result
 
 
 # ---------------------------------------------------------------------------
@@ -112,30 +165,41 @@ async def detect_lineage(mint_address: str) -> LineageResult:
     Steps
     -----
     1. Fetch metadata for the query token via DexScreener.
-    2. Search DexScreener for tokens with similar name / symbol.
-    3. For each candidate, enrich with on-chain data (deployer, timestamp).
-    4. Compute pairwise similarity scores.
-    5. Select the root (oldest, highest liquidity, original deployer).
-    6. Return a ``LineageResult`` with evidence.
+    2. Enrich with Jupiter price data.
+    3. Search DexScreener for tokens with similar name / symbol.
+    4. For each candidate, enrich with on-chain data (deployer, timestamp).
+    5. Compute pairwise similarity scores (name, symbol, image, deployer, temporal).
+    6. Select the root (oldest, highest liquidity, original deployer).
+    7. Return a ``LineageResult`` with evidence.
     """
 
     # Check cache first
-    cached = _cache.get(f"lineage:{mint_address}")
+    cached = await _cache_get(f"lineage:{mint_address}")
     if cached is not None:
         return cached
 
     dex = _get_dex_client()
     rpc = _get_rpc_client()
+    jup = _get_jup_client()
+    img_client = _get_img_client()
 
     # --- Step 1: Fetch metadata for the query token ---
     logger.info("Fetching metadata for %s ...", mint_address)
     pairs = await dex.get_token_pairs(mint_address)
     query_meta = dex.pairs_to_metadata(mint_address, pairs)
 
-    # Enrich with on-chain deployer + creation time
-    deployer, created_at = await rpc.get_deployer_and_timestamp(mint_address)
+    # Enrich with on-chain deployer + creation time (cached per mint)
+    deployer, created_at = await _get_deployer_cached(rpc, mint_address)
     query_meta.deployer = deployer
     query_meta.created_at = created_at
+
+    # Enrich with Jupiter price (cross-validate DexScreener price)
+    try:
+        jup_price = await jup.get_price(mint_address)
+        if jup_price is not None and query_meta.price_usd is None:
+            query_meta.price_usd = jup_price
+    except Exception:
+        logger.debug("Jupiter price enrichment failed for %s", mint_address)
 
     if not query_meta.name and not query_meta.symbol:
         result = LineageResult(
@@ -146,7 +210,7 @@ async def detect_lineage(mint_address: str) -> LineageResult:
             derivatives=[],
             family_size=1,
         )
-        _cache.set(f"lineage:{mint_address}", result)
+        await _cache_set(f"lineage:{mint_address}", result)
         return result
 
     # --- Step 2: Search for similar tokens ---
@@ -167,7 +231,7 @@ async def detect_lineage(mint_address: str) -> LineageResult:
             derivatives=[],
             family_size=1,
         )
-        _cache.set(f"lineage:{mint_address}", result)
+        await _cache_set(f"lineage:{mint_address}", result)
         return result
 
     # --- Step 3 & 4: Enrich candidates and score them ---
@@ -194,14 +258,25 @@ async def detect_lineage(mint_address: str) -> LineageResult:
         candidate: TokenSearchResult, name_sim: float, sym_sim: float
     ) -> Optional[_ScoredCandidate]:
         async with sem:
-            c_deployer, c_created = await rpc.get_deployer_and_timestamp(
-                candidate.mint
+            c_deployer, c_created = await _get_deployer_cached(
+                rpc, candidate.mint
             )
 
-        # Image similarity (concurrent download already inside)
+        # Image similarity — use the shared long-lived httpx client
         img_sim = await compute_image_similarity(
-            query_meta.image_uri, candidate.image_uri
+            query_meta.image_uri, candidate.image_uri,
+            client=img_client,
         )
+
+        # Post-filter: skip candidates with very low image similarity
+        # when both images were available
+        if (
+            query_meta.image_uri
+            and candidate.image_uri
+            and img_sim < IMAGE_SIMILARITY_THRESHOLD
+            and name_sim < NAME_SIMILARITY_THRESHOLD
+        ):
+            return None
 
         dep_score = compute_deployer_score(query_meta.deployer, c_deployer)
         temp_score = compute_temporal_score(created_at, c_created)
@@ -308,21 +383,39 @@ async def detect_lineage(mint_address: str) -> LineageResult:
         family_size=1 + len(derivatives),
     )
 
-    _cache.set(f"lineage:{mint_address}", result)
+    await _cache_set(f"lineage:{mint_address}", result)
     return result
 
 
 async def search_tokens(query: str) -> list[TokenSearchResult]:
     """Search for Solana tokens by name / symbol via DexScreener."""
-    cached = _cache.get(f"search:{query}")
+    cached = await _cache_get(f"search:{query}")
     if cached is not None:
         return cached
 
     dex = _get_dex_client()
     pairs = await dex.search_tokens(query)
     results = dex.pairs_to_search_results(pairs)
-    _cache.set(f"search:{query}", results)
+    await _cache_set(f"search:{query}", results)
     return results
+
+
+async def _get_deployer_cached(
+    rpc: SolanaRpcClient, mint: str
+) -> tuple[str, Any]:
+    """Fetch deployer + timestamp with per-mint caching (never changes)."""
+    cache_key = f"rpc:deployer:{mint}"
+    cached = await _cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    deployer, created_at = await rpc.get_deployer_and_timestamp(mint)
+    result = (deployer, created_at)
+    # Long TTL: deployer/timestamp are immutable on-chain
+    r = _cache.set(cache_key, result, ttl=86400)
+    if asyncio.iscoroutine(r):
+        await r
+    return result
 
 
 # ---------------------------------------------------------------------------

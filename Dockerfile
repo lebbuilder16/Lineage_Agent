@@ -14,6 +14,12 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY src/ ./src/
 
 ENV PYTHONUNBUFFERED=1
+ENV PYTHONPATH=/app/src
+
+# Run as non-root user for security
+RUN useradd --create-home --shell /bin/bash appuser && \
+    mkdir -p /app/data && chown -R appuser:appuser /app
+USER appuser
 
 EXPOSE 8000
 
