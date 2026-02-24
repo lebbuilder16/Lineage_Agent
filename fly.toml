@@ -20,7 +20,7 @@ primary_region = 'ams'
 
 [processes]
   app = "python -m uvicorn lineage_agent.api:app --host 0.0.0.0 --port 8080 --app-dir src"
-  bot = "python src/lineage_agent/telegram_bot.py"
+  bot = "python -m lineage_agent.telegram_bot"
 
 [http_service]
   internal_port = 8080
