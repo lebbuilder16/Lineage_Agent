@@ -1,0 +1,30 @@
+# Dockerfile.fly – Fly.io backend-only image
+#
+# This is a single-stage build for the FastAPI backend,
+# designed specifically for Fly.io deployment.
+
+FROM python:3.12-slim
+
+WORKDIR /app
+
+# Install system deps for Pillow / imagehash
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends gcc libjpeg62-turbo-dev zlib1g-dev && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY src/ ./src/
+
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONPATH=/app/src
+
+# Run as non-root user for security
+RUN useradd --create-home --shell /bin/bash appuser && \
+    mkdir -p /data && chown -R appuser:appuser /app /data
+USER appuser
+
+EXPOSE 8080
+
+CMD ["python", "-m", "uvicorn", "lineage_agent.api:app", "--host", "0.0.0.0", "--port", "8080", "--app-dir", "src"]

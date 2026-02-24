@@ -3,7 +3,6 @@
 import { useParams } from "next/navigation";
 import { useEffect } from "react";
 import Link from "next/link";
-import { ApiError } from "@/lib/api";
 import { useLineageWS } from "@/lib/useLineageWS";
 import { LineageCard } from "@/components/LineageCard";
 import { TokenInfo } from "@/components/TokenInfo";
@@ -56,7 +55,7 @@ export default function LineagePage() {
         <div className="rounded-xl border border-[var(--danger)] bg-[var(--danger)]/10 p-5 text-center">
           <p className="text-[var(--danger)] font-semibold">Analysis failed</p>
           <p className="text-sm text-[var(--muted)] mt-1">
-            {error instanceof ApiError ? error.detail : (error as Error).message}
+            {error}
           </p>
           <button
             onClick={() => mint && analyze(mint)}

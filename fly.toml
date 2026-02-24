@@ -1,0 +1,49 @@
+# fly.toml – Fly.io configuration for the FastAPI backend
+#
+# Deploy:
+#   fly launch                 (first time – creates app)
+#   fly deploy                 (subsequent deploys)
+#   fly secrets set KEY=VALUE  (set environment variables)
+
+app = "lineage-agent-api"
+primary_region = "cdg"  # Paris – adjust to your preference
+
+[build]
+  dockerfile = "Dockerfile.fly"
+
+[env]
+  API_HOST = "0.0.0.0"
+  API_PORT = "8080"
+  LOG_LEVEL = "INFO"
+  LOG_FORMAT = "json"
+  CACHE_BACKEND = "sqlite"
+  CACHE_SQLITE_PATH = "/data/cache.db"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "suspend"
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ["app"]
+
+  [http_service.concurrency]
+    type = "connections"
+    hard_limit = 100
+    soft_limit = 80
+
+  [http_service.checks]
+    [http_service.checks.health]
+      grace_period = "10s"
+      interval = "30s"
+      method = "GET"
+      path = "/health"
+      timeout = "5s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
+
+[mounts]
+  source = "lineage_cache"
+  destination = "/data"
