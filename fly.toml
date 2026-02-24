@@ -31,13 +31,12 @@ primary_region = 'ams'
     hard_limit = 100
     soft_limit = 80
 
-  [http_service.checks]
-    [http_service.checks.health]
-      grace_period = "10s"
-      interval = "30s"
-      method = "GET"
-      path = "/health"
-      timeout = "5s"
+[[http_service.checks]]
+  grace_period = "10s"
+  interval = "30s"
+  method = "GET"
+  path = "/health"
+  timeout = "5s"
 
 [[vm]]
   memory = '1gb'
