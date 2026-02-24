@@ -108,7 +108,13 @@ async def detect_lineage(
     # Check cache first
     cached = await _cache_get(f"lineage:{mint_address}")
     if cached is not None:
-        return cached
+        # SQLite cache returns dicts (JSON-deserialized); convert back to model
+        if isinstance(cached, dict):
+            return LineageResult(**cached)
+        if isinstance(cached, LineageResult):
+            return cached
+        # Stale string cache entry — ignore and re-compute
+        logger.warning("Dropping invalid cached lineage for %s", mint_address)
 
     dex = _get_dex_client()
     rpc = _get_rpc_client()
@@ -332,6 +338,11 @@ async def search_tokens(query: str) -> list[TokenSearchResult]:
     """Search for Solana tokens by name / symbol via DexScreener."""
     cached = await _cache_get(f"search:{query}")
     if cached is not None:
+        if isinstance(cached, list):
+            return [
+                TokenSearchResult(**item) if isinstance(item, dict) else item
+                for item in cached
+            ]
         return cached
 
     dex = _get_dex_client()

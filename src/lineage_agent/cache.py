@@ -167,7 +167,14 @@ class SQLiteCache:
             db = await self._get_conn()
             actual_ttl = ttl if ttl is not None else self._default_ttl
             expires_at = time.time() + actual_ttl
-            value_json = json.dumps(value, default=str)
+            # Serialize Pydantic models properly via model_dump()
+            if hasattr(value, "model_dump"):
+                serializable = value.model_dump(mode="json")
+            elif isinstance(value, list) and value and hasattr(value[0], "model_dump"):
+                serializable = [v.model_dump(mode="json") for v in value]
+            else:
+                serializable = value
+            value_json = json.dumps(serializable, default=str)
             await db.execute(
                 "INSERT OR REPLACE INTO cache (key, value, expires_at) VALUES (?, ?, ?)",
                 (key, value_json, expires_at),
