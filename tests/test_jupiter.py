@@ -5,7 +5,6 @@ from __future__ import annotations
 import time
 from unittest.mock import AsyncMock, patch, MagicMock
 
-import httpx
 import pytest
 
 from lineage_agent.data_sources.jupiter import JupiterClient

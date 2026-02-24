@@ -27,15 +27,12 @@ from config import (
     WEIGHT_TEMPORAL,
 )
 from .data_sources._clients import (
-    cache as _cache,
     cache_get as _cache_get,
     cache_set as _cache_set,
-    close_clients,
     get_dex_client as _get_dex_client,
     get_img_client as _get_img_client,
     get_jup_client as _get_jup_client,
     get_rpc_client as _get_rpc_client,
-    init_clients,
 )
 from .data_sources.solana_rpc import SolanaRpcClient
 from .models import (

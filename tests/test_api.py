@@ -6,11 +6,11 @@ These tests use FastAPI's TestClient with mocked external services
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from httpx import AsyncClient, ASGITransport
+from starlette.testclient import TestClient
 
 from lineage_agent.api import app
 from lineage_agent.models import LineageResult, TokenMetadata, TokenSearchResult
@@ -230,13 +230,6 @@ _MINT_B = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
 @pytest.mark.anyio
 async def test_batch_lineage_success(client):
     """Batch endpoint returns results for each mint."""
-    fake = LineageResult(
-        mint=_MINT_A,
-        root=TokenMetadata(mint=_MINT_A, name="A"),
-        confidence=0.9,
-        derivatives=[],
-        family_size=1,
-    )
 
     async def _mock_detect(mint):
         return LineageResult(
@@ -314,8 +307,6 @@ async def test_batch_lineage_partial_failure(client):
 # ------------------------------------------------------------------
 # WebSocket /ws/lineage
 # ------------------------------------------------------------------
-
-from starlette.testclient import TestClient
 
 
 def test_ws_lineage_success():

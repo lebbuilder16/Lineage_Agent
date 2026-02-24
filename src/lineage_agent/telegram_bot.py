@@ -116,7 +116,7 @@ async def lineage_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     # Build a rich lineage card
     conf_pct = f"{result.confidence:.0%}"
     lines = [
-        f"🧬 *Lineage Card*\n",
+        "🧬 *Lineage Card*\n",
         f"📌 *Queried mint:* `{mint}`",
         f"👑 *Root:* {root_name} \\(`{root_mint[:8]}…`\\)",
         f"🎯 *Confidence:* {_esc(conf_pct)}",

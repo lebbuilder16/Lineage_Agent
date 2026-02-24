@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import logging
 
-import pytest
 
 from lineage_agent.logging_config import (
     JSONFormatter,
@@ -50,7 +49,7 @@ class TestRequestIdFilter:
             msg="hi", args=(), exc_info=None,
         )
         # Reset context to default
-        token = request_id_ctx.set("-")
+        _token = request_id_ctx.set("-")
         f.filter(record)
         assert record.request_id == "-"  # type: ignore[attr-defined]
 

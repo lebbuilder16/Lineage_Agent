@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import json
 import logging
 
 from lineage_agent.lineage_detector import detect_lineage
@@ -32,7 +31,7 @@ async def _run(mint: str, as_json: bool) -> None:
     # Pretty print
     root = result.root
     print("=" * 60)
-    print(f"  Meme Lineage Agent – Results")
+    print("  Meme Lineage Agent – Results")
     print("=" * 60)
     print(f"  Queried Mint : {result.mint}")
     print(f"  Root         : {root.name if root else 'Unknown'} ({root.mint[:12] if root else 'n/a'}…)")
