@@ -2,6 +2,8 @@
 
 import type { TokenMetadata } from "@/lib/api";
 import Image from "next/image";
+import { cn } from "@/lib/utils";
+import { Crown, ExternalLink } from "lucide-react";
 
 interface Props {
   token: TokenMetadata;
@@ -10,12 +12,19 @@ interface Props {
 
 export function TokenInfo({ token, isRoot = false }: Props) {
   const fmt = (n: number | null) =>
-    n != null ? `$${n.toLocaleString("en-US", { maximumFractionDigits: 0 })}` : "—";
+    n != null
+      ? `$${n.toLocaleString("en-US", { maximumFractionDigits: 0 })}`
+      : "—";
 
   return (
-    <div className="flex items-start gap-4 rounded-xl border border-[var(--border)] bg-[var(--card)] p-5 animate-fade-in">
-      {/* Logo */}
-      <div className="relative h-14 w-14 flex-shrink-0 rounded-full overflow-hidden bg-[var(--background)]">
+    <div
+      className={cn(
+        "flex items-start gap-4 rounded-lg border bg-card p-5 animate-fade-in transition-colors",
+        isRoot ? "border-primary/30" : "border-border"
+      )}
+    >
+      {/* Avatar */}
+      <div className="relative h-12 w-12 flex-shrink-0 rounded-full overflow-hidden bg-muted">
         {token.image_uri ? (
           <Image
             src={token.image_uri}
@@ -25,47 +34,60 @@ export function TokenInfo({ token, isRoot = false }: Props) {
             unoptimized
           />
         ) : (
-          <div className="flex h-full w-full items-center justify-center text-2xl">
-            🪙
+          <div className="flex h-full w-full items-center justify-center text-lg text-muted-foreground">
+            ?
           </div>
         )}
         {isRoot && (
-          <span className="absolute -top-1 -right-1 text-sm" title="Root token">
-            👑
-          </span>
+          <div className="absolute -top-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-primary">
+            <Crown className="h-2.5 w-2.5 text-primary-foreground" />
+          </div>
         )}
       </div>
 
-      {/* Info */}
-      <div className="flex-1 min-w-0">
-        <h3 className="font-bold text-lg truncate">
-          {token.name || "Unknown"}{" "}
-          <span className="text-[var(--muted)] text-sm font-normal">
-            {token.symbol}
-          </span>
-        </h3>
+      {/* Details */}
+      <div className="flex-1 min-w-0 space-y-2">
+        <div>
+          <h3 className="font-semibold truncate">
+            {token.name || "Unknown"}{" "}
+            <span className="text-muted-foreground text-sm font-normal">
+              {token.symbol}
+            </span>
+          </h3>
+          <p className="font-mono text-xs text-muted-foreground truncate">
+            {token.mint}
+          </p>
+        </div>
 
-        <p className="font-mono text-xs text-[var(--muted)] truncate mt-0.5">
-          {token.mint}
-        </p>
-
-        <div className="mt-2 flex flex-wrap gap-3 text-sm">
-          <Stat label="Market Cap" value={fmt(token.market_cap_usd)} />
-          <Stat label="Liquidity" value={fmt(token.liquidity_usd)} />
-          <Stat label="Price" value={token.price_usd != null ? `$${token.price_usd}` : "—"} />
+        {/* Stats row */}
+        <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
+          <StatBadge label="MCap" value={fmt(token.market_cap_usd)} />
+          <StatBadge label="Liq" value={fmt(token.liquidity_usd)} />
+          <StatBadge
+            label="Price"
+            value={
+              token.price_usd != null ? `$${token.price_usd}` : "—"
+            }
+          />
           {token.deployer && (
-            <Stat label="Deployer" value={`${token.deployer.slice(0, 6)}…`} />
+            <StatBadge
+              label="Deployer"
+              value={`${token.deployer.slice(0, 4)}...${token.deployer.slice(-4)}`}
+              mono
+            />
           )}
         </div>
 
+        {/* DexScreener link */}
         {token.dex_url && (
           <a
             href={token.dex_url}
             target="_blank"
             rel="noopener noreferrer"
-            className="mt-2 inline-block text-xs text-[var(--accent)] hover:underline"
+            className="inline-flex items-center gap-1 text-xs text-primary hover:text-primary/80 transition-colors"
           >
-            View on DexScreener →
+            View on DexScreener
+            <ExternalLink className="h-3 w-3" />
           </a>
         )}
       </div>
@@ -73,11 +95,19 @@ export function TokenInfo({ token, isRoot = false }: Props) {
   );
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
+function StatBadge({
+  label,
+  value,
+  mono = false,
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+}) {
   return (
-    <div>
-      <span className="text-[var(--muted)]">{label}: </span>
-      <span className="font-medium">{value}</span>
-    </div>
+    <span className="inline-flex items-center gap-1 text-xs">
+      <span className="text-muted-foreground">{label}</span>
+      <span className={cn("font-medium", mono && "font-mono")}>{value}</span>
+    </span>
   );
 }

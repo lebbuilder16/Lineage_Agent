@@ -1,6 +1,8 @@
 "use client";
 
 import type { LineageResult } from "@/lib/api";
+import { cn } from "@/lib/utils";
+import { Shield, Crown, Users } from "lucide-react";
 
 interface Props {
   data: LineageResult;
@@ -8,52 +10,76 @@ interface Props {
 
 export function LineageCard({ data }: Props) {
   const root = data.root;
-  const pct = (data.confidence * 100).toFixed(0);
+  const pct = Math.round(data.confidence * 100);
 
-  // Colour of confidence bar
-  const barColour =
+  const level =
     data.confidence >= 0.7
-      ? "var(--success)"
+      ? "high"
       : data.confidence >= 0.4
-        ? "var(--warning)"
-        : "var(--danger)";
+        ? "medium"
+        : "low";
+
+  const levelColors = {
+    high: "text-success",
+    medium: "text-warning",
+    low: "text-destructive",
+  };
+
+  const barColors = {
+    high: "bg-success",
+    medium: "bg-warning",
+    low: "bg-destructive",
+  };
 
   return (
-    <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-6 animate-fade-in">
-      <h2 className="font-bold text-xl mb-4">🧬 Lineage Summary</h2>
+    <div className="rounded-lg border border-border bg-card p-6 animate-fade-in">
+      <div className="flex items-center gap-2 mb-5">
+        <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary/10 text-primary">
+          <Shield className="h-4 w-4" />
+        </div>
+        <h2 className="font-semibold text-lg">Lineage Summary</h2>
+      </div>
 
-      <div className="grid sm:grid-cols-3 gap-4 mb-5">
+      <div className="grid sm:grid-cols-3 gap-6">
         {/* Confidence */}
-        <div>
-          <p className="text-sm text-[var(--muted)]">Confidence</p>
-          <p className="text-2xl font-bold" style={{ color: barColour }}>
+        <div className="space-y-2">
+          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+            Confidence
+          </p>
+          <p className={cn("text-3xl font-bold tabular-nums", levelColors[level])}>
             {pct}%
           </p>
-          <div className="mt-1 h-1.5 w-full rounded bg-[var(--background)]">
+          <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
             <div
-              className="h-full rounded transition-all duration-700"
-              style={{ width: `${pct}%`, background: barColour }}
+              className={cn("h-full rounded-full transition-all duration-700 ease-out", barColors[level])}
+              style={{ width: `${pct}%` }}
             />
           </div>
         </div>
 
         {/* Root */}
-        <div>
-          <p className="text-sm text-[var(--muted)]">Root token</p>
+        <div className="space-y-2">
+          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+            <Crown className="h-3 w-3" />
+            Root Token
+          </p>
           <p className="font-semibold truncate">
             {root?.name || root?.symbol || "Unknown"}
           </p>
-          <p className="font-mono text-xs text-[var(--muted)] truncate">
+          <p className="font-mono text-xs text-muted-foreground truncate">
             {root?.mint ?? "—"}
           </p>
         </div>
 
         {/* Family size */}
-        <div>
-          <p className="text-sm text-[var(--muted)]">Family size</p>
-          <p className="text-2xl font-bold">{data.family_size}</p>
-          <p className="text-xs text-[var(--muted)]">
-            {data.derivatives.length} derivative{data.derivatives.length !== 1 ? "s" : ""}
+        <div className="space-y-2">
+          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+            <Users className="h-3 w-3" />
+            Family Size
+          </p>
+          <p className="text-3xl font-bold tabular-nums">{data.family_size}</p>
+          <p className="text-xs text-muted-foreground">
+            {data.derivatives.length} derivative{data.derivatives.length !== 1 ? "s" : ""} detected
           </p>
         </div>
       </div>

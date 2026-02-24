@@ -1,11 +1,30 @@
 "use client";
 
 import type { SimilarityEvidence } from "@/lib/api";
+import { cn } from "@/lib/utils";
 
 interface Props {
   evidence: SimilarityEvidence;
   name?: string;
 }
+
+function scoreLevel(v: number) {
+  if (v >= 0.7) return "high" as const;
+  if (v >= 0.4) return "medium" as const;
+  return "low" as const;
+}
+
+const barBg = {
+  high: "bg-success",
+  medium: "bg-warning",
+  low: "bg-destructive",
+} as const;
+
+const textColor = {
+  high: "text-success",
+  medium: "text-warning",
+  low: "text-destructive",
+} as const;
 
 export function EvidencePanel({ evidence, name }: Props) {
   const bars: { label: string; value: number }[] = [
@@ -16,45 +35,49 @@ export function EvidencePanel({ evidence, name }: Props) {
     { label: "Temporal", value: evidence.temporal_score },
   ];
 
-  return (
-    <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-5 animate-fade-in">
-      {name && <h4 className="font-semibold mb-3">{name}</h4>}
+  const compositeLevel = scoreLevel(evidence.composite_score);
 
-      <div className="space-y-2">
-        {bars.map((b) => (
-          <div key={b.label} className="flex items-center gap-3 text-sm">
-            <span className="w-20 text-[var(--muted)]">{b.label}</span>
-            <div className="flex-1 h-2 rounded bg-[var(--background)]">
-              <div
-                className="h-full rounded transition-all duration-500"
-                style={{
-                  width: `${(b.value * 100).toFixed(0)}%`,
-                  background: scoreColour(b.value),
-                }}
-              />
+  return (
+    <div className="rounded-lg border border-border bg-card p-5 animate-fade-in">
+      {name && (
+        <h4 className="font-medium text-sm mb-3.5 truncate">{name}</h4>
+      )}
+
+      <div className="space-y-2.5">
+        {bars.map((b) => {
+          const level = scoreLevel(b.value);
+          const pct = Math.round(b.value * 100);
+          return (
+            <div key={b.label} className="flex items-center gap-3">
+              <span className="w-16 text-xs text-muted-foreground shrink-0">
+                {b.label}
+              </span>
+              <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
+                <div
+                  className={cn(
+                    "h-full rounded-full transition-all duration-500 ease-out",
+                    barBg[level]
+                  )}
+                  style={{ width: `${pct}%` }}
+                />
+              </div>
+              <span className="w-10 text-right font-mono text-xs tabular-nums">
+                {pct}%
+              </span>
             </div>
-            <span className="w-12 text-right font-mono">
-              {(b.value * 100).toFixed(0)}%
-            </span>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
-      <div className="mt-3 pt-3 border-t border-[var(--border)] flex items-center justify-between text-sm">
-        <span className="text-[var(--muted)]">Composite</span>
+      {/* Composite */}
+      <div className="mt-3.5 pt-3 border-t border-border flex items-center justify-between">
+        <span className="text-xs text-muted-foreground font-medium">Composite</span>
         <span
-          className="font-bold text-lg"
-          style={{ color: scoreColour(evidence.composite_score) }}
+          className={cn("font-bold text-lg tabular-nums", textColor[compositeLevel])}
         >
-          {(evidence.composite_score * 100).toFixed(0)}%
+          {Math.round(evidence.composite_score * 100)}%
         </span>
       </div>
     </div>
   );
-}
-
-function scoreColour(v: number): string {
-  if (v >= 0.7) return "var(--success)";
-  if (v >= 0.4) return "var(--warning)";
-  return "var(--danger)";
 }

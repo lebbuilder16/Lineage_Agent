@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Moon, Sun } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 export function ThemeToggle() {
   const [dark, setDark] = useState(true);
 
   useEffect(() => {
-    // Hydrate from localStorage
     const stored = localStorage.getItem("theme");
     const prefersDark =
       stored === "dark" || (!stored && window.matchMedia("(prefers-color-scheme: dark)").matches);
@@ -25,9 +26,15 @@ export function ThemeToggle() {
     <button
       onClick={toggle}
       aria-label={dark ? "Switch to light mode" : "Switch to dark mode"}
-      className="rounded-lg border border-[var(--border)] px-2 py-1.5 text-sm hover:bg-[var(--card-hover)] transition-colors"
+      className={cn(
+        "inline-flex h-9 w-9 items-center justify-center rounded-md",
+        "border border-border bg-background",
+        "text-muted-foreground hover:text-foreground hover:bg-accent",
+        "transition-colors duration-200",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+      )}
     >
-      {dark ? "☀️" : "🌙"}
+      {dark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
     </button>
   );
 }

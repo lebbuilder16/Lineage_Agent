@@ -2,47 +2,64 @@
 
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
+import { Search, ArrowRight } from "lucide-react";
+import { cn } from "@/lib/utils";
 
-export function SearchBar() {
+export function SearchBar({ compact = false }: { compact?: boolean }) {
   const router = useRouter();
   const [value, setValue] = useState("");
+  const [focused, setFocused] = useState(false);
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
     const trimmed = value.trim();
     if (!trimmed) return;
 
-    // If it looks like a Solana address (base58, 32-44 chars) → lineage page
     if (/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(trimmed)) {
       router.push(`/lineage/${trimmed}`);
     } else {
-      // Otherwise treat it as a name search
       router.push(`/search?q=${encodeURIComponent(trimmed)}`);
     }
   }
 
   return (
     <form onSubmit={handleSubmit} className="w-full max-w-2xl mx-auto">
-      <div className="relative">
+      <div
+        className={cn(
+          "relative flex items-center rounded-lg border bg-card transition-all duration-200",
+          focused
+            ? "border-primary ring-2 ring-ring/20 shadow-sm"
+            : "border-border hover:border-muted-foreground/30",
+          compact ? "h-11" : "h-12 sm:h-14"
+        )}
+      >
+        <Search className="absolute left-3.5 h-4 w-4 text-muted-foreground pointer-events-none" />
         <input
           type="text"
           value={value}
           onChange={(e) => setValue(e.target.value)}
-          placeholder="Enter a Solana mint address or token name…"
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+          placeholder="Paste a Solana mint address or search by name..."
           aria-label="Search for a Solana token by mint address or name"
-          className="w-full rounded-xl border border-[var(--border)] bg-[var(--card)]
-                     px-5 py-4 pr-28 text-base outline-none
-                     placeholder:text-[var(--muted)]
-                     focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent)]/25
-                     transition-all"
+          className={cn(
+            "flex-1 bg-transparent pl-10 pr-28 text-sm outline-none placeholder:text-muted-foreground/60",
+            compact ? "h-11" : "h-12 sm:h-14 sm:text-base"
+          )}
         />
         <button
           type="submit"
-          className="absolute right-2 top-1/2 -translate-y-1/2
-                     rounded-lg bg-[var(--accent)] px-5 py-2 text-sm font-semibold
-                     text-white hover:brightness-110 active:scale-95 transition-all"
+          className={cn(
+            "absolute right-1.5 inline-flex items-center gap-1.5 rounded-md px-4 font-medium text-sm",
+            "bg-primary text-primary-foreground",
+            "hover:bg-primary/90 active:scale-[0.97]",
+            "transition-all duration-150",
+            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            compact ? "h-8" : "h-9"
+          )}
         >
           Analyze
+          <ArrowRight className="h-3.5 w-3.5" />
         </button>
       </div>
     </form>
