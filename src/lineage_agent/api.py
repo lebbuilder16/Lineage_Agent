@@ -129,10 +129,11 @@ app = FastAPI(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-# CORS (so the Next.js frontend can call from localhost:3000)
+# CORS (so the Next.js frontend can call from localhost:3000 and Vercel)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
+    allow_origin_regex=r"https://lineage-agent[a-zA-Z0-9\-]*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["GET", "POST"],
     allow_headers=["Content-Type", "Accept"],
