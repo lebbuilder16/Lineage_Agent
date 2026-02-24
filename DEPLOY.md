@@ -86,13 +86,13 @@ fly deploy
 fly status
 
 # Check health
-curl https://lineage-agent-api.fly.dev/health
+curl https://lineage-agent.fly.dev/health
 
 # View logs
 fly logs
 ```
 
-Your backend is now live at: `https://lineage-agent-api.fly.dev`
+Your backend is now live at: `https://lineage-agent.fly.dev`
 
 ---
 
@@ -102,13 +102,16 @@ Your backend is now live at: `https://lineage-agent-api.fly.dev`
 
 1. Go to [vercel.com/new](https://vercel.com/new)
 2. Import your GitHub repository: `lebbuilder16/Lineage_Agent`
-3. **Framework Preset**: Next.js
-4. **Root Directory**: `frontend`
+3. **Root Directory**: type `frontend` (critical — Vercel must detect Next.js from `frontend/package.json`)
+4. **Framework Preset**: should auto-detect as Next.js
 5. **Environment Variables**:
    | Name | Value |
    |------|-------|
-   | `NEXT_PUBLIC_API_URL` | `https://lineage-agent-api.fly.dev` |
+   | `NEXT_PUBLIC_API_URL` | `https://lineage-agent.fly.dev` |
 6. Click **Deploy**
+
+> **Important**: The Root Directory must be set to `frontend`. If Vercel says
+> "Could not identify Next.js version", double-check this setting.
 
 ### Option B: Via CLI
 
@@ -118,14 +121,14 @@ vercel --prod
 # When prompted:
 # - Link to existing project? No
 # - Project name: meme-lineage-frontend
-# - Root directory: ./  (already in frontend/)
+# - In which directory is your code located? ./  (already in frontend/)
 # - Override settings? No
 ```
 
 Then set the environment variable:
 ```bash
 vercel env add NEXT_PUBLIC_API_URL production
-# Enter: https://lineage-agent-api.fly.dev
+# Enter: https://lineage-agent.fly.dev
 ```
 
 Redeploy to pick up the env var:
@@ -200,7 +203,7 @@ python src/lineage_agent/telegram_bot.py
 ### Fly.io
 ```bash
 fly certs add api.yourdomain.com
-# Then add CNAME: api.yourdomain.com → lineage-agent-api.fly.dev
+# Then add CNAME: api.yourdomain.com → lineage-agent.fly.dev
 ```
 
 ### Vercel
@@ -255,7 +258,7 @@ fly certs add api.yourdomain.com
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `NEXT_PUBLIC_API_URL` | Yes | Full backend URL (e.g., `https://lineage-agent-api.fly.dev`) |
+| `NEXT_PUBLIC_API_URL` | Yes | Full backend URL (e.g., `https://lineage-agent.fly.dev`) |
 
 ---
 
