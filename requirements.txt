@@ -1,0 +1,9 @@
+pillow
+requests
+fastapi
+uvicorn[standard]
+python-telegram-bot
+numpy
+imagehash
+python-Levenshtein
+pydantic>=2.0
