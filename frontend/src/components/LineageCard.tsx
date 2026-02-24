@@ -3,6 +3,7 @@
 import type { LineageResult } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Shield, Crown, Users } from "lucide-react";
+import { RadialGauge } from "./RadialGauge";
 
 interface Props {
   data: LineageResult;
@@ -13,23 +14,11 @@ export function LineageCard({ data }: Props) {
   const pct = Math.round(data.confidence * 100);
 
   const level =
-    data.confidence >= 0.7
-      ? "high"
-      : data.confidence >= 0.4
-        ? "medium"
-        : "low";
+    data.confidence >= 0.7 ? "high"
+    : data.confidence >= 0.4 ? "medium"
+    : "low";
 
-  const levelColors = {
-    high: "text-success",
-    medium: "text-warning",
-    low: "text-destructive",
-  };
-
-  const barColors = {
-    high: "bg-success",
-    medium: "bg-warning",
-    low: "bg-destructive",
-  };
+  const levelColors = { high: "text-success", medium: "text-warning", low: "text-destructive" };
 
   return (
     <div className="rounded-lg border border-border bg-card p-6 animate-fade-in">
@@ -40,21 +29,13 @@ export function LineageCard({ data }: Props) {
         <h2 className="font-semibold text-lg">Lineage Summary</h2>
       </div>
 
-      <div className="grid sm:grid-cols-3 gap-6">
-        {/* Confidence */}
-        <div className="space-y-2">
+      <div className="grid sm:grid-cols-3 gap-6 items-center">
+        {/* Confidence — Radial Gauge */}
+        <div className="flex flex-col items-center sm:items-start gap-2">
           <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
             Confidence
           </p>
-          <p className={cn("text-3xl font-bold tabular-nums", levelColors[level])}>
-            {pct}%
-          </p>
-          <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
-            <div
-              className={cn("h-full rounded-full transition-all duration-700 ease-out", barColors[level])}
-              style={{ width: `${pct}%` }}
-            />
-          </div>
+          <RadialGauge value={pct} level={level} size={108} />
         </div>
 
         {/* Root */}
@@ -66,9 +47,7 @@ export function LineageCard({ data }: Props) {
           <p className="font-semibold truncate">
             {root?.name || root?.symbol || "Unknown"}
           </p>
-          <p className="font-mono text-xs text-muted-foreground truncate">
-            {root?.mint ?? "—"}
-          </p>
+          <p className="address">{root?.mint ?? "—"}</p>
         </div>
 
         {/* Family size */}
@@ -77,7 +56,7 @@ export function LineageCard({ data }: Props) {
             <Users className="h-3 w-3" />
             Family Size
           </p>
-          <p className="text-3xl font-bold tabular-nums">{data.family_size}</p>
+          <p className={cn("text-3xl font-bold tabular-nums")}>{data.family_size}</p>
           <p className="text-xs text-muted-foreground">
             {data.derivatives.length} derivative{data.derivatives.length !== 1 ? "s" : ""} detected
           </p>
@@ -86,3 +65,4 @@ export function LineageCard({ data }: Props) {
     </div>
   );
 }
+

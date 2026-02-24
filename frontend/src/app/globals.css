@@ -1,3 +1,6 @@
+/* React Flow base styles */
+@import "@xyflow/react/dist/style.css";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -63,7 +66,30 @@
   }
   body {
     @apply bg-background text-foreground antialiased;
+    font-family: var(--font-geist-sans, ui-sans-serif, system-ui, sans-serif);
     font-feature-settings: "rlig" 1, "calt" 1;
+  }
+  code, kbd, pre, .font-mono {
+    font-family: var(--font-geist-mono, ui-monospace, monospace);
+  }
+}
+
+@layer utilities {
+  /* Clickable address: auto-selects entire string on click */
+  .address {
+    @apply font-mono text-xs text-muted-foreground truncate cursor-text;
+    user-select: all;
+  }
+  /* Hide scrollbar but keep scroll functionality */
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+  .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+  /* Reduced motion: disable all transitions/animations */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
   }
 }
 
@@ -120,4 +146,35 @@
   background: linear-gradient(90deg, hsl(var(--muted)) 25%, hsl(var(--muted) / 0.5) 50%, hsl(var(--muted)) 75%);
   background-size: 200% 100%;
   animation: shimmer 1.5s ease-in-out infinite;
+}
+
+/* ─── React Flow theme overrides ─────────────────────────────────── */
+.react-flow {
+  --xy-background-color: transparent;
+  --xy-edge-stroke: hsl(var(--primary) / 0.35);
+  --xy-edge-stroke-width: 1.5;
+  --xy-edge-stroke-selected: hsl(var(--primary));
+  --xy-connectionline-stroke: hsl(var(--primary));
+  --xy-attribution-background-color: transparent;
+}
+.react-flow__attribution { display: none; }
+.react-flow__minimap {
+  border-radius: 0.5rem;
+  border: 1px solid hsl(var(--border));
+  overflow: hidden;
+}
+.react-flow__controls {
+  border: 1px solid hsl(var(--border)) !important;
+  border-radius: 0.5rem !important;
+  overflow: hidden;
+  box-shadow: none !important;
+}
+.react-flow__controls-button {
+  background: hsl(var(--background)) !important;
+  border-bottom: 1px solid hsl(var(--border)) !important;
+  color: hsl(var(--muted-foreground)) !important;
+}
+.react-flow__controls-button:hover {
+  background: hsl(var(--accent)) !important;
+  color: hsl(var(--foreground)) !important;
 }

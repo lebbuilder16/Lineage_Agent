@@ -9,6 +9,12 @@ import { TokenInfo } from "@/components/TokenInfo";
 import { EvidencePanel } from "@/components/EvidencePanel";
 import { FamilyTree } from "@/components/FamilyTree";
 import { SearchBar } from "@/components/SearchBar";
+import { ShareButton } from "@/components/ShareButton";
+import { SkeletonLineageCard } from "@/components/skeletons/SkeletonLineageCard";
+import { SkeletonTokenInfo } from "@/components/skeletons/SkeletonTokenInfo";
+import { SkeletonDerivativeList } from "@/components/skeletons/SkeletonDerivativeList";
+import { addToHistory } from "@/components/CommandPalette";
+import { motion, AnimatePresence } from "framer-motion";
 import { AlertCircle, RefreshCw, Crown, List, ChevronRight, TrendingUp, Droplets } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -27,30 +33,42 @@ export default function LineagePage() {
     document.title = name
       ? `${name} — Lineage Agent`
       : `Lineage: ${mint?.slice(0, 8)}... — Lineage Agent`;
+
+    // Save to ⌘K history when data loads
+    if (data?.root && mint) {
+      addToHistory(mint, data.root.name || data.root.symbol || mint.slice(0, 8));
+    }
   }, [data, mint]);
 
   return (
     <div className="space-y-6">
       <SearchBar compact />
 
-      {/* Loading */}
+      {/* Loading — skeleton UI */}
       {isLoading && (
-        <div className="flex flex-col items-center gap-4 py-24">
-          <div className="h-10 w-10 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="space-y-6"
+        >
+          {/* NProgress-style top bar */}
           {progress && (
-            <div className="w-72 space-y-2">
-              <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
-                <div
-                  className="h-full bg-primary rounded-full transition-all duration-300 ease-out"
-                  style={{ width: `${progress.progress}%` }}
-                />
-              </div>
-              <p className="text-xs text-center text-muted-foreground">
-                {progress.step}
-              </p>
+            <div className="fixed top-0 left-0 right-0 z-50 h-0.5 bg-muted overflow-hidden">
+              <div
+                className="h-full bg-primary transition-all duration-300 ease-out"
+                style={{ width: `${progress.progress}%` }}
+              />
             </div>
           )}
-        </div>
+          <SkeletonLineageCard />
+          <SkeletonTokenInfo />
+          <SkeletonDerivativeList count={3} />
+          {progress && (
+            <p className="text-xs text-center text-muted-foreground animate-pulse-subtle">
+              {progress.step}
+            </p>
+          )}
+        </motion.div>
       )}
 
       {/* Error */}
@@ -78,33 +96,66 @@ export default function LineagePage() {
       )}
 
       {/* Results */}
+      <AnimatePresence>
       {data && (
-        <div className="space-y-6 animate-fade-in">
-          {/* Summary */}
-          <LineageCard data={data} />
+        <motion.div
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.35, ease: "easeOut" }}
+          className="space-y-6"
+        >
+          {/* Header row: summary card + share */}
+          <div className="flex items-start gap-3">
+            <div className="flex-1 min-w-0">
+              <LineageCard data={data} />
+            </div>
+            <div className="pt-1 shrink-0">
+              <ShareButton data={data} />
+            </div>
+          </div>
 
           {/* Root token */}
           {data.root && (
-            <section className="space-y-3">
+            <motion.section
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.05 }}
+              className="space-y-3"
+            >
               <SectionHeader icon={<Crown className="h-4 w-4" />} title="Root Token" />
               <TokenInfo token={data.root} isRoot />
-            </section>
+            </motion.section>
           )}
 
           {/* Family tree */}
-          {data.derivatives.length > 0 && <FamilyTree data={data} />}
+          {data.derivatives.length > 0 && (
+            <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
+              <FamilyTree data={data} />
+            </motion.div>
+          )}
 
           {/* Derivatives */}
           {data.derivatives.length > 0 && (
-            <section className="space-y-3">
+            <motion.section
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.15 }}
+              className="space-y-3"
+            >
               <SectionHeader
                 icon={<List className="h-4 w-4" />}
                 title="Derivatives"
                 count={data.derivatives.length}
               />
-              <div className="space-y-4 stagger-children">
-                {data.derivatives.map((d: import("@/lib/api").DerivativeInfo) => (
-                  <div key={d.mint} className="grid md:grid-cols-2 gap-3 animate-slide-up">
+              <div className="space-y-4">
+                {data.derivatives.map((d: import("@/lib/api").DerivativeInfo, i: number) => (
+                  <motion.div
+                    key={d.mint}
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.15 + i * 0.04, ease: "easeOut" }}
+                    className="grid md:grid-cols-2 gap-3"
+                  >
                     <Link
                       href={`/lineage/${d.mint}`}
                       className="group rounded-lg border border-border bg-card p-4 hover:border-primary/30 hover:shadow-sm transition-all duration-150 block"
@@ -115,9 +166,7 @@ export default function LineagePage() {
                         </h4>
                         <ChevronRight className="h-4 w-4 text-muted-foreground/40 group-hover:text-muted-foreground shrink-0 transition-colors" />
                       </div>
-                      <p className="font-mono text-xs text-muted-foreground truncate mb-2">
-                        {d.mint}
-                      </p>
+                      <p className="address mb-2">{d.mint}</p>
                       <div className="flex items-center gap-4 text-xs text-muted-foreground">
                         {d.market_cap_usd != null && (
                           <span className="flex items-center gap-1">
@@ -138,13 +187,14 @@ export default function LineagePage() {
                       </div>
                     </Link>
                     <EvidencePanel evidence={d.evidence} />
-                  </div>
+                  </motion.div>
                 ))}
               </div>
-            </section>
+            </motion.section>
           )}
-        </div>
+        </motion.div>
       )}
+      </AnimatePresence>
     </div>
   );
 }

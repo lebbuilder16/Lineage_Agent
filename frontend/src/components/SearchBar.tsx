@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
-import { Search, ArrowRight } from "lucide-react";
+import { Search, ArrowRight, ClipboardPaste } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export function SearchBar({ compact = false }: { compact?: boolean }) {
@@ -40,13 +40,33 @@ export function SearchBar({ compact = false }: { compact?: boolean }) {
           onChange={(e) => setValue(e.target.value)}
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
-          placeholder="Paste a Solana mint address or search by name..."
+          placeholder="Paste a mint address or search by name..."
           aria-label="Search for a Solana token by mint address or name"
           className={cn(
-            "flex-1 bg-transparent pl-10 pr-28 text-sm outline-none placeholder:text-muted-foreground/60",
-            compact ? "h-11" : "h-12 sm:h-14 sm:text-base"
+            "flex-1 bg-transparent pl-10 text-sm outline-none placeholder:text-muted-foreground/60",
+            compact ? "h-11 pr-24" : "h-12 sm:h-14 sm:text-base pr-24 sm:pr-28"
           )}
         />
+        {/* Mobile paste button — only visible when field is empty */}
+        {!value && (
+          <button
+            type="button"
+            onClick={async () => {
+              try {
+                const text = await navigator.clipboard.readText();
+                if (text) setValue(text.trim());
+              } catch {}
+            }}
+            className={cn(
+              "absolute right-[4.5rem] inline-flex items-center justify-center rounded-md",
+              "text-muted-foreground hover:text-foreground transition-colors sm:hidden",
+              compact ? "h-8 w-8" : "h-9 w-9"
+            )}
+            aria-label="Paste from clipboard"
+          >
+            <ClipboardPaste className="h-3.5 w-3.5" />
+          </button>
+        )}
         <button
           type="submit"
           className={cn(

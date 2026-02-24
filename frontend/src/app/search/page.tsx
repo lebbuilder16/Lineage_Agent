@@ -86,19 +86,19 @@ function SearchContent() {
                   </p>
                 </div>
 
-                {/* Stats */}
-                <div className="hidden sm:flex items-center gap-4 text-xs text-muted-foreground shrink-0">
+                {/* Stats row — always visible, horizontal scroll on mobile */}
+                <div className="flex items-center gap-3 overflow-x-auto text-xs text-muted-foreground shrink-0 no-scrollbar pb-0.5">
                   {t.market_cap_usd != null && (
-                    <span className="flex items-center gap-1">
-                      <TrendingUp className="h-3 w-3" />
+                    <span className="flex items-center gap-1 whitespace-nowrap">
+                      <TrendingUp className="h-3 w-3 shrink-0" />
                       <strong className="text-foreground">
                         ${t.market_cap_usd.toLocaleString("en-US", { maximumFractionDigits: 0 })}
                       </strong>
                     </span>
                   )}
                   {t.liquidity_usd != null && (
-                    <span className="flex items-center gap-1">
-                      <Droplets className="h-3 w-3" />
+                    <span className="flex items-center gap-1 whitespace-nowrap">
+                      <Droplets className="h-3 w-3 shrink-0" />
                       <strong className="text-foreground">
                         ${t.liquidity_usd.toLocaleString("en-US", { maximumFractionDigits: 0 })}
                       </strong>

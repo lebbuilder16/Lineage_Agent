@@ -3,6 +3,9 @@ import "./globals.css";
 import { Providers } from "./providers";
 import Link from "next/link";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { CommandPalette } from "@/components/CommandPalette";
+import { GeistSans } from "geist/font/sans";
+import { GeistMono } from "geist/font/mono";
 
 export const metadata: Metadata = {
   title: "Meme Lineage Agent",
@@ -31,7 +34,8 @@ export default function RootLayout({
           }}
         />
       </head>
-      <body className="min-h-screen">
+      <body className={`min-h-screen ${GeistSans.variable} ${GeistMono.variable}`}>
+        <CommandPalette />
         <Providers>
           {/* Header */}
           <header className="sticky top-0 z-50 w-full border-b border-border/40 bg-background/80 backdrop-blur-lg supports-[backdrop-filter]:bg-background/60">
@@ -43,7 +47,7 @@ export default function RootLayout({
                 <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground text-sm font-bold">
                   LA
                 </div>
-                <span className="font-semibold tracking-tight hidden sm:inline">
+                <span className="font-semibold tracking-tight text-sm sm:text-base">
                   Lineage Agent
                 </span>
               </Link>
