@@ -156,6 +156,18 @@ def compute_temporal_score(
     * 0.5 – roughly the same age
     * 0.0 – *ts_a* is significantly newer, or data missing
     """
+    # Coerce strings (from SQLite cache) back to datetime
+    if isinstance(ts_a, str):
+        try:
+            ts_a = datetime.fromisoformat(ts_a)
+        except (ValueError, TypeError):
+            ts_a = None
+    if isinstance(ts_b, str):
+        try:
+            ts_b = datetime.fromisoformat(ts_b)
+        except (ValueError, TypeError):
+            ts_b = None
+
     if ts_a is None or ts_b is None:
         return 0.5  # neutral when data is missing
 

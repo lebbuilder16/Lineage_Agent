@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, Optional
 
 from config import (
@@ -352,6 +353,24 @@ async def search_tokens(query: str) -> list[TokenSearchResult]:
     return results
 
 
+def _parse_datetime(value: Any) -> datetime | None:
+    """Convert a value to datetime, handling strings from SQLite cache."""
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        try:
+            # ISO format strings from json.dumps(default=str)
+            dt = datetime.fromisoformat(value)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt
+        except (ValueError, TypeError):
+            return None
+    return None
+
+
 async def _get_deployer_cached(
     rpc: SolanaRpcClient, mint: str
 ) -> tuple[str, Any]:
@@ -359,6 +378,9 @@ async def _get_deployer_cached(
     cache_key = f"rpc:deployer:{mint}"
     cached = await _cache_get(cache_key)
     if cached is not None:
+        # SQLite cache returns lists; convert datetime string back
+        if isinstance(cached, (list, tuple)) and len(cached) == 2:
+            return cached[0], _parse_datetime(cached[1])
         return cached
 
     deployer, created_at = await rpc.get_deployer_and_timestamp(mint)
@@ -408,7 +430,9 @@ def _select_root(candidates: list[_ScoredCandidate]) -> _ScoredCandidate:
     def _root_key(c: _ScoredCandidate):
         ts_score = 0.0
         if c.created_at is not None:
-            ts_score = -c.created_at.timestamp()
+            dt = _parse_datetime(c.created_at)
+            if dt is not None:
+                ts_score = -dt.timestamp()
         liq = c.liquidity_usd or 0.0
         mcap = c.market_cap_usd or 0.0
         return (ts_score, liq, mcap)
