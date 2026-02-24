@@ -18,6 +18,10 @@ primary_region = 'ams'
   CACHE_BACKEND = "sqlite"
   CACHE_SQLITE_PATH = "/data/cache.db"
 
+[processes]
+  app = "python -m uvicorn lineage_agent.api:app --host 0.0.0.0 --port 8080 --app-dir src"
+  bot = "python src/lineage_agent/telegram_bot.py"
+
 [http_service]
   internal_port = 8080
   force_https = true
