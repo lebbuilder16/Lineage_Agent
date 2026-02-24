@@ -13,6 +13,39 @@ import os
 
 logger = logging.getLogger(__name__)
 
+
+# ---------------------------------------------------------------------------
+# Validation helpers
+# ---------------------------------------------------------------------------
+
+def _parse_float(name: str, default: str, *, low: float = 0.0, high: float = 1.0) -> float:
+    """Parse an env var as a float and validate it within [low, high]."""
+    raw = os.getenv(name, default)
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        logger.error("Invalid value for %s: %r – using default %s", name, raw, default)
+        value = float(default)
+    if not (low <= value <= high):
+        logger.warning("%s=%.4f is outside [%.1f, %.1f] – clamped", name, value, low, high)
+        value = max(low, min(value, high))
+    return value
+
+
+def _parse_int(name: str, default: str, *, minimum: int = 1) -> int:
+    """Parse an env var as an int and enforce a minimum."""
+    raw = os.getenv(name, default)
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        logger.error("Invalid value for %s: %r – using default %s", name, raw, default)
+        value = int(default)
+    if value < minimum:
+        logger.warning("%s=%d is below minimum %d – clamped", name, value, minimum)
+        value = minimum
+    return value
+
+
 # ---------------------------------------------------------------------------
 # Telegram
 # ---------------------------------------------------------------------------
@@ -39,24 +72,18 @@ DEXSCREENER_BASE_URL: str = os.getenv(
 # ---------------------------------------------------------------------------
 # Similarity thresholds  (0.0 – 1.0)
 # ---------------------------------------------------------------------------
-IMAGE_SIMILARITY_THRESHOLD: float = float(
-    os.getenv("IMAGE_SIMILARITY_THRESHOLD", "0.85")
-)
-NAME_SIMILARITY_THRESHOLD: float = float(
-    os.getenv("NAME_SIMILARITY_THRESHOLD", "0.75")
-)
-SYMBOL_SIMILARITY_THRESHOLD: float = float(
-    os.getenv("SYMBOL_SIMILARITY_THRESHOLD", "0.80")
-)
+IMAGE_SIMILARITY_THRESHOLD: float = _parse_float("IMAGE_SIMILARITY_THRESHOLD", "0.85")
+NAME_SIMILARITY_THRESHOLD: float = _parse_float("NAME_SIMILARITY_THRESHOLD", "0.75")
+SYMBOL_SIMILARITY_THRESHOLD: float = _parse_float("SYMBOL_SIMILARITY_THRESHOLD", "0.80")
 
 # ---------------------------------------------------------------------------
 # Scoring weights  (must sum to 1.0)
 # ---------------------------------------------------------------------------
-WEIGHT_NAME: float = float(os.getenv("WEIGHT_NAME", "0.25"))
-WEIGHT_SYMBOL: float = float(os.getenv("WEIGHT_SYMBOL", "0.15"))
-WEIGHT_IMAGE: float = float(os.getenv("WEIGHT_IMAGE", "0.25"))
-WEIGHT_DEPLOYER: float = float(os.getenv("WEIGHT_DEPLOYER", "0.20"))
-WEIGHT_TEMPORAL: float = float(os.getenv("WEIGHT_TEMPORAL", "0.15"))
+WEIGHT_NAME: float = _parse_float("WEIGHT_NAME", "0.25")
+WEIGHT_SYMBOL: float = _parse_float("WEIGHT_SYMBOL", "0.15")
+WEIGHT_IMAGE: float = _parse_float("WEIGHT_IMAGE", "0.25")
+WEIGHT_DEPLOYER: float = _parse_float("WEIGHT_DEPLOYER", "0.20")
+WEIGHT_TEMPORAL: float = _parse_float("WEIGHT_TEMPORAL", "0.15")
 
 # Validate scoring weights sum to ~1.0
 _weight_sum = WEIGHT_NAME + WEIGHT_SYMBOL + WEIGHT_IMAGE + WEIGHT_DEPLOYER + WEIGHT_TEMPORAL
@@ -69,16 +96,16 @@ if abs(_weight_sum - 1.0) > 0.01:
 # ---------------------------------------------------------------------------
 # Cache
 # ---------------------------------------------------------------------------
-CACHE_TTL_SECONDS: int = int(os.getenv("CACHE_TTL_SECONDS", "300"))
+CACHE_TTL_SECONDS: int = _parse_int("CACHE_TTL_SECONDS", "300", minimum=1)
 CACHE_BACKEND: str = os.getenv("CACHE_BACKEND", "memory")  # "memory" or "sqlite"
 CACHE_SQLITE_PATH: str = os.getenv("CACHE_SQLITE_PATH", "data/cache.db")
 
 # ---------------------------------------------------------------------------
 # Limits
 # ---------------------------------------------------------------------------
-MAX_DERIVATIVES: int = int(os.getenv("MAX_DERIVATIVES", "50"))
-MAX_CONCURRENT_RPC: int = int(os.getenv("MAX_CONCURRENT_RPC", "5"))
-REQUEST_TIMEOUT: int = int(os.getenv("REQUEST_TIMEOUT", "15"))
+MAX_DERIVATIVES: int = _parse_int("MAX_DERIVATIVES", "50", minimum=1)
+MAX_CONCURRENT_RPC: int = _parse_int("MAX_CONCURRENT_RPC", "5", minimum=1)
+REQUEST_TIMEOUT: int = _parse_int("REQUEST_TIMEOUT", "15", minimum=1)
 
 # ---------------------------------------------------------------------------
 # Rate limiting (slowapi format, e.g. "10/minute")
@@ -96,7 +123,7 @@ LOG_FORMAT: str = os.getenv("LOG_FORMAT", "text")  # "text" or "json"
 # API server
 # ---------------------------------------------------------------------------
 API_HOST: str = os.getenv("API_HOST", "0.0.0.0")
-API_PORT: int = int(os.getenv("API_PORT", "8000"))
+API_PORT: int = _parse_int("API_PORT", "8000", minimum=1)
 CORS_ORIGINS: list[str] = [
     o.strip()
     for o in os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")

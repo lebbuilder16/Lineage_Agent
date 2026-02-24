@@ -13,7 +13,7 @@ from lineage_agent.models import (
     TokenMetadata,
     TokenSearchResult,
 )
-from lineage_agent.telegram_bot import lineage_cmd, search_cmd, start
+from lineage_agent.telegram_bot import lineage_cmd, search_cmd, start, help_cmd, unknown_cmd
 
 # Valid base58 mint for tests (44 chars, no 0/O/I/l)
 _VALID_MINT = "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263"
@@ -269,3 +269,51 @@ class TestSearchCmd:
             await search_cmd(update, context)
 
         mock_search.assert_called_once_with("baby doge coin")
+
+
+# ------------------------------------------------------------------
+# /help
+# ------------------------------------------------------------------
+
+
+class TestHelpCmd:
+
+    @pytest.mark.asyncio
+    async def test_help_sends_commands(self):
+        update, context = _make_update()
+        await help_cmd(update, context)
+        update.message.reply_text.assert_called_once()
+        text = update.message.reply_text.call_args[0][0]
+        assert "/lineage" in text
+        assert "/search" in text
+        assert "/help" in text
+
+    @pytest.mark.asyncio
+    async def test_help_uses_markdown(self):
+        update, context = _make_update()
+        await help_cmd(update, context)
+        kwargs = update.message.reply_text.call_args[1]
+        assert kwargs.get("parse_mode") == "MarkdownV2"
+
+
+# ------------------------------------------------------------------
+# Unknown command
+# ------------------------------------------------------------------
+
+
+class TestUnknownCmd:
+
+    @pytest.mark.asyncio
+    async def test_unknown_replies(self):
+        update, context = _make_update()
+        await unknown_cmd(update, context)
+        update.message.reply_text.assert_called_once()
+        text = update.message.reply_text.call_args[0][0]
+        assert "/help" in text
+
+    @pytest.mark.asyncio
+    async def test_unknown_uses_markdown(self):
+        update, context = _make_update()
+        await unknown_cmd(update, context)
+        kwargs = update.message.reply_text.call_args[1]
+        assert kwargs.get("parse_mode") == "MarkdownV2"

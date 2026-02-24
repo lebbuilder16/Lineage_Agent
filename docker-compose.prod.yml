@@ -1,0 +1,46 @@
+# docker-compose.prod.yml – Production overrides
+#
+# Usage: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# - Adds resource limits and logging constraints
+# - Enables SQLite persistent cache via a volume
+# - Disables port binding for frontend (use a reverse proxy)
+
+services:
+  backend:
+    restart: always
+    environment:
+      - LOG_LEVEL=WARNING
+      - LOG_FORMAT=json
+      - CACHE_BACKEND=sqlite
+      - CACHE_SQLITE_PATH=/data/cache.db
+    volumes:
+      - cache-data:/data
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 1G
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  frontend:
+    restart: always
+    ports: !override
+      - "3000:3000"
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  cache-data:

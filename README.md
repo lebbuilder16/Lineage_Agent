@@ -56,7 +56,7 @@ Lineage_Agent/
 │   ├── src/lib/api.ts            # API client
 │   ├── e2e/                      # Playwright end-to-end tests
 │   └── playwright.config.ts
-├── tests/                        # Python test suite (157+ tests)
+├── tests/                        # Python test suite (182+ tests)
 ├── pyproject.toml                # Build config, ruff, mypy, pytest
 ├── requirements.txt              # Python dependencies
 ├── Dockerfile                    # Multi-stage backend + frontend
@@ -138,6 +138,32 @@ docker compose up --build -d
 All endpoints return JSON. Rate limits are applied per-IP (configurable).
 A unique `X-Request-ID` header is included in every response for tracing.
 
+### WebSocket Example
+
+```javascript
+const ws = new WebSocket("ws://localhost:8000/ws/lineage");
+ws.onopen = () => ws.send(JSON.stringify({ mint: "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263" }));
+ws.onmessage = (e) => {
+  const msg = JSON.parse(e.data);
+  if (msg.done) {
+    console.log("Result:", msg.result ?? msg.error);
+    ws.close();
+  } else {
+    console.log(`[${msg.progress}%] ${msg.step}`);
+  }
+};
+```
+
+### Batch Example
+
+```bash
+curl -X POST http://localhost:8000/lineage/batch \
+  -H "Content-Type: application/json" \
+  -d '{"mints": ["DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263", "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"]}'
+```
+
+Returns `{"results": {"<mint>": <LineageResult | error_string>, ...}}`.
+
 ### Error Responses
 
 | Code | Meaning |
@@ -197,7 +223,7 @@ source .venv/bin/activate
 python -m pytest tests/ -v
 ```
 
-The test suite includes 157+ tests covering:
+The test suite includes 182+ tests covering:
 - API endpoints (rate limiting, validation, error handling)
 - Cache layer (TTL, SQLite persistence)
 - Data sources (DexScreener, Solana RPC)
@@ -243,7 +269,7 @@ See `.github/workflows/ci.yml` for details.
 - Docker non-root user + enhanced `.dockerignore`
 
 ### Testing & CI (P2)
-- 157+ tests (up from 113): SQLiteCache, Jupiter, logging, CLI modules
+- 182+ tests (up from 157): config validation, retry utility, Jupiter caching, bot commands
 - `--cov-fail-under=70` in CI
 - `pip-audit` security audit step
 - Playwright E2E in frontend CI job

@@ -9,13 +9,13 @@ Uses ``httpx`` for async HTTP with retry + exponential backoff.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import Any, Optional
 
 import httpx
 
 from ..models import TokenMetadata, TokenSearchResult
+from ._retry import async_http_get
 
 logger = logging.getLogger(__name__)
 
@@ -134,37 +134,16 @@ class DexScreenerClient:
     async def _get(
         self, url: str, params: dict | None = None
     ) -> Optional[dict[str, Any]]:
-        """GET with retry + exponential backoff."""
+        """GET with retry + exponential backoff (delegates to shared util)."""
         client = await self._get_client()
-        for attempt in range(_MAX_RETRIES):
-            try:
-                resp = await client.get(url, params=params)
-                if resp.status_code == 429:
-                    wait = _BACKOFF_BASE * (2**attempt)
-                    logger.warning(
-                        "DexScreener rate-limited, retry in %.1fs", wait
-                    )
-                    await asyncio.sleep(wait)
-                    continue
-                resp.raise_for_status()
-                return resp.json()
-            except httpx.HTTPStatusError as exc:
-                logger.warning(
-                    "DexScreener HTTP %s for %s",
-                    exc.response.status_code,
-                    url,
-                )
-                if attempt < _MAX_RETRIES - 1:
-                    await asyncio.sleep(_BACKOFF_BASE * (2**attempt))
-                    continue
-                return None
-            except httpx.RequestError as exc:
-                logger.warning("DexScreener request failed: %s – %s", url, exc)
-                if attempt < _MAX_RETRIES - 1:
-                    await asyncio.sleep(_BACKOFF_BASE * (2**attempt))
-                    continue
-                return None
-        return None
+        return await async_http_get(
+            client,
+            url,
+            params=params,
+            max_retries=_MAX_RETRIES,
+            backoff_base=_BACKOFF_BASE,
+            label="DexScreener",
+        )
 
 
 def _safe_float(val: Any) -> Optional[float]:

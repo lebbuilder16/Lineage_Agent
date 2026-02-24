@@ -97,7 +97,7 @@ class TestCall:
         mock_client.is_closed = False
 
         rpc._client = mock_client
-        with patch("lineage_agent.data_sources.solana_rpc.asyncio.sleep", new_callable=AsyncMock):
+        with patch("lineage_agent.data_sources._retry.asyncio.sleep", new_callable=AsyncMock):
             result = await rpc._call("getBalance", ["x"])
         assert result == "ok"
         assert mock_client.post.call_count == 2
@@ -112,7 +112,7 @@ class TestCall:
         mock_client.is_closed = False
 
         rpc._client = mock_client
-        with patch("lineage_agent.data_sources.solana_rpc.asyncio.sleep", new_callable=AsyncMock):
+        with patch("lineage_agent.data_sources._retry.asyncio.sleep", new_callable=AsyncMock):
             result = await rpc._call("getBalance", ["x"])
         assert result is None
         assert mock_client.post.call_count == 3  # MAX_RETRIES

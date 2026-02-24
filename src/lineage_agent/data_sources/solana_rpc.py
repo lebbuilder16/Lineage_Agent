@@ -8,12 +8,13 @@ Uses ``httpx`` for async HTTP with retry + exponential backoff.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from datetime import datetime, timezone
 from typing import Any, Optional
 
 import httpx
+
+from ._retry import async_http_post_json
 
 logger = logging.getLogger(__name__)
 
@@ -125,7 +126,7 @@ class SolanaRpcClient:
     # ------------------------------------------------------------------
 
     async def _call(self, method: str, params: list[Any]) -> Any:
-        """JSON-RPC call with retry + exponential backoff."""
+        """JSON-RPC call with retry + exponential backoff (shared util)."""
         self._id_counter += 1
         payload = {
             "jsonrpc": "2.0",
@@ -134,51 +135,11 @@ class SolanaRpcClient:
             "params": params,
         }
         client = await self._get_client()
-
-        for attempt in range(_MAX_RETRIES):
-            try:
-                resp = await client.post(
-                    self._endpoint, json=payload
-                )
-                if resp.status_code == 429:
-                    wait = _BACKOFF_BASE * (2**attempt)
-                    logger.warning(
-                        "Solana RPC rate-limited (%s), retry in %.1fs",
-                        method,
-                        wait,
-                    )
-                    await asyncio.sleep(wait)
-                    continue
-                if resp.status_code == 403:
-                    logger.warning(
-                        "Solana RPC 403 for %s – public endpoint may block this method",
-                        method,
-                    )
-                    return None
-                resp.raise_for_status()
-                body = resp.json()
-                if "error" in body:
-                    logger.warning(
-                        "RPC error for %s: %s", method, body["error"]
-                    )
-                    return None
-                return body.get("result")
-            except httpx.HTTPStatusError as exc:
-                logger.warning(
-                    "Solana RPC HTTP %s (%s)",
-                    exc.response.status_code,
-                    method,
-                )
-                if attempt < _MAX_RETRIES - 1:
-                    await asyncio.sleep(_BACKOFF_BASE * (2**attempt))
-                    continue
-                return None
-            except httpx.RequestError as exc:
-                logger.warning(
-                    "Solana RPC request failed (%s): %s", method, exc
-                )
-                if attempt < _MAX_RETRIES - 1:
-                    await asyncio.sleep(_BACKOFF_BASE * (2**attempt))
-                    continue
-                return None
-        return None
+        return await async_http_post_json(
+            client,
+            self._endpoint,
+            json_payload=payload,
+            max_retries=_MAX_RETRIES,
+            backoff_base=_BACKOFF_BASE,
+            label=f"Solana RPC ({method})",
+        )

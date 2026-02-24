@@ -11,21 +11,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any, Optional
-
-import httpx
+from typing import Any, Awaitable, Callable, Optional
 
 from config import (
-    CACHE_BACKEND,
-    CACHE_SQLITE_PATH,
-    CACHE_TTL_SECONDS,
-    DEXSCREENER_BASE_URL,
     IMAGE_SIMILARITY_THRESHOLD,
     MAX_CONCURRENT_RPC,
     MAX_DERIVATIVES,
     NAME_SIMILARITY_THRESHOLD,
-    REQUEST_TIMEOUT,
-    SOLANA_RPC_ENDPOINT,
     SYMBOL_SIMILARITY_THRESHOLD,
     WEIGHT_DEPLOYER,
     WEIGHT_IMAGE,
@@ -33,9 +25,17 @@ from config import (
     WEIGHT_SYMBOL,
     WEIGHT_TEMPORAL,
 )
-from .cache import SQLiteCache, TTLCache
-from .data_sources.dexscreener import DexScreenerClient
-from .data_sources.jupiter import JupiterClient
+from .data_sources._clients import (
+    cache as _cache,
+    cache_get as _cache_get,
+    cache_set as _cache_set,
+    close_clients,
+    get_dex_client as _get_dex_client,
+    get_img_client as _get_img_client,
+    get_jup_client as _get_jup_client,
+    get_rpc_client as _get_rpc_client,
+    init_clients,
+)
 from .data_sources.solana_rpc import SolanaRpcClient
 from .models import (
     DerivativeInfo,
@@ -55,21 +55,6 @@ from .similarity import (
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Module-level singletons (created once, reused)
-# ---------------------------------------------------------------------------
-_dex_client: Optional[DexScreenerClient] = None
-_rpc_client: Optional[SolanaRpcClient] = None
-_jup_client: Optional[JupiterClient] = None
-_img_client: Optional[httpx.AsyncClient] = None
-
-# Cache: choose backend based on config
-_cache: TTLCache | SQLiteCache
-if CACHE_BACKEND == "sqlite":
-    _cache = SQLiteCache(db_path=CACHE_SQLITE_PATH, default_ttl=CACHE_TTL_SECONDS)
-else:
-    _cache = TTLCache(default_ttl=CACHE_TTL_SECONDS)
-
 _WEIGHTS = {
     "name": WEIGHT_NAME,
     "symbol": WEIGHT_SYMBOL,
@@ -79,88 +64,28 @@ _WEIGHTS = {
 }
 
 
-def _get_dex_client() -> DexScreenerClient:
-    global _dex_client
-    if _dex_client is None:
-        _dex_client = DexScreenerClient(
-            base_url=DEXSCREENER_BASE_URL, timeout=REQUEST_TIMEOUT
-        )
-    return _dex_client
-
-
-def _get_rpc_client() -> SolanaRpcClient:
-    global _rpc_client
-    if _rpc_client is None:
-        _rpc_client = SolanaRpcClient(
-            endpoint=SOLANA_RPC_ENDPOINT, timeout=REQUEST_TIMEOUT
-        )
-    return _rpc_client
-
-
-def _get_jup_client() -> JupiterClient:
-    global _jup_client
-    if _jup_client is None:
-        _jup_client = JupiterClient(timeout=REQUEST_TIMEOUT)
-    return _jup_client
-
-
-def _get_img_client() -> httpx.AsyncClient:
-    """Return a long-lived httpx client for image downloads."""
-    global _img_client
-    if _img_client is None or _img_client.is_closed:
-        _img_client = httpx.AsyncClient(timeout=REQUEST_TIMEOUT)
-    return _img_client
-
-
-async def init_clients() -> None:
-    """Eagerly create the singleton HTTP clients (called at startup)."""
-    _get_dex_client()
-    _get_rpc_client()
-    _get_jup_client()
-    _get_img_client()
-
-
-async def close_clients() -> None:
-    """Close singleton HTTP clients gracefully (called at shutdown)."""
-    global _dex_client, _rpc_client, _jup_client, _img_client
-    if _dex_client is not None:
-        await _dex_client.close()
-        _dex_client = None
-    if _rpc_client is not None:
-        await _rpc_client.close()
-        _rpc_client = None
-    if _jup_client is not None:
-        await _jup_client.close()
-        _jup_client = None
-    if _img_client is not None:
-        await _img_client.aclose()
-        _img_client = None
-
-
-# ---------------------------------------------------------------------------
-# Async-safe cache helpers (TTLCache is sync, SQLiteCache is async)
-# ---------------------------------------------------------------------------
-
-async def _cache_get(key: str) -> Any:
-    result = _cache.get(key)
-    if asyncio.iscoroutine(result):
-        return await result
-    return result
-
-
-async def _cache_set(key: str, value: Any) -> None:
-    result = _cache.set(key, value)
-    if asyncio.iscoroutine(result):
-        await result
-
-
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
 
-async def detect_lineage(mint_address: str) -> LineageResult:
+ProgressCallback = Optional[Callable[[str, int], Awaitable[None]]]
+
+
+async def detect_lineage(
+    mint_address: str,
+    *,
+    progress_cb: ProgressCallback = None,
+) -> LineageResult:
     """Detect the lineage of a Solana token identified by *mint_address*.
+
+    Parameters
+    ----------
+    mint_address:
+        Solana token mint address to analyse.
+    progress_cb:
+        Optional async callback ``(step_description, percent) -> None`` for
+        streaming progress updates (used by the WebSocket endpoint).
 
     Steps
     -----
@@ -173,6 +98,13 @@ async def detect_lineage(mint_address: str) -> LineageResult:
     7. Return a ``LineageResult`` with evidence.
     """
 
+    async def _progress(step: str, pct: int) -> None:
+        if progress_cb:
+            try:
+                await progress_cb(step, pct)
+            except Exception:
+                pass  # never let progress reporting break analysis
+
     # Check cache first
     cached = await _cache_get(f"lineage:{mint_address}")
     if cached is not None:
@@ -184,11 +116,13 @@ async def detect_lineage(mint_address: str) -> LineageResult:
     img_client = _get_img_client()
 
     # --- Step 1: Fetch metadata for the query token ---
+    await _progress("Fetching token metadata", 10)
     logger.info("Fetching metadata for %s ...", mint_address)
     pairs = await dex.get_token_pairs(mint_address)
     query_meta = dex.pairs_to_metadata(mint_address, pairs)
 
     # Enrich with on-chain deployer + creation time (cached per mint)
+    await _progress("Resolving deployer & timestamp", 25)
     deployer, created_at = await _get_deployer_cached(rpc, mint_address)
     query_meta.deployer = deployer
     query_meta.created_at = created_at
@@ -214,6 +148,7 @@ async def detect_lineage(mint_address: str) -> LineageResult:
         return result
 
     # --- Step 2: Search for similar tokens ---
+    await _progress("Searching for similar tokens", 40)
     search_query = query_meta.name or query_meta.symbol
     logger.info("Searching for tokens similar to '%s' ...", search_query)
     search_pairs = await dex.search_tokens(search_query)
@@ -251,8 +186,11 @@ async def detect_lineage(mint_address: str) -> LineageResult:
             continue
         pre_filtered.append((candidate, name_sim, sym_sim))
 
+    await _progress(f"Scoring {len(pre_filtered)} candidates", 60)
+
     # Enrich all pre-filtered candidates concurrently (bounded)
     sem = asyncio.Semaphore(MAX_CONCURRENT_RPC)
+    img_sem = asyncio.Semaphore(5)  # limit concurrent image downloads
 
     async def _enrich(
         candidate: TokenSearchResult, name_sim: float, sym_sim: float
@@ -262,11 +200,12 @@ async def detect_lineage(mint_address: str) -> LineageResult:
                 rpc, candidate.mint
             )
 
-        # Image similarity — use the shared long-lived httpx client
-        img_sim = await compute_image_similarity(
-            query_meta.image_uri, candidate.image_uri,
-            client=img_client,
-        )
+        # Image similarity — bounded concurrency for downloads
+        async with img_sem:
+            img_sim = await compute_image_similarity(
+                query_meta.image_uri, candidate.image_uri,
+                client=img_client,
+            )
 
         # Post-filter: skip candidates with very low image similarity
         # when both images were available
@@ -322,6 +261,7 @@ async def detect_lineage(mint_address: str) -> LineageResult:
             logger.warning("Candidate enrichment failed: %s", r)
 
     # --- Step 5: Select root ---
+    await _progress("Selecting root token", 85)
     all_tokens = [
         _ScoredCandidate(
             mint=query_meta.mint,
@@ -383,6 +323,7 @@ async def detect_lineage(mint_address: str) -> LineageResult:
         family_size=1 + len(derivatives),
     )
 
+    await _progress("Analysis complete", 100)
     await _cache_set(f"lineage:{mint_address}", result)
     return result
 
@@ -412,9 +353,7 @@ async def _get_deployer_cached(
     deployer, created_at = await rpc.get_deployer_and_timestamp(mint)
     result = (deployer, created_at)
     # Long TTL: deployer/timestamp are immutable on-chain
-    r = _cache.set(cache_key, result, ttl=86400)
-    if asyncio.iscoroutine(r):
-        await r
+    await _cache_set(cache_key, result, ttl=86400)
     return result
 
 

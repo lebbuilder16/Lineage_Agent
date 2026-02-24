@@ -136,6 +136,40 @@ async function fetchJSON<T>(
   throw new ApiError(429, "Rate limited – please wait a moment and try again.");
 }
 
+async function fetchJSONPost<T>(
+  path: string,
+  body: unknown,
+  timeoutMs: number = DEFAULT_TIMEOUT_MS,
+): Promise<T> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(`${API_BASE}${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      let detail = `HTTP ${res.status}`;
+      try {
+        const b = await res.json();
+        if (b?.detail) detail = b.detail;
+      } catch { /* */ }
+      throw new ApiError(res.status, detail);
+    }
+    return await res.json();
+  } catch (err) {
+    if (err instanceof ApiError) throw err;
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new ApiError(0, "Request timed out");
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /* ---------- Endpoints ----------------------------------------------- */
 
 export function fetchLineage(mint: string): Promise<LineageResult> {
@@ -146,4 +180,72 @@ export function searchTokens(query: string): Promise<TokenSearchResult[]> {
   return fetchJSON<TokenSearchResult[]>(
     `/search?q=${encodeURIComponent(query)}`,
   );
+}
+
+/* ---------- WebSocket lineage with progress ------------------------- */
+
+export interface ProgressEvent {
+  step: string;
+  progress: number;
+}
+
+/**
+ * Fetch lineage via the WebSocket endpoint, streaming progress events.
+ *
+ * Protocol:
+ *  1. connect to ws://.../ws/lineage
+ *  2. send { mint }
+ *  3. receive { step, progress } events  →  onProgress callback
+ *  4. receive { done: true, result } or { done: true, error }
+ */
+export function fetchLineageWithProgress(
+  mint: string,
+  onProgress: (event: ProgressEvent) => void,
+): Promise<LineageResult> {
+  return new Promise((resolve, reject) => {
+    const wsBase = API_BASE.replace(/^http/, "ws");
+    const ws = new WebSocket(`${wsBase}/ws/lineage`);
+
+    ws.onopen = () => {
+      ws.send(JSON.stringify({ mint }));
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data);
+        if (msg.done) {
+          if (msg.error) {
+            reject(new ApiError(500, msg.error));
+          } else {
+            resolve(msg.result as LineageResult);
+          }
+          ws.close();
+        } else if (msg.step !== undefined) {
+          onProgress({ step: msg.step, progress: msg.progress ?? 0 });
+        }
+      } catch {
+        // Ignore parse errors on individual messages
+      }
+    };
+
+    ws.onerror = () => {
+      reject(new ApiError(0, "WebSocket connection failed"));
+    };
+
+    ws.onclose = (event) => {
+      if (!event.wasClean && event.code !== 1000) {
+        reject(new ApiError(0, "WebSocket closed unexpectedly"));
+      }
+    };
+  });
+}
+
+/* ---------- Batch endpoint ------------------------------------------ */
+
+export function fetchLineageBatch(
+  mints: string[],
+): Promise<Record<string, LineageResult>> {
+  return fetchJSONPost<Record<string, LineageResult>>("/lineage/batch", {
+    mints,
+  });
 }

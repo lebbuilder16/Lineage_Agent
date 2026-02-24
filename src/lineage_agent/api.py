@@ -88,7 +88,7 @@ async def lifespan(application: FastAPI):
 app = FastAPI(
     title="Meme Lineage Agent API",
     description="Detect memecoin lineage on Solana - find the root token and its clones.",
-    version="3.0.0",
+    version="3.1.0",
     lifespan=lifespan,
 )
 
@@ -232,13 +232,10 @@ async def ws_lineage(websocket: WebSocket):
         # Send progress steps while running detect_lineage
         await websocket.send_json({"step": "Starting analysis", "progress": 0})
 
-        async def _run_with_progress() -> LineageResult:
-            await websocket.send_json({"step": "Fetching token metadata", "progress": 20})
-            result = await detect_lineage(mint)
-            await websocket.send_json({"step": "Analysis complete", "progress": 100})
-            return result
+        async def _ws_progress(step: str, pct: int) -> None:
+            await websocket.send_json({"step": step, "progress": pct})
 
-        result = await _run_with_progress()
+        result = await detect_lineage(mint, progress_cb=_ws_progress)
         await websocket.send_json({"done": True, "result": result.model_dump()})
 
     except WebSocketDisconnect:

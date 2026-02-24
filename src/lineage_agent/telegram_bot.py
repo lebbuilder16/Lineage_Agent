@@ -22,11 +22,6 @@ from .lineage_detector import detect_lineage, search_tokens
 # Base58 validation regex (same as in api.py)
 _BASE58_RE = re.compile(r"^[1-9A-HJ-NP-Za-km-z]{32,44}$")
 
-# Configure logging
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=logging.INFO,
-)
 logger = logging.getLogger(__name__)
 
 
@@ -190,6 +185,11 @@ async def search_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
 def main() -> None:
     """Start the Telegram bot and run it until interrupted."""
+    logging.basicConfig(
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        level=logging.INFO,
+    )
+
     if TELEGRAM_BOT_TOKEN.startswith("<"):
         raise RuntimeError(
             "Please set your TELEGRAM_BOT_TOKEN in config.py or as an environment variable"

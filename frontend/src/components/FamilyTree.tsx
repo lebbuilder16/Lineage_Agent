@@ -22,6 +22,23 @@ export function FamilyTree({ data }: Props) {
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
 
+      // Read theme-aware CSS variables
+      const style = getComputedStyle(document.documentElement);
+      const accentColor = style.getPropertyValue("--accent").trim() || "#33a6ff";
+      const fgColor = style.getPropertyValue("--foreground").trim() || "#e2e8f0";
+      const mutedColor = style.getPropertyValue("--muted").trim() || "#94a3b8";
+      const borderColor = style.getPropertyValue("--border").trim() || "#334155";
+      const bgColor = style.getPropertyValue("--background").trim() || "#0f172a";
+      const isDark = document.documentElement.classList.contains("dark");
+
+      // Helper to convert hex to rgba
+      const hexToRgba = (hex: string, alpha: number) => {
+        const r = parseInt(hex.slice(1, 3), 16);
+        const g = parseInt(hex.slice(3, 5), 16);
+        const b = parseInt(hex.slice(5, 7), 16);
+        return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+      };
+
       const dpr = window.devicePixelRatio || 1;
       const rect = canvas.getBoundingClientRect();
       canvas.width = rect.width * dpr;
@@ -89,7 +106,7 @@ export function FamilyTree({ data }: Props) {
       // Curved line
       const cpY = (rootY + rootR + n.y - n.r) / 2;
       ctx.quadraticCurveTo(rootX, cpY, n.x, n.y - n.r);
-      ctx.strokeStyle = `rgba(51, 166, 255, ${alpha})`;
+      ctx.strokeStyle = hexToRgba(accentColor, alpha);
       ctx.lineWidth = width;
       ctx.stroke();
     }
@@ -99,7 +116,7 @@ export function FamilyTree({ data }: Props) {
       // Shadow
       ctx.beginPath();
       ctx.arc(n.x, n.y, n.r + 2, 0, Math.PI * 2);
-      ctx.fillStyle = "rgba(0, 0, 0, 0.3)";
+      ctx.fillStyle = isDark ? "rgba(0, 0, 0, 0.3)" : "rgba(0, 0, 0, 0.08)";
       ctx.fill();
 
       // Node circle
@@ -107,17 +124,19 @@ export function FamilyTree({ data }: Props) {
       ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2);
       if (n.isRoot) {
         const grad = ctx.createRadialGradient(n.x, n.y, 0, n.x, n.y, n.r);
-        grad.addColorStop(0, "#5bbfff");
-        grad.addColorStop(1, "#1b87f5");
+        grad.addColorStop(0, accentColor);
+        grad.addColorStop(1, hexToRgba(accentColor, 0.7));
         ctx.fillStyle = grad;
       } else {
         const g = Math.round(n.score * 100 + 60);
-        ctx.fillStyle = `rgb(${60}, ${g}, ${Math.min(g + 40, 200)})`;
+        ctx.fillStyle = isDark
+          ? `rgb(${60}, ${g}, ${Math.min(g + 40, 200)})`
+          : `rgb(${Math.max(60, 100 - g)}, ${Math.min(g + 60, 180)}, ${Math.min(g + 80, 220)})`;
       }
       ctx.fill();
 
       // Border
-      ctx.strokeStyle = n.isRoot ? "#fff" : "rgba(255,255,255,0.2)";
+      ctx.strokeStyle = n.isRoot ? fgColor : hexToRgba(mutedColor, 0.4);
       ctx.lineWidth = n.isRoot ? 2 : 1;
       ctx.stroke();
 
@@ -132,7 +151,7 @@ export function FamilyTree({ data }: Props) {
       ctx.font = `${n.isRoot ? "bold 11px" : "10px"} Inter, sans-serif`;
       ctx.textAlign = "center";
       ctx.textBaseline = "top";
-      ctx.fillStyle = "#e2e8f0";
+      ctx.fillStyle = fgColor;
       ctx.fillText(n.label, n.x, n.y + n.r + 4);
 
       // Score badge for derivatives
@@ -181,10 +200,10 @@ export function FamilyTree({ data }: Props) {
       </div>
       <div className="mt-2 flex items-center justify-center gap-4 text-xs text-[var(--muted)]">
         <span className="flex items-center gap-1">
-          <span className="inline-block w-3 h-3 rounded-full bg-[#33a6ff]" /> Root
+          <span className="inline-block w-3 h-3 rounded-full bg-[var(--accent)]" /> Root
         </span>
         <span className="flex items-center gap-1">
-          <span className="inline-block w-3 h-3 rounded-full bg-[#475569]" /> Derivative
+          <span className="inline-block w-3 h-3 rounded-full bg-[var(--muted)]" /> Derivative
         </span>
         <span>Line thickness = similarity score</span>
       </div>

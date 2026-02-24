@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from unittest.mock import AsyncMock, patch, MagicMock
 
 import httpx
@@ -127,3 +128,47 @@ class TestClientLifecycle:
         with patch.object(c, "_get", new_callable=AsyncMock, return_value=None):
             await c.get_verified_tokens()
         await c.close()
+
+
+class TestTokenListCache:
+    """Tests for the verified token list TTL cache."""
+
+    @pytest.mark.asyncio
+    async def test_cached_on_second_call(self, client):
+        tokens = [{"address": "A", "name": "Alpha", "symbol": "ALP"}]
+        mock_get = AsyncMock(return_value=tokens)
+        with patch.object(client, "_get", mock_get):
+            first = await client.get_verified_tokens()
+            second = await client.get_verified_tokens()
+        # _get should only be called once — second call uses cache
+        assert mock_get.call_count == 1
+        assert first == second == tokens
+
+    @pytest.mark.asyncio
+    async def test_cache_expires(self, client):
+        tokens_old = [{"address": "A", "name": "Old", "symbol": "OLD"}]
+        tokens_new = [{"address": "B", "name": "New", "symbol": "NEW"}]
+        mock_get = AsyncMock(side_effect=[tokens_old, tokens_new])
+
+        with patch.object(client, "_get", mock_get):
+            first = await client.get_verified_tokens()
+            assert first == tokens_old
+
+            # Simulate expiry by backdating the timestamp
+            client._verified_tokens_ts = time.monotonic() - 600
+            second = await client.get_verified_tokens()
+            assert second == tokens_new
+            assert mock_get.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_cache_returns_stale_on_failure(self, client):
+        tokens = [{"address": "A", "name": "Alpha", "symbol": "ALP"}]
+        # First call succeeds
+        with patch.object(client, "_get", AsyncMock(return_value=tokens)):
+            await client.get_verified_tokens()
+        # Expire and fail
+        client._verified_tokens_ts = time.monotonic() - 600
+        with patch.object(client, "_get", AsyncMock(return_value=None)):
+            result = await client.get_verified_tokens()
+        # Should return stale data
+        assert result == tokens

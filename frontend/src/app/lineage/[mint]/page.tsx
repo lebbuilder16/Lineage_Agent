@@ -1,10 +1,10 @@
 "use client";
 
 import { useParams } from "next/navigation";
-import { useQuery } from "@tanstack/react-query";
 import { useEffect } from "react";
 import Link from "next/link";
-import { fetchLineage, ApiError } from "@/lib/api";
+import { ApiError } from "@/lib/api";
+import { useLineageWS } from "@/lib/useLineageWS";
 import { LineageCard } from "@/components/LineageCard";
 import { TokenInfo } from "@/components/TokenInfo";
 import { EvidencePanel } from "@/components/EvidencePanel";
@@ -15,11 +15,12 @@ export default function LineagePage() {
   const params = useParams<{ mint: string }>();
   const mint = params.mint;
 
-  const { data, isLoading, error } = useQuery({
-    queryKey: ["lineage", mint],
-    queryFn: () => fetchLineage(mint),
-    enabled: !!mint,
-  });
+  const { data, isLoading, error, progress, analyze } = useLineageWS();
+
+  // Start analysis when mint changes
+  useEffect(() => {
+    if (mint) analyze(mint);
+  }, [mint, analyze]);
 
   useEffect(() => {
     const name = data?.root?.name || data?.query_token?.name;
@@ -33,9 +34,21 @@ export default function LineagePage() {
       <SearchBar />
 
       {isLoading && (
-        <div className="flex flex-col items-center gap-3 py-20 animate-pulse">
+        <div className="flex flex-col items-center gap-3 py-20">
           <div className="h-10 w-10 rounded-full border-4 border-[var(--accent)] border-t-transparent animate-spin" />
-          <p className="text-[var(--muted)]">Analyzing lineage…</p>
+          {progress && (
+            <div className="w-64 space-y-1">
+              <div className="h-2 rounded-full bg-[var(--border)] overflow-hidden">
+                <div
+                  className="h-full bg-[var(--accent)] transition-all duration-300 ease-out rounded-full"
+                  style={{ width: `${progress.progress}%` }}
+                />
+              </div>
+              <p className="text-xs text-center text-[var(--muted)]">
+                {progress.step}
+              </p>
+            </div>
+          )}
         </div>
       )}
 
@@ -46,7 +59,7 @@ export default function LineagePage() {
             {error instanceof ApiError ? error.detail : (error as Error).message}
           </p>
           <button
-            onClick={() => window.location.reload()}
+            onClick={() => mint && analyze(mint)}
             className="mt-3 rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-white hover:brightness-110 transition-all"
           >
             Retry
