@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useRef } from "react";
-import { motion, useSpring, useTransform } from "framer-motion";
+import { useEffect, useRef as _useRef } from "react";
+import { motion, useSpring, useTransform, animate } from "framer-motion";
 import { cn } from "@/lib/utils";
+import { useRef, useState } from "react";
 
 interface Props {
   value: number; // 0-100
@@ -26,17 +27,26 @@ export function RadialGauge({ value, level, size = 108 }: Props) {
   const R = (size / 2) * 0.72;
   const cx = size / 2;
   const cy = size / 2;
-  const startAngle = -215; // degrees from top
+  const startAngle = -215;
   const endAngle = 35;
-  const totalArc = endAngle - startAngle; // 250 degrees
+  const totalArc = endAngle - startAngle;
 
   const circumference = (totalArc / 360) * 2 * Math.PI * R;
 
   const spring = useSpring(0, { stiffness: 100, damping: 30 });
   const dashOffset = useTransform(spring, (v) => circumference - (v / 100) * circumference);
 
+  // Animated display number
+  const [displayValue, setDisplayValue] = useState(0);
+
   useEffect(() => {
     spring.set(value);
+    const controls = animate(0, value, {
+      duration: 0.8,
+      ease: "easeOut",
+      onUpdate: (v) => setDisplayValue(Math.round(v)),
+    });
+    return controls.stop;
   }, [value, spring]);
 
   const polarToCartesian = (angle: number) => {
@@ -60,8 +70,16 @@ export function RadialGauge({ value, level, size = 108 }: Props) {
   const strokeDasharray = `${circumference} ${circumference}`;
 
   return (
-    <div className="relative flex items-center justify-center" style={{ width: size, height: size }}>
-      <svg width={size} height={size} className="overflow-visible -rotate-[0deg]">
+    <div
+      className="relative flex items-center justify-center"
+      style={{ width: size, height: size }}
+      role="meter"
+      aria-valuenow={value}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-label={`Confidence score: ${value}%`}
+    >
+      <svg width={size} height={size} className="overflow-visible" aria-hidden="true">
         {/* Track (background) */}
         <path
           d={trackPath}
@@ -70,7 +88,7 @@ export function RadialGauge({ value, level, size = 108 }: Props) {
           strokeWidth={size * 0.07}
           strokeLinecap="round"
         />
-        {/* Active arc */}
+        {/* Active arc — strokeDasharray/strokeDashoffset only, no pathLength conflict */}
         <motion.path
           d={trackPath}
           fill="none"
@@ -78,16 +96,14 @@ export function RadialGauge({ value, level, size = 108 }: Props) {
           strokeWidth={size * 0.07}
           strokeLinecap="round"
           strokeDasharray={strokeDasharray}
-          style={{ strokeDashoffset: dashOffset, pathLength: 1 }}
+          style={{ strokeDashoffset: dashOffset }}
         />
       </svg>
       {/* Center label */}
       <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <motion.span
-          className={cn("text-2xl font-bold tabular-nums leading-none", levelTextColors[level])}
-        >
-          {value}
-        </motion.span>
+        <span className={cn("text-2xl font-bold tabular-nums leading-none", levelTextColors[level])}>
+          {displayValue}
+        </span>
         <span className="text-[10px] text-muted-foreground font-medium mt-0.5">%</span>
       </div>
     </div>

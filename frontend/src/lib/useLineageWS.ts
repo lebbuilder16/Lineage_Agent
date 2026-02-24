@@ -6,7 +6,6 @@ import {
   fetchLineage,
   type LineageResult,
   type ProgressEvent,
-  type ApiError,
 } from "./api";
 
 export interface UseLineageWSReturn {

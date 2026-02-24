@@ -2,6 +2,7 @@
 
 import type { SimilarityEvidence } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { motion } from "framer-motion";
 
 interface Props {
   evidence: SimilarityEvidence;
@@ -44,7 +45,7 @@ export function EvidencePanel({ evidence, name }: Props) {
       )}
 
       <div className="space-y-2.5">
-        {bars.map((b) => {
+        {bars.map((b, i) => {
           const level = scoreLevel(b.value);
           const pct = Math.round(b.value * 100);
           return (
@@ -53,12 +54,11 @@ export function EvidencePanel({ evidence, name }: Props) {
                 {b.label}
               </span>
               <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
-                <div
-                  className={cn(
-                    "h-full rounded-full transition-all duration-500 ease-out",
-                    barBg[level]
-                  )}
-                  style={{ width: `${pct}%` }}
+                <motion.div
+                  className={cn("h-full rounded-full", barBg[level])}
+                  initial={{ width: 0 }}
+                  animate={{ width: `${pct}%` }}
+                  transition={{ duration: 0.5, delay: i * 0.06, ease: "easeOut" }}
                 />
               </div>
               <span className="w-10 text-right font-mono text-xs tabular-nums">

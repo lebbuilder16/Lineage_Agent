@@ -2,7 +2,7 @@
 
 export function SkeletonTokenInfo() {
   return (
-    <div className="flex items-start gap-4 rounded-lg border border-border bg-card p-5">
+    <div className="flex items-start gap-4 rounded-2xl border border-border bg-card p-5">
       <div className="h-12 w-12 rounded-full skeleton shrink-0" />
       <div className="flex-1 space-y-2">
         <div className="h-4 w-32 rounded skeleton" />

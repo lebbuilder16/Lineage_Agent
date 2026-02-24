@@ -12,7 +12,7 @@ export function SkeletonDerivativeList({ count = 3 }: { count?: number }) {
       {[...Array(count)].map((_, i) => (
         <div key={i} className="grid md:grid-cols-2 gap-3">
           {/* Derivative card */}
-          <div className="rounded-lg border border-border bg-card p-4 space-y-2">
+          <div className="rounded-2xl border border-border bg-card p-4 space-y-2">
             <div className="flex items-center justify-between gap-2">
               <div className="h-4 w-28 rounded skeleton" />
               <div className="h-4 w-4 rounded skeleton" />
@@ -24,7 +24,7 @@ export function SkeletonDerivativeList({ count = 3 }: { count?: number }) {
             </div>
           </div>
           {/* Evidence panel */}
-          <div className="rounded-lg border border-border bg-card p-5 space-y-2.5">
+          <div className="rounded-2xl border border-border bg-card p-5 space-y-2.5">
             {[...Array(5)].map((_, j) => (
               <div key={j} className="flex items-center gap-3">
                 <div className="h-3 w-16 rounded skeleton" />

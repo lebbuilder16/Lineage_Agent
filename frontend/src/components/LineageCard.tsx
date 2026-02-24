@@ -18,8 +18,6 @@ export function LineageCard({ data }: Props) {
     : data.confidence >= 0.4 ? "medium"
     : "low";
 
-  const levelColors = { high: "text-success", medium: "text-warning", low: "text-destructive" };
-
   return (
     <div className="rounded-2xl border border-white/5 bg-card p-6 animate-fade-in hover:border-neon/20 transition-all">
       <div className="flex items-center gap-2 mb-5">

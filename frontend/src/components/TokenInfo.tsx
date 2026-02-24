@@ -10,6 +10,18 @@ interface Props {
   isRoot?: boolean;
 }
 
+/** Format small/large prices with appropriate decimal precision */
+function formatPrice(price: number): string {
+  if (price === 0) return "$0";
+  if (price >= 1) return `$${price.toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
+  if (price >= 0.01) return `$${price.toFixed(4)}`;
+  if (price >= 0.0001) return `$${price.toFixed(6)}`;
+  // Very small numbers: use scientific-style notation
+  const exp = Math.floor(Math.log10(Math.abs(price)));
+  const decimals = Math.abs(exp) + 2;
+  return `$${price.toFixed(Math.min(decimals, 10))}`;
+}
+
 export function TokenInfo({ token, isRoot = false }: Props) {
   const fmt = (n: number | null) =>
     n != null
@@ -23,23 +35,25 @@ export function TokenInfo({ token, isRoot = false }: Props) {
         isRoot ? "border-neon/30 shadow-[0_0_20px_rgba(57,255,20,0.08)]" : "border-white/5 hover:border-white/10"
       )}
     >
-      {/* Avatar */}
-      <div className="relative h-12 w-12 flex-shrink-0 rounded-full overflow-hidden bg-muted">
-        {token.image_uri ? (
-          <Image
-            src={token.image_uri}
-            alt={token.name}
-            fill
-            className="object-cover"
-            unoptimized
-          />
-        ) : (
-          <div className="flex h-full w-full items-center justify-center text-lg text-muted-foreground">
-            ?
-          </div>
-        )}
+      {/* Avatar — wrapper is relative but NOT overflow-hidden so the crown badge isn't clipped */}
+      <div className="relative h-12 w-12 flex-shrink-0">
+        <div className="h-12 w-12 rounded-full overflow-hidden bg-muted">
+          {token.image_uri ? (
+            <Image
+              src={token.image_uri}
+              alt={token.name || "Token logo"}
+              fill
+              className="object-cover"
+              unoptimized
+            />
+          ) : (
+            <div className="flex h-full w-full items-center justify-center text-lg text-muted-foreground">
+              ?
+            </div>
+          )}
+        </div>
         {isRoot && (
-          <div className="absolute -top-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-neon">
+          <div className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-neon shadow-md">
             <Crown className="h-2.5 w-2.5 text-black" />
           </div>
         )}
@@ -66,7 +80,7 @@ export function TokenInfo({ token, isRoot = false }: Props) {
           <StatBadge
             label="Price"
             value={
-              token.price_usd != null ? `$${token.price_usd}` : "—"
+              token.price_usd != null ? formatPrice(token.price_usd) : "—"
             }
           />
           {token.deployer && (

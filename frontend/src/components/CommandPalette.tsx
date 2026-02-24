@@ -41,10 +41,13 @@ export function CommandPalette() {
   // Open on ⌘K / Ctrl+K
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
+      // Guard: don't hijack typing "/" in inputs or textareas
+      if (e.key === "/" && (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement)) return;
       if ((e.key === "k" && (e.metaKey || e.ctrlKey)) || e.key === "/") {
         e.preventDefault();
         setOpen((o) => !o);
       }
+      if (e.key === "Escape") setOpen(false);
     };
     document.addEventListener("keydown", down);
     return () => document.removeEventListener("keydown", down);
@@ -80,6 +83,9 @@ export function CommandPalette() {
   return (
     <div
       className="fixed inset-0 z-[100] flex items-start justify-center pt-[15vh] px-4"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Command palette"
       onClick={() => setOpen(false)}
     >
       {/* Backdrop */}
@@ -109,7 +115,7 @@ export function CommandPalette() {
                 <X className="h-3.5 w-3.5" />
               </button>
             )}
-            <kbd className="hidden sm:inline-flex h-5 select-none items-center gap-1 rounded border border-border bg-muted px-1.5 font-mono text-[10px] text-muted-foreground ml-1">
+            <kbd className="hidden sm:inline-flex h-5 select-none items-center gap-1 rounded border border-white/10 bg-white/5 px-1.5 font-mono text-[10px] text-white/40 ml-1">
               ESC
             </kbd>
           </div>

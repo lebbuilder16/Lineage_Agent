@@ -2,7 +2,7 @@
 
 export function SkeletonLineageCard() {
   return (
-    <div className="rounded-lg border border-border bg-card p-6">
+    <div className="rounded-2xl border border-border bg-card p-6">
       <div className="flex items-center gap-2 mb-5">
         <div className="h-7 w-7 rounded-md skeleton" />
         <div className="h-5 w-36 rounded skeleton" />

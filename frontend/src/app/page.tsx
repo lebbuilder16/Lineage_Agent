@@ -16,10 +16,10 @@ const fadeUp = (delay = 0) => ({
 
 export default function HomePage() {
   return (
-    <div className="min-h-screen -mt-24 overflow-x-hidden">
+    <div className="min-h-[calc(100svh-5rem)] overflow-x-hidden">
 
       {/* ── 1. Hero ─────────────────────────────────────────────── */}
-      <section className="relative flex flex-col items-center justify-center min-h-screen px-4 text-center pt-32 pb-24">
+      <section className="relative flex flex-col items-center justify-center min-h-[calc(100svh-5rem)] px-4 text-center pt-32 pb-24">
         <div
           className="pointer-events-none absolute inset-0 -z-10"
           style={{ background: "radial-gradient(ellipse 60% 50% at 50% 0%, rgba(57,255,20,0.1) 0%, transparent 70%)" }}
@@ -198,14 +198,14 @@ export default function HomePage() {
                     <div className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-neon transition-colors group-hover:bg-neon/10 group-hover:border-neon/30">
                       {f.icon}
                     </div>
-                    <span className="font-display font-bold text-4xl text-white/5 group-hover:text-white/8 transition-colors">
+                    <span className="font-display font-bold text-4xl text-white/[0.05] group-hover:text-white/[0.08] transition-colors">
                       {f.tag}
                     </span>
                   </div>
                   <h3 className="display-heading font-bold text-base text-white mb-2 uppercase tracking-wide">
                     {f.title}
                   </h3>
-                  <p className="text-white/40 text-sm leading-relaxed" dangerouslySetInnerHTML={{ __html: f.description }} />
+                  <p className="text-white/40 text-sm leading-relaxed">{f.description.replace(/&apos;/g, "'")}</p>
                 </div>
               </motion.div>
             ))}
@@ -319,7 +319,7 @@ export default function HomePage() {
                 <h3 className="display-heading font-bold text-sm text-white uppercase tracking-widest mb-2">
                   {r.title}
                 </h3>
-                <p className="text-white/40 text-xs leading-relaxed" dangerouslySetInnerHTML={{ __html: r.description }} />
+                <p className="text-white/40 text-xs leading-relaxed">{r.description.replace(/&apos;/g, "'")}</p>
               </motion.div>
             ))}
           </div>
@@ -394,16 +394,16 @@ export default function HomePage() {
             </div>
             <div className="flex flex-wrap gap-6 justify-center">
               {[
-                { label: "Home", href: "/" },
-                { label: "Search", href: "/search" },
-                { label: "About", href: "/#about" },
-                { label: "Signals", href: "/#signals" },
-                { label: "FAQ", href: "/#faq" },
-                { label: "GitHub", href: "https://github.com/lebbuilder16/Lineage_Agent" },
+                { label: "Home", href: "/", internal: true },
+                { label: "Search", href: "/search", internal: true },
+                { label: "About", href: "/#about", internal: true },
+                { label: "Signals", href: "/#signals", internal: true },
+                { label: "FAQ", href: "/#faq", internal: true },
+                { label: "GitHub", href: "https://github.com/lebbuilder16/Lineage_Agent", internal: false },
               ].map((l) => (
-                <a key={l.label} href={l.href} className="text-white/40 hover:text-white text-sm transition-colors">
-                  {l.label}
-                </a>
+                l.internal
+                  ? <Link key={l.label} href={l.href} className="text-white/40 hover:text-white text-sm transition-colors">{l.label}</Link>
+                  : <a key={l.label} href={l.href} target="_blank" rel="noopener noreferrer" className="text-white/40 hover:text-white text-sm transition-colors">{l.label}</a>
               ))}
             </div>
             <Link

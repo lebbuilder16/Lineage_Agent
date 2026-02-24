@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Share2, Copy, Check, Twitter } from "lucide-react";
+import { Share2, Copy, Check, ExternalLink } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { LineageResult } from "@/lib/api";
 
@@ -33,11 +33,13 @@ export function ShareButton({ data }: Props) {
     <div className="relative">
       <button
         onClick={() => setOpen((o) => !o)}
+        aria-haspopup="menu"
+        aria-expanded={open}
         className={cn(
-          "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium",
-          "border border-border bg-background text-muted-foreground",
-          "hover:text-foreground hover:bg-accent transition-colors",
-          open && "bg-accent text-foreground"
+          "inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-sm font-medium",
+          "border border-white/10 bg-background text-muted-foreground",
+          "hover:text-foreground hover:bg-white/5 transition-colors",
+          open && "bg-white/5 text-foreground"
         )}
         aria-label="Share"
       >
@@ -47,30 +49,36 @@ export function ShareButton({ data }: Props) {
 
       {open && (
         <>
-          {/* Backdrop */}
-          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          {/* Backdrop — above nav to properly intercept clicks */}
+          <div className="fixed inset-0 z-[55]" onClick={() => setOpen(false)} />
           {/* Dropdown */}
-          <div className="absolute right-0 top-10 z-50 w-52 rounded-lg border border-border bg-popover shadow-lg animate-fade-in-scale overflow-hidden">
+          <div
+            className="absolute right-0 top-10 z-[56] w-52 rounded-xl border border-white/10 bg-[#0f0f0f] shadow-2xl animate-fade-in-scale overflow-hidden"
+            role="menu"
+            aria-label="Share options"
+          >
             <button
               onClick={copyLink}
-              className="flex w-full items-center gap-3 px-3 py-2.5 text-sm hover:bg-accent transition-colors text-left"
+              role="menuitem"
+              className="flex w-full items-center gap-3 px-3 py-2.5 text-sm hover:bg-white/5 transition-colors text-left"
             >
               {copied ? (
-                <Check className="h-4 w-4 text-success" />
+                <Check className="h-4 w-4 text-neon" />
               ) : (
                 <Copy className="h-4 w-4 text-muted-foreground" />
               )}
               <span>{copied ? "Copied!" : "Copy link"}</span>
             </button>
-            <div className="border-t border-border" />
+            <div className="border-t border-white/5" />
             <a
               href={tweetUrl}
               target="_blank"
               rel="noopener noreferrer"
+              role="menuitem"
               onClick={() => setOpen(false)}
-              className="flex items-center gap-3 px-3 py-2.5 text-sm hover:bg-accent transition-colors"
+              className="flex items-center gap-3 px-3 py-2.5 text-sm hover:bg-white/5 transition-colors"
             >
-              <Twitter className="h-4 w-4 text-muted-foreground" />
+              <ExternalLink className="h-4 w-4 text-muted-foreground" />
               <span>Share on X</span>
             </a>
           </div>

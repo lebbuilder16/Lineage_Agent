@@ -67,8 +67,8 @@ module.exports = {
       animation: {
         "marquee-left": "marquee-left 28s linear infinite",
         "marquee-right": "marquee-right 32s linear infinite",
-        "glow-pulse": "glow-pulse 3s ease-in-out infinite",
         "fade-in": "fade-in 0.4s ease-out both",
+        "fade-in-scale": "fade-in-scale 0.35s ease-out both",
         "slide-up": "slide-up 0.5s ease-out both",
       },
       keyframes: {
@@ -80,13 +80,13 @@ module.exports = {
           "0%": { transform: "translateX(-50%)" },
           "100%": { transform: "translateX(0)" },
         },
-        "glow-pulse": {
-          "0%, 100%": { boxShadow: "0 0 20px rgba(57, 255, 20, 0.3)" },
-          "50%": { boxShadow: "0 0 60px rgba(57, 255, 20, 0.6), 0 0 100px rgba(57, 255, 20, 0.2)" },
-        },
         "fade-in": {
           from: { opacity: "0", transform: "translateY(6px)" },
           to: { opacity: "1", transform: "translateY(0)" },
+        },
+        "fade-in-scale": {
+          from: { opacity: "0", transform: "scale(0.96) translateY(4px)" },
+          to: { opacity: "1", transform: "scale(1) translateY(0)" },
         },
         "slide-up": {
           from: { opacity: "0", transform: "translateY(12px)" },

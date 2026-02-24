@@ -205,6 +205,23 @@ export function fetchLineageWithProgress(
   return new Promise((resolve, reject) => {
     const wsBase = API_BASE.replace(/^http/, "ws");
     const ws = new WebSocket(`${wsBase}/ws/lineage`);
+    let settled = false;
+
+    const timeoutId = setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        ws.close();
+        reject(new ApiError(408, "Analysis timed out after 30s"));
+      }
+    }, 30_000);
+
+    const settle = (fn: () => void) => {
+      if (!settled) {
+        settled = true;
+        clearTimeout(timeoutId);
+        fn();
+      }
+    };
 
     ws.onopen = () => {
       ws.send(JSON.stringify({ mint }));
@@ -215,9 +232,9 @@ export function fetchLineageWithProgress(
         const msg = JSON.parse(event.data);
         if (msg.done) {
           if (msg.error) {
-            reject(new ApiError(500, msg.error));
+            settle(() => reject(new ApiError(500, msg.error)));
           } else {
-            resolve(msg.result as LineageResult);
+            settle(() => resolve(msg.result as LineageResult));
           }
           ws.close();
         } else if (msg.step !== undefined) {
@@ -229,12 +246,12 @@ export function fetchLineageWithProgress(
     };
 
     ws.onerror = () => {
-      reject(new ApiError(0, "WebSocket connection failed"));
+      settle(() => reject(new ApiError(0, "WebSocket connection failed")));
     };
 
     ws.onclose = (event) => {
       if (!event.wasClean && event.code !== 1000) {
-        reject(new ApiError(0, "WebSocket closed unexpectedly"));
+        settle(() => reject(new ApiError(0, "WebSocket closed unexpectedly")));
       }
     };
   });

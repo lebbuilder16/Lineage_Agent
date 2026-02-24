@@ -51,11 +51,11 @@ export default function LineagePage() {
           animate={{ opacity: 1 }}
           className="space-y-6"
         >
-          {/* NProgress-style top bar */}
+          {/* NProgress-style top bar — z-[60] above pill nav z-50 */}
           {progress && (
-            <div className="fixed top-0 left-0 right-0 z-50 h-0.5 bg-white/5 overflow-hidden">
+            <div className="fixed top-0 left-0 right-0 z-[60] h-0.5 bg-white/5 overflow-hidden">
               <div
-                className="h-full bg-neon transition-all duration-300 ease-out"
+                className="h-full bg-neon transition-all duration-300 ease-out shadow-[0_0_8px_rgba(57,255,20,0.5)]"
                 style={{ width: `${progress.progress}%` }}
               />
             </div>
@@ -130,7 +130,7 @@ export default function LineagePage() {
           {/* Family tree */}
           {data.derivatives.length > 0 && (
             <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
-              <FamilyTree data={data} />
+              <FamilyTree key={mint} data={data} />
             </motion.div>
           )}
 

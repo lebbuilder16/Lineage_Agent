@@ -5,13 +5,6 @@
 @tailwind components;
 @tailwind utilities;
 
-/* React Flow base styles */
-@import "@xyflow/react/dist/style.css";
-
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
-
 @layer base {
   :root {
     /* Dark-only crypto theme — no light mode */
@@ -48,12 +41,12 @@
   }
   html {
     color-scheme: dark;
+    scroll-behavior: smooth;
   }
   body {
     @apply bg-background text-foreground antialiased;
     font-family: var(--font-geist-sans, ui-sans-serif, system-ui, sans-serif);
     font-feature-settings: "rlig" 1, "calt" 1;
-    background-color: #0A0A0A;
   }
   code, kbd, pre, .font-mono {
     font-family: var(--font-geist-mono, ui-monospace, monospace);
@@ -74,19 +67,19 @@
   .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
   /* Neon glow text effect */
   .neon-glow {
-    color: #39FF14;
-    text-shadow: 0 0 10px rgba(57, 255, 20, 0.8), 0 0 30px rgba(57, 255, 20, 0.4), 0 0 60px rgba(57, 255, 20, 0.2);
+    color: hsl(var(--primary));
+    text-shadow: 0 0 10px hsl(var(--primary) / 0.8), 0 0 30px hsl(var(--primary) / 0.4), 0 0 60px hsl(var(--primary) / 0.2);
   }
   /* Neon glow box effect */
   .neon-border {
-    border-color: #39FF14;
-    box-shadow: 0 0 10px rgba(57, 255, 20, 0.3), inset 0 0 10px rgba(57, 255, 20, 0.05);
+    border-color: hsl(var(--primary));
+    box-shadow: 0 0 10px hsl(var(--primary) / 0.3), inset 0 0 10px hsl(var(--primary) / 0.05);
   }
   /* Display heading — Syne font, uppercase */
   .display-heading {
     font-family: var(--font-syne, ui-sans-serif);
     font-weight: 800;
-    letter-spacing: -0.02em;
+    letter-spacing: 0.01em;
     text-transform: uppercase;
   }
   /* Glass card */
@@ -123,19 +116,7 @@
   background: hsl(var(--muted-foreground) / 0.4);
 }
 
-/* Animations */
-@keyframes fade-in {
-  from { opacity: 0; transform: translateY(6px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-@keyframes fade-in-scale {
-  from { opacity: 0; transform: scale(0.96); }
-  to   { opacity: 1; transform: scale(1); }
-}
-@keyframes slide-up {
-  from { opacity: 0; transform: translateY(12px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
+/* Animations — fade-in, fade-in-scale, slide-up keyframes live in tailwind.config.js */
 @keyframes shimmer {
   from { background-position: -200% 0; }
   to   { background-position: 200% 0; }

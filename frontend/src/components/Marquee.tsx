@@ -20,12 +20,16 @@ export function Marquee({
   const durationMap = { slow: "40s", normal: "28s", fast: "16s" };
   const animationName = direction === "left" ? "marquee-left" : "marquee-right";
 
-  const allItems = [...items, ...items]; // duplicate for seamless loop
+  const allItems = [...items, ...items, ...items, ...items]; // 4× duplication for seamless loop on wide screens
 
   return (
     <div
       className={`relative overflow-hidden w-full ${className}`}
-      style={{ WebkitMaskImage: "linear-gradient(to right, transparent 0%, black 8%, black 92%, transparent 100%)" }}
+      aria-hidden="true"
+      style={{
+        WebkitMaskImage: "linear-gradient(to right, transparent 0%, black 8%, black 92%, transparent 100%)",
+        maskImage: "linear-gradient(to right, transparent 0%, black 8%, black 92%, transparent 100%)",
+      }}
     >
       <div
         className="flex gap-8 whitespace-nowrap will-change-transform"

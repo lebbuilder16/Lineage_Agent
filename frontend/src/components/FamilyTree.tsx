@@ -135,10 +135,10 @@ export function FamilyTree({ data }: Props) {
       style: {
         stroke:
           d.evidence.composite_score >= 0.7
-            ? "hsl(142, 76%, 36%)"
+            ? "hsl(var(--success))"
             : d.evidence.composite_score >= 0.4
-              ? "hsl(38, 92%, 50%)"
-              : "hsl(0, 84%, 60%)",
+              ? "hsl(var(--warning))"
+              : "hsl(var(--destructive))",
         strokeWidth: 1 + d.evidence.composite_score * 2,
         opacity: 0.5 + d.evidence.composite_score * 0.5,
       },
@@ -163,11 +163,16 @@ export function FamilyTree({ data }: Props) {
   const height = data.derivatives.length <= 3 ? 280 : data.derivatives.length <= 8 ? 380 : 480;
 
   return (
-    <div className="rounded-lg border border-border bg-card p-4 animate-fade-in">
+    <div className="rounded-2xl border border-border bg-card p-4 animate-fade-in">
       <div className="flex items-center gap-2 mb-3">
         <div className="flex h-6 w-6 items-center justify-center rounded-md bg-primary/10 text-primary text-xs">⎇</div>
         <h3 className="font-semibold text-sm">Family Tree</h3>
         <span className="text-xs text-muted-foreground ml-auto">
+          {data.derivatives.length > 20 && (
+            <span className="mr-1 px-1.5 py-0.5 rounded bg-warning/10 text-warning font-medium">
+              Showing 20 of {data.derivatives.length}
+            </span>
+          )}
           {data.derivatives.length} derivative{data.derivatives.length !== 1 ? "s" : ""}
           {" · "}click a node to analyse
         </span>
