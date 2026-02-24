@@ -50,11 +50,6 @@ export function CommandPalette() {
     return () => document.removeEventListener("keydown", down);
   }, []);
 
-  const openPalette = useCallback(() => {
-    setHistory(getHistory());
-    setOpen(true);
-  }, []);
-
   useEffect(() => {
     if (open) setHistory(getHistory());
   }, [open]);
@@ -88,18 +83,18 @@ export function CommandPalette() {
       onClick={() => setOpen(false)}
     >
       {/* Backdrop */}
-      <div className="absolute inset-0 bg-background/60 backdrop-blur-sm" />
+      <div className="absolute inset-0 bg-black/70 backdrop-blur-md" />
 
       {/* Panel */}
       <div
-        className="relative w-full max-w-lg rounded-xl border border-border bg-popover shadow-2xl overflow-hidden animate-fade-in-scale"
+        className="relative w-full max-w-lg rounded-2xl border border-white/10 bg-[#0f0f0f] shadow-2xl overflow-hidden animate-fade-in-scale"
         onClick={(e) => e.stopPropagation()}
       >
-        <Command shouldFilter={false} className="[&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group-heading]]:px-3 [&_[cmdk-group-heading]]:py-1.5">
+        <Command shouldFilter={false} className="[&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-display [&_[cmdk-group-heading]]:font-semibold [&_[cmdk-group-heading]]:tracking-widest [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:text-white/30 [&_[cmdk-group-heading]]:px-3 [&_[cmdk-group-heading]]:py-1.5">
 
           {/* Input */}
-          <div className="flex items-center border-b border-border px-3 gap-2">
-            <Search className="h-4 w-4 text-muted-foreground shrink-0" />
+          <div className="flex items-center border-b border-white/5 px-3 gap-2">
+            <Search className="h-4 w-4 text-neon shrink-0" />
             <Command.Input
               value={query}
               onValueChange={setQuery}
@@ -131,7 +126,7 @@ export function CommandPalette() {
                   onSelect={() => navigate(query.trim())}
                   className={itemClass}
                 >
-                  <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary/10 text-primary shrink-0">
+                  <div className="flex h-7 w-7 items-center justify-center rounded-xl bg-neon/10 text-neon shrink-0">
                     <ArrowRight className="h-3.5 w-3.5" />
                   </div>
                   <div>
@@ -151,7 +146,7 @@ export function CommandPalette() {
                     onSelect={() => navigate(h.mint)}
                     className={itemClass}
                   >
-                    <div className="flex h-7 w-7 items-center justify-center rounded-md bg-muted text-muted-foreground shrink-0">
+                    <div className="flex h-7 w-7 items-center justify-center rounded-xl bg-white/5 text-white/40 shrink-0">
                       <Clock className="h-3.5 w-3.5" />
                     </div>
                     <div className="min-w-0">
@@ -170,7 +165,7 @@ export function CommandPalette() {
                   onSelect={handleSubmit}
                   className={itemClass}
                 >
-                  <div className="flex h-7 w-7 items-center justify-center rounded-md bg-muted text-muted-foreground shrink-0">
+                  <div className="flex h-7 w-7 items-center justify-center rounded-xl bg-white/5 text-neon shrink-0">
                     <TrendingUp className="h-3.5 w-3.5" />
                   </div>
                   <p className="text-sm">
@@ -184,11 +179,11 @@ export function CommandPalette() {
         </Command>
 
         {/* Footer hint */}
-        <div className="border-t border-border px-3 py-2 flex items-center gap-3 text-[10px] text-muted-foreground">
+        <div className="border-t border-white/5 px-3 py-2 flex items-center gap-3 text-[10px] text-white/30">
           <span><kbd className="font-mono">↑↓</kbd> navigate</span>
           <span><kbd className="font-mono">↵</kbd> select</span>
           <span><kbd className="font-mono">esc</kbd> close</span>
-          <span className="ml-auto hidden sm:inline">⌘K to open anywhere</span>
+          <span className="ml-auto hidden sm:inline text-neon/60">⌘K to open anywhere</span>
         </div>
       </div>
     </div>
@@ -196,7 +191,7 @@ export function CommandPalette() {
 }
 
 const itemClass = cn(
-  "flex items-center gap-3 px-3 py-2 rounded-md mx-1.5 cursor-pointer",
-  "transition-colors data-[selected=true]:bg-accent data-[selected=true]:text-accent-foreground",
-  "hover:bg-accent"
+  "flex items-center gap-3 px-3 py-2 rounded-xl mx-1.5 cursor-pointer",
+  "transition-colors data-[selected=true]:bg-white/5 data-[selected=true]:text-white",
+  "hover:bg-white/5"
 );

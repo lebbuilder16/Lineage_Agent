@@ -5,8 +5,9 @@ module.exports = {
   theme: {
     extend: {
       fontFamily: {
-        sans: ["Inter", "ui-sans-serif", "system-ui", "-apple-system", "sans-serif"],
-        mono: ["JetBrains Mono", "ui-monospace", "monospace"],
+        sans: ["var(--font-geist-sans)", "ui-sans-serif", "system-ui", "-apple-system", "sans-serif"],
+        mono: ["var(--font-geist-mono)", "ui-monospace", "monospace"],
+        display: ["var(--font-syne)", "ui-sans-serif", "system-ui", "sans-serif"],
       },
       colors: {
         border: "hsl(var(--border))",
@@ -14,6 +15,7 @@ module.exports = {
         ring: "hsl(var(--ring))",
         background: "hsl(var(--background))",
         foreground: "hsl(var(--foreground))",
+        neon: "#39FF14",
         primary: {
           DEFAULT: "hsl(var(--primary))",
           foreground: "hsl(var(--primary-foreground))",
@@ -55,6 +57,41 @@ module.exports = {
         lg: "var(--radius)",
         md: "calc(var(--radius) - 2px)",
         sm: "calc(var(--radius) - 4px)",
+        pill: "9999px",
+      },
+      fontSize: {
+        "display-xl": ["clamp(3.5rem, 10vw, 8rem)", { lineHeight: "0.9", fontWeight: "800" }],
+        "display-lg": ["clamp(2.5rem, 7vw, 5.5rem)", { lineHeight: "0.95", fontWeight: "800" }],
+        "display-md": ["clamp(1.75rem, 4vw, 3rem)", { lineHeight: "1.0", fontWeight: "700" }],
+      },
+      animation: {
+        "marquee-left": "marquee-left 28s linear infinite",
+        "marquee-right": "marquee-right 32s linear infinite",
+        "glow-pulse": "glow-pulse 3s ease-in-out infinite",
+        "fade-in": "fade-in 0.4s ease-out both",
+        "slide-up": "slide-up 0.5s ease-out both",
+      },
+      keyframes: {
+        "marquee-left": {
+          "0%": { transform: "translateX(0)" },
+          "100%": { transform: "translateX(-50%)" },
+        },
+        "marquee-right": {
+          "0%": { transform: "translateX(-50%)" },
+          "100%": { transform: "translateX(0)" },
+        },
+        "glow-pulse": {
+          "0%, 100%": { boxShadow: "0 0 20px rgba(57, 255, 20, 0.3)" },
+          "50%": { boxShadow: "0 0 60px rgba(57, 255, 20, 0.6), 0 0 100px rgba(57, 255, 20, 0.2)" },
+        },
+        "fade-in": {
+          from: { opacity: "0", transform: "translateY(6px)" },
+          to: { opacity: "1", transform: "translateY(0)" },
+        },
+        "slide-up": {
+          from: { opacity: "0", transform: "translateY(12px)" },
+          to: { opacity: "1", transform: "translateY(0)" },
+        },
       },
     },
   },

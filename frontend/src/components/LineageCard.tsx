@@ -21,12 +21,12 @@ export function LineageCard({ data }: Props) {
   const levelColors = { high: "text-success", medium: "text-warning", low: "text-destructive" };
 
   return (
-    <div className="rounded-lg border border-border bg-card p-6 animate-fade-in">
+    <div className="rounded-2xl border border-white/5 bg-card p-6 animate-fade-in hover:border-neon/20 transition-all">
       <div className="flex items-center gap-2 mb-5">
-        <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary/10 text-primary">
+        <div className="flex h-7 w-7 items-center justify-center rounded-xl bg-neon/10 text-neon">
           <Shield className="h-4 w-4" />
         </div>
-        <h2 className="font-semibold text-lg">Lineage Summary</h2>
+        <h2 className="display-heading font-bold text-base text-white uppercase tracking-wide">Lineage Summary</h2>
       </div>
 
       <div className="grid sm:grid-cols-3 gap-6 items-center">

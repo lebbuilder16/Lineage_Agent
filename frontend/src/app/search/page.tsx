@@ -24,6 +24,10 @@ function SearchContent() {
 
   return (
     <div className="space-y-6" aria-live="polite">
+      <div className="mb-6">
+        <p className="display-heading text-xs tracking-widest uppercase text-neon mb-1">Search</p>
+        <h1 className="display-heading text-display-md text-white">FIND A TOKEN</h1>
+      </div>
       <SearchBar compact />
 
       {isLoading && (
@@ -67,8 +71,8 @@ function SearchContent() {
               <Link
                 key={t.mint}
                 href={`/lineage/${t.mint}`}
-                className="group flex items-center gap-4 rounded-lg border border-border bg-card p-4
-                           hover:border-primary/30 hover:shadow-sm transition-all duration-150 animate-slide-up"
+                className="group flex items-center gap-4 rounded-2xl border border-white/5 bg-card p-4
+                           hover:border-neon/20 hover:bg-white/[0.03] transition-all duration-150 animate-slide-up"
               >
                 {/* Token avatar */}
                 <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-bold text-muted-foreground">

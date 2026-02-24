@@ -15,13 +15,13 @@ function scoreLevel(v: number) {
 }
 
 const barBg = {
-  high: "bg-success",
+  high: "bg-neon",
   medium: "bg-warning",
   low: "bg-destructive",
 } as const;
 
 const textColor = {
-  high: "text-success",
+  high: "text-neon",
   medium: "text-warning",
   low: "text-destructive",
 } as const;
@@ -38,9 +38,9 @@ export function EvidencePanel({ evidence, name }: Props) {
   const compositeLevel = scoreLevel(evidence.composite_score);
 
   return (
-    <div className="rounded-lg border border-border bg-card p-5 animate-fade-in">
+    <div className="rounded-2xl border border-white/5 bg-card p-5 animate-fade-in hover:border-neon/15 transition-all">
       {name && (
-        <h4 className="font-medium text-sm mb-3.5 truncate">{name}</h4>
+        <h4 className="display-heading font-semibold text-xs text-white uppercase tracking-wide mb-3.5 truncate">{name}</h4>
       )}
 
       <div className="space-y-2.5">
@@ -70,7 +70,7 @@ export function EvidencePanel({ evidence, name }: Props) {
       </div>
 
       {/* Composite */}
-      <div className="mt-3.5 pt-3 border-t border-border flex items-center justify-between">
+      <div className="mt-3.5 pt-3 border-t border-white/5 flex items-center justify-between">
         <span className="text-xs text-muted-foreground font-medium">Composite</span>
         <span
           className={cn("font-bold text-lg tabular-nums", textColor[compositeLevel])}

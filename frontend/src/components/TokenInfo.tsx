@@ -19,8 +19,8 @@ export function TokenInfo({ token, isRoot = false }: Props) {
   return (
     <div
       className={cn(
-        "flex items-start gap-4 rounded-lg border bg-card p-5 animate-fade-in transition-colors",
-        isRoot ? "border-primary/30" : "border-border"
+        "flex items-start gap-4 rounded-2xl border bg-card p-5 animate-fade-in transition-all",
+        isRoot ? "border-neon/30 shadow-[0_0_20px_rgba(57,255,20,0.08)]" : "border-white/5 hover:border-white/10"
       )}
     >
       {/* Avatar */}
@@ -39,8 +39,8 @@ export function TokenInfo({ token, isRoot = false }: Props) {
           </div>
         )}
         {isRoot && (
-          <div className="absolute -top-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-primary">
-            <Crown className="h-2.5 w-2.5 text-primary-foreground" />
+          <div className="absolute -top-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-neon">
+            <Crown className="h-2.5 w-2.5 text-black" />
           </div>
         )}
       </div>

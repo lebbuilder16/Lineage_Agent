@@ -53,9 +53,9 @@ export default function LineagePage() {
         >
           {/* NProgress-style top bar */}
           {progress && (
-            <div className="fixed top-0 left-0 right-0 z-50 h-0.5 bg-muted overflow-hidden">
+            <div className="fixed top-0 left-0 right-0 z-50 h-0.5 bg-white/5 overflow-hidden">
               <div
-                className="h-full bg-primary transition-all duration-300 ease-out"
+                className="h-full bg-neon transition-all duration-300 ease-out"
                 style={{ width: `${progress.progress}%` }}
               />
             </div>
@@ -84,8 +84,8 @@ export default function LineagePage() {
           <button
             onClick={() => mint && analyze(mint)}
             className={cn(
-              "inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-medium",
-              "bg-primary text-primary-foreground hover:bg-primary/90",
+              "inline-flex items-center gap-2 rounded-full px-5 py-2 text-sm font-display font-bold",
+              "bg-neon text-black hover:bg-neon/90",
               "transition-colors"
             )}
           >
@@ -158,7 +158,7 @@ export default function LineagePage() {
                   >
                     <Link
                       href={`/lineage/${d.mint}`}
-                      className="group rounded-lg border border-border bg-card p-4 hover:border-primary/30 hover:shadow-sm transition-all duration-150 block"
+                      className="group rounded-2xl border border-white/5 bg-card p-4 hover:border-neon/20 hover:bg-white/[0.03] transition-all duration-150 block"
                     >
                       <div className="flex items-center justify-between gap-2 mb-2">
                         <h4 className="font-medium text-sm truncate">
@@ -210,12 +210,12 @@ function SectionHeader({
 }) {
   return (
     <div className="flex items-center gap-2">
-      <div className="flex h-6 w-6 items-center justify-center rounded-md bg-primary/10 text-primary">
+      <div className="flex h-6 w-6 items-center justify-center rounded-md bg-neon/10 text-neon">
         {icon}
       </div>
-      <h2 className="font-semibold text-sm">{title}</h2>
+      <h2 className="display-heading font-bold text-sm text-white uppercase tracking-wide">{title}</h2>
       {count != null && (
-        <span className="ml-1 rounded-md bg-muted px-1.5 py-0.5 text-xs text-muted-foreground tabular-nums">
+        <span className="ml-1 rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-xs text-white/50 tabular-nums">
           {count}
         </span>
       )}

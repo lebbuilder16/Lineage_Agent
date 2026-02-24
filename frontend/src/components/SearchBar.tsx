@@ -26,10 +26,10 @@ export function SearchBar({ compact = false }: { compact?: boolean }) {
     <form onSubmit={handleSubmit} className="w-full max-w-2xl mx-auto">
       <div
         className={cn(
-          "relative flex items-center rounded-lg border bg-card transition-all duration-200",
+          "relative flex items-center rounded-2xl border bg-card transition-all duration-200",
           focused
-            ? "border-primary ring-2 ring-ring/20 shadow-sm"
-            : "border-border hover:border-muted-foreground/30",
+            ? "border-neon/50 ring-2 ring-neon/10 shadow-[0_0_20px_rgba(57,255,20,0.07)]"
+            : "border-white/10 hover:border-white/20",
           compact ? "h-11" : "h-12 sm:h-14"
         )}
       >
@@ -70,11 +70,11 @@ export function SearchBar({ compact = false }: { compact?: boolean }) {
         <button
           type="submit"
           className={cn(
-            "absolute right-1.5 inline-flex items-center gap-1.5 rounded-md px-4 font-medium text-sm",
-            "bg-primary text-primary-foreground",
-            "hover:bg-primary/90 active:scale-[0.97]",
+            "absolute right-1.5 inline-flex items-center gap-1.5 rounded-full px-4 font-display font-bold text-sm",
+            "bg-neon text-black",
+            "hover:bg-neon/90 active:scale-[0.97]",
             "transition-all duration-150",
-            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neon/50",
             compact ? "h-8" : "h-9"
           )}
         >

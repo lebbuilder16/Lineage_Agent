@@ -5,58 +5,40 @@
 @tailwind components;
 @tailwind utilities;
 
+/* React Flow base styles */
+@import "@xyflow/react/dist/style.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 224 71% 4%;
-    --card: 0 0% 100%;
-    --card-foreground: 224 71% 4%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 224 71% 4%;
-    --primary: 220 91% 54%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 220 14% 96%;
-    --secondary-foreground: 220 9% 46%;
-    --muted: 220 14% 96%;
-    --muted-foreground: 220 9% 46%;
-    --accent: 220 14% 96%;
-    --accent-foreground: 220 9% 15%;
-    --destructive: 0 84% 60%;
-    --destructive-foreground: 0 0% 98%;
-    --success: 142 76% 36%;
-    --success-foreground: 0 0% 100%;
-    --warning: 38 92% 50%;
-    --warning-foreground: 0 0% 100%;
-    --border: 220 13% 91%;
-    --input: 220 13% 91%;
-    --ring: 220 91% 54%;
-    --radius: 0.625rem;
-  }
-
-  .dark {
-    --background: 224 71% 4%;
-    --foreground: 213 31% 91%;
-    --card: 222 47% 11%;
-    --card-foreground: 213 31% 91%;
-    --popover: 222 47% 11%;
-    --popover-foreground: 213 31% 91%;
-    --primary: 213 94% 56%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 222 47% 15%;
-    --secondary-foreground: 213 31% 91%;
-    --muted: 222 47% 15%;
-    --muted-foreground: 215 20% 55%;
-    --accent: 222 47% 15%;
-    --accent-foreground: 213 31% 91%;
+    /* Dark-only crypto theme — no light mode */
+    --background: 0 0% 4%;          /* #0A0A0A */
+    --foreground: 0 0% 96%;         /* #F5F5F5 */
+    --card: 0 0% 8%;                /* #141414 */
+    --card-foreground: 0 0% 96%;
+    --popover: 0 0% 8%;
+    --popover-foreground: 0 0% 96%;
+    --primary: 112 100% 53%;        /* #39FF14 neon green */
+    --primary-foreground: 0 0% 0%;  /* black text on neon */
+    --secondary: 0 0% 10%;
+    --secondary-foreground: 0 0% 70%;
+    --muted: 0 0% 10%;
+    --muted-foreground: 0 0% 53%;   /* #888 */
+    --accent: 0 0% 12%;
+    --accent-foreground: 0 0% 96%;
     --destructive: 0 63% 55%;
     --destructive-foreground: 0 0% 98%;
-    --success: 142 71% 45%;
-    --success-foreground: 0 0% 100%;
+    --success: 112 100% 53%;        /* neon green */
+    --success-foreground: 0 0% 0%;
     --warning: 38 92% 50%;
-    --warning-foreground: 0 0% 100%;
-    --border: 222 47% 18%;
-    --input: 222 47% 18%;
-    --ring: 213 94% 56%;
+    --warning-foreground: 0 0% 0%;
+    --border: 0 0% 17%;             /* #2A2A2A */
+    --input: 0 0% 17%;
+    --ring: 112 100% 53%;
+    --radius: 0.625rem;
   }
 }
 
@@ -64,13 +46,20 @@
   * {
     @apply border-border;
   }
+  html {
+    color-scheme: dark;
+  }
   body {
     @apply bg-background text-foreground antialiased;
     font-family: var(--font-geist-sans, ui-sans-serif, system-ui, sans-serif);
     font-feature-settings: "rlig" 1, "calt" 1;
+    background-color: #0A0A0A;
   }
   code, kbd, pre, .font-mono {
     font-family: var(--font-geist-mono, ui-monospace, monospace);
+  }
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-syne, var(--font-geist-sans, ui-sans-serif));
   }
 }
 
@@ -83,6 +72,36 @@
   /* Hide scrollbar but keep scroll functionality */
   .no-scrollbar::-webkit-scrollbar { display: none; }
   .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+  /* Neon glow text effect */
+  .neon-glow {
+    color: #39FF14;
+    text-shadow: 0 0 10px rgba(57, 255, 20, 0.8), 0 0 30px rgba(57, 255, 20, 0.4), 0 0 60px rgba(57, 255, 20, 0.2);
+  }
+  /* Neon glow box effect */
+  .neon-border {
+    border-color: #39FF14;
+    box-shadow: 0 0 10px rgba(57, 255, 20, 0.3), inset 0 0 10px rgba(57, 255, 20, 0.05);
+  }
+  /* Display heading — Syne font, uppercase */
+  .display-heading {
+    font-family: var(--font-syne, ui-sans-serif);
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    text-transform: uppercase;
+  }
+  /* Glass card */
+  .glass-card {
+    background: rgba(20, 20, 20, 0.8);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+  }
+  /* Pill nav glassmorphism */
+  .pill-nav {
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(16px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 9999px;
+  }
   /* Reduced motion: disable all transitions/animations */
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after {
@@ -143,7 +162,7 @@
 
 /* Skeleton shimmer */
 .skeleton {
-  background: linear-gradient(90deg, hsl(var(--muted)) 25%, hsl(var(--muted) / 0.5) 50%, hsl(var(--muted)) 75%);
+  background: linear-gradient(90deg, #1a1a1a 25%, #2a2a2a 50%, #1a1a1a 75%);
   background-size: 200% 100%;
   animation: shimmer 1.5s ease-in-out infinite;
 }

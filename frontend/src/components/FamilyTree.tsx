@@ -36,8 +36,8 @@ function scoreLevel(s: number) {
   return "low" as const;
 }
 
-const levelRing = { high: "ring-success/60", medium: "ring-warning/60", low: "ring-destructive/60" };
-const levelText = { high: "text-success", medium: "text-warning", low: "text-destructive" };
+const levelRing = { high: "ring-neon/60", medium: "ring-warning/60", low: "ring-destructive/60" };
+const levelText = { high: "text-neon", medium: "text-warning", low: "text-destructive" };
 
 function TokenNode({ data }: { data: TokenNodeData }) {
   const level = scoreLevel(data.score);
@@ -47,17 +47,17 @@ function TokenNode({ data }: { data: TokenNodeData }) {
       className={cn(
         "relative flex flex-col items-center gap-1 rounded-xl border bg-card px-3 py-2.5 shadow-sm transition-shadow hover:shadow-md cursor-pointer select-none min-w-[88px]",
         data.isRoot
-          ? "border-primary/60 bg-primary/5 ring-2 ring-primary/20"
+          ? "border-neon/60 bg-neon/5 ring-2 ring-neon/20"
           : `border-border ring-1 ${levelRing[level]}`
       )}
     >
-      <Handle type="target" position={Position.Top} className="!bg-primary/40 !border-0 !w-2 !h-2" />
+      <Handle type="target" position={Position.Top} className="!bg-neon/40 !border-0 !w-2 !h-2" />
       {data.isRoot && (
-        <div className="absolute -top-2.5 left-1/2 -translate-x-1/2 flex h-5 w-5 items-center justify-center rounded-full bg-primary shadow">
-          <Crown className="h-3 w-3 text-primary-foreground" />
+        <div className="absolute -top-2.5 left-1/2 -translate-x-1/2 flex h-5 w-5 items-center justify-center rounded-full bg-neon shadow">
+          <Crown className="h-3 w-3 text-black" />
         </div>
       )}
-      <span className={cn("text-[11px] font-bold tabular-nums", data.isRoot ? "text-primary" : levelText[level])}>
+      <span className={cn("text-[11px] font-bold tabular-nums", data.isRoot ? "text-neon" : levelText[level])}>
         {data.isRoot ? "ROOT" : `${pct}%`}
       </span>
       <span className="text-xs font-semibold truncate max-w-[80px] text-center leading-tight">
@@ -66,7 +66,7 @@ function TokenNode({ data }: { data: TokenNodeData }) {
       {data.symbol && data.symbol !== data.label && (
         <span className="text-[10px] text-muted-foreground">{data.symbol}</span>
       )}
-      <Handle type="source" position={Position.Bottom} className="!bg-primary/40 !border-0 !w-2 !h-2" />
+      <Handle type="source" position={Position.Bottom} className="!bg-neon/40 !border-0 !w-2 !h-2" />
     </div>
   );
 }
