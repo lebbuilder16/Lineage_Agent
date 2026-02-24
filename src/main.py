@@ -9,6 +9,7 @@ Usage::
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import logging
 import sys
@@ -25,27 +26,11 @@ logging.basicConfig(
 )
 
 
-def main() -> None:
-    """Entry point for the CLI."""
-    parser = argparse.ArgumentParser(
-        description="Detect memecoin lineage by mint address"
-    )
-    parser.add_argument(
-        "--mint",
-        required=True,
-        help="Mint address of the token to analyse",
-    )
-    parser.add_argument(
-        "--json",
-        action="store_true",
-        dest="as_json",
-        help="Output result as raw JSON",
-    )
-    args = parser.parse_args()
+async def _run(mint: str, as_json: bool) -> None:
+    """Async entry point."""
+    result = await detect_lineage(mint)
 
-    result = detect_lineage(args.mint)
-
-    if args.as_json:
+    if as_json:
         print(result.model_dump_json(indent=2))
         return
 
@@ -69,6 +54,26 @@ def main() -> None:
         print("  No derivatives/clones found.")
 
     print("=" * 60)
+
+
+def main() -> None:
+    """Entry point for the CLI."""
+    parser = argparse.ArgumentParser(
+        description="Detect memecoin lineage by mint address"
+    )
+    parser.add_argument(
+        "--mint",
+        required=True,
+        help="Mint address of the token to analyse",
+    )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        dest="as_json",
+        help="Output result as raw JSON",
+    )
+    args = parser.parse_args()
+    asyncio.run(_run(args.mint, args.as_json))
 
 
 if __name__ == "__main__":

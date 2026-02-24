@@ -3,22 +3,23 @@ REST API for the Meme Lineage Agent using FastAPI.
 
 Endpoints
 ---------
-GET /health              – Health check
-GET /lineage?mint=<MINT> – Full lineage detection for a token
-GET /search?q=<QUERY>    – Search for tokens by name / symbol
+GET /health              - Health check
+GET /lineage?mint=<MINT> - Full lineage detection for a token
+GET /search?q=<QUERY>    - Search for tokens by name / symbol
 """
 
 from __future__ import annotations
 
 import logging
-import sys
 import os
+import sys
 
 # Ensure ``src/`` is on the path so ``config`` can be found
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
 
 from config import API_HOST, API_PORT, CORS_ORIGINS
 from .lineage_detector import detect_lineage, search_tokens
@@ -28,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="Meme Lineage Agent API",
-    description="Detect memecoin lineage on Solana – find the root token and its clones.",
+    description="Detect memecoin lineage on Solana - find the root token and its clones.",
     version="1.0.0",
 )
 
@@ -48,27 +49,26 @@ app.add_middleware(
 
 
 @app.get("/", tags=["system"], include_in_schema=False)
-def root():
+async def root():
     """Redirect to Swagger UI."""
-    from fastapi.responses import RedirectResponse
     return RedirectResponse(url="/docs")
 
 
 @app.get("/health", tags=["system"])
-def health() -> dict:
+async def health() -> dict:
     """Simple health check."""
     return {"status": "ok"}
 
 
 @app.get("/lineage", response_model=LineageResult, tags=["lineage"])
-def get_lineage(
+async def get_lineage(
     mint: str = Query(..., description="Solana mint address of the token"),
 ) -> LineageResult:
     """Return full lineage information for the given token mint."""
     if not mint or len(mint) < 30:
         raise HTTPException(status_code=400, detail="Invalid mint address")
     try:
-        return detect_lineage(mint)
+        return await detect_lineage(mint)
     except Exception as exc:
         logger.exception("Lineage detection failed for %s", mint)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
@@ -79,14 +79,14 @@ def get_lineage(
     response_model=list[TokenSearchResult],
     tags=["search"],
 )
-def search(
+async def search(
     q: str = Query(..., description="Token name or symbol to search"),
 ) -> list[TokenSearchResult]:
     """Search Solana tokens by name or symbol via DexScreener."""
     if not q:
         raise HTTPException(status_code=400, detail="Query string required")
     try:
-        return search_tokens(q)
+        return await search_tokens(q)
     except Exception as exc:
         logger.exception("Token search failed for '%s'", q)
         raise HTTPException(status_code=500, detail=str(exc)) from exc

@@ -1,5 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+*.egg
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Node / Frontend
 node_modules/
 .next/
-__pycache__/
-.venv/
-.env
+out/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing / Coverage
+htmlcov/
+.coverage
+.coverage.*
+.pytest_cache/
+coverage.xml
+*.cover
+
+# Docker
+docker-compose.override.yml
+
+# Misc
+*.log

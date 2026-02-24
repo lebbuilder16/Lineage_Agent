@@ -1,9 +1,16 @@
-pillow
-requests
-fastapi
-uvicorn[standard]
-python-telegram-bot
-numpy
-imagehash
-python-Levenshtein
-pydantic>=2.0
+pillow==12.1.1
+requests==2.32.5
+httpx==0.28.1
+fastapi==0.132.0
+uvicorn[standard]==0.41.0
+python-telegram-bot==22.6
+numpy==2.4.2
+imagehash==4.3.2
+python-Levenshtein==0.27.3
+pydantic>=2.0,<3.0
+
+# Dev / Testing
+pytest==8.3.*
+pytest-asyncio==0.24.*
+pytest-cov==6.1.*
+httpx  # also used by TestClient

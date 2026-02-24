@@ -2,7 +2,8 @@
 
 import { useParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { fetchLineage } from "@/lib/api";
+import Link from "next/link";
+import { fetchLineage, ApiError } from "@/lib/api";
 import { LineageCard } from "@/components/LineageCard";
 import { TokenInfo } from "@/components/TokenInfo";
 import { EvidencePanel } from "@/components/EvidencePanel";
@@ -34,8 +35,14 @@ export default function LineagePage() {
         <div className="rounded-xl border border-[var(--danger)] bg-[var(--danger)]/10 p-5 text-center">
           <p className="text-[var(--danger)] font-semibold">Analysis failed</p>
           <p className="text-sm text-[var(--muted)] mt-1">
-            {(error as Error).message}
+            {error instanceof ApiError ? error.detail : (error as Error).message}
           </p>
+          <button
+            onClick={() => window.location.reload()}
+            className="mt-3 rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-white hover:brightness-110 transition-all"
+          >
+            Retry
+          </button>
         </div>
       )}
 
@@ -62,14 +69,18 @@ export default function LineagePage() {
                 📋 Derivatives / Clones ({data.derivatives.length})
               </h2>
               <div className="space-y-4">
-                {data.derivatives.map((d) => (
+                {data.derivatives.map((d: import("@/lib/api").DerivativeInfo) => (
                   <div
                     key={d.mint}
                     className="grid md:grid-cols-2 gap-4"
                   >
-                    <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4 animate-fade-in">
+                    <Link
+                      href={`/lineage/${d.mint}`}
+                      className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4 animate-fade-in hover:border-[var(--accent)]/50 transition-colors block"
+                    >
                       <h4 className="font-semibold truncate">
                         {d.name || d.symbol || d.mint.slice(0, 12)}
+                        <span className="text-xs text-[var(--accent)] ml-2">→ Analyze</span>
                       </h4>
                       <p className="font-mono text-xs text-[var(--muted)] truncate">
                         {d.mint}
@@ -92,7 +103,7 @@ export default function LineagePage() {
                           </span>
                         )}
                       </div>
-                    </div>
+                    </Link>
                     <EvidencePanel
                       evidence={d.evidence}
                       name={`Evidence – ${d.name || d.mint.slice(0, 8)}`}

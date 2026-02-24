@@ -18,14 +18,15 @@ export function FamilyTree({ data }: Props) {
     const canvas = canvasRef.current;
     if (!canvas || !data.root) return;
 
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+    const draw = () => {
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
 
-    const dpr = window.devicePixelRatio || 1;
-    const rect = canvas.getBoundingClientRect();
-    canvas.width = rect.width * dpr;
-    canvas.height = rect.height * dpr;
-    ctx.scale(dpr, dpr);
+      const dpr = window.devicePixelRatio || 1;
+      const rect = canvas.getBoundingClientRect();
+      canvas.width = rect.width * dpr;
+      canvas.height = rect.height * dpr;
+      ctx.scale(dpr, dpr);
 
     const W = rect.width;
     const H = rect.height;
@@ -33,7 +34,7 @@ export function FamilyTree({ data }: Props) {
     // Clear
     ctx.clearRect(0, 0, W, H);
 
-    const root = data.root;
+    const root = data.root!;
     const derivatives = data.derivatives.slice(0, 20);
 
     // Root position (center top)
@@ -143,6 +144,15 @@ export function FamilyTree({ data }: Props) {
         ctx.fillText(`${(n.score * 100).toFixed(0)}`, n.x, n.y);
       }
     }
+    }; // end draw
+
+    draw();
+
+    // Redraw on resize
+    const observer = new ResizeObserver(() => draw());
+    observer.observe(canvas);
+
+    return () => observer.disconnect();
   }, [data]);
 
   if (!data.root) return null;

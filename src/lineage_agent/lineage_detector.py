@@ -1,13 +1,15 @@
 """
 Core logic for detecting memecoin lineage.
 
-The ``detect_lineage`` function is the main entry point.  It orchestrates
-data fetching from DexScreener and Solana RPC, computes similarity
-scores, determines the root token and builds the family tree.
+The ``detect_lineage`` function is the main async entry point.
+It orchestrates data fetching from DexScreener and Solana RPC,
+computes similarity scores, determines the root token and builds
+the family tree.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Optional
 
@@ -48,7 +50,7 @@ from .similarity import (
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Module‑level singletons (created once, reused)
+# Module-level singletons (created once, reused)
 # ---------------------------------------------------------------------------
 _dex_client: Optional[DexScreenerClient] = None
 _rpc_client: Optional[SolanaRpcClient] = None
@@ -86,14 +88,14 @@ def _get_rpc_client() -> SolanaRpcClient:
 # ---------------------------------------------------------------------------
 
 
-def detect_lineage(mint_address: str) -> LineageResult:
+async def detect_lineage(mint_address: str) -> LineageResult:
     """Detect the lineage of a Solana token identified by *mint_address*.
 
     Steps
     -----
     1. Fetch metadata for the query token via DexScreener.
     2. Search DexScreener for tokens with similar name / symbol.
-    3. For each candidate, enrich with on‑chain data (deployer, timestamp).
+    3. For each candidate, enrich with on-chain data (deployer, timestamp).
     4. Compute pairwise similarity scores.
     5. Select the root (oldest, highest liquidity, original deployer).
     6. Return a ``LineageResult`` with evidence.
@@ -108,17 +110,16 @@ def detect_lineage(mint_address: str) -> LineageResult:
     rpc = _get_rpc_client()
 
     # --- Step 1: Fetch metadata for the query token ---
-    logger.info("Fetching metadata for %s …", mint_address)
-    pairs = dex.get_token_pairs(mint_address)
+    logger.info("Fetching metadata for %s ...", mint_address)
+    pairs = await dex.get_token_pairs(mint_address)
     query_meta = dex.pairs_to_metadata(mint_address, pairs)
 
-    # Enrich with on‑chain deployer + creation time
-    deployer, created_at = rpc.get_deployer_and_timestamp(mint_address)
+    # Enrich with on-chain deployer + creation time
+    deployer, created_at = await rpc.get_deployer_and_timestamp(mint_address)
     query_meta.deployer = deployer
     query_meta.created_at = created_at
 
     if not query_meta.name and not query_meta.symbol:
-        # Can't determine lineage without basic metadata
         result = LineageResult(
             mint=mint_address,
             query_token=query_meta,
@@ -132,15 +133,14 @@ def detect_lineage(mint_address: str) -> LineageResult:
 
     # --- Step 2: Search for similar tokens ---
     search_query = query_meta.name or query_meta.symbol
-    logger.info("Searching for tokens similar to '%s' …", search_query)
-    search_pairs = dex.search_tokens(search_query)
+    logger.info("Searching for tokens similar to '%s' ...", search_query)
+    search_pairs = await dex.search_tokens(search_query)
     candidates = dex.pairs_to_search_results(search_pairs)
 
     # Remove the query token itself from candidates
     candidates = [c for c in candidates if c.mint != mint_address]
 
     if not candidates:
-        # No similar tokens found → query token is the root
         result = LineageResult(
             mint=mint_address,
             query_token=query_meta,
@@ -155,19 +155,33 @@ def detect_lineage(mint_address: str) -> LineageResult:
     # --- Step 3 & 4: Enrich candidates and score them ---
     family_members: list[_ScoredCandidate] = []
 
-    for candidate in candidates[: MAX_DERIVATIVES * 2]:  # pre-filter
-        # Name / symbol pre-filter
+    # Pre-filter by name/symbol similarity (cheap, sync)
+    pre_filtered = []
+    for candidate in candidates[: MAX_DERIVATIVES * 2]:
         name_sim = compute_name_similarity(query_meta.name, candidate.name)
-        sym_sim = compute_symbol_similarity(query_meta.symbol, candidate.symbol)
-
-        if name_sim < NAME_SIMILARITY_THRESHOLD and sym_sim < SYMBOL_SIMILARITY_THRESHOLD:
+        sym_sim = compute_symbol_similarity(
+            query_meta.symbol, candidate.symbol
+        )
+        if (
+            name_sim < NAME_SIMILARITY_THRESHOLD
+            and sym_sim < SYMBOL_SIMILARITY_THRESHOLD
+        ):
             continue
+        pre_filtered.append((candidate, name_sim, sym_sim))
 
-        # Enrich with on-chain data (deployer + timestamp)
-        c_deployer, c_created = rpc.get_deployer_and_timestamp(candidate.mint)
+    # Enrich all pre-filtered candidates concurrently (bounded)
+    sem = asyncio.Semaphore(5)  # max 5 concurrent RPC calls
 
-        # Image similarity (expensive – only for tokens that pass name filter)
-        img_sim = compute_image_similarity(
+    async def _enrich(
+        candidate: TokenSearchResult, name_sim: float, sym_sim: float
+    ) -> Optional[_ScoredCandidate]:
+        async with sem:
+            c_deployer, c_created = await rpc.get_deployer_and_timestamp(
+                candidate.mint
+            )
+
+        # Image similarity (concurrent download already inside)
+        img_sim = await compute_image_similarity(
             query_meta.image_uri, candidate.image_uri
         )
 
@@ -192,25 +206,29 @@ def detect_lineage(mint_address: str) -> LineageResult:
             composite_score=round(composite, 4),
         )
 
-        family_members.append(
-            _ScoredCandidate(
-                mint=candidate.mint,
-                name=candidate.name,
-                symbol=candidate.symbol,
-                image_uri=candidate.image_uri,
-                deployer=c_deployer,
-                created_at=c_created,
-                market_cap_usd=candidate.market_cap_usd,
-                liquidity_usd=candidate.liquidity_usd,
-                evidence=evidence,
-                composite=composite,
-            )
+        return _ScoredCandidate(
+            mint=candidate.mint,
+            name=candidate.name,
+            symbol=candidate.symbol,
+            image_uri=candidate.image_uri,
+            deployer=c_deployer,
+            created_at=c_created,
+            market_cap_usd=candidate.market_cap_usd,
+            liquidity_usd=candidate.liquidity_usd,
+            evidence=evidence,
+            composite=composite,
         )
 
+    tasks = [_enrich(c, ns, ss) for c, ns, ss in pre_filtered]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    for r in results:
+        if isinstance(r, _ScoredCandidate):
+            family_members.append(r)
+        elif isinstance(r, Exception):
+            logger.warning("Candidate enrichment failed: %s", r)
+
     # --- Step 5: Select root ---
-    # The root is the oldest token with the highest composite similarity
-    # and highest liquidity.  We include the query token in the
-    # candidate set.
     all_tokens = [
         _ScoredCandidate(
             mint=query_meta.mint,
@@ -246,12 +264,10 @@ def detect_lineage(mint_address: str) -> LineageResult:
             )
         )
 
-    # Sort derivatives by composite score descending
     derivatives.sort(
         key=lambda d: d.evidence.composite_score, reverse=True
     )
 
-    # Build root TokenMetadata
     root_meta = TokenMetadata(
         mint=root_candidate.mint,
         name=root_candidate.name,
@@ -263,7 +279,6 @@ def detect_lineage(mint_address: str) -> LineageResult:
         liquidity_usd=root_candidate.liquidity_usd,
     )
 
-    # Confidence: how strongly the root stands out
     confidence = _compute_confidence(root_candidate, family_members)
 
     result = LineageResult(
@@ -279,14 +294,14 @@ def detect_lineage(mint_address: str) -> LineageResult:
     return result
 
 
-def search_tokens(query: str) -> list[TokenSearchResult]:
+async def search_tokens(query: str) -> list[TokenSearchResult]:
     """Search for Solana tokens by name / symbol via DexScreener."""
     cached = _cache.get(f"search:{query}")
     if cached is not None:
         return cached
 
     dex = _get_dex_client()
-    pairs = dex.search_tokens(query)
+    pairs = await dex.search_tokens(query)
     results = dex.pairs_to_search_results(pairs)
     _cache.set(f"search:{query}", results)
     return results
@@ -295,6 +310,7 @@ def search_tokens(query: str) -> list[TokenSearchResult]:
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
 
 class _ScoredCandidate:
     """Lightweight container for a candidate during scoring."""
@@ -329,7 +345,6 @@ def _select_root(candidates: list[_ScoredCandidate]) -> _ScoredCandidate:
         raise ValueError("No candidates to select root from")
 
     def _root_key(c: _ScoredCandidate):
-        # Earlier created_at → bigger score (use negative epoch)
         ts_score = 0.0
         if c.created_at is not None:
             ts_score = -c.created_at.timestamp()
@@ -344,13 +359,7 @@ def _compute_confidence(
     root: _ScoredCandidate,
     others: list[_ScoredCandidate],
 ) -> float:
-    """Estimate confidence in the root selection.
-
-    Returns a float in [0, 1].  Higher when:
-    * The root is significantly older than other candidates.
-    * The root has much higher liquidity.
-    * There are fewer ambiguous candidates.
-    """
+    """Estimate confidence in the root selection."""
     if not others:
         return 1.0
 
@@ -370,7 +379,7 @@ def _compute_confidence(
     total_liq = root_liq + sum(o.liquidity_usd or 0.0 for o in others)
     liquidity_factor = root_liq / total_liq if total_liq > 0 else 0.5
 
-    # Factor 3: few ambiguous candidates (where composite > 0.8)
+    # Factor 3: few ambiguous candidates (composite > 0.8)
     highly_similar = sum(1 for o in others if o.composite > 0.8)
     ambiguity_factor = 1.0 - min(highly_similar / max(len(others), 1), 1.0)
 

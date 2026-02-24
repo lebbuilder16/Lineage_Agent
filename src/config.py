@@ -47,11 +47,11 @@ SYMBOL_SIMILARITY_THRESHOLD: float = float(
 # ---------------------------------------------------------------------------
 # Scoring weights  (must sum to 1.0)
 # ---------------------------------------------------------------------------
-WEIGHT_NAME: float = 0.25
-WEIGHT_SYMBOL: float = 0.15
-WEIGHT_IMAGE: float = 0.25
-WEIGHT_DEPLOYER: float = 0.20
-WEIGHT_TEMPORAL: float = 0.15
+WEIGHT_NAME: float = float(os.getenv("WEIGHT_NAME", "0.25"))
+WEIGHT_SYMBOL: float = float(os.getenv("WEIGHT_SYMBOL", "0.15"))
+WEIGHT_IMAGE: float = float(os.getenv("WEIGHT_IMAGE", "0.25"))
+WEIGHT_DEPLOYER: float = float(os.getenv("WEIGHT_DEPLOYER", "0.20"))
+WEIGHT_TEMPORAL: float = float(os.getenv("WEIGHT_TEMPORAL", "0.15"))
 
 # ---------------------------------------------------------------------------
 # Cache

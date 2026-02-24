@@ -1,11 +1,14 @@
 /**
  * API client – calls the FastAPI backend.
  *
- * The base URL defaults to http://localhost:8000 and can be overridden
- * via the NEXT_PUBLIC_API_URL environment variable.
+ * Features:
+ * - AbortController with configurable timeout (default 60s)
+ * - Structured error parsing (FastAPI detail field)
+ * - Typed response interfaces
  */
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+const DEFAULT_TIMEOUT_MS = 60_000;
 
 /* ---------- Types --------------------------------------------------- */
 
@@ -63,15 +66,56 @@ export interface TokenSearchResult {
   dex_url: string;
 }
 
+/* ---------- Error class --------------------------------------------- */
+
+export class ApiError extends Error {
+  status: number;
+  detail: string;
+
+  constructor(status: number, detail: string) {
+    super(`API ${status}: ${detail}`);
+    this.name = "ApiError";
+    this.status = status;
+    this.detail = detail;
+  }
+}
+
 /* ---------- Fetch helpers ------------------------------------------- */
 
-async function fetchJSON<T>(path: string): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`);
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(`API ${res.status}: ${body}`);
+async function fetchJSON<T>(
+  path: string,
+  timeoutMs: number = DEFAULT_TIMEOUT_MS,
+): Promise<T> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const res = await fetch(`${API_BASE}${path}`, {
+      signal: controller.signal,
+    });
+
+    if (!res.ok) {
+      let detail = `HTTP ${res.status}`;
+      try {
+        const body = await res.json();
+        if (body?.detail) detail = body.detail;
+      } catch {
+        // fallback to status text
+        detail = res.statusText || detail;
+      }
+      throw new ApiError(res.status, detail);
+    }
+
+    return await res.json();
+  } catch (err) {
+    if (err instanceof ApiError) throw err;
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new ApiError(0, "Request timed out – the backend may be processing a large analysis. Try again.");
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
   }
-  return res.json();
 }
 
 /* ---------- Endpoints ----------------------------------------------- */
@@ -82,6 +126,6 @@ export function fetchLineage(mint: string): Promise<LineageResult> {
 
 export function searchTokens(query: string): Promise<TokenSearchResult[]> {
   return fetchJSON<TokenSearchResult[]>(
-    `/search?q=${encodeURIComponent(query)}`
+    `/search?q=${encodeURIComponent(query)}`,
   );
 }

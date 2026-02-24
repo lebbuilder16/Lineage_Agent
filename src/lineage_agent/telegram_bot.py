@@ -60,7 +60,7 @@ async def lineage_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     await update.message.reply_text("🔍 Analyzing lineage… please wait.")
 
     try:
-        result = detect_lineage(mint)
+        result = await detect_lineage(mint)
     except Exception as exc:
         logger.exception("Lineage detection error")
         await update.message.reply_text(f"❌ Error: {exc}")
@@ -106,7 +106,7 @@ async def search_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     logger.info("Search request: %s", query)
 
     try:
-        results = search_tokens(query)
+        results = await search_tokens(query)
     except Exception as exc:
         logger.exception("Search error")
         await update.message.reply_text(f"❌ Error: {exc}")
