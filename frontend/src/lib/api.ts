@@ -98,7 +98,7 @@ export interface OperatorFingerprint {
 export interface LiquidityArchReport {
   total_liquidity_usd: number;
   pool_count: number;
-  pools: Record<string, { liquidity_usd: number; volume_usd: number; share: number }>;
+  pools: Record<string, number>;
   concentration_hhi: number;
   liq_to_volume_ratio: number;
   authenticity_score: number;

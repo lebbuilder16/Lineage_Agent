@@ -58,12 +58,12 @@ export default function LiquidityArch({ report }: Props) {
       {/* Pool distribution bar */}
       {poolEntries.length > 0 && (
         <div className="flex rounded-full h-2.5 overflow-hidden mb-2 gap-px">
-          {poolEntries.map(([dex, data], i) => (
+          {poolEntries.map(([dex, liq], i) => (
             <div
               key={dex}
               className={`${DEX_COLORS[i % DEX_COLORS.length]} transition-all`}
-              style={{ width: `${(data.share * 100).toFixed(1)}%` }}
-              title={`${dex}: ${(data.share * 100).toFixed(1)}%`}
+              style={{ width: `${report.total_liquidity_usd > 0 ? ((liq / report.total_liquidity_usd) * 100).toFixed(1) : 0}%` }}
+              title={`${dex}: ${report.total_liquidity_usd > 0 ? ((liq / report.total_liquidity_usd) * 100).toFixed(1) : 0}%`}
             />
           ))}
         </div>
@@ -71,11 +71,11 @@ export default function LiquidityArch({ report }: Props) {
 
       {/* Pool breakdown */}
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-1 mb-3">
-        {poolEntries.map(([dex, data], i) => (
+        {poolEntries.map(([dex, liq], i) => (
           <div key={dex} className="flex items-center gap-1.5 text-xs text-zinc-400">
             <span className={`w-2 h-2 rounded-full flex-shrink-0 ${DEX_COLORS[i % DEX_COLORS.length]}`} />
             <span className="truncate">{dex}</span>
-            <span className="text-zinc-300 ml-auto">{fmt(data.liquidity_usd)}</span>
+            <span className="text-zinc-300 ml-auto">{fmt(liq)}</span>
           </div>
         ))}
       </div>
