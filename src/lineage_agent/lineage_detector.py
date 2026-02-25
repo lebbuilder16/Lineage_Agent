@@ -41,10 +41,12 @@ from .data_sources._clients import (
     init_clients,
 )
 from .death_clock import compute_death_clock
+from .deployer_service import compute_deployer_profile
 from .factory_service import analyze_factory_rhythm, record_token_creation
 from .liquidity_arch import analyze_liquidity_architecture
 from .metadata_dna_service import build_operator_fingerprint
 from .narrative_service import compute_narrative_timing
+from .risk_service import compute_on_chain_risk
 from .zombie_detector import detect_resurrection
 from .data_sources.solana_rpc import SolanaRpcClient
 from .models import (
@@ -424,6 +426,9 @@ async def detect_lineage(
         key=lambda d: d.evidence.composite_score, reverse=True
     )
 
+    # Assign multi-generation depth (generation + parent_mint)
+    _assign_generations(root_candidate.mint, derivatives)
+
     root_meta = TokenMetadata(
         mint=root_candidate.mint,
         name=root_candidate.name,
@@ -508,11 +513,15 @@ async def detect_lineage(
         result.operator_fingerprint,
         result.factory_rhythm,
         result.narrative_timing,
+        result.deployer_profile,
+        result.on_chain_risk,
     ) = await asyncio.gather(
         _safe(compute_death_clock(root_meta.deployer, root_meta.created_at)),
         _safe(build_operator_fingerprint(uri_tuples)),
         _safe(analyze_factory_rhythm(root_meta.deployer)),
         _safe(compute_narrative_timing(root_meta)),
+        _safe(compute_deployer_profile(root_meta.deployer)),
+        _safe(compute_on_chain_risk(root_meta.mint, root_meta.deployer)),
     )
 
     await _progress("Analysis complete", 100)
@@ -536,6 +545,57 @@ async def search_tokens(query: str) -> list[TokenSearchResult]:
     results = dex.pairs_to_search_results(pairs)
     await _cache_set(f"search:{query}", results)
     return results
+
+
+def _assign_generations(root_mint: str, derivatives: list[DerivativeInfo]) -> None:
+    """Assign ``generation`` and ``parent_mint`` to each derivative in-place.
+
+    Algorithm (chronological ordering):
+      1. Sort derivatives oldest-first (None timestamps go last).
+      2. Gen-1 = direct copies of the root (same deployer or deployer_score > 0.8).
+      3. Each remaining token is assigned to the already-placed token with the
+         closest creation time that precedes it, giving a realistic parent chain.
+      4. generation depth = parent.generation + 1, capped at 5.
+    """
+    if not derivatives:
+        return
+
+    # Sort by creation time
+    sorted_derivs = sorted(
+        derivatives,
+        key=lambda d: d.created_at.timestamp() if d.created_at else float("inf"),
+    )
+
+    # Map of mint → DerivativeInfo for quick lookup
+    placed: dict[str, DerivativeInfo] = {}
+
+    for d in sorted_derivs:
+        # Heuristic: same deployer → always direct child of root
+        if d.evidence.deployer_score >= 0.99:
+            d.parent_mint = root_mint
+            d.generation = 1
+        else:
+            # Find already-placed token with closest earlier timestamp
+            best_parent: DerivativeInfo | None = None
+            best_delta: float | None = None
+            t_d = d.created_at.timestamp() if d.created_at else None
+            for candidate in placed.values():
+                t_c = candidate.created_at.timestamp() if candidate.created_at else None
+                if t_c is None or t_d is None:
+                    continue
+                delta = t_d - t_c
+                if delta > 0 and (best_delta is None or delta < best_delta):
+                    best_delta = delta
+                    best_parent = candidate
+
+            if best_parent is not None:
+                d.parent_mint = best_parent.mint
+                d.generation = min(best_parent.generation + 1, 5)
+            else:
+                d.parent_mint = root_mint
+                d.generation = 1
+
+        placed[d.mint] = d
 
 
 def _parse_datetime(value: Any) -> datetime | None:

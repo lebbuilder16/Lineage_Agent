@@ -27,6 +27,7 @@ interface TokenNodeData {
   score: number;
   isRoot: boolean;
   mint: string;
+  generation: number;
   [key: string]: unknown;
 }
 
@@ -38,10 +39,18 @@ function scoreLevel(s: number) {
 
 const levelRing = { high: "ring-neon/60", medium: "ring-warning/60", low: "ring-destructive/60" };
 const levelText = { high: "text-neon", medium: "text-warning", low: "text-destructive" };
+const genBadge: Record<number, string> = {
+  1: "bg-neon/15 text-neon/80",
+  2: "bg-warning/15 text-warning/80",
+  3: "bg-orange-500/15 text-orange-400",
+  4: "bg-destructive/15 text-destructive",
+  5: "bg-destructive/10 text-destructive/70",
+};
 
 function TokenNode({ data }: { data: TokenNodeData }) {
   const level = scoreLevel(data.score);
   const pct = Math.round(data.score * 100);
+  const genColor = genBadge[data.generation] ?? genBadge[5];
   return (
     <div
       className={cn(
@@ -56,6 +65,11 @@ function TokenNode({ data }: { data: TokenNodeData }) {
         <div className="absolute -top-2.5 left-1/2 -translate-x-1/2 flex h-5 w-5 items-center justify-center rounded-full bg-neon shadow">
           <Crown className="h-3 w-3 text-black" />
         </div>
+      )}
+      {!data.isRoot && (
+        <span className={cn("absolute -top-2 right-1 rounded-full px-1.5 py-px text-[9px] font-bold", genColor)}>
+          G{data.generation}
+        </span>
       )}
       <span className={cn("text-[11px] font-bold tabular-nums", data.isRoot ? "text-neon" : levelText[level])}>
         {data.isRoot ? "ROOT" : `${pct}%`}
@@ -108,6 +122,7 @@ export function FamilyTree({ data }: Props) {
           score: 1,
           isRoot: true,
           mint: data.root.mint,
+          generation: 0,
         },
       },
       ...data.derivatives.slice(0, 20).map((d) => ({
@@ -120,29 +135,39 @@ export function FamilyTree({ data }: Props) {
           score: d.evidence.composite_score,
           isRoot: false,
           mint: d.mint,
+          generation: d.generation ?? 1,
         },
       })),
     ];
 
-    const rawEdges: Edge[] = data.derivatives.slice(0, 20).map((d) => ({
-      id: `${data.root!.mint}->${d.mint}`,
-      source: data.root!.mint,
-      target: d.mint,
-      animated: d.evidence.composite_score >= 0.7,
-      label: `${Math.round(d.evidence.composite_score * 100)}%`,
-      labelStyle: { fontSize: 10, fill: "hsl(var(--muted-foreground))" },
-      labelBgStyle: { fill: "hsl(var(--background))", fillOpacity: 0.8 },
-      style: {
-        stroke:
-          d.evidence.composite_score >= 0.7
-            ? "hsl(var(--success))"
-            : d.evidence.composite_score >= 0.4
-              ? "hsl(var(--warning))"
-              : "hsl(var(--destructive))",
-        strokeWidth: 1 + d.evidence.composite_score * 2,
-        opacity: 0.5 + d.evidence.composite_score * 0.5,
-      },
-    }));
+    // Collect all node IDs for safe edge building
+    const nodeIds = new Set(rawNodes.map((n) => n.id));
+
+    const rawEdges: Edge[] = data.derivatives.slice(0, 20).map((d) => {
+      // Use parent_mint if present + valid, else fall back to root
+      const parent = d.parent_mint && nodeIds.has(d.parent_mint)
+        ? d.parent_mint
+        : data.root!.mint;
+      return {
+        id: `${parent}->${d.mint}`,
+        source: parent,
+        target: d.mint,
+        animated: d.evidence.composite_score >= 0.7,
+        label: `${Math.round(d.evidence.composite_score * 100)}%`,
+        labelStyle: { fontSize: 10, fill: "hsl(var(--muted-foreground))" },
+        labelBgStyle: { fill: "hsl(var(--background))", fillOpacity: 0.8 },
+        style: {
+          stroke:
+            d.evidence.composite_score >= 0.7
+              ? "hsl(var(--success))"
+              : d.evidence.composite_score >= 0.4
+                ? "hsl(var(--warning))"
+                : "hsl(var(--destructive))",
+          strokeWidth: 1 + d.evidence.composite_score * 2,
+          opacity: 0.5 + d.evidence.composite_score * 0.5,
+        },
+      };
+    });
 
     return { initialNodes: layoutGraph(rawNodes, rawEdges), initialEdges: rawEdges };
   }, [data]);

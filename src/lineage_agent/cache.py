@@ -98,6 +98,22 @@ class TTLCache:
     async def update_event(self, where: str, params: tuple, **set_kwargs: Any) -> None:  # noqa: D102
         pass
 
+    # Stubs for alert subscriptions (no-ops without SQLite)
+    async def subscribe_alert(self, chat_id: int, sub_type: str, value: str) -> bool:  # noqa: D102
+        return False
+
+    async def unsubscribe_alert(self, chat_id: int, sub_id: int) -> bool:  # noqa: D102
+        return False
+
+    async def list_subscriptions(self, chat_id: int) -> list[dict]:  # noqa: D102
+        return []
+
+    async def query_subscriptions(self, sub_type: str, value: str) -> list[dict]:  # noqa: D102
+        return []
+
+    async def all_subscriptions(self) -> list[dict]:  # noqa: D102
+        return []
+
 
 # ---------------------------------------------------------------------------
 # SQLite persistent cache
@@ -216,6 +232,111 @@ class SQLiteCache:
         )
         await db.commit()
         self._initialised = True
+
+    # ------------------------------------------------------------------
+    # Alert subscriptions helpers
+    # ------------------------------------------------------------------
+
+    async def _ensure_alert_table(self) -> Any:
+        """Return the DB connection, auto-creating the alert_subscriptions table."""
+        db = await self._get_conn()
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS alert_subscriptions (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                chat_id     INTEGER NOT NULL,
+                sub_type    TEXT NOT NULL,
+                value       TEXT NOT NULL,
+                created_at  REAL NOT NULL
+            )
+            """
+        )
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_alert_chat ON alert_subscriptions(chat_id)"
+        )
+        await db.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_alert_unique "
+            "ON alert_subscriptions(chat_id, sub_type, value)"
+        )
+        await db.commit()
+        return db
+
+    async def subscribe_alert(self, chat_id: int, sub_type: str, value: str) -> bool:
+        """Insert a subscription. Returns True if inserted, False if it already exists."""
+        try:
+            db = await self._ensure_alert_table()
+            cursor = await db.execute(
+                "INSERT OR IGNORE INTO alert_subscriptions "
+                "(chat_id, sub_type, value, created_at) VALUES (?, ?, ?, ?)",
+                (chat_id, sub_type, value, time.time()),
+            )
+            await db.commit()
+            return cursor.rowcount == 1
+        except Exception:
+            logger.warning("subscribe_alert failed", exc_info=True)
+            return False
+
+    async def unsubscribe_alert(self, chat_id: int, sub_id: int) -> bool:
+        """Delete a subscription by id (scoped to chat_id). Returns True if deleted."""
+        try:
+            db = await self._ensure_alert_table()
+            cursor = await db.execute(
+                "DELETE FROM alert_subscriptions WHERE id = ? AND chat_id = ?",
+                (sub_id, chat_id),
+            )
+            await db.commit()
+            return cursor.rowcount == 1
+        except Exception:
+            logger.warning("unsubscribe_alert failed", exc_info=True)
+            return False
+
+    async def list_subscriptions(self, chat_id: int) -> list[dict]:
+        """Return all subscriptions for a chat_id as list of dicts."""
+        try:
+            db = await self._ensure_alert_table()
+            cursor = await db.execute(
+                "SELECT id, sub_type, value, created_at FROM alert_subscriptions "
+                "WHERE chat_id = ? ORDER BY id",
+                (chat_id,),
+            )
+            rows = await cursor.fetchall()
+            cols = [d[0] for d in cursor.description]
+            return [dict(zip(cols, row)) for row in rows]
+        except Exception:
+            logger.warning("list_subscriptions failed", exc_info=True)
+            return []
+
+    async def query_subscriptions(
+        self, sub_type: str, value: str
+    ) -> list[dict]:
+        """Return all chat IDs subscribed to a specific (sub_type, value) pair."""
+        try:
+            db = await self._ensure_alert_table()
+            cursor = await db.execute(
+                "SELECT id, chat_id, sub_type, value FROM alert_subscriptions "
+                "WHERE sub_type = ? AND value = ?",
+                (sub_type, value),
+            )
+            rows = await cursor.fetchall()
+            cols = [d[0] for d in cursor.description]
+            return [dict(zip(cols, row)) for row in rows]
+        except Exception:
+            logger.warning("query_subscriptions failed", exc_info=True)
+            return []
+
+    async def all_subscriptions(self) -> list[dict]:
+        """Return all active subscriptions (used by the alert sweep)."""
+        try:
+            db = await self._ensure_alert_table()
+            cursor = await db.execute(
+                "SELECT id, chat_id, sub_type, value FROM alert_subscriptions ORDER BY id"
+            )
+            rows = await cursor.fetchall()
+            cols = [d[0] for d in cursor.description]
+            return [dict(zip(cols, row)) for row in rows]
+        except Exception:
+            logger.warning("all_subscriptions failed", exc_info=True)
+            return []
 
     async def get(self, key: str) -> Optional[Any]:
         try:

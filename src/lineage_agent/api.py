@@ -53,8 +53,10 @@ from .lineage_detector import (
     init_clients,
     search_tokens,
 )
+from .alert_service import cancel_alert_sweep, schedule_alert_sweep as _schedule_alert_sweep
+from .deployer_service import compute_deployer_profile
 from .logging_config import generate_request_id, request_id_ctx, setup_logging
-from .models import BatchLineageRequest, BatchLineageResponse, LineageResult, TokenSearchResult
+from .models import BatchLineageRequest, BatchLineageResponse, DeployerProfile, LineageResult, TokenSearchResult
 from .rug_detector import cancel_rug_sweep, schedule_rug_sweep
 
 # Initialise structured logging early
@@ -123,9 +125,11 @@ async def lifespan(application: FastAPI):
     logger.info("Starting up – initialising HTTP clients …")
     await init_clients()
     schedule_rug_sweep()
+    _schedule_alert_sweep()
     yield
     logger.info("Shutting down – closing HTTP clients …")
     cancel_rug_sweep()
+    cancel_alert_sweep()
     await close_clients()
 
 
@@ -359,6 +363,113 @@ async def search(
         raise HTTPException(
             status_code=500, detail="Internal server error"
         ) from exc
+
+
+# ------------------------------------------------------------------
+# Deployer intelligence endpoint (Feature 2)
+# ------------------------------------------------------------------
+
+@app.get(
+    "/deployer/{address}",
+    response_model=DeployerProfile,
+    tags=["intelligence"],
+    summary="Historical behaviour profile for a deployer wallet",
+)
+@limiter.limit("20/minute")
+async def get_deployer_profile(
+    request: Request,
+    address: str,
+) -> DeployerProfile:
+    """Return historical behaviour statistics for a Solana deployer wallet."""
+    if not _BASE58_RE.match(address):
+        raise HTTPException(status_code=400, detail="Invalid Solana address")
+    try:
+        profile = await compute_deployer_profile(address)
+    except Exception as exc:
+        logger.exception("Deployer profile failed for %s", address)
+        raise HTTPException(status_code=500, detail="Internal server error") from exc
+    if profile is None:
+        raise HTTPException(
+            status_code=404,
+            detail="No deployment history found for this address",
+        )
+    return profile
+
+
+# ------------------------------------------------------------------
+# Lineage multi-generation graph endpoint (Feature 4)
+# ------------------------------------------------------------------
+
+@app.get(
+    "/lineage/{mint}/graph",
+    tags=["lineage"],
+    summary="Multi-generation graph data for a token family",
+)
+@limiter.limit(RATE_LIMIT_LINEAGE)
+async def get_lineage_graph(
+    request: Request,
+    mint: str,
+) -> dict:
+    """Return edge/node lists suitable for graph rendering.
+
+    Uses the cached lineage result (or triggers a fresh analysis) and
+    exposes ``parent_mint`` + ``generation`` on each node.
+    """
+    if not _BASE58_RE.match(mint):
+        raise HTTPException(status_code=400, detail="Invalid Solana mint address")
+    try:
+        result = await asyncio.wait_for(
+            detect_lineage(mint), timeout=ANALYSIS_TIMEOUT_SECONDS
+        )
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=504, detail="Analysis timed out")
+    except Exception as exc:
+        logger.exception("Graph lineage failed for %s", mint)
+        raise HTTPException(status_code=500, detail="Internal server error") from exc
+
+    root = result.root
+    nodes = []
+    edges = []
+
+    if root:
+        nodes.append({
+            "id": root.mint,
+            "label": root.name or root.symbol or root.mint[:8],
+            "symbol": root.symbol,
+            "generation": 0,
+            "parent_mint": None,
+            "is_root": True,
+            "score": 1.0,
+            "liquidity_usd": root.liquidity_usd,
+            "market_cap_usd": root.market_cap_usd,
+        })
+
+    for d in result.derivatives:
+        parent = d.parent_mint or (root.mint if root else "")
+        nodes.append({
+            "id": d.mint,
+            "label": d.name or d.symbol or d.mint[:8],
+            "symbol": d.symbol,
+            "generation": d.generation,
+            "parent_mint": parent,
+            "is_root": False,
+            "score": d.evidence.composite_score,
+            "liquidity_usd": d.liquidity_usd,
+            "market_cap_usd": d.market_cap_usd,
+        })
+        if parent:
+            edges.append({
+                "source": parent,
+                "target": d.mint,
+                "score": d.evidence.composite_score,
+            })
+
+    return {
+        "mint": mint,
+        "family_size": result.family_size,
+        "nodes": nodes,
+        "edges": edges,
+    }
 
 
 # ------------------------------------------------------------------

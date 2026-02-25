@@ -190,3 +190,27 @@ async def event_query(
 async def event_update(where: str, params: tuple, **set_kwargs: Any) -> None:
     """Update intelligence_events rows."""
     await cache.update_event(where=where, params=params, **set_kwargs)
+
+
+# ---------------------------------------------------------------------------
+# Alert subscription helpers
+# ---------------------------------------------------------------------------
+
+async def subscribe_alert(chat_id: int, sub_type: str, value: str) -> bool:
+    """Subscribe a Telegram chat to alerts for (sub_type, value). Returns True if new."""
+    return await cache.subscribe_alert(chat_id, sub_type, value)
+
+
+async def unsubscribe_alert(chat_id: int, sub_id: int) -> bool:
+    """Remove a subscription by id (scoped to chat_id). Returns True if removed."""
+    return await cache.unsubscribe_alert(chat_id, sub_id)
+
+
+async def list_subscriptions(chat_id: int) -> list[dict]:
+    """Return all subscriptions for a chat_id."""
+    return await cache.list_subscriptions(chat_id)
+
+
+async def all_subscriptions() -> list[dict]:
+    """Return all active subscriptions (for alert sweep)."""
+    return await cache.all_subscriptions()

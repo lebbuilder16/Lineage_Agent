@@ -66,6 +66,9 @@ class DerivativeInfo(BaseModel):
     market_cap_usd: Optional[float] = None
     liquidity_usd: Optional[float] = None
     evidence: SimilarityEvidence = Field(default_factory=SimilarityEvidence)
+    # Multi-generation graph fields
+    parent_mint: str = Field("", description="Mint of the direct parent (empty = child of root)")
+    generation: int = Field(1, ge=1, description="Generation depth from root (root=0, direct copy=1, copy-of-copy=2…)")
 
 
 # ---------------------------------------------------------------------------
@@ -107,6 +110,13 @@ class LineageResult(BaseModel):
     )
     narrative_timing: Optional[NarrativeTimingReport] = Field(
         None, description="Narrative cycle lifecycle positioning"
+    )
+    # ── New intelligence signals ────────────────────────────────────────────
+    deployer_profile: Optional[DeployerProfile] = Field(
+        None, description="Historical deployer behaviour profile"
+    )
+    on_chain_risk: Optional[OnChainRiskScore] = Field(
+        None, description="On-chain token holder concentration risk score"
     )
 
 
@@ -239,3 +249,50 @@ class NarrativeTimingReport(BaseModel):
     days_since_peak: Optional[int] = None
     peak_date: Optional[datetime] = None
     interpretation: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
+# Forensic signal: Deployer Intelligence (historical operator behaviour)
+# ---------------------------------------------------------------------------
+class DeployerTokenSummary(BaseModel):
+    """One token deployed by a wallet — condensed for the profile view."""
+
+    mint: str
+    name: str = ""
+    symbol: str = ""
+    created_at: Optional[datetime] = None
+    rugged_at: Optional[datetime] = None
+    mcap_usd: Optional[float] = None
+    narrative: str = ""
+
+
+class DeployerProfile(BaseModel):
+    """Historical behaviour profile for a deployer wallet."""
+
+    address: str
+    total_tokens_launched: int
+    rug_count: int
+    rug_rate_pct: float = Field(ge=0.0, le=100.0)
+    avg_lifespan_days: Optional[float] = None
+    active_tokens: int
+    preferred_narrative: str = ""
+    first_seen: Optional[datetime] = None
+    last_seen: Optional[datetime] = None
+    tokens: list[DeployerTokenSummary] = Field(default_factory=list)
+    confidence: Literal["high", "medium", "low"] = "low"
+
+
+# ---------------------------------------------------------------------------
+# Forensic signal: On-Chain Risk Score (holder concentration)
+# ---------------------------------------------------------------------------
+class OnChainRiskScore(BaseModel):
+    """Token holder concentration risk computed from on-chain token accounts."""
+
+    mint: str
+    holder_count: int
+    top_10_pct: float = Field(ge=0.0, le=100.0, description="% supply held by top-10 wallets")
+    top_1_pct: float = Field(ge=0.0, le=100.0, description="% supply held by largest wallet")
+    deployer_holds_pct: float = Field(ge=0.0, le=100.0, description="% supply held by deployer wallet")
+    risk_score: int = Field(ge=0, le=100, description="0=safe, 100=extreme concentration risk")
+    risk_level: Literal["low", "medium", "high", "critical"]
+    flags: list[str] = Field(default_factory=list)

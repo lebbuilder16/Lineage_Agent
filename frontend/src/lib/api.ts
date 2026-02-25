@@ -44,6 +44,8 @@ export interface DerivativeInfo {
   market_cap_usd: number | null;
   liquidity_usd: number | null;
   evidence: SimilarityEvidence;
+  parent_mint: string;
+  generation: number;
 }
 
 export interface LineageResult {
@@ -60,6 +62,9 @@ export interface LineageResult {
   liquidity_arch?: LiquidityArchReport | null;
   factory_rhythm?: FactoryRhythmReport | null;
   narrative_timing?: NarrativeTimingReport | null;
+  // New intelligence signals
+  deployer_profile?: DeployerProfile | null;
+  on_chain_risk?: OnChainRiskScore | null;
 }
 
 /* ---------- Forensic signal types ----------------------------------- */
@@ -134,6 +139,43 @@ export interface TokenSearchResult {
   market_cap_usd: number | null;
   liquidity_usd: number | null;
   dex_url: string;
+}
+
+/* ---------- New intelligence signal types ----------------------------- */
+
+export interface DeployerTokenSummary {
+  mint: string;
+  name: string;
+  symbol: string;
+  created_at: string | null;
+  rugged_at: string | null;
+  mcap_usd: number | null;
+  narrative: string;
+}
+
+export interface DeployerProfile {
+  address: string;
+  total_tokens_launched: number;
+  rug_count: number;
+  rug_rate_pct: number;
+  avg_lifespan_days: number | null;
+  active_tokens: number;
+  preferred_narrative: string;
+  first_seen: string | null;
+  last_seen: string | null;
+  tokens: DeployerTokenSummary[];
+  confidence: "high" | "medium" | "low";
+}
+
+export interface OnChainRiskScore {
+  mint: string;
+  holder_count: number;
+  top_10_pct: number;
+  top_1_pct: number;
+  deployer_holds_pct: number;
+  risk_score: number;
+  risk_level: "low" | "medium" | "high" | "critical";
+  flags: string[];
 }
 
 /* ---------- Error class --------------------------------------------- */
@@ -244,6 +286,10 @@ async function fetchJSONPost<T>(
 
 export function fetchLineage(mint: string): Promise<LineageResult> {
   return fetchJSON<LineageResult>(`/lineage?mint=${encodeURIComponent(mint)}`);
+}
+
+export function fetchDeployerProfile(address: string): Promise<DeployerProfile> {
+  return fetchJSON<DeployerProfile>(`/deployer/${encodeURIComponent(address)}`);
 }
 
 export function searchTokens(query: string): Promise<TokenSearchResult[]> {

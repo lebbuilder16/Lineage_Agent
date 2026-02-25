@@ -168,6 +168,31 @@ class SolanaRpcClient:
             return items if isinstance(items, list) else []
         return []
 
+    async def get_token_accounts(
+        self, mint: str, *, limit: int = 100
+    ) -> list[dict]:
+        """Fetch token holder accounts for *mint* using Helius DAS ``getTokenAccounts``.
+
+        Returns a list of account dicts each containing at minimum::
+
+            {
+              "address": "<wallet_address>",
+              "amount": <raw_token_amount_as_int_or_str>,
+            }
+
+        Returns an empty list on failure or if the endpoint does not support
+        the DAS extension (non-Helius RPC nodes).
+        """
+        result = await self._call("getTokenAccounts", {
+            "mint": mint,
+            "limit": min(limit, 1000),
+            "page": 1,
+        })
+        if isinstance(result, dict):
+            token_accounts = result.get("token_accounts") or []
+            return token_accounts if isinstance(token_accounts, list) else []
+        return []
+
     # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------

@@ -20,6 +20,8 @@ import OperatorFingerprint from "@/components/forensics/OperatorFingerprint";
 import LiquidityArch from "@/components/forensics/LiquidityArch";
 import FactoryRhythm from "@/components/forensics/FactoryRhythm";
 import NarrativeTiming from "@/components/forensics/NarrativeTiming";
+import DeployerProfileCard from "@/components/forensics/DeployerProfile";
+import OnChainRisk from "@/components/forensics/OnChainRisk";
 import { motion, AnimatePresence } from "framer-motion";
 import { AlertCircle, RefreshCw, Crown, List, ChevronRight, TrendingUp, Droplets } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -149,7 +151,9 @@ export default function LineagePage() {
             data.zombie_alert !== undefined ||
             data.factory_rhythm !== undefined ||
             data.narrative_timing !== undefined ||
-            data.operator_fingerprint !== undefined) && (
+            data.operator_fingerprint !== undefined ||
+            data.deployer_profile !== undefined ||
+            data.on_chain_risk !== undefined) && (
             <motion.div
               initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
@@ -161,6 +165,8 @@ export default function LineagePage() {
                 Forensic Intelligence
                 <span className="flex-1 h-px bg-zinc-700" />
               </h3>
+              <OnChainRisk risk={data.on_chain_risk} />
+              <DeployerProfileCard profile={data.deployer_profile} />
               <LiquidityArch report={data.liquidity_arch} />
               <DeathClock forecast={data.death_clock} />
               <FactoryRhythm report={data.factory_rhythm} />

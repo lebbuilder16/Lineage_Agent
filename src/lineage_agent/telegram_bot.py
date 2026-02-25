@@ -3,9 +3,13 @@ Telegram bot interface for the Meme Lineage Agent.
 
 Commands
 --------
-/start          – Welcome message
-/lineage <mint> – Detect lineage for a token
-/search <name>  – Search tokens by name or symbol
+/start                      – Welcome message
+/lineage <mint>             – Detect lineage for a token
+/search <name>              – Search tokens by name or symbol
+/watch deployer <address>   – Subscribe to alerts for a deployer wallet
+/watch narrative <name>     – Subscribe to alerts for a narrative category
+/unwatch <id>               – Cancel a subscription by ID
+/mywatches                  – List all active subscriptions
 """
 
 from __future__ import annotations
@@ -17,6 +21,8 @@ from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters
 
 from config import TELEGRAM_BOT_TOKEN
+from .alert_service import set_bot_app
+from .data_sources._clients import list_subscriptions, subscribe_alert, unsubscribe_alert
 from .lineage_detector import detect_lineage, search_tokens
 
 # Base58 validation regex (same as in api.py)
@@ -51,6 +57,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "*Commands:*\n"
         "• /lineage `<mint>` \\– Detect the lineage of a token\n"
         "• /search `<name>` \\– Search tokens by name or symbol\n"
+        "• /watch deployer `<address>` \\– Alert on new tokens from a wallet\n"
+        "• /watch narrative `<name>` \\– Alert on new tokens in a narrative\n"
+        "• /unwatch `<id>` \\– Cancel an alert subscription\n"
+        "• /mywatches \\– List your active subscriptions\n"
         "• /help \\– Show this help message\n"
     )
     await update.message.reply_text(text, parse_mode="MarkdownV2")
@@ -63,10 +73,15 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "*Commands:*\n"
         "• /lineage `<mint>` \\– Detect the lineage of a Solana token\n"
         "• /search `<name>` \\– Search tokens by name or symbol\n"
+        "• /watch deployer `<address>` \\– Subscribe to deployer wallet alerts\n"
+        "• /watch narrative `<name>` \\– Subscribe to narrative category alerts\n"
+        "• /unwatch `<id>` \\– Cancel subscription by ID \\(see /mywatches\\)\n"
+        "• /mywatches \\– List your active subscriptions\n"
         "• /help \\– Show this message\n\n"
         "*Examples:*\n"
         "• `/lineage DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263`\n"
-        "• `/search bonk`\n\n"
+        "• `/search bonk`\n"
+        "• `/watch narrative pepe`\n\n"
         "Paste a Solana mint address or type a token name to get started\\."
     )
     await update.message.reply_text(text, parse_mode="MarkdownV2")
@@ -178,6 +193,100 @@ async def search_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     await update.message.reply_text("\n".join(lines), parse_mode="MarkdownV2")
 
 
+async def watch_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /watch deployer <address> and /watch narrative <name>."""
+    if not context.args or len(context.args) < 2:
+        await update.message.reply_text(
+            "Usage:\n"
+            "/watch deployer `<wallet\\-address>`\n"
+            "/watch narrative `<name>`",
+            parse_mode="MarkdownV2",
+        )
+        return
+
+    sub_type = context.args[0].lower()
+    value = " ".join(context.args[1:]).strip()
+
+    if sub_type not in ("deployer", "narrative"):
+        await update.message.reply_text(
+            "❌ Unknown watch type\\. Use `deployer` or `narrative`\\.",
+            parse_mode="MarkdownV2",
+        )
+        return
+
+    if sub_type == "deployer" and not _BASE58_RE.match(value):
+        await update.message.reply_text(
+            "❌ Invalid Solana address\\. Expected 32\\-44 base58 characters\\.",
+            parse_mode="MarkdownV2",
+        )
+        return
+
+    chat_id = update.effective_chat.id
+    inserted = await subscribe_alert(chat_id, sub_type, value)
+    if inserted:
+        await update.message.reply_text(
+            f"✅ Watching *{sub_type}*: `{_esc(value)}`\n"
+            f"You'll be notified when matching tokens appear\\.",
+            parse_mode="MarkdownV2",
+        )
+    else:
+        await update.message.reply_text(
+            f"ℹ️ You're already watching *{sub_type}*: `{_esc(value)}`\\.",
+            parse_mode="MarkdownV2",
+        )
+
+
+async def unwatch_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /unwatch <id>."""
+    if not context.args:
+        await update.message.reply_text(
+            "Usage: /unwatch `<id>` — use /mywatches to see your subscription IDs\\.",
+            parse_mode="MarkdownV2",
+        )
+        return
+
+    try:
+        sub_id = int(context.args[0])
+    except ValueError:
+        await update.message.reply_text("❌ ID must be a number\\.", parse_mode="MarkdownV2")
+        return
+
+    chat_id = update.effective_chat.id
+    removed = await unsubscribe_alert(chat_id, sub_id)
+    if removed:
+        await update.message.reply_text(
+            f"✅ Subscription \\#{sub_id} cancelled\\.",
+            parse_mode="MarkdownV2",
+        )
+    else:
+        await update.message.reply_text(
+            f"❌ Subscription \\#{sub_id} not found or doesn't belong to you\\.",
+            parse_mode="MarkdownV2",
+        )
+
+
+async def mywatches_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /mywatches — list all active subscriptions for this chat."""
+    chat_id = update.effective_chat.id
+    subs = await list_subscriptions(chat_id)
+
+    if not subs:
+        await update.message.reply_text(
+            "📋 You have no active subscriptions\\.\n"
+            "Use /watch to start tracking deployers or narratives\\.",
+            parse_mode="MarkdownV2",
+        )
+        return
+
+    lines = ["📋 *Your active subscriptions:*\n"]
+    for s in subs:
+        lines.append(
+            f"  \\#{s['id']} — *{_esc(s['sub_type'])}*: `{_esc(s['value'])}`"
+        )
+    lines.append("\n_Use /unwatch `<id>` to cancel any subscription\\._")
+    await update.message.reply_text("\n".join(lines), parse_mode="MarkdownV2")
+
+
 # ------------------------------------------------------------------
 # Entrypoint
 # ------------------------------------------------------------------
@@ -200,6 +309,9 @@ def main() -> None:
     application.add_handler(CommandHandler("help", help_cmd))
     application.add_handler(CommandHandler("lineage", lineage_cmd))
     application.add_handler(CommandHandler("search", search_cmd))
+    application.add_handler(CommandHandler("watch", watch_cmd))
+    application.add_handler(CommandHandler("unwatch", unwatch_cmd))
+    application.add_handler(CommandHandler("mywatches", mywatches_cmd))
     # Catch-all for unknown commands / messages
     application.add_handler(
         MessageHandler(filters.COMMAND, unknown_cmd)
@@ -207,6 +319,9 @@ def main() -> None:
     application.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, unknown_cmd)
     )
+
+    # Register bot with alert service so it can dispatch notifications
+    set_bot_app(application)
 
     logger.info("Starting bot…")
     application.run_polling()
