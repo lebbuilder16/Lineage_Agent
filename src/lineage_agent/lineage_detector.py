@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, Optional
 
 from config import (
+    CACHE_TTL_LINEAGE_SECONDS,
     IMAGE_SIMILARITY_THRESHOLD,
     MAX_CONCURRENT_RPC,
     MAX_DERIVATIVES,
@@ -188,15 +189,58 @@ async def detect_lineage(
             derivatives=[],
             family_size=1,
         )
-        await _cache_set(f"lineage:{mint_address}", result)
+        await _cache_set(f"lineage:{mint_address}", result, ttl=CACHE_TTL_LINEAGE_SECONDS)
         return result
 
-    # --- Step 2: Search for similar tokens ---
+    # --- Step 2: Search for similar tokens (multi-strategy) ---
     await _progress("Searching for similar tokens", 40)
+
+    # Strategy A: DexScreener name search
     search_query = query_meta.name or query_meta.symbol
     logger.info("Searching for tokens similar to '%s' ...", search_query)
     search_pairs = await dex.search_tokens(search_query)
     candidates = dex.pairs_to_search_results(search_pairs)
+
+    # Strategy B: DexScreener symbol search (if different from name query)
+    if query_meta.symbol and query_meta.symbol.lower() != (search_query or "").lower():
+        try:
+            sym_pairs = await dex.search_tokens(query_meta.symbol)
+            sym_results = dex.pairs_to_search_results(sym_pairs)
+            _seen = {c.mint for c in candidates}
+            for sr in sym_results:
+                if sr.mint not in _seen:
+                    candidates.append(sr)
+                    _seen.add(sr.mint)
+        except Exception as _e:
+            logger.debug("Symbol search failed: %s", _e)
+
+    # Strategy C: Helius searchAssets by deployer (finds same-deployer clones
+    # that DexScreener name/symbol search can miss entirely)
+    if query_meta.deployer:
+        try:
+            deployer_assets = await rpc.search_assets_by_creator(
+                query_meta.deployer
+            )
+            _seen = {c.mint for c in candidates}
+            for _da in deployer_assets:
+                _da_id = _da.get("id", "")
+                if _da_id and _da_id != mint_address and _da_id not in _seen:
+                    _da_content = _da.get("content") or {}
+                    _da_meta = (_da_content.get("metadata") or {})
+                    candidates.append(
+                        TokenSearchResult(
+                            mint=_da_id,
+                            name=_da_meta.get("name", ""),
+                            symbol=_da_meta.get("symbol", ""),
+                            image_uri=(
+                                (_da_content.get("links") or {}).get("image", "")
+                            ),
+                            metadata_uri=_da_content.get("json_uri", ""),
+                        )
+                    )
+                    _seen.add(_da_id)
+        except Exception as _e:
+            logger.debug("Deployer searchAssets failed: %s", _e)
 
     # Remove the query token itself from candidates
     candidates = [c for c in candidates if c.mint != mint_address]
@@ -210,7 +254,7 @@ async def detect_lineage(
             derivatives=[],
             family_size=1,
         )
-        await _cache_set(f"lineage:{mint_address}", result)
+        await _cache_set(f"lineage:{mint_address}", result, ttl=CACHE_TTL_LINEAGE_SECONDS)
         return result
 
     # --- Step 3 & 4: Enrich candidates and score them ---
@@ -218,7 +262,7 @@ async def detect_lineage(
 
     # Pre-filter by name/symbol similarity (cheap, sync)
     pre_filtered = []
-    for candidate in candidates[: MAX_DERIVATIVES * 2]:
+    for candidate in candidates[: MAX_DERIVATIVES * 3]:
         name_sim = compute_name_similarity(query_meta.name, candidate.name)
         sym_sim = compute_symbol_similarity(
             query_meta.symbol, candidate.symbol
@@ -250,11 +294,6 @@ async def detect_lineage(
         c_image_uri = candidate.image_uri or (
             ((c_asset.get("content") or {}).get("links") or {}).get("image") or ""
         )
-        if not c_deployer:
-            _c_creators = c_asset.get("creators") or []
-            c_deployer = next(
-                (c["address"] for c in _c_creators if c.get("verified")), ""
-            )
 
         # Image similarity — bounded concurrency for downloads
         async with img_sem:
@@ -263,11 +302,19 @@ async def detect_lineage(
                 client=img_client,
             )
 
+        # Track dimensions that are genuinely missing (vs. scored 0.0)
+        _missing: set[str] = set()
+        if img_sim < 0:
+            # Sentinel from PIL-not-available or both URLs blank
+            img_sim = 0.0
+            _missing.add("image")
+
         # Post-filter: skip candidates with very low image similarity
         # when both images were available
         if (
             query_meta.image_uri
             and c_image_uri
+            and "image" not in _missing
             and img_sim < IMAGE_SIMILARITY_THRESHOLD
             and name_sim < NAME_SIMILARITY_THRESHOLD
         ):
@@ -283,7 +330,9 @@ async def detect_lineage(
             "deployer": dep_score,
             "temporal": temp_score,
         }
-        composite = compute_composite_score(scores, _WEIGHTS)
+        composite = compute_composite_score(
+            scores, _WEIGHTS, missing_dims=_missing or None
+        )
 
         evidence = SimilarityEvidence(
             name_score=round(name_sim, 4),
@@ -348,6 +397,8 @@ async def detect_lineage(
                 name=m.name,
                 symbol=m.symbol,
                 image_uri=m.image_uri,
+                deployer=m.deployer,
+                metadata_uri=m.metadata_uri,
                 created_at=m.created_at,
                 market_cap_usd=m.market_cap_usd,
                 liquidity_usd=m.liquidity_usd,
@@ -365,6 +416,7 @@ async def detect_lineage(
         symbol=root_candidate.symbol,
         image_uri=root_candidate.image_uri,
         deployer=root_candidate.deployer,
+        metadata_uri=root_candidate.metadata_uri,
         created_at=root_candidate.created_at,
         market_cap_usd=root_candidate.market_cap_usd,
         liquidity_usd=root_candidate.liquidity_usd,
@@ -450,7 +502,7 @@ async def detect_lineage(
     )
 
     await _progress("Analysis complete", 100)
-    await _cache_set(f"lineage:{mint_address}", result)
+    await _cache_set(f"lineage:{mint_address}", result, ttl=CACHE_TTL_LINEAGE_SECONDS)
     return result
 
 
@@ -490,10 +542,24 @@ def _parse_datetime(value: Any) -> datetime | None:
     return None
 
 
+# PumpFun program authority — when this is the update authority
+# the real deployer is the first verified creator, not the fee payer.
+_PUMPFUN_AUTHORITY = "TSLvdd1pWpHVjahSpsvCXUbgwsL3JAcvokwaKt1eokM"
+
+
 async def _get_deployer_cached(
     rpc: SolanaRpcClient, mint: str
 ) -> tuple[str, Any]:
-    """Fetch deployer + timestamp with per-mint caching (never changes)."""
+    """Fetch deployer + timestamp with per-mint caching (never changes).
+
+    Strategy (DAS-first, O(1)):
+        1. Fetch DAS ``getAsset`` for the mint.
+        2. Extract deployer from ``authorities`` (update-authority) or
+           ``creators`` (on-chain verified creator).
+        3. For PumpFun tokens the update authority is the PumpFun program
+           itself — in that case the real deployer is ``creators[0].address``.
+        4. Fall back to the legacy signature-walk only when DAS fails.
+    """
     cache_key = f"rpc:deployer:{mint}"
     cached = await _cache_get(cache_key)
     if cached is not None:
@@ -502,7 +568,46 @@ async def _get_deployer_cached(
             return cached[0], _parse_datetime(cached[1])
         return cached
 
-    deployer, created_at = await rpc.get_deployer_and_timestamp(mint)
+    deployer = ""
+    created_at: Any = None
+
+    # --- DAS-first path (O(1), works for all token standards) ---
+    asset = await rpc.get_asset(mint)
+    if asset:
+        # Timestamp -------------------------------------------------
+        # DAS may provide created_at in result root or token_info
+        _token_info = asset.get("token_info") or {}
+        _raw_ts = _token_info.get("created_at") or asset.get("created_at")
+        created_at = _parse_datetime(_raw_ts)
+
+        # Deployer --------------------------------------------------
+        authorities = asset.get("authorities") or []
+        creators = asset.get("creators") or []
+
+        # 1) Check update-authority (first authority entry)
+        ua = ""
+        if authorities:
+            ua = authorities[0].get("address", "")
+        # 2) PumpFun detection: if UA is the PumpFun program, use creator[0]
+        if ua == _PUMPFUN_AUTHORITY or not ua:
+            deployer = next(
+                (c["address"] for c in creators if c.get("verified")),
+                creators[0]["address"] if creators else "",
+            )
+        else:
+            deployer = ua
+
+    # --- Signature-walk fallback (slow, but universal) ---
+    if not deployer:
+        deployer, _ts = await rpc.get_deployer_and_timestamp(mint)
+        if _ts and not created_at:
+            created_at = _ts
+    elif not created_at:
+        # We have a deployer from DAS but no timestamp — try sig walk
+        _, _ts = await rpc.get_deployer_and_timestamp(mint)
+        if _ts:
+            created_at = _ts
+
     result = (deployer, created_at)
     # Long TTL: deployer/timestamp are immutable on-chain
     await _cache_set(cache_key, result, ttl=86400)
@@ -560,22 +665,35 @@ def _select_root(candidates: list[_ScoredCandidate]) -> _ScoredCandidate:
     """Select the most likely root from a list of candidates.
 
     Heuristic (in order of importance):
-    1. Oldest creation timestamp.
-    2. Highest liquidity.
-    3. Highest market cap.
+    1. Deployer cluster size — prefer the candidate whose deployer
+       launched the most tokens in the family (strongest serial-deployer
+       signal).
+    2. Oldest creation timestamp.
+    3. Highest liquidity.
+    4. Highest market cap.
     """
     if not candidates:
         raise ValueError("No candidates to select root from")
 
+    # Build deployer frequency map (empty deployer doesn't count)
+    from collections import Counter
+
+    deployer_counts: Counter[str] = Counter()
+    for c in candidates:
+        if c.deployer:
+            deployer_counts[c.deployer] += 1
+
     def _root_key(c: _ScoredCandidate):
-        # Earliest timestamp first; missing timestamp sorts last (float inf)
+        # Bigger deployer cluster first (negative for min())
+        cluster = -(deployer_counts.get(c.deployer, 0) if c.deployer else 0)
+        # Earliest timestamp first; missing timestamp sorts last
         liq = -(c.liquidity_usd or 0.0)
         mcap = -(c.market_cap_usd or 0.0)
         if c.created_at is not None:
             dt = _parse_datetime(c.created_at)
             if dt is not None:
-                return (dt.timestamp(), liq, mcap)
-        return (float("inf"), liq, mcap)
+                return (cluster, dt.timestamp(), liq, mcap)
+        return (cluster, float("inf"), liq, mcap)
 
     return min(candidates, key=_root_key)
 

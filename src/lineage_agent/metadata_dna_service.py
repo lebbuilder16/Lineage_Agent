@@ -42,6 +42,8 @@ _SERVICE_PATTERNS: list[tuple[str, str]] = [
     (r"dweb\.link/ipfs/", "ipfs"),
     (r"gateway\.pinata\.cloud/ipfs/", "pinata"),
     (r"cf-ipfs\.com/", "cloudflare"),
+    (r"pump\.fun/", "pumpfun"),
+    (r"bafkreia?[a-z0-9]{50,}", "ipfs"),  # IPFS CIDv1 inline
 ]
 
 
@@ -170,4 +172,7 @@ def _normalise_uri(uri: str) -> Optional[str]:
     # Bare Arweave transaction ID (43 chars, base64url chars only)
     if re.fullmatch(r"[A-Za-z0-9_-]{43}", uri):
         return f"https://arweave.net/{uri}"
+    # PumpFun metadata URI (e.g. https://pump.fun/coin/<mint>/metadata)
+    if "pump.fun" in uri:
+        return uri if uri.startswith("http") else f"https://{uri}"
     return None

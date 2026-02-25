@@ -79,7 +79,7 @@ async def compute_image_similarity(
         logger.warning(
             "Pillow / imagehash not installed – image similarity disabled"
         )
-        return 0.0
+        return -1.0  # sentinel: caller should exclude from composite
 
     if not url_a or not url_b:
         return 0.0
@@ -111,21 +111,27 @@ async def _phash_from_url(url: str, timeout: int = 10, client: httpx.AsyncClient
     """Download an image and compute its perceptual hash.
 
     If *client* is provided it will be reused (no overhead from creating
-    a fresh TCP connection per call).
+    a fresh TCP connection per call).  Retries once on transient failure.
     """
-    try:
-        if client is not None:
-            resp = await client.get(url)
-            resp.raise_for_status()
-        else:
-            async with httpx.AsyncClient(timeout=timeout) as _client:
-                resp = await _client.get(url)
+    _MAX_ATTEMPTS = 2
+    for attempt in range(_MAX_ATTEMPTS):
+        try:
+            if client is not None:
+                resp = await client.get(url)
                 resp.raise_for_status()
-        img = Image.open(io.BytesIO(resp.content)).convert("RGB")
-        return imagehash.phash(img)
-    except Exception as exc:  # noqa: BLE001
-        logger.debug("Could not compute phash for %s: %s", url, exc)
-        return None
+            else:
+                async with httpx.AsyncClient(timeout=timeout) as _client:
+                    resp = await _client.get(url)
+                    resp.raise_for_status()
+            img = Image.open(io.BytesIO(resp.content)).convert("RGB")
+            return imagehash.phash(img)
+        except Exception as exc:  # noqa: BLE001
+            if attempt < _MAX_ATTEMPTS - 1:
+                await asyncio.sleep(0.5)
+                continue
+            logger.debug("Could not compute phash for %s: %s", url, exc)
+            return None
+    return None
 
 
 # ------------------------------------------------------------------
@@ -176,7 +182,8 @@ def compute_temporal_score(
         return 0.5
 
     days_diff = diff_seconds / 86_400
-    score = 0.5 + 0.5 * _clamp(days_diff / 30.0, -1.0, 1.0)
+    # 90-day window (was 30) — allows detecting roots launched months apart
+    score = 0.5 + 0.5 * _clamp(days_diff / 90.0, -1.0, 1.0)
     return score
 
 
@@ -188,12 +195,28 @@ def compute_temporal_score(
 def compute_composite_score(
     scores: dict[str, float],
     weights: dict[str, float],
+    *,
+    missing_dims: set[str] | None = None,
 ) -> float:
-    """Weighted average of individual similarity scores."""
-    total_weight = sum(weights.values())
+    """Weighted average of individual similarity scores.
+
+    Parameters
+    ----------
+    missing_dims:
+        Dimension keys that should be *excluded* from the denominator
+        because the input data for that signal was unavailable (e.g.
+        PIL not installed → image dim is missing).  This prevents a
+        single missing signal from deflating the overall composite.
+    """
+    _missing = missing_dims or set()
+    total_weight = sum(w for k, w in weights.items() if k not in _missing)
     if total_weight == 0:
         return 0.0
-    weighted = sum(scores.get(k, 0.0) * w for k, w in weights.items())
+    weighted = sum(
+        scores.get(k, 0.0) * w
+        for k, w in weights.items()
+        if k not in _missing
+    )
     return weighted / total_weight
 
 

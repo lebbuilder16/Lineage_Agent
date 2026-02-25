@@ -93,6 +93,7 @@ class CircuitBreaker:
         self._success_count = 0
         self._last_failure_time: Optional[float] = None
         self._lock = asyncio.Lock()
+        self._probe_sem = asyncio.Semaphore(1)  # only 1 probe at a time in HALF_OPEN
         self.stats = CircuitBreakerStats()
 
     # ------------------------------------------------------------------
@@ -124,6 +125,14 @@ class CircuitBreaker:
             self.stats.rejected_calls += 1
             raise CircuitOpenError(self.name)
 
+        # In HALF_OPEN only one probe at a time; others fast-fail
+        if state == CircuitState.HALF_OPEN:
+            if not self._probe_sem.locked():
+                await self._probe_sem.acquire()
+            else:
+                self.stats.rejected_calls += 1
+                raise CircuitOpenError(self.name)
+
         self.stats.total_calls += 1
         try:
             result = await func(*args, **kwargs)
@@ -132,6 +141,13 @@ class CircuitBreaker:
         except Exception as exc:
             await self._on_failure(exc)
             raise
+        finally:
+            # Release probe semaphore if we acquired it
+            if state == CircuitState.HALF_OPEN:
+                try:
+                    self._probe_sem.release()
+                except ValueError:
+                    pass  # already released
 
     # ------------------------------------------------------------------
     # State machine

@@ -198,6 +198,11 @@ class SQLiteCache:
         await db.execute(
             "CREATE INDEX IF NOT EXISTS idx_ie_mint ON intelligence_events(mint)"
         )
+        # Deduplicate: at most one event per (event_type, mint) combination
+        await db.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_ie_unique_type_mint "
+            "ON intelligence_events(event_type, mint)"
+        )
         await db.commit()
         self._initialised = True
 
@@ -299,16 +304,30 @@ class SQLiteCache:
     # Intelligence events helpers (forensic data store — no TTL)
     # ------------------------------------------------------------------
 
+    # Column whitelist — prevents SQL injection from arbitrary kwargs
+    _IE_ALLOWED_COLS: frozenset[str] = frozenset({
+        "event_type", "mint", "deployer", "name", "symbol",
+        "narrative", "mcap_usd", "liq_usd", "created_at",
+        "rugged_at", "extra_json",
+    })
+
     async def insert_event(self, **kwargs: Any) -> None:
-        """Insert a row into intelligence_events."""
+        """Insert or replace a row in intelligence_events.
+
+        Uses INSERT OR REPLACE so the UNIQUE(event_type, mint) index
+        prevents duplicate entries — repeated analyses update rather
+        than pollute the store.
+        """
         try:
             db = await self._get_conn()
-            cols = list(kwargs.keys()) + ["recorded_at"]
+            # Filter to whitelisted columns only
+            safe = {k: v for k, v in kwargs.items() if k in self._IE_ALLOWED_COLS}
+            cols = list(safe.keys()) + ["recorded_at"]
             placeholders = ", ".join("?" for _ in cols)
             col_names = ", ".join(cols)
-            values = list(kwargs.values()) + [time.time()]
+            values = list(safe.values()) + [time.time()]
             await db.execute(
-                f"INSERT INTO intelligence_events ({col_names}) VALUES ({placeholders})",
+                f"INSERT OR REPLACE INTO intelligence_events ({col_names}) VALUES ({placeholders})",
                 values,
             )
             await db.commit()

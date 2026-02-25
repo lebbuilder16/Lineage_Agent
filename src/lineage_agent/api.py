@@ -54,6 +54,7 @@ from .lineage_detector import (
 )
 from .logging_config import generate_request_id, request_id_ctx, setup_logging
 from .models import BatchLineageRequest, BatchLineageResponse, LineageResult, TokenSearchResult
+from .rug_detector import cancel_rug_sweep, schedule_rug_sweep
 
 # Initialise structured logging early
 setup_logging()
@@ -120,8 +121,10 @@ async def lifespan(application: FastAPI):
         )
     logger.info("Starting up – initialising HTTP clients …")
     await init_clients()
+    schedule_rug_sweep()
     yield
     logger.info("Shutting down – closing HTTP clients …")
+    cancel_rug_sweep()
     await close_clients()
 
 

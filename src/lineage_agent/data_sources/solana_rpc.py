@@ -147,6 +147,27 @@ class SolanaRpcClient:
             return result
         return {}
 
+    async def search_assets_by_creator(
+        self, creator: str, *, page: int = 1, limit: int = 100
+    ) -> list[dict]:
+        """Find all fungible tokens created by a given deployer (Helius DAS).
+
+        Uses ``searchAssets`` with ``creatorAddress`` to discover tokens
+        from the same deployer that DexScreener search may miss.
+        Returns a list of asset dicts, or [] on failure.
+        """
+        result = await self._call("searchAssets", {
+            "creatorAddress": creator,
+            "creatorVerified": True,
+            "tokenType": "fungible",
+            "page": page,
+            "limit": min(limit, 1000),
+        })
+        if isinstance(result, dict):
+            items = result.get("items") or []
+            return items if isinstance(items, list) else []
+        return []
+
     # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------

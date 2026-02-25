@@ -16,6 +16,21 @@ import httpx
 logger = logging.getLogger(__name__)
 
 
+def _parse_retry_after(resp: httpx.Response, default: float) -> float:
+    """Extract wait time from a ``Retry-After`` header, or use *default*.
+
+    The header may be an integer (seconds) or an HTTP-date.  We only handle
+    the integer form since that's what most APIs emit.
+    """
+    raw = resp.headers.get("retry-after")
+    if raw is not None:
+        try:
+            return max(float(raw), 0.5)
+        except (ValueError, TypeError):
+            pass
+    return default
+
+
 async def async_http_get(
     client: httpx.AsyncClient,
     url: str,
@@ -33,7 +48,8 @@ async def async_http_get(
         try:
             resp = await client.get(url, params=params)
             if resp.status_code == 429:
-                wait = backoff_base * (2 ** attempt)
+                # Prefer server-provided Retry-After, else exponential backoff
+                wait = _parse_retry_after(resp, backoff_base * (2 ** attempt))
                 logger.warning("%s rate-limited, retry in %.1fs", label, wait)
                 await asyncio.sleep(wait)
                 continue
@@ -75,7 +91,7 @@ async def async_http_post_json(
         try:
             resp = await client.post(url, json=json_payload)
             if resp.status_code == 429:
-                wait = backoff_base * (2 ** attempt)
+                wait = _parse_retry_after(resp, backoff_base * (2 ** attempt))
                 logger.warning("%s rate-limited, retry in %.1fs", label, wait)
                 await asyncio.sleep(wait)
                 continue

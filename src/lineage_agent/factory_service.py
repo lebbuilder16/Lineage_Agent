@@ -30,21 +30,27 @@ _FACTORY_SCORE_THRESHOLD = 0.65
 
 # Narrative taxonomy used for classifying tokens (shared with narrative_service)
 NARRATIVE_TAXONOMY: dict[str, list[str]] = {
-    "pepe": ["pepe", "frog", "kek"],
-    "doge": ["doge", "doggo"],
+    "pepe": ["pepe", "frog", "kek", "pepemoon"],
+    "doge": ["doge", "doggo", "shibe"],
     "inu": ["inu", "shiba", "shib"],
     "ai": ["ai", "gpt", "llm", "agent", "neural", "claude", "gemini", "deepseek"],
     "trump": ["trump", "maga", "donald"],
     "elon": ["elon", "musk"],
-    "cat": ["cat", "nyan", "kitty", "meow", "kitten"],
+    "cat": ["cat", "nyan", "kitty", "meow", "kitten", "popcat"],
     "anime": ["anime", "waifu", "chan", "kun", "senpai"],
-    "wojak": ["wojak", "chad", "based", "cope", "gigachad"],
+    "wojak": ["wojak", "chad", "based", "cope", "gigachad", "sigma"],
     "sol": ["solana", "sol"],
     "moon": ["moon", "luna", "lunar"],
     "baby": ["baby", "mini", "micro"],
     "ape": ["ape", "monkey", "gorilla"],
     "dragon": ["dragon", "drgn"],
     "bear": ["bear"],
+    "hawk": ["hawk", "tuah", "hawktuah"],
+    "pomni": ["pomni", "circus", "jax"],
+    "brain": ["brain", "brainrot", "rot"],
+    "skibidi": ["skibidi", "toilet", "rizz"],
+    "goat": ["goat", "goated"],
+    "pnut": ["pnut", "peanut", "squirrel"],
 }
 
 

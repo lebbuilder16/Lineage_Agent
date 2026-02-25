@@ -33,6 +33,7 @@ class TokenMetadata(BaseModel):
     price_usd: Optional[float] = Field(None, description="Current token price in USD")
     dex_url: str = Field("", description="DexScreener URL for this token")
     metadata_uri: str = Field("", description="Metaplex metadata URI (off-chain JSON)")
+    token_standard: str = Field("", description="Token standard from DAS (Fungible, FungibleAsset, etc.)")
 
 
 # ---------------------------------------------------------------------------
@@ -59,6 +60,8 @@ class DerivativeInfo(BaseModel):
     name: str = ""
     symbol: str = ""
     image_uri: str = ""
+    deployer: str = ""
+    metadata_uri: str = ""
     created_at: Optional[datetime] = None
     market_cap_usd: Optional[float] = None
     liquidity_usd: Optional[float] = None

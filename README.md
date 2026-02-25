@@ -195,7 +195,7 @@ variables. Copy `.env.example` to `.env` and adjust as needed.
 | `WEIGHT_DEPLOYER` | float | `0.20` | Scoring weight for deployer match |
 | `WEIGHT_TEMPORAL` | float | `0.15` | Scoring weight for temporal proximity |
 | `CACHE_TTL_SECONDS` | int | `300` | Cache time-to-live in seconds |
-| `CACHE_BACKEND` | string | `memory` | Cache backend: `memory` (TTLCache) or `sqlite` (persistent) |
+| `CACHE_BACKEND` | string | `sqlite` | Cache backend: `memory` (TTLCache) or `sqlite` (persistent) |
 | `CACHE_SQLITE_PATH` | string | `data/cache.db` | Path to SQLite cache database (when `CACHE_BACKEND=sqlite`) |
 | `MAX_DERIVATIVES` | int | `50` | Maximum derivatives to return |
 | `MAX_CONCURRENT_RPC` | int | `5` | Concurrent RPC request limit |
