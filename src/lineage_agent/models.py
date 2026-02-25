@@ -125,6 +125,9 @@ class TokenSearchResult(BaseModel):
     market_cap_usd: Optional[float] = None
     liquidity_usd: Optional[float] = None
     dex_url: str = ""
+    # Earliest pairCreatedAt across all DexScreener pairs for this mint.
+    # Used as fallback when on-chain DAS / sig-walk returns no timestamp.
+    pair_created_at: Optional[datetime] = None
 
 
 # ---------------------------------------------------------------------------

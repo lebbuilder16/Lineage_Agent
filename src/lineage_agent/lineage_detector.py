@@ -297,6 +297,12 @@ async def detect_lineage(
             )
             c_asset = await _get_asset_cached(rpc, candidate.mint)
 
+        # Fallback: DexScreener pairCreatedAt when on-chain timestamp unavailable.
+        # This is critical for root selection — without it, tokens with no DAS
+        # timestamp appear "infinitely new" and are never chosen as root.
+        if c_created is None and candidate.pair_created_at is not None:
+            c_created = candidate.pair_created_at
+
         # Derive image / metadata_uri from DAS if not available from DexScreener
         c_metadata_uri = (c_asset.get("content") or {}).get("json_uri") or ""
         c_image_uri = candidate.image_uri or (
@@ -694,16 +700,17 @@ def _select_root(candidates: list[_ScoredCandidate]) -> _ScoredCandidate:
             deployer_counts[c.deployer] += 1
 
     def _root_key(c: _ScoredCandidate):
-        # Bigger deployer cluster first (negative for min())
+        # PRIMARY: earliest creation timestamp → root is the oldest token.
+        # SECONDARY: largest deployer cluster (tiebreaker for same-day launches).
+        # TERTIARY: highest liquidity / market cap.
         cluster = -(deployer_counts.get(c.deployer, 0) if c.deployer else 0)
-        # Earliest timestamp first; missing timestamp sorts last
         liq = -(c.liquidity_usd or 0.0)
         mcap = -(c.market_cap_usd or 0.0)
         if c.created_at is not None:
             dt = _parse_datetime(c.created_at)
             if dt is not None:
-                return (cluster, dt.timestamp(), liq, mcap)
-        return (cluster, float("inf"), liq, mcap)
+                return (dt.timestamp(), cluster, liq, mcap)
+        return (float("inf"), cluster, liq, mcap)
 
     return min(candidates, key=_root_key)
 

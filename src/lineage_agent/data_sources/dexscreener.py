@@ -96,13 +96,15 @@ class DexScreenerClient:
         info = best.get("info") or {}
         image_uri = info.get("imageUrl", "")
 
-        # pairCreatedAt is Unix milliseconds — reliable proxy for launch date
-        pair_created_ms = best.get("pairCreatedAt")
-        created_at = (
-            datetime.fromtimestamp(pair_created_ms / 1000, tz=timezone.utc)
-            if pair_created_ms
-            else None
-        )
+        # Use the EARLIEST pairCreatedAt across all pairs — the highest-liquidity
+        # pair may not be the oldest, so we scan all pairs for the oldest date.
+        created_at: Optional[datetime] = None
+        for p in pairs:
+            ms = p.get("pairCreatedAt")
+            if ms:
+                dt = datetime.fromtimestamp(ms / 1000, tz=timezone.utc)
+                if created_at is None or dt < created_at:
+                    created_at = dt
 
         return TokenMetadata(
             mint=mint,
@@ -126,6 +128,11 @@ class DexScreenerClient:
     ) -> list[TokenSearchResult]:
         """Convert raw DexScreener pair dicts to ``TokenSearchResult`` list."""
         seen: dict[str, TokenSearchResult] = {}
+        # Track the earliest pairCreatedAt per mint independently of liquidity.
+        # The highest-liquidity pair is used for price/mcap data, but the
+        # oldest pair date is the best proxy for token age.
+        earliest_created: dict[str, datetime] = {}
+
         for pair in pairs:
             base = pair.get("baseToken") or {}
             chain = pair.get("chainId", "")
@@ -137,6 +144,16 @@ class DexScreenerClient:
 
             liq = _safe_float((pair.get("liquidity") or {}).get("usd"))
             info = pair.get("info") or {}
+
+            # Always track the earliest pairCreatedAt for this mint
+            pair_created_ms = pair.get("pairCreatedAt")
+            if pair_created_ms:
+                pair_dt = datetime.fromtimestamp(
+                    pair_created_ms / 1000, tz=timezone.utc
+                )
+                prev = earliest_created.get(mint)
+                if prev is None or pair_dt < prev:
+                    earliest_created[mint] = pair_dt
 
             existing = seen.get(mint)
             if existing and (existing.liquidity_usd or 0) >= (liq or 0):
@@ -152,6 +169,10 @@ class DexScreenerClient:
                 liquidity_usd=liq,
                 dex_url=pair.get("url", ""),
             )
+
+        # Attach the earliest pairCreatedAt to each result
+        for mint, result in seen.items():
+            result.pair_created_at = earliest_created.get(mint)
 
         return list(seen.values())
 
