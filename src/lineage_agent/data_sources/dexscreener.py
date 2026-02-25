@@ -83,14 +83,22 @@ class DexScreenerClient:
         best = max(
             pairs, key=lambda p: (p.get("liquidity") or {}).get("usd") or 0
         )
+        # Our mint might be the base OR the quote token in the pair.
         base_token = best.get("baseToken") or {}
+        quote_token = best.get("quoteToken") or {}
+        if base_token.get("address", "").lower() == mint.lower():
+            token_info = base_token
+        elif quote_token.get("address", "").lower() == mint.lower():
+            token_info = quote_token
+        else:
+            token_info = base_token  # fallback
         info = best.get("info") or {}
         image_uri = info.get("imageUrl", "")
 
         return TokenMetadata(
             mint=mint,
-            name=base_token.get("name", ""),
-            symbol=base_token.get("symbol", ""),
+            name=token_info.get("name", ""),
+            symbol=token_info.get("symbol", ""),
             image_uri=image_uri,
             price_usd=_safe_float(best.get("priceUsd")),
             market_cap_usd=_safe_float(best.get("marketCap")),

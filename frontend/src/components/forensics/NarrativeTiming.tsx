@@ -44,8 +44,8 @@ export default function NarrativeTiming({ report }: Props) {
       </ForensicCard>
     );
   }
-  const cfg = STATUS_CONFIG[report.status];
-  const dotPct = report.cycle_percentile * 100;
+  const cfg = STATUS_CONFIG[report.status] ?? STATUS_CONFIG.insufficient_data;
+  const dotPct = (report.cycle_percentile ?? 0) * 100;
 
   return (
     <div className="w-full rounded-xl border border-zinc-800 bg-zinc-950/70 px-4 py-3 text-sm mb-4">
@@ -91,7 +91,7 @@ export default function NarrativeTiming({ report }: Props) {
         <span>
           Momentum:{" "}
           <span className="text-zinc-200 font-medium">
-            {(report.momentum_score * 100).toFixed(0)}%
+            {report.momentum_score != null ? (report.momentum_score * 100).toFixed(0) : "—"}%
           </span>
         </span>
         <span>

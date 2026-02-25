@@ -41,9 +41,10 @@ async def compute_narrative_timing(
 
     cutoff = time.time() - _LOOKBACK_DAYS * 86400
     rows = await event_query(
-        where="narrative = ? AND event_type = 'token_created' AND recorded_at > ? AND created_at IS NOT NULL ORDER BY created_at",
+        where="narrative = ? AND event_type = 'token_created' AND recorded_at > ? AND created_at IS NOT NULL",
         params=(narrative, cutoff),
         columns="created_at, mcap_usd",
+        order_by="created_at",
     )
 
     if len(rows) < _MIN_SAMPLE:

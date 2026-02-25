@@ -40,7 +40,7 @@ export default function ZombieAlert({ alert }: Props) {
       </ForensicCard>
     );
   }
-  const cfg = CONFIDENCE_CONFIG[alert.confidence];
+  const cfg = CONFIDENCE_CONFIG[alert.confidence as keyof typeof CONFIDENCE_CONFIG] ?? CONFIDENCE_CONFIG.probable;
 
   return (
     <AnimatePresence>

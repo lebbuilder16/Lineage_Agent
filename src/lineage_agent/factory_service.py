@@ -86,9 +86,10 @@ async def analyze_factory_rhythm(deployer: str) -> Optional[FactoryRhythmReport]
         return None
 
     rows = await event_query(
-        where="deployer = ? AND event_type = 'token_created' AND created_at IS NOT NULL ORDER BY created_at",
+        where="deployer = ? AND event_type = 'token_created' AND created_at IS NOT NULL",
         params=(deployer,),
         columns="created_at, name, mcap_usd",
+        order_by="created_at",
     )
 
     if len(rows) < _MIN_TOKENS_FOR_DETECTION:
@@ -105,11 +106,11 @@ async def analyze_factory_rhythm(deployer: str) -> Optional[FactoryRhythmReport]
     if len(timestamps) < _MIN_TOKENS_FOR_DETECTION:
         return None
 
-    # Compute intervals in hours
+    # Compute intervals in hours (include zero-second launches — strongest bot signal)
     intervals_h = [
         (timestamps[i + 1] - timestamps[i]).total_seconds() / 3600.0
         for i in range(len(timestamps) - 1)
-        if timestamps[i + 1] > timestamps[i]
+        if timestamps[i + 1] >= timestamps[i]
     ]
     if len(intervals_h) < 2:
         return None

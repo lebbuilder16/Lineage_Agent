@@ -82,8 +82,8 @@ def detect_resurrection(result: LineageResult) -> Optional[ZombieAlert]:
                     same_deployer = True
                 if d.mint == mint_a and d.evidence.deployer_score >= 0.99:
                     same_deployer = True
-            if mint_a == result.root.mint or mint_b == result.root.mint:
-                same_deployer = True  # root deployer vs any derivative with deployer_score=1
+            # NOTE: pairing root with a derivative does NOT automatically mean
+            # same_deployer — we rely on deployer_score only.
 
             confidence: str | None = None
             priority = -1
@@ -97,7 +97,7 @@ def detect_resurrection(result: LineageResult) -> Optional[ZombieAlert]:
             elif (not same_deployer) and img_b_vs_root >= _ZOMBIE_DIFF_DEPLOYER_IMAGE_MIN:
                 confidence = "probable"
                 priority = 1
-            elif img_b_vs_root >= 0.80 and same_deployer:
+            elif (not same_deployer) and img_b_vs_root >= 0.80:
                 confidence = "possible"
                 priority = 0
 
@@ -119,7 +119,7 @@ def detect_resurrection(result: LineageResult) -> Optional[ZombieAlert]:
                 best = ZombieAlert(
                     original_mint=dead_mint,
                     original_name=dead_name or dead_mint[:8],
-                    original_rugged_at=dead_created,
+                    original_rugged_at=None,  # creation date != rug date; unknown
                     original_liq_peak_usd=dead_liq,
                     resurrection_mint=resurrection_mint,
                     image_similarity=round(img_b_vs_root, 4),

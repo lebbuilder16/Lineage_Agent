@@ -27,8 +27,14 @@ export function useLineageWS(): UseLineageWSReturn {
   const [isLoading, setIsLoading] = useState(false);
   const [progress, setProgress] = useState<ProgressEvent | null>(null);
   const runIdRef = useRef(0);
+  const abortRef = useRef<AbortController | null>(null);
 
   const analyze = useCallback((mint: string) => {
+    // Cancel any in-flight WebSocket from a previous call
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     const runId = ++runIdRef.current;
     setData(null);
     setError(null);
@@ -38,7 +44,7 @@ export function useLineageWS(): UseLineageWSReturn {
     fetchLineageWithProgress(mint, (evt) => {
       if (runIdRef.current !== runId) return; // stale
       setProgress(evt);
-    })
+    }, controller.signal)
       .then((result) => {
         if (runIdRef.current !== runId) return;
         setData(result);
@@ -46,6 +52,8 @@ export function useLineageWS(): UseLineageWSReturn {
       })
       .catch(async (err) => {
         if (runIdRef.current !== runId) return;
+        // Ignore intentional abort (user started a new search)
+        if (err instanceof DOMException && err.name === "AbortError") return;
         // Fallback to HTTP if WS fails to connect
         try {
           setProgress({ step: "Falling back to HTTP…", progress: 0 });

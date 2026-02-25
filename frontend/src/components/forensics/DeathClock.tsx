@@ -25,7 +25,7 @@ export default function DeathClock({ forecast }: Props) {
       </ForensicCard>
     );
   }
-  const cfg = RISK_CONFIG[forecast.risk_level];
+  const cfg = RISK_CONFIG[forecast.risk_level] ?? RISK_CONFIG.insufficient_data;
   const elapsedPct = Math.min(
     (forecast.elapsed_hours / (forecast.median_rug_hours || 1)) * 100,
     100,

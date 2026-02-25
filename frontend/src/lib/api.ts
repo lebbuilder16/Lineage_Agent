@@ -100,7 +100,7 @@ export interface LiquidityArchReport {
   pool_count: number;
   pools: Record<string, number>;
   concentration_hhi: number;
-  liq_to_volume_ratio: number;
+  liq_to_volume_ratio: number | null;
   authenticity_score: number;
   flags: string[];
 }
@@ -118,8 +118,8 @@ export interface NarrativeTimingReport {
   narrative: string;
   sample_size: number;
   status: "early" | "rising" | "peak" | "late" | "insufficient_data";
-  cycle_percentile: number;
-  momentum_score: number;
+  cycle_percentile: number | null;
+  momentum_score: number | null;
   days_since_peak: number | null;
   peak_date: string | null;
   interpretation: string;
@@ -271,6 +271,7 @@ export interface ProgressEvent {
 export function fetchLineageWithProgress(
   mint: string,
   onProgress: (event: ProgressEvent) => void,
+  signal?: AbortSignal,
 ): Promise<LineageResult> {
   return new Promise((resolve, reject) => {
     const wsBase = API_BASE.replace(/^http/, "ws");
@@ -292,6 +293,14 @@ export function fetchLineageWithProgress(
         fn();
       }
     };
+
+    // Close WS and reject if caller aborts (e.g. a new search started)
+    if (signal) {
+      signal.addEventListener("abort", () => {
+        ws.close();
+        settle(() => reject(new DOMException("Aborted", "AbortError")));
+      });
+    }
 
     ws.onopen = () => {
       ws.send(JSON.stringify({ mint }));

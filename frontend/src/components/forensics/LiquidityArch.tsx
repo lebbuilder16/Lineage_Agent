@@ -85,7 +85,7 @@ export default function LiquidityArch({ report }: Props) {
         <span>Total: <span className="text-zinc-200">{fmt(report.total_liquidity_usd)}</span></span>
         <span>Pools: <span className="text-zinc-200">{report.pool_count}</span></span>
         <span>HHI: <span className="text-zinc-200">{report.concentration_hhi.toFixed(3)}</span></span>
-        {report.liq_to_volume_ratio < 999 && (
+        {report.liq_to_volume_ratio != null && report.liq_to_volume_ratio < 999 && (
           <span>L/V ratio: <span className="text-zinc-200">{report.liq_to_volume_ratio.toFixed(1)}×</span></span>
         )}
       </div>

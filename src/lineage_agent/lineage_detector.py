@@ -117,11 +117,19 @@ async def detect_lineage(
     if cached is not None:
         # SQLite cache returns dicts (JSON-deserialized); convert back to model
         if isinstance(cached, dict):
-            return LineageResult(**cached)
-        if isinstance(cached, LineageResult):
+            try:
+                return LineageResult(**cached)
+            except Exception:
+                # Schema changed after deploy — discard and re-compute
+                logger.warning(
+                    "Dropping stale/invalid cached lineage for %s (schema mismatch)",
+                    mint_address,
+                )
+        elif isinstance(cached, LineageResult):
             return cached
-        # Stale string cache entry — ignore and re-compute
-        logger.warning("Dropping invalid cached lineage for %s", mint_address)
+        else:
+            # Stale string cache entry — ignore and re-compute
+            logger.warning("Dropping invalid cached lineage for %s", mint_address)
 
     dex = _get_dex_client()
     rpc = _get_rpc_client()
@@ -256,6 +264,7 @@ async def detect_lineage(
             name=candidate.name,
             symbol=candidate.symbol,
             image_uri=candidate.image_uri,
+            metadata_uri=candidate.metadata_uri,
             deployer=c_deployer,
             created_at=c_created,
             market_cap_usd=candidate.market_cap_usd,
@@ -281,6 +290,7 @@ async def detect_lineage(
             name=query_meta.name,
             symbol=query_meta.symbol,
             image_uri=query_meta.image_uri,
+            metadata_uri=query_meta.metadata_uri,
             deployer=query_meta.deployer,
             created_at=query_meta.created_at,
             market_cap_usd=query_meta.market_cap_usd,
@@ -347,6 +357,24 @@ async def detect_lineage(
     except Exception as _e:
         logger.debug("record_token_creation failed: %s", _e)
 
+    # Record confirmed derivatives (deployer_score == 1.0) as well
+    for _d in result.derivatives:
+        if _d.evidence.deployer_score >= 0.99:
+            try:
+                _d_meta = TokenMetadata(
+                    mint=_d.mint,
+                    name=_d.name,
+                    symbol=_d.symbol,
+                    image_uri=_d.image_uri,
+                    deployer=root_meta.deployer,  # same deployer
+                    created_at=_d.created_at,
+                    market_cap_usd=_d.market_cap_usd,
+                    liquidity_usd=_d.liquidity_usd,
+                )
+                await record_token_creation(_d_meta)
+            except Exception as _e:
+                logger.debug("record_token_creation (derivative) failed: %s", _e)
+
     # Phase 1  — Zombie Token detection (sync, uses already-built result)
     try:
         result.zombie_alert = detect_resurrection(result)
@@ -361,7 +389,7 @@ async def detect_lineage(
 
     # Build metadata URI list for Operator Fingerprint
     uri_tuples: list[tuple[str, str, str]] = [
-        (t.mint, t.deployer or "", getattr(t, "metadata_uri", "") or "")
+        (t.mint, t.deployer or "", t.metadata_uri or "")
         for t in all_tokens
         if t.mint
     ]
@@ -459,6 +487,7 @@ class _ScoredCandidate:
         "name",
         "symbol",
         "image_uri",
+        "metadata_uri",
         "deployer",
         "created_at",
         "market_cap_usd",
@@ -484,16 +513,16 @@ def _select_root(candidates: list[_ScoredCandidate]) -> _ScoredCandidate:
         raise ValueError("No candidates to select root from")
 
     def _root_key(c: _ScoredCandidate):
-        ts_score = 0.0
+        # Earliest timestamp first; missing timestamp sorts last (float inf)
+        liq = -(c.liquidity_usd or 0.0)
+        mcap = -(c.market_cap_usd or 0.0)
         if c.created_at is not None:
             dt = _parse_datetime(c.created_at)
             if dt is not None:
-                ts_score = -dt.timestamp()
-        liq = c.liquidity_usd or 0.0
-        mcap = c.market_cap_usd or 0.0
-        return (ts_score, liq, mcap)
+                return (dt.timestamp(), liq, mcap)
+        return (float("inf"), liq, mcap)
 
-    return max(candidates, key=_root_key)
+    return min(candidates, key=_root_key)
 
 
 def _compute_confidence(

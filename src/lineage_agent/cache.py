@@ -81,7 +81,9 @@ class TTLCache:
 
     # Stubs for intelligence_events (no-ops when SQLite is not enabled)
     async def insert_event(self, **kwargs: Any) -> None:  # noqa: D102
-        pass
+        logger.warning(
+            "insert_event called on TTLCache (no-op) — set CACHE_BACKEND=sqlite to persist events"
+        )
 
     async def query_events(
         self,
@@ -89,6 +91,7 @@ class TTLCache:
         params: tuple = (),
         columns: str = "*",
         limit: int = 1000,
+        order_by: str = "",  # noqa: ARG002
     ) -> list[dict]:  # noqa: D102
         return []
 
@@ -119,28 +122,34 @@ class SQLiteCache:
         self._max_entries = max_entries
         self._conn: Any = None  # aiosqlite.Connection
         self._initialised = False
+        self._conn_lock: Any = None  # asyncio.Lock, created lazily
 
     async def _get_conn(self) -> Any:
         """Return (and lazily create) a persistent aiosqlite connection."""
+        import asyncio
         import aiosqlite
         import os
 
-        if self._conn is not None:
-            try:
-                # Quick check – if the connection is still alive
-                await self._conn.execute("SELECT 1")
-                if not self._initialised:
-                    await self._init_schema(self._conn)
-                return self._conn
-            except Exception:
-                # Connection broken – recreate
-                self._conn = None
+        if self._conn_lock is None:
+            self._conn_lock = asyncio.Lock()
 
-        os.makedirs(os.path.dirname(self._db_path) or ".", exist_ok=True)
-        self._conn = await aiosqlite.connect(self._db_path)
-        await self._conn.execute("PRAGMA journal_mode=WAL")
-        await self._init_schema(self._conn)
-        return self._conn
+        async with self._conn_lock:
+            if self._conn is not None:
+                try:
+                    # Quick check – if the connection is still alive
+                    await self._conn.execute("SELECT 1")
+                    if not self._initialised:
+                        await self._init_schema(self._conn)
+                    return self._conn
+                except Exception:
+                    # Connection broken – recreate
+                    self._conn = None
+
+            os.makedirs(os.path.dirname(self._db_path) or ".", exist_ok=True)
+            self._conn = await aiosqlite.connect(self._db_path)
+            await self._conn.execute("PRAGMA journal_mode=WAL")
+            await self._init_schema(self._conn)
+            return self._conn
 
     async def _init_schema(self, db: Any) -> None:
         if self._initialised:
@@ -312,11 +321,15 @@ class SQLiteCache:
         params: tuple = (),
         columns: str = "*",
         limit: int = 1000,
+        order_by: str = "",
     ) -> list[dict]:
         """Query intelligence_events and return list of dicts."""
         try:
             db = await self._get_conn()
-            sql = f"SELECT {columns} FROM intelligence_events WHERE {where} LIMIT {limit}"
+            sql = f"SELECT {columns} FROM intelligence_events WHERE {where}"
+            if order_by:
+                sql += f" ORDER BY {order_by}"
+            sql += f" LIMIT {limit}"
             cursor = await db.execute(sql, params)
             rows = await cursor.fetchall()
             col_names = [d[0] for d in cursor.description]

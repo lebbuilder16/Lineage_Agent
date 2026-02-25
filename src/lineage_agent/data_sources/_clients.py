@@ -174,9 +174,10 @@ async def event_query(
     params: tuple = (),
     columns: str = "*",
     limit: int = 1000,
+    order_by: str = "",
 ) -> list[dict]:
     """Query intelligence_events and return list of dicts."""
-    return await cache.query_events(where=where, params=params, columns=columns, limit=limit)
+    return await cache.query_events(where=where, params=params, columns=columns, limit=limit, order_by=order_by)
 
 
 async def event_update(where: str, params: tuple, **set_kwargs: Any) -> None:
