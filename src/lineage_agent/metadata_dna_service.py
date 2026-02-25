@@ -32,6 +32,17 @@ logger = logging.getLogger(__name__)
 _FETCH_TIMEOUT = 5.0        # seconds per metadata fetch
 _FETCH_SEM = asyncio.Semaphore(3)
 
+# Solana system/protocol addresses that should never be treated as human deployers
+_SYSTEM_ADDRESSES: frozenset[str] = frozenset({
+    "11111111111111111111111111111111",          # System Program
+    "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",  # Token Program
+    "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJe1bRS",  # Associated Token Account
+    "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s",    # Metaplex Metadata
+    "TSLvdd1pWpHVjahSpsvCXUbgwsL3JAcvokwaKt1eokM",    # Pump.fun authority
+    "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBymPkZu",   # Pump.fun program
+    "Ce6TQqeHC9p8KetsN6JsjHK7UTZk7nasjjnr7XxXp9F1",   # Moonshot
+})
+
 # Known IPFS/Arweave gateway patterns
 _SERVICE_PATTERNS: list[tuple[str, str]] = [
     (r"arweave\.net/", "arweave"),
@@ -63,8 +74,12 @@ async def build_operator_fingerprint(
     OperatorFingerprint if ≥2 distinct deployers share the same fingerprint,
     else None.
     """
-    # Filter out entries without deployer or uri
-    valid = [(m, d, u) for m, d, u in mints_deployers_uris if d and u]
+    # Filter out entries without deployer or uri, and known system/protocol addresses
+    valid = [
+        (m, d, u)
+        for m, d, u in mints_deployers_uris
+        if d and u and d not in _SYSTEM_ADDRESSES
+    ]
     if len(valid) < 2:
         return None
 
@@ -130,9 +145,12 @@ async def _fetch_linked_wallet_tokens(
         return result
 
     async def _query_wallet(wallet: str) -> None:
+        if wallet in _SYSTEM_ADDRESSES:
+            return
         try:
             rows = await event_query(
                 where="event_type = 'token_created' AND deployer = ?",
+
                 params=(wallet,),
                 columns="mint, name, symbol, narrative, mcap_usd, created_at",
                 limit=limit_per_wallet,
@@ -203,6 +221,10 @@ async def _get_fingerprint(mint: str, uri: str) -> Optional[str]:
     desc = str(data.get("description") or "").strip().lower()
     # Normalise: keep only alphanumeric + spaces, truncate to 60
     desc_norm = re.sub(r"[^a-z0-9 ]", "", desc)[:60].strip()
+    # Empty description is too weak a signal — would cause false positives across
+    # all tokens that have no description (they'd all share the same fingerprint)
+    if not desc_norm:
+        return None
     service = _detect_service(uri)
     raw = f"{service}:{desc_norm}"
     fp = hashlib.sha256(raw.encode()).hexdigest()[:16]
