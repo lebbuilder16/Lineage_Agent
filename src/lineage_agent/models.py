@@ -204,6 +204,11 @@ class OperatorFingerprint(BaseModel):
     upload_service: str
     description_pattern: str
     confidence: Literal["confirmed", "probable"]
+    # Tokens launched by each linked wallet, keyed by wallet address
+    linked_wallet_tokens: dict[str, list[DeployerTokenSummary]] = Field(
+        default_factory=dict,
+        description="Tokens launched by each linked wallet (from intelligence_events)",
+    )
 
 
 # ---------------------------------------------------------------------------

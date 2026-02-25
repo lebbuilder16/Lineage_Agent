@@ -24,8 +24,8 @@ from typing import Optional
 
 import httpx
 
-from .data_sources._clients import cache_get, cache_set, get_img_client
-from .models import OperatorFingerprint
+from .data_sources._clients import cache_get, cache_set, event_query, get_img_client
+from .models import DeployerTokenSummary, OperatorFingerprint
 
 logger = logging.getLogger(__name__)
 
@@ -107,13 +107,73 @@ async def build_operator_fingerprint(
     linked = shared[best_fp]
     service = fp_to_service.get(best_fp, "unknown")
 
+    # Enrich with tokens launched by each linked wallet
+    linked_wallet_tokens = await _fetch_linked_wallet_tokens(linked)
+
     return OperatorFingerprint(
         fingerprint=best_fp,
         linked_wallets=linked,
         upload_service=service,
         description_pattern=best_fp[:16] + "...",
         confidence="confirmed" if len(linked) >= 3 else "probable",
+        linked_wallet_tokens=linked_wallet_tokens,
     )
+
+
+async def _fetch_linked_wallet_tokens(
+    wallets: list[str],
+    limit_per_wallet: int = 8,
+) -> dict[str, list[DeployerTokenSummary]]:
+    """Query intelligence_events for tokens launched by each linked wallet."""
+    result: dict[str, list[DeployerTokenSummary]] = {}
+    if not wallets:
+        return result
+
+    async def _query_wallet(wallet: str) -> None:
+        try:
+            rows = await event_query(
+                where="event_type = 'token_created' AND deployer = ?",
+                params=(wallet,),
+                columns="mint, name, symbol, narrative, mcap_usd, created_at",
+                limit=limit_per_wallet,
+                order_by="recorded_at DESC",
+            )
+            tokens = []
+            for row in rows:
+                # Fetch rug status for this mint
+                rug_rows = await event_query(
+                    where="event_type = 'token_rugged' AND mint = ?",
+                    params=(row.get("mint", ""),),
+                    columns="rugged_at",
+                    limit=1,
+                )
+                rugged_at_raw = rug_rows[0].get("rugged_at") if rug_rows else None
+                from datetime import datetime, timezone
+
+                def _parse(v: object):  # noqa: ANN202
+                    if v is None or isinstance(v, datetime): return v
+                    try:
+                        dt = datetime.fromisoformat(str(v))
+                        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+                    except ValueError:
+                        return None
+
+                tokens.append(DeployerTokenSummary(
+                    mint=row.get("mint", ""),
+                    name=row.get("name") or "",
+                    symbol=row.get("symbol") or "",
+                    created_at=_parse(row.get("created_at")),
+                    rugged_at=_parse(rugged_at_raw),
+                    mcap_usd=row.get("mcap_usd"),
+                    narrative=row.get("narrative") or "",
+                ))
+            if tokens:
+                result[wallet] = tokens
+        except Exception as exc:
+            logger.debug("_fetch_linked_wallet_tokens failed for %s: %s", wallet, exc)
+
+    await asyncio.gather(*[_query_wallet(w) for w in wallets])
+    return result
 
 
 async def _get_fingerprint(mint: str, uri: str) -> Optional[str]:

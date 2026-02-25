@@ -98,6 +98,15 @@ export interface OperatorFingerprint {
   upload_service: string;
   description_pattern: string;
   confidence: "confirmed" | "probable";
+  linked_wallet_tokens: Record<string, {
+    mint: string;
+    name: string;
+    symbol: string;
+    created_at: string | null;
+    rugged_at: string | null;
+    mcap_usd: number | null;
+    narrative: string;
+  }[]>;
 }
 
 export interface LiquidityArchReport {
