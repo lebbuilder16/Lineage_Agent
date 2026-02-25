@@ -60,12 +60,13 @@ class SolanaRpcClient:
     ) -> Optional[dict[str, Any]]:
         """Walk backwards through signature pages to find the oldest tx.
 
-        Limits to 3 rounds (3 x 1000 sigs) to avoid excessive calls.
+        Limits to 10 rounds (10 x 1000 sigs) to reach creation tx for
+        wallets with large transaction histories.
         """
         before: Optional[str] = None
         oldest: Optional[dict] = None
 
-        for _ in range(3):
+        for _ in range(10):
             params: list[Any] = [
                 address,
                 {"limit": 1000, "commitment": "finalized"},
@@ -128,11 +129,29 @@ class SolanaRpcClient:
 
         return (deployer, created_at)
 
+    async def get_asset(self, mint: str) -> dict:
+        """Fetch Metaplex / Helius DAS asset data for a Solana mint.
+
+        Uses the ``getAsset`` method available on Helius RPC endpoints.
+        Returns the result dict, or {} if the endpoint does not support DAS
+        or the asset is not found.
+
+        Relevant response fields::
+
+            result.content.json_uri        → Metaplex metadata_uri
+            result.content.links.image     → on-chain image URL
+            result.creators[].address      → on-chain creators (check .verified)
+        """
+        result = await self._call("getAsset", {"id": mint})
+        if isinstance(result, dict):
+            return result
+        return {}
+
     # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------
 
-    async def _call(self, method: str, params: list[Any]) -> Any:
+    async def _call(self, method: str, params: list[Any] | dict) -> Any:
         """JSON-RPC call with retry + exponential backoff, guarded by circuit breaker."""
         self._id_counter += 1
         payload = {

@@ -36,6 +36,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from config import (
     API_HOST,
     API_PORT,
+    CACHE_BACKEND,
     CORS_ORIGINS,
     RATE_LIMIT_LINEAGE,
     RATE_LIMIT_SEARCH,
@@ -111,6 +112,12 @@ async def lifespan(application: FastAPI):
         )
         raise RuntimeError("Invalid SOLANA_RPC_ENDPOINT – must be an HTTP(S) URL")
 
+    if CACHE_BACKEND != "sqlite":
+        logger.critical(
+            "CACHE_BACKEND=%r — all forensic signals (Factory Rhythm, Narrative "
+            "Timing, Death Clock, Operator Fingerprint) are DISABLED. "
+            "Set CACHE_BACKEND=sqlite to enable.", CACHE_BACKEND
+        )
     logger.info("Starting up – initialising HTTP clients …")
     await init_clients()
     yield

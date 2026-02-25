@@ -59,8 +59,6 @@ def classify_narrative(name: str, symbol: str) -> str:
 
 async def record_token_creation(token: TokenMetadata) -> None:
     """Record a token_created event for use in factory rhythm analysis."""
-    if not token.deployer:
-        return
     try:
         await event_insert(
             event_type="token_created",

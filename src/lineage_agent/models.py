@@ -117,6 +117,7 @@ class TokenSearchResult(BaseModel):
     name: str = ""
     symbol: str = ""
     image_uri: str = ""
+    metadata_uri: str = ""
     price_usd: Optional[float] = None
     market_cap_usd: Optional[float] = None
     liquidity_usd: Optional[float] = None

@@ -27,6 +27,7 @@ from config import (
     WEIGHT_TEMPORAL,
 )
 from .data_sources._clients import (
+    cache_delete as _cache_delete,
     cache_get as _cache_get,
     cache_set as _cache_set,
     close_clients,
@@ -125,6 +126,7 @@ async def detect_lineage(
                     "Dropping stale/invalid cached lineage for %s (schema mismatch)",
                     mint_address,
                 )
+                await _cache_delete(f"lineage:{mint_address}")
         elif isinstance(cached, LineageResult):
             return cached
         else:
@@ -146,7 +148,28 @@ async def detect_lineage(
     await _progress("Resolving deployer & timestamp", 25)
     deployer, created_at = await _get_deployer_cached(rpc, mint_address)
     query_meta.deployer = deployer
-    query_meta.created_at = created_at
+    # Only overwrite DexScreener pairCreatedAt when RPC returned a real value
+    if created_at is not None:
+        query_meta.created_at = created_at
+
+    # Enrich with on-chain DAS (Helius getAsset) — fills metadata_uri, image, deployer
+    try:
+        _q_asset = await _get_asset_cached(rpc, mint_address)
+        if not query_meta.metadata_uri:
+            query_meta.metadata_uri = (
+                (_q_asset.get("content") or {}).get("json_uri") or ""
+            )
+        if not query_meta.image_uri:
+            query_meta.image_uri = (
+                ((_q_asset.get("content") or {}).get("links") or {}).get("image") or ""
+            )
+        if not query_meta.deployer:
+            _q_creators = _q_asset.get("creators") or []
+            query_meta.deployer = next(
+                (c["address"] for c in _q_creators if c.get("verified")), ""
+            )
+    except Exception as _das_e:
+        logger.debug("DAS getAsset enrichment failed for %s: %s", mint_address, _das_e)
 
     # Enrich with Jupiter price (cross-validate DexScreener price)
     try:
@@ -220,11 +243,23 @@ async def detect_lineage(
             c_deployer, c_created = await _get_deployer_cached(
                 rpc, candidate.mint
             )
+            c_asset = await _get_asset_cached(rpc, candidate.mint)
+
+        # Derive image / metadata_uri from DAS if not available from DexScreener
+        c_metadata_uri = (c_asset.get("content") or {}).get("json_uri") or ""
+        c_image_uri = candidate.image_uri or (
+            ((c_asset.get("content") or {}).get("links") or {}).get("image") or ""
+        )
+        if not c_deployer:
+            _c_creators = c_asset.get("creators") or []
+            c_deployer = next(
+                (c["address"] for c in _c_creators if c.get("verified")), ""
+            )
 
         # Image similarity — bounded concurrency for downloads
         async with img_sem:
             img_sim = await compute_image_similarity(
-                query_meta.image_uri, candidate.image_uri,
+                query_meta.image_uri, c_image_uri,
                 client=img_client,
             )
 
@@ -232,7 +267,7 @@ async def detect_lineage(
         # when both images were available
         if (
             query_meta.image_uri
-            and candidate.image_uri
+            and c_image_uri
             and img_sim < IMAGE_SIMILARITY_THRESHOLD
             and name_sim < NAME_SIMILARITY_THRESHOLD
         ):
@@ -263,8 +298,8 @@ async def detect_lineage(
             mint=candidate.mint,
             name=candidate.name,
             symbol=candidate.symbol,
-            image_uri=candidate.image_uri,
-            metadata_uri=candidate.metadata_uri,
+            image_uri=c_image_uri,
+            metadata_uri=c_metadata_uri or candidate.metadata_uri,
             deployer=c_deployer,
             created_at=c_created,
             market_cap_usd=candidate.market_cap_usd,
@@ -472,6 +507,26 @@ async def _get_deployer_cached(
     # Long TTL: deployer/timestamp are immutable on-chain
     await _cache_set(cache_key, result, ttl=86400)
     return result
+
+
+async def _get_asset_cached(rpc: SolanaRpcClient, mint: str) -> dict:
+    """Fetch Helius DAS asset data with 24 h per-mint caching.
+
+    Relevant response fields::
+
+        result.content.json_uri        → Metaplex metadata_uri
+        result.content.links.image     → on-chain image URL
+        result.creators[].address      → on-chain creators (check .verified)
+    """
+    cache_key = f"rpc:asset:{mint}"
+    cached = await _cache_get(cache_key)
+    if isinstance(cached, dict):
+        return cached
+
+    result = await rpc.get_asset(mint)
+    if result:
+        await _cache_set(cache_key, result, ttl=86400)
+    return result or {}
 
 
 # ---------------------------------------------------------------------------

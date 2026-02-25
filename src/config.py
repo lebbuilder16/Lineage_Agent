@@ -97,7 +97,7 @@ if abs(_weight_sum - 1.0) > 0.01:
 # Cache
 # ---------------------------------------------------------------------------
 CACHE_TTL_SECONDS: int = _parse_int("CACHE_TTL_SECONDS", "300", minimum=1)
-CACHE_BACKEND: str = os.getenv("CACHE_BACKEND", "memory")  # "memory" or "sqlite"
+CACHE_BACKEND: str = os.getenv("CACHE_BACKEND", "sqlite")  # "memory" or "sqlite"
 CACHE_SQLITE_PATH: str = os.getenv("CACHE_SQLITE_PATH", "data/cache.db")
 
 # ---------------------------------------------------------------------------
@@ -125,8 +125,8 @@ SENTRY_TRACES_SAMPLE_RATE: float = _parse_float(
 # ---------------------------------------------------------------------------
 # Circuit breaker
 # ---------------------------------------------------------------------------
-CB_FAILURE_THRESHOLD: int = _parse_int("CB_FAILURE_THRESHOLD", "5", minimum=1)
-CB_RECOVERY_TIMEOUT: float = float(os.getenv("CB_RECOVERY_TIMEOUT", "30"))
+CB_FAILURE_THRESHOLD: int = _parse_int("CB_FAILURE_THRESHOLD", "8", minimum=1)
+CB_RECOVERY_TIMEOUT: float = float(os.getenv("CB_RECOVERY_TIMEOUT", "60"))
 
 # ---------------------------------------------------------------------------
 # Logging

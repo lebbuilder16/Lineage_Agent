@@ -10,6 +10,7 @@ Uses ``httpx`` for async HTTP with retry + exponential backoff.
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 import httpx
@@ -95,16 +96,28 @@ class DexScreenerClient:
         info = best.get("info") or {}
         image_uri = info.get("imageUrl", "")
 
+        # pairCreatedAt is Unix milliseconds — reliable proxy for launch date
+        pair_created_ms = best.get("pairCreatedAt")
+        created_at = (
+            datetime.fromtimestamp(pair_created_ms / 1000, tz=timezone.utc)
+            if pair_created_ms
+            else None
+        )
+
         return TokenMetadata(
             mint=mint,
             name=token_info.get("name", ""),
             symbol=token_info.get("symbol", ""),
             image_uri=image_uri,
             price_usd=_safe_float(best.get("priceUsd")),
-            market_cap_usd=_safe_float(best.get("marketCap")),
+            market_cap_usd=(
+                _safe_float(best.get("marketCap"))
+                or _safe_float(best.get("fdv"))  # fdv filled far more often
+            ),
             liquidity_usd=_safe_float(
                 (best.get("liquidity") or {}).get("usd")
             ),
+            created_at=created_at,
             dex_url=best.get("url", ""),
         )
 

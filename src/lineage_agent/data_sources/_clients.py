@@ -160,6 +160,13 @@ async def cache_set(key: str, value: Any, *, ttl: int | None = None) -> None:
         await result
 
 
+async def cache_delete(key: str) -> None:
+    """Invalidate a single cache entry."""
+    result = cache.invalidate(key)
+    if asyncio.iscoroutine(result):
+        await result
+
+
 # ---------------------------------------------------------------------------
 # Intelligence event helpers (forensic data store)
 # ---------------------------------------------------------------------------
