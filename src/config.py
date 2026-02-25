@@ -109,6 +109,7 @@ CACHE_SQLITE_PATH: str = os.getenv("CACHE_SQLITE_PATH", "data/cache.db")
 MAX_DERIVATIVES: int = _parse_int("MAX_DERIVATIVES", "50", minimum=1)
 MAX_CONCURRENT_RPC: int = _parse_int("MAX_CONCURRENT_RPC", "5", minimum=1)
 REQUEST_TIMEOUT: int = _parse_int("REQUEST_TIMEOUT", "15", minimum=1)
+ANALYSIS_TIMEOUT_SECONDS: int = _parse_int("ANALYSIS_TIMEOUT_SECONDS", "50", minimum=5)
 
 # ---------------------------------------------------------------------------
 # Rate limiting (slowapi format, e.g. "10/minute")

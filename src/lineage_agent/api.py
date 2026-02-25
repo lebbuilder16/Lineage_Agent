@@ -34,6 +34,7 @@ from slowapi.util import get_remote_address
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from config import (
+    ANALYSIS_TIMEOUT_SECONDS,
     API_HOST,
     API_PORT,
     CACHE_BACKEND,
@@ -223,7 +224,15 @@ async def get_lineage(
             detail="Invalid Solana mint address. Expected 32-44 base58 characters.",
         )
     try:
-        return await detect_lineage(mint)
+        return await asyncio.wait_for(
+            detect_lineage(mint), timeout=ANALYSIS_TIMEOUT_SECONDS
+        )
+    except asyncio.TimeoutError:
+        raise HTTPException(
+            status_code=504,
+            detail=f"Analysis timed out after {ANALYSIS_TIMEOUT_SECONDS}s. "
+                   "The token may have too many similar tokens to analyse. Try again.",
+        )
     except Exception as exc:
         logger.exception("Lineage detection failed for %s", mint)
         raise HTTPException(
@@ -296,7 +305,18 @@ async def ws_lineage(websocket: WebSocket):
         async def _ws_progress(step: str, pct: int) -> None:
             await websocket.send_json({"step": step, "progress": pct})
 
-        result = await detect_lineage(mint, progress_cb=_ws_progress)
+        try:
+            result = await asyncio.wait_for(
+                detect_lineage(mint, progress_cb=_ws_progress),
+                timeout=ANALYSIS_TIMEOUT_SECONDS,
+            )
+        except asyncio.TimeoutError:
+            await websocket.send_json({
+                "done": True,
+                "error": f"Analysis timed out after {ANALYSIS_TIMEOUT_SECONDS}s. Try again.",
+            })
+            await websocket.close()
+            return
         await websocket.send_json({"done": True, "result": result.model_dump()})
 
     except WebSocketDisconnect:

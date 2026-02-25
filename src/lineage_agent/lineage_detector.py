@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, Optional
 
 from config import (
+    ANALYSIS_TIMEOUT_SECONDS,
     CACHE_TTL_LINEAGE_SECONDS,
     IMAGE_SIMILARITY_THRESHOLD,
     MAX_CONCURRENT_RPC,
@@ -216,10 +217,12 @@ async def detect_lineage(
 
     # Strategy C: Helius searchAssets by deployer (finds same-deployer clones
     # that DexScreener name/symbol search can miss entirely)
+    deployer_mints: set[str] = set()  # mints that came from deployer search
     if query_meta.deployer:
         try:
-            deployer_assets = await rpc.search_assets_by_creator(
-                query_meta.deployer
+            deployer_assets = await asyncio.wait_for(
+                rpc.search_assets_by_creator(query_meta.deployer),
+                timeout=8.0,
             )
             _seen = {c.mint for c in candidates}
             for _da in deployer_assets:
@@ -239,6 +242,7 @@ async def detect_lineage(
                         )
                     )
                     _seen.add(_da_id)
+                    deployer_mints.add(_da_id)
         except Exception as _e:
             logger.debug("Deployer searchAssets failed: %s", _e)
 
@@ -261,15 +265,19 @@ async def detect_lineage(
     family_members: list[_ScoredCandidate] = []
 
     # Pre-filter by name/symbol similarity (cheap, sync)
+    # Candidates that came from the deployer search always pass — they share
+    # the deployer by definition even if names differ.
     pre_filtered = []
     for candidate in candidates[: MAX_DERIVATIVES * 3]:
         name_sim = compute_name_similarity(query_meta.name, candidate.name)
         sym_sim = compute_symbol_similarity(
             query_meta.symbol, candidate.symbol
         )
+        # Accept if name/symbol matches OR if found via deployer search
         if (
             name_sim < NAME_SIMILARITY_THRESHOLD
             and sym_sim < SYMBOL_SIMILARITY_THRESHOLD
+            and candidate.mint not in deployer_mints
         ):
             continue
         pre_filtered.append((candidate, name_sim, sym_sim))
@@ -574,6 +582,13 @@ async def _get_deployer_cached(
     # --- DAS-first path (O(1), works for all token standards) ---
     asset = await rpc.get_asset(mint)
     if asset:
+        # Populate the rpc:asset cache so _get_asset_cached() is a cache hit
+        # for the same mint — avoids a redundant second DAS call in _enrich.
+        _asset_cache_key = f"rpc:asset:{mint}"
+        _asset_cached = await _cache_get(_asset_cache_key)
+        if not isinstance(_asset_cached, dict):
+            await _cache_set(_asset_cache_key, asset, ttl=86400)
+
         # Timestamp -------------------------------------------------
         # DAS may provide created_at in result root or token_info
         _token_info = asset.get("token_info") or {}
@@ -597,15 +612,10 @@ async def _get_deployer_cached(
         else:
             deployer = ua
 
-    # --- Signature-walk fallback (slow, but universal) ---
+    # --- Signature-walk fallback (slow) — only when DAS returned no deployer ---
     if not deployer:
         deployer, _ts = await rpc.get_deployer_and_timestamp(mint)
         if _ts and not created_at:
-            created_at = _ts
-    elif not created_at:
-        # We have a deployer from DAS but no timestamp — try sig walk
-        _, _ts = await rpc.get_deployer_and_timestamp(mint)
-        if _ts:
             created_at = _ts
 
     result = (deployer, created_at)
