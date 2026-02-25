@@ -46,7 +46,6 @@ from .factory_service import analyze_factory_rhythm, record_token_creation
 from .liquidity_arch import analyze_liquidity_architecture
 from .metadata_dna_service import build_operator_fingerprint
 from .narrative_service import compute_narrative_timing
-from .risk_service import compute_on_chain_risk
 from .zombie_detector import detect_resurrection
 from .data_sources.solana_rpc import SolanaRpcClient
 from .models import (
@@ -514,14 +513,12 @@ async def detect_lineage(
         result.factory_rhythm,
         result.narrative_timing,
         result.deployer_profile,
-        result.on_chain_risk,
     ) = await asyncio.gather(
         _safe(compute_death_clock(root_meta.deployer, root_meta.created_at)),
         _safe(build_operator_fingerprint(uri_tuples)),
         _safe(analyze_factory_rhythm(root_meta.deployer)),
         _safe(compute_narrative_timing(root_meta)),
         _safe(compute_deployer_profile(root_meta.deployer)),
-        _safe(compute_on_chain_risk(root_meta.mint, root_meta.deployer)),
     )
 
     await _progress("Analysis complete", 100)

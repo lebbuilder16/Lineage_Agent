@@ -115,9 +115,6 @@ class LineageResult(BaseModel):
     deployer_profile: Optional[DeployerProfile] = Field(
         None, description="Historical deployer behaviour profile"
     )
-    on_chain_risk: Optional[OnChainRiskScore] = Field(
-        None, description="On-chain token holder concentration risk score"
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -287,17 +284,3 @@ class DeployerProfile(BaseModel):
     confidence: Literal["high", "medium", "low"] = "low"
 
 
-# ---------------------------------------------------------------------------
-# Forensic signal: On-Chain Risk Score (holder concentration)
-# ---------------------------------------------------------------------------
-class OnChainRiskScore(BaseModel):
-    """Token holder concentration risk computed from on-chain token accounts."""
-
-    mint: str
-    holder_count: int
-    top_10_pct: float = Field(ge=0.0, le=100.0, description="% supply held by top-10 wallets")
-    top_1_pct: float = Field(ge=0.0, le=100.0, description="% supply held by largest wallet")
-    deployer_holds_pct: float = Field(ge=0.0, le=100.0, description="% supply held by deployer wallet")
-    risk_score: int = Field(ge=0, le=100, description="0=safe, 100=extreme concentration risk")
-    risk_level: Literal["low", "medium", "high", "critical"]
-    flags: list[str] = Field(default_factory=list)

@@ -64,7 +64,6 @@ export interface LineageResult {
   narrative_timing?: NarrativeTimingReport | null;
   // New intelligence signals
   deployer_profile?: DeployerProfile | null;
-  on_chain_risk?: OnChainRiskScore | null;
 }
 
 /* ---------- Forensic signal types ----------------------------------- */
@@ -174,17 +173,6 @@ export interface DeployerProfile {
   last_seen: string | null;
   tokens: DeployerTokenSummary[];
   confidence: "high" | "medium" | "low";
-}
-
-export interface OnChainRiskScore {
-  mint: string;
-  holder_count: number;
-  top_10_pct: number;
-  top_1_pct: number;
-  deployer_holds_pct: number;
-  risk_score: number;
-  risk_level: "low" | "medium" | "high" | "critical";
-  flags: string[];
 }
 
 /* ---------- Error class --------------------------------------------- */
