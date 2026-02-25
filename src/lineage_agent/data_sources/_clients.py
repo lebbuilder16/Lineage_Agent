@@ -158,3 +158,27 @@ async def cache_set(key: str, value: Any, *, ttl: int | None = None) -> None:
         result = cache.set(key, value)
     if asyncio.iscoroutine(result):
         await result
+
+
+# ---------------------------------------------------------------------------
+# Intelligence event helpers (forensic data store)
+# ---------------------------------------------------------------------------
+
+async def event_insert(**kwargs: Any) -> None:
+    """Insert a forensic observation into intelligence_events."""
+    await cache.insert_event(**kwargs)
+
+
+async def event_query(
+    where: str,
+    params: tuple = (),
+    columns: str = "*",
+    limit: int = 1000,
+) -> list[dict]:
+    """Query intelligence_events and return list of dicts."""
+    return await cache.query_events(where=where, params=params, columns=columns, limit=limit)
+
+
+async def event_update(where: str, params: tuple, **set_kwargs: Any) -> None:
+    """Update intelligence_events rows."""
+    await cache.update_event(where=where, params=params, **set_kwargs)

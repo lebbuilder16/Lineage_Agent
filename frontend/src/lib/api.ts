@@ -53,6 +53,76 @@ export interface LineageResult {
   derivatives: DerivativeInfo[];
   family_size: number;
   query_token: TokenMetadata | null;
+  // Forensic intelligence signals
+  zombie_alert?: ZombieAlert | null;
+  death_clock?: DeathClockForecast | null;
+  operator_fingerprint?: OperatorFingerprint | null;
+  liquidity_arch?: LiquidityArchReport | null;
+  factory_rhythm?: FactoryRhythmReport | null;
+  narrative_timing?: NarrativeTimingReport | null;
+}
+
+/* ---------- Forensic signal types ----------------------------------- */
+
+export interface ZombieAlert {
+  original_mint: string;
+  original_name: string | null;
+  original_rugged_at: string | null;
+  original_liq_peak_usd: number | null;
+  resurrection_mint: string;
+  image_similarity: number;
+  same_deployer: boolean;
+  confidence: "confirmed" | "probable" | "possible";
+}
+
+export interface DeathClockForecast {
+  deployer: string;
+  historical_rug_count: number;
+  median_rug_hours: number;
+  stdev_rug_hours: number;
+  elapsed_hours: number;
+  risk_level: "low" | "medium" | "high" | "critical" | "insufficient_data";
+  predicted_window_start: string | null;
+  predicted_window_end: string | null;
+  confidence_note: string;
+}
+
+export interface OperatorFingerprint {
+  fingerprint: string;
+  linked_wallets: string[];
+  upload_service: string;
+  description_pattern: string;
+  confidence: "confirmed" | "probable";
+}
+
+export interface LiquidityArchReport {
+  total_liquidity_usd: number;
+  pool_count: number;
+  pools: Record<string, { liquidity_usd: number; volume_usd: number; share: number }>;
+  concentration_hhi: number;
+  liq_to_volume_ratio: number;
+  authenticity_score: number;
+  flags: string[];
+}
+
+export interface FactoryRhythmReport {
+  tokens_launched: number;
+  median_interval_hours: number;
+  regularity_score: number;
+  naming_pattern: "incremental" | "themed" | "random";
+  factory_score: number;
+  is_factory: boolean;
+}
+
+export interface NarrativeTimingReport {
+  narrative: string;
+  sample_size: number;
+  status: "early" | "rising" | "peak" | "late" | "insufficient_data";
+  cycle_percentile: number;
+  momentum_score: number;
+  days_since_peak: number | null;
+  peak_date: string | null;
+  interpretation: string;
 }
 
 export interface TokenSearchResult {

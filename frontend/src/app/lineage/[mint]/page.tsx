@@ -14,6 +14,12 @@ import { SkeletonLineageCard } from "@/components/skeletons/SkeletonLineageCard"
 import { SkeletonTokenInfo } from "@/components/skeletons/SkeletonTokenInfo";
 import { SkeletonDerivativeList } from "@/components/skeletons/SkeletonDerivativeList";
 import { addToHistory } from "@/components/CommandPalette";
+import ZombieAlert from "@/components/forensics/ZombieAlert";
+import DeathClock from "@/components/forensics/DeathClock";
+import OperatorFingerprint from "@/components/forensics/OperatorFingerprint";
+import LiquidityArch from "@/components/forensics/LiquidityArch";
+import FactoryRhythm from "@/components/forensics/FactoryRhythm";
+import NarrativeTiming from "@/components/forensics/NarrativeTiming";
 import { motion, AnimatePresence } from "framer-motion";
 import { AlertCircle, RefreshCw, Crown, List, ChevronRight, TrendingUp, Droplets } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -114,6 +120,9 @@ export default function LineagePage() {
             </div>
           </div>
 
+          {/* Zombie alert — highest visual priority */}
+          <ZombieAlert alert={data.zombie_alert} />
+
           {/* Root token */}
           {data.root && (
             <motion.section
@@ -122,10 +131,24 @@ export default function LineagePage() {
               transition={{ delay: 0.05 }}
               className="space-y-3"
             >
-              <SectionHeader icon={<Crown className="h-4 w-4" />} title="Root Token" />
+              <div className="flex flex-wrap items-center gap-3">
+                <SectionHeader icon={<Crown className="h-4 w-4" />} title="Root Token" />
+                <FactoryRhythm report={data.factory_rhythm} />
+              </div>
               <TokenInfo token={data.root} isRoot />
             </motion.section>
           )}
+
+          {/* Forensic signals row */}
+          <motion.div
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.08 }}
+          >
+            <DeathClock forecast={data.death_clock} />
+            <LiquidityArch report={data.liquidity_arch} />
+            <NarrativeTiming report={data.narrative_timing} />
+          </motion.div>
 
           {/* Family tree */}
           {data.derivatives.length > 0 && (
@@ -191,6 +214,16 @@ export default function LineagePage() {
                 ))}
               </div>
             </motion.section>
+          )}
+          {/* Operator Fingerprint — collapsible, shown when ≥2 linked wallets */}
+          {data.operator_fingerprint && (
+            <motion.div
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.25 }}
+            >
+              <OperatorFingerprint fp={data.operator_fingerprint} />
+            </motion.div>
           )}
         </motion.div>
       )}

@@ -5,7 +5,7 @@ Pydantic models used throughout the Meme Lineage Agent.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -86,6 +86,25 @@ class LineageResult(BaseModel):
     query_token: Optional[TokenMetadata] = Field(
         None, description="Metadata of the queried token"
     )
+    # ── Forensic intelligence signals ──────────────────────────────────────
+    zombie_alert: Optional[ZombieAlert] = Field(
+        None, description="Resurrection / zombie token detection"
+    )
+    death_clock: Optional[DeathClockForecast] = Field(
+        None, description="Deployer rug timing forecast"
+    )
+    operator_fingerprint: Optional[OperatorFingerprint] = Field(
+        None, description="Cross-wallet operator identity fingerprint"
+    )
+    liquidity_arch: Optional[LiquidityArchReport] = Field(
+        None, description="Cross-DEX liquidity architecture analysis"
+    )
+    factory_rhythm: Optional[FactoryRhythmReport] = Field(
+        None, description="Scripted deployment rhythm detection"
+    )
+    narrative_timing: Optional[NarrativeTimingReport] = Field(
+        None, description="Narrative cycle lifecycle positioning"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -122,3 +141,94 @@ class BatchLineageResponse(BaseModel):
         ...,
         description="Mapping mint → LineageResult on success or error string on failure",
     )
+
+
+# ---------------------------------------------------------------------------
+# Forensic signal: Zombie Token (resurrection detection)
+# ---------------------------------------------------------------------------
+class ZombieAlert(BaseModel):
+    """A dead token that has been relaunched by the same (or similar) operator."""
+
+    original_mint: str
+    original_name: str
+    original_rugged_at: Optional[datetime] = None
+    original_liq_peak_usd: Optional[float] = None
+    resurrection_mint: str
+    image_similarity: float = Field(ge=0.0, le=1.0)
+    same_deployer: bool
+    confidence: Literal["confirmed", "probable", "possible"]
+
+
+# ---------------------------------------------------------------------------
+# Forensic signal: Death Clock (deployer rug timing forecast)
+# ---------------------------------------------------------------------------
+class DeathClockForecast(BaseModel):
+    """Statistical forecast of when a token may be rugged, based on deployer history."""
+
+    deployer: str
+    historical_rug_count: int
+    median_rug_hours: float
+    stdev_rug_hours: float
+    elapsed_hours: float
+    risk_level: Literal["low", "medium", "high", "critical", "insufficient_data"]
+    predicted_window_start: Optional[datetime] = None
+    predicted_window_end: Optional[datetime] = None
+    confidence_note: str = ""
+
+
+# ---------------------------------------------------------------------------
+# Forensic signal: Operator Fingerprint (cross-wallet identity)
+# ---------------------------------------------------------------------------
+class OperatorFingerprint(BaseModel):
+    """Same metadata DNA detected across multiple deployer wallets."""
+
+    fingerprint: str
+    linked_wallets: list[str]
+    upload_service: str
+    description_pattern: str
+    confidence: Literal["confirmed", "probable"]
+
+
+# ---------------------------------------------------------------------------
+# Forensic signal: Liquidity Architecture (cross-DEX authenticity)
+# ---------------------------------------------------------------------------
+class LiquidityArchReport(BaseModel):
+    """Analysis of how liquidity is distributed across DEX pools."""
+
+    total_liquidity_usd: float
+    pool_count: int
+    pools: dict[str, float]
+    concentration_hhi: float = Field(ge=0.0, le=1.0)
+    liq_to_volume_ratio: Optional[float] = None
+    authenticity_score: float = Field(ge=0.0, le=1.0)
+    flags: list[str] = Field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# Forensic signal: Factory Rhythm (scripted deployment detection)
+# ---------------------------------------------------------------------------
+class FactoryRhythmReport(BaseModel):
+    """Detects statistically regular token deployment patterns (bot/script)."""
+
+    tokens_launched: int
+    median_interval_hours: float
+    regularity_score: float = Field(ge=0.0, le=1.0)
+    naming_pattern: Literal["incremental", "themed", "random"]
+    factory_score: float = Field(ge=0.0, le=1.0)
+    is_factory: bool
+
+
+# ---------------------------------------------------------------------------
+# Forensic signal: Narrative Timing Index (lifecycle positioning)
+# ---------------------------------------------------------------------------
+class NarrativeTimingReport(BaseModel):
+    """Positions this token within the historical lifecycle of its narrative category."""
+
+    narrative: str
+    sample_size: int
+    status: Literal["early", "rising", "peak", "late", "insufficient_data"]
+    cycle_percentile: Optional[float] = None
+    momentum_score: Optional[float] = None
+    days_since_peak: Optional[int] = None
+    peak_date: Optional[datetime] = None
+    interpretation: Optional[str] = None

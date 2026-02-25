@@ -29,11 +29,18 @@ from config import (
 from .data_sources._clients import (
     cache_get as _cache_get,
     cache_set as _cache_set,
+    event_insert as _event_insert,
     get_dex_client as _get_dex_client,
     get_img_client as _get_img_client,
     get_jup_client as _get_jup_client,
     get_rpc_client as _get_rpc_client,
 )
+from .death_clock import compute_death_clock
+from .factory_service import analyze_factory_rhythm, record_token_creation
+from .liquidity_arch import analyze_liquidity_architecture
+from .metadata_dna_service import build_operator_fingerprint
+from .narrative_service import compute_narrative_timing
+from .zombie_detector import detect_resurrection
 from .data_sources.solana_rpc import SolanaRpcClient
 from .models import (
     DerivativeInfo,
@@ -325,6 +332,56 @@ async def detect_lineage(
         confidence=round(confidence, 4),
         derivatives=derivatives,
         family_size=1 + len(derivatives),
+    )
+
+    # ------------------------------------------------------------------
+    # Forensic enrichment — non-blocking, failures are silent
+    # ------------------------------------------------------------------
+    await _progress("Running forensic analysis", 92)
+
+    # Record this token in the intelligence_events store (fire-and-forget)
+    try:
+        await record_token_creation(root_meta)
+    except Exception as _e:
+        logger.debug("record_token_creation failed: %s", _e)
+
+    # Phase 1  — Zombie Token detection (sync, uses already-built result)
+    try:
+        result.zombie_alert = detect_resurrection(result)
+    except Exception as _e:
+        logger.debug("zombie detection failed: %s", _e)
+
+    # Phase 4 — Liquidity Architecture (sync, uses already-fetched pairs)
+    try:
+        result.liquidity_arch = analyze_liquidity_architecture(pairs)
+    except Exception as _e:
+        logger.debug("liquidity_arch failed: %s", _e)
+
+    # Build metadata URI list for Operator Fingerprint
+    uri_tuples: list[tuple[str, str, str]] = [
+        (t.mint, t.deployer or "", getattr(t, "metadata_uri", "") or "")
+        for t in all_tokens
+        if t.mint
+    ]
+
+    # Phases 2, 3, 5, 6 — async enrichers in parallel
+    async def _safe(coro):
+        try:
+            return await coro
+        except Exception as exc:
+            logger.debug("Enricher failed: %s", exc)
+            return None
+
+    (
+        result.death_clock,
+        result.operator_fingerprint,
+        result.factory_rhythm,
+        result.narrative_timing,
+    ) = await asyncio.gather(
+        _safe(compute_death_clock(root_meta.deployer, root_meta.created_at)),
+        _safe(build_operator_fingerprint(uri_tuples)),
+        _safe(analyze_factory_rhythm(root_meta.deployer)),
+        _safe(compute_narrative_timing(root_meta)),
     )
 
     await _progress("Analysis complete", 100)
