@@ -120,8 +120,8 @@ export default function LineagePage() {
             </div>
           </div>
 
-          {/* Zombie alert — highest visual priority */}
-          <ZombieAlert alert={data.zombie_alert} />
+          {/* Zombie alert — prominent banner, only shown when confirmed */}
+          {data.zombie_alert && <ZombieAlert alert={data.zombie_alert} />}
 
           {/* Root token */}
           {data.root && (
@@ -133,22 +133,41 @@ export default function LineagePage() {
             >
               <div className="flex flex-wrap items-center gap-3">
                 <SectionHeader icon={<Crown className="h-4 w-4" />} title="Root Token" />
-                <FactoryRhythm report={data.factory_rhythm} />
+                {data.factory_rhythm?.is_factory && (
+                  <span className="rounded-full border border-red-700/70 bg-red-950/50 px-2.5 py-0.5 text-xs font-bold text-red-300">
+                    🏭 Factory Deployer
+                  </span>
+                )}
               </div>
               <TokenInfo token={data.root} isRoot />
             </motion.section>
           )}
 
-          {/* Forensic signals row */}
-          <motion.div
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.08 }}
-          >
-            <DeathClock forecast={data.death_clock} />
-            <LiquidityArch report={data.liquidity_arch} />
-            <NarrativeTiming report={data.narrative_timing} />
-          </motion.div>
+          {/* Forensic signals — always rendered when backend supports them */}
+          {(data.liquidity_arch !== undefined ||
+            data.death_clock !== undefined ||
+            data.zombie_alert !== undefined ||
+            data.factory_rhythm !== undefined ||
+            data.narrative_timing !== undefined ||
+            data.operator_fingerprint !== undefined) && (
+            <motion.div
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.08 }}
+              className="space-y-0"
+            >
+              <h3 className="text-xs font-bold uppercase tracking-widest text-zinc-500 mb-3 flex items-center gap-2">
+                <span className="w-4 h-px bg-zinc-700" />
+                Forensic Intelligence
+                <span className="flex-1 h-px bg-zinc-700" />
+              </h3>
+              <LiquidityArch report={data.liquidity_arch} />
+              <DeathClock forecast={data.death_clock} />
+              <FactoryRhythm report={data.factory_rhythm} />
+              <NarrativeTiming report={data.narrative_timing} />
+              <OperatorFingerprint fp={data.operator_fingerprint} />
+            </motion.div>
+          )}
 
           {/* Family tree */}
           {data.derivatives.length > 0 && (
@@ -214,16 +233,6 @@ export default function LineagePage() {
                 ))}
               </div>
             </motion.section>
-          )}
-          {/* Operator Fingerprint — collapsible, shown when ≥2 linked wallets */}
-          {data.operator_fingerprint && (
-            <motion.div
-              initial={{ opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.25 }}
-            >
-              <OperatorFingerprint fp={data.operator_fingerprint} />
-            </motion.div>
           )}
         </motion.div>
       )}

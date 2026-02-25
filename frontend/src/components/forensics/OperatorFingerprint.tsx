@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import type { OperatorFingerprint as OperatorFingerprintType } from "@/lib/api";
+import { ForensicCard } from "./ForensicCard";
 
 interface Props {
   fp: OperatorFingerprintType | null | undefined;
@@ -10,7 +11,15 @@ interface Props {
 
 export default function OperatorFingerprint({ fp }: Props) {
   const [open, setOpen] = useState(false);
-  if (!fp || fp.linked_wallets.length < 2) return null;
+  if (fp === undefined) return null;
+  if (fp === null) {
+    return (
+      <ForensicCard icon="🔗" title="Operator Fingerprint" empty emptyLabel="No cross-wallet DNA match found">
+        <></>
+      </ForensicCard>
+    );
+  }
+  if (fp.linked_wallets.length < 2) return null;
 
   const isConfirmed = fp.confidence === "confirmed";
 

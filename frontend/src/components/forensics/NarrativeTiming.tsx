@@ -2,6 +2,7 @@
 
 import { motion } from "framer-motion";
 import type { NarrativeTimingReport } from "@/lib/api";
+import { ForensicCard } from "./ForensicCard";
 
 const STATUS_CONFIG = {
   early: { label: "Early", color: "text-emerald-400", bgBar: "bg-emerald-500", dotPct: 10 },
@@ -35,7 +36,14 @@ interface Props {
 }
 
 export default function NarrativeTiming({ report }: Props) {
-  if (!report || report.status === "insufficient_data") return null;
+  if (report === undefined) return null;
+  if (report === null || report.status === "insufficient_data") {
+    return (
+      <ForensicCard icon="📊" title="Narrative Timing" empty emptyLabel="Needs ≥10 tokens in same narrative">
+        <></>
+      </ForensicCard>
+    );
+  }
   const cfg = STATUS_CONFIG[report.status];
   const dotPct = report.cycle_percentile * 100;
 

@@ -2,6 +2,7 @@
 
 import { motion, AnimatePresence } from "framer-motion";
 import type { ZombieAlert as ZombieAlertType } from "@/lib/api";
+import { ForensicCard } from "./ForensicCard";
 
 const CONFIDENCE_CONFIG = {
   confirmed: {
@@ -29,7 +30,16 @@ interface Props {
 }
 
 export default function ZombieAlert({ alert }: Props) {
-  if (!alert) return null;
+  // undefined → old backend, hide entirely
+  if (alert === undefined) return null;
+  // null → new backend, no zombie detected yet
+  if (alert === null) {
+    return (
+      <ForensicCard icon="💀" title="Zombie Token" empty emptyLabel="No resurrections detected">
+        <></>
+      </ForensicCard>
+    );
+  }
   const cfg = CONFIDENCE_CONFIG[alert.confidence];
 
   return (

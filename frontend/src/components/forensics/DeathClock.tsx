@@ -2,6 +2,7 @@
 
 import { motion } from "framer-motion";
 import type { DeathClockForecast as DeathClockForecastType } from "@/lib/api";
+import { ForensicCard } from "./ForensicCard";
 
 const RISK_CONFIG = {
   low: { color: "bg-green-500", text: "text-green-400", label: "Low Risk", widthPct: 15 },
@@ -16,7 +17,14 @@ interface Props {
 }
 
 export default function DeathClock({ forecast }: Props) {
-  if (!forecast || forecast.risk_level === "insufficient_data") return null;
+  if (forecast === undefined) return null;
+  if (forecast === null || forecast.risk_level === "insufficient_data") {
+    return (
+      <ForensicCard icon="☠️" title="Death Clock" empty emptyLabel="Needs ≥2 prior rugs from this deployer">
+        <></>
+      </ForensicCard>
+    );
+  }
   const cfg = RISK_CONFIG[forecast.risk_level];
   const elapsedPct = Math.min(
     (forecast.elapsed_hours / (forecast.median_rug_hours || 1)) * 100,

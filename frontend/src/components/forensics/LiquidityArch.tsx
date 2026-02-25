@@ -1,6 +1,7 @@
 "use client";
 
 import type { LiquidityArchReport } from "@/lib/api";
+import { ForensicCard } from "./ForensicCard";
 
 const FLAG_LABELS: Record<string, { label: string; color: string }> = {
   FRAGMENTED_LIQUIDITY: { label: "Fragmented", color: "bg-yellow-700 text-yellow-200" },
@@ -25,7 +26,14 @@ interface Props {
 }
 
 export default function LiquidityArch({ report }: Props) {
-  if (!report) return null;
+  if (report === undefined) return null;
+  if (report === null) {
+    return (
+      <ForensicCard icon="💧" title="Liquidity Architecture" empty emptyLabel="No pairs data available">
+        <></>
+      </ForensicCard>
+    );
+  }
 
   const poolEntries = Object.entries(report.pools ?? {});
   const fmt = (n: number) =>
