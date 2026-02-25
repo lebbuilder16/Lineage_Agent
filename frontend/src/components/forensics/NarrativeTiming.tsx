@@ -89,24 +89,23 @@ export default function NarrativeTiming({ report }: Props) {
 
       <div className="flex flex-wrap gap-3 text-xs text-zinc-500">
         <span>
-          Momentum:{" "}
+          Trend activity:{" "}
           <span className="text-zinc-200 font-medium">
             {report.momentum_score != null ? (report.momentum_score * 100).toFixed(0) : "—"}%
           </span>
         </span>
         <span>
-          Sample:{" "}
-          <span className="text-zinc-200">{report.sample_size} tokens</span>
+          <span className="text-zinc-200">{report.sample_size}</span> similar tokens tracked
         </span>
         {report.days_since_peak !== null && (
           <span>
-            Peak:{" "}
+            Most launches:{" "}
             <span className="text-zinc-200">{report.days_since_peak}d ago</span>
           </span>
         )}
       </div>
       {report.interpretation && (
-        <p className="text-xs text-zinc-400 mt-1 italic">{report.interpretation}</p>
+        <p className="text-xs text-zinc-300 mt-2">{report.interpretation}</p>
       )}
     </div>
   );

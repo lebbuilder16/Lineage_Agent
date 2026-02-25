@@ -94,11 +94,23 @@ async def compute_narrative_timing(
     else:
         status = "late"
 
-    interpretation = (
-        f"Token #{tokens_before + 1} of {total} in the '{narrative}' narrative "
-        f"({int(cycle_percentile * 100)}th percentile). "
-        f"Momentum: {int(momentum * 100)}% of peak."
+    rank = tokens_before + 1
+    _status_intro = {
+        "early": f"You're among the first to enter this trend — #{rank} of {total} tokens launched so far.",
+        "rising": f"This trend is gaining traction — #{rank} of {total} tokens launched and growing.",
+        "peak": f"This trend is at its height — #{rank} of {total} tokens have already launched.",
+        "late": f"This trend may be fading — #{rank} of {total} tokens already launched before you.",
+    }
+    _momentum_note = (
+        "Still very active right now."
+        if momentum >= 0.80
+        else "Moderate activity right now."
+        if momentum >= 0.50
+        else "Activity is slowing down."
+        if momentum >= 0.20
+        else "Very little activity recently."
     )
+    interpretation = f"{_status_intro.get(status, '')} {_momentum_note}"
 
     return NarrativeTimingReport(
         narrative=narrative,
