@@ -29,11 +29,13 @@ from config import (
 from .data_sources._clients import (
     cache_get as _cache_get,
     cache_set as _cache_set,
+    close_clients,
     event_insert as _event_insert,
     get_dex_client as _get_dex_client,
     get_img_client as _get_img_client,
     get_jup_client as _get_jup_client,
     get_rpc_client as _get_rpc_client,
+    init_clients,
 )
 from .death_clock import compute_death_clock
 from .factory_service import analyze_factory_rhythm, record_token_creation
