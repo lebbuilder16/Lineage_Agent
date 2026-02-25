@@ -198,7 +198,18 @@ class SQLiteCache:
         await db.execute(
             "CREATE INDEX IF NOT EXISTS idx_ie_mint ON intelligence_events(mint)"
         )
-        # Deduplicate: at most one event per (event_type, mint) combination
+        # Deduplicate existing rows before enforcing uniqueness (migration safety)
+        await db.execute(
+            """
+            DELETE FROM intelligence_events
+            WHERE rowid NOT IN (
+                SELECT MAX(rowid)
+                FROM intelligence_events
+                GROUP BY event_type, mint
+            )
+            """
+        )
+        # Enforce: at most one event per (event_type, mint) combination
         await db.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_ie_unique_type_mint "
             "ON intelligence_events(event_type, mint)"
