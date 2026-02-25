@@ -191,9 +191,9 @@ class TestComputeImageSimilarity:
 
     @pytest.mark.asyncio
     async def test_pil_not_available(self):
-        """When Pillow is not installed, should return 0.0."""
+        """When Pillow is not installed, should return -1.0 sentinel."""
         with patch("lineage_agent.similarity._PIL_AVAILABLE", False):
             score = await compute_image_similarity(
                 "https://example.com/a.png", "https://example.com/b.png"
             )
-        assert score == 0.0
+        assert score < 0.0  # -1.0 sentinel so composite score excludes this dim

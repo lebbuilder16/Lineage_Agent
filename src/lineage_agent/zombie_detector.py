@@ -20,7 +20,6 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from .models import DerivativeInfo, LineageResult, TokenMetadata, ZombieAlert
-from .cache import get_cache
 
 logger = logging.getLogger(__name__)
 
@@ -161,41 +160,17 @@ def _estimate_peak_liq(
 ) -> Optional[float]:
     """Best-effort estimate of the historical peak liquidity for *mint*.
 
-    We look at:
-    1. The ``token_created`` event in the intelligence-events store (if it
-       recorded liquidity at creation time).
-    2. The current liquidity from the LineageResult (which is the live value
-       from DexScreener — likely near-zero if the token is dead).
-
-    The maximum across all sources is returned.  This prevents the old bug
-    where a dead token's *peak* was reported as its tiny current balance.
+    Uses data already present in LineageResult — no extra I/O.
+    We take the max of the current liquidity and the market_cap_usd as a
+    rough upper-bound proxy (mcap is typically 2-10× liquidity at peak for
+    meme coins, so it's a conservative upper bound when the token is dead).
     """
     candidates: list[float] = []
     if current_liq is not None:
         candidates.append(current_liq)
 
-    # Check intelligence_events for the recorded-at-creation liquidity
-    cache = get_cache()
-    if cache is not None and hasattr(cache, "event_query"):
-        try:
-            import asyncio
-
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                # Can't await here (sync function) — skip event lookup
-                pass
-            else:
-                events = loop.run_until_complete(
-                    cache.event_query("token_created", mint=mint)
-                )
-                for ev in events:
-                    ev_liq = ev.get("liquidity_usd")
-                    if ev_liq is not None:
-                        candidates.append(float(ev_liq))
-        except Exception:
-            pass
-
-    # Also look at market_cap_usd as a rough upper-bound proxy
+    # market_cap_usd recorded at analysis time may be stale but is better
+    # than using dead liquidity as the "peak"
     for d in result.derivatives:
         if d.mint == mint and d.market_cap_usd:
             candidates.append(d.market_cap_usd)

@@ -7,15 +7,18 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from lineage_agent.lineage_detector import detect_lineage, search_tokens, _cache
+from lineage_agent.lineage_detector import detect_lineage, search_tokens
+from lineage_agent.data_sources import _clients
+from lineage_agent.cache import TTLCache
 
 
 @pytest.fixture(autouse=True)
 def clear_cache():
-    """Clear the module-level cache before each test."""
-    _cache.clear()
+    """Replace the module-level cache with a fresh in-memory TTLCache before each test."""
+    old_cache = _clients.cache
+    _clients.cache = TTLCache()
     yield
-    _cache.clear()
+    _clients.cache = old_cache
 
 
 # Sample pair data returned by DexScreener
@@ -107,6 +110,8 @@ def _make_rpc_client():
 
     rpc = AsyncMock()
     rpc.get_deployer_and_timestamp = AsyncMock(side_effect=fake_deployer)
+    rpc.get_asset = AsyncMock(return_value={})  # DAS returns empty → falls back to sig walk
+    rpc.search_assets_by_creator = AsyncMock(return_value=[])  # no extra deployer candidates
     return rpc
 
 
@@ -151,6 +156,8 @@ class TestDetectLineageIntegration:
 
         rpc = AsyncMock()
         rpc.get_deployer_and_timestamp = AsyncMock(return_value=("", None))
+        rpc.get_asset = AsyncMock(return_value={})
+        rpc.search_assets_by_creator = AsyncMock(return_value=[])
 
         with patch("lineage_agent.lineage_detector._get_dex_client", return_value=dex), \
              patch("lineage_agent.lineage_detector._get_rpc_client", return_value=rpc):
@@ -172,6 +179,8 @@ class TestDetectLineageIntegration:
 
         rpc = AsyncMock()
         rpc.get_deployer_and_timestamp = AsyncMock(return_value=("Deployer", datetime(2024, 1, 1, tzinfo=timezone.utc)))
+        rpc.get_asset = AsyncMock(return_value={})
+        rpc.search_assets_by_creator = AsyncMock(return_value=[])
 
         with patch("lineage_agent.lineage_detector._get_dex_client", return_value=dex), \
              patch("lineage_agent.lineage_detector._get_rpc_client", return_value=rpc):

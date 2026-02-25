@@ -111,13 +111,13 @@ class TestTemporalScore:
         now = datetime.now(tz=timezone.utc)
         older = now - timedelta(days=60)
         score = compute_temporal_score(older, now)
-        assert score > 0.9
+        assert score > 0.75  # 90-day window: 0.5 + 0.5*(60/90) ≈ 0.833
 
     def test_a_newer_scores_low(self):
         now = datetime.now(tz=timezone.utc)
         newer = now + timedelta(days=60)
         score = compute_temporal_score(newer, now)
-        assert score < 0.1
+        assert score < 0.25  # 90-day window: 0.5 - 0.5*(60/90) ≈ 0.167
 
     def test_small_diff(self):
         now = datetime.now(tz=timezone.utc)
