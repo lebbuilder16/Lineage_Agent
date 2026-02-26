@@ -19,7 +19,6 @@ import DeathClock from "@/components/forensics/DeathClock";
 import OperatorFingerprint from "@/components/forensics/OperatorFingerprint";
 import LiquidityArch from "@/components/forensics/LiquidityArch";
 import FactoryRhythm from "@/components/forensics/FactoryRhythm";
-import NarrativeTiming from "@/components/forensics/NarrativeTiming";
 import DeployerProfileCard from "@/components/forensics/DeployerProfile";
 import OperatorImpactCard from "@/components/forensics/OperatorImpact";
 import SolTraceCard from "@/components/forensics/SolTrace";
@@ -152,7 +151,6 @@ export default function LineagePage() {
             data.death_clock !== undefined ||
             data.zombie_alert !== undefined ||
             data.factory_rhythm !== undefined ||
-            data.narrative_timing !== undefined ||
             data.operator_fingerprint !== undefined ||
             data.deployer_profile !== undefined ||
             data.operator_impact !== undefined ||
@@ -176,7 +174,6 @@ export default function LineagePage() {
               <LiquidityArch report={data.liquidity_arch} />
               <DeathClock forecast={data.death_clock} />
               <FactoryRhythm report={data.factory_rhythm} />
-              <NarrativeTiming report={data.narrative_timing} />
               <OperatorFingerprint fp={data.operator_fingerprint} />
             </motion.div>
           )}

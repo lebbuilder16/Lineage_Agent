@@ -45,7 +45,6 @@ from .deployer_service import compute_deployer_profile
 from .factory_service import analyze_factory_rhythm, record_token_creation
 from .liquidity_arch import analyze_liquidity_architecture
 from .metadata_dna_service import build_operator_fingerprint
-from .narrative_service import compute_narrative_timing
 from .zombie_detector import detect_resurrection
 # Initiative 1: Operator Impact Report
 from .operator_impact_service import compute_operator_impact
@@ -525,13 +524,11 @@ async def detect_lineage(
         result.death_clock,
         result.operator_fingerprint,
         result.factory_rhythm,
-        result.narrative_timing,
         result.deployer_profile,
     ) = await asyncio.gather(
         _safe(compute_death_clock(root_meta.deployer, root_meta.created_at), name="death_clock"),
         _safe(build_operator_fingerprint(uri_tuples), name="operator_fingerprint"),
         _safe(analyze_factory_rhythm(root_meta.deployer), name="factory_rhythm"),
-        _safe(compute_narrative_timing(root_meta), name="narrative_timing"),
         _safe(compute_deployer_profile(root_meta.deployer), name="deployer_profile"),
     )
 

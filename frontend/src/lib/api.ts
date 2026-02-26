@@ -61,7 +61,6 @@ export interface LineageResult {
   operator_fingerprint?: OperatorFingerprint | null;
   liquidity_arch?: LiquidityArchReport | null;
   factory_rhythm?: FactoryRhythmReport | null;
-  narrative_timing?: NarrativeTimingReport | null;
   // New intelligence signals
   deployer_profile?: DeployerProfile | null;
   // Forensic deep-dive signals (Initiatives 1-3)
@@ -129,17 +128,6 @@ export interface FactoryRhythmReport {
   naming_pattern: "incremental" | "themed" | "random";
   factory_score: number;
   is_factory: boolean;
-}
-
-export interface NarrativeTimingReport {
-  narrative: string;
-  sample_size: number;
-  status: "early" | "rising" | "peak" | "late" | "insufficient_data";
-  cycle_percentile: number | null;
-  momentum_score: number | null;
-  days_since_peak: number | null;
-  peak_date: string | null;
-  interpretation: string;
 }
 
 export interface TokenSearchResult {

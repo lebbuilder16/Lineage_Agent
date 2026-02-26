@@ -108,9 +108,6 @@ class LineageResult(BaseModel):
     factory_rhythm: Optional[FactoryRhythmReport] = Field(
         None, description="Scripted deployment rhythm detection"
     )
-    narrative_timing: Optional[NarrativeTimingReport] = Field(
-        None, description="Narrative cycle lifecycle positioning"
-    )
     # ── New intelligence signals ────────────────────────────────────────────
     deployer_profile: Optional[DeployerProfile] = Field(
         None, description="Historical deployer behaviour profile"
@@ -244,22 +241,6 @@ class FactoryRhythmReport(BaseModel):
     naming_pattern: Literal["incremental", "themed", "random"]
     factory_score: float = Field(ge=0.0, le=1.0)
     is_factory: bool
-
-
-# ---------------------------------------------------------------------------
-# Forensic signal: Narrative Timing Index (lifecycle positioning)
-# ---------------------------------------------------------------------------
-class NarrativeTimingReport(BaseModel):
-    """Positions this token within the historical lifecycle of its narrative category."""
-
-    narrative: str
-    sample_size: int
-    status: Literal["early", "rising", "peak", "late", "insufficient_data"]
-    cycle_percentile: Optional[float] = None
-    momentum_score: Optional[float] = None
-    days_since_peak: Optional[int] = None
-    peak_date: Optional[datetime] = None
-    interpretation: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
