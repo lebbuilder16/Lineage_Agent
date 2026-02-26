@@ -171,11 +171,13 @@ async def detect_lineage(
             query_meta.image_uri = (
                 ((_q_asset.get("content") or {}).get("links") or {}).get("image") or ""
             )
-        if not query_meta.deployer:
+        if not query_meta.deployer or query_meta.deployer in _NON_DEPLOYER_AUTHORITIES:
             _q_creators = _q_asset.get("creators") or []
-            query_meta.deployer = next(
+            _resolved = next(
                 (c["address"] for c in _q_creators if c.get("verified")), ""
             )
+            if _resolved and _resolved not in _NON_DEPLOYER_AUTHORITIES:
+                query_meta.deployer = _resolved
     except Exception as _das_e:
         logger.debug("DAS getAsset enrichment failed for %s: %s", mint_address, _das_e)
 
@@ -833,9 +835,32 @@ def _parse_datetime(value: Any) -> datetime | None:
     return None
 
 
-# PumpFun program authority — when this is the update authority
-# the real deployer is the first verified creator, not the fee payer.
-_PUMPFUN_AUTHORITY = "TSLvdd1pWpHVjahSpsvCXUbgwsL3JAcvokwaKt1eokM"
+# Addresses that should never be treated as a token deployer.
+# These are launchpad programs, burned/null authorities, and system programs
+# that Metaplex stores as the update_authority when the real owner is a user wallet.
+#
+# Pattern 1 — Burned authority: owner revokes update rights by setting UA to
+#   the System Program (11111...1111). The real deployer is then in creators[].
+# Pattern 2 — Launchpad UA: PumpFun, Moonshot, LetsBonk, etc. set their own
+#   program as the update authority. The real deployer is creators[0].
+_NON_DEPLOYER_AUTHORITIES: frozenset[str] = frozenset({
+    # System / null (burned authority)
+    "11111111111111111111111111111111",                    # System Program
+    "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",      # SPL Token Program
+    "Token2022rMLqfGMQpwkX83CmP5VWMdM8RX8bH6TfpHn",    # Token-2022 Program
+    "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s",      # Metaplex Metadata Program
+    "BPFLoaderUpgradeab1e11111111111111111111111",        # BPF Loader
+    # PumpFun
+    "TSLvdd1pWpHVjahSpsvCXUbgwsL3JAcvokwaKt1eokM",      # PumpFun authority
+    "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBymtzbm",    # PumpFun program
+    # Moonshot (Moonshot.fun)
+    "MoonCVVNZFSYkqNXP6bxHLPL6QQJiMEfzPWlVMMf9Ly",     # Moonshot program
+    "Ce6TQqeHC9p8KetsN6JsjHK7UTZk7nasjjnr7XxXp9F1",    # Moonshot fee/authority
+    # LetsBonk
+    "4wTV81rvZBKW8vFJX9PMwn5n46sYr6HfkWMqJjpPbZ6M",     # LetsBonk program
+    # Believe / Degen
+    "DEXYosS6oEGvk8uCDayvwEZz4qEyDJRf9nFgYCaqPMTm",    # Believe / Degen launchpad
+})
 
 
 async def _get_deployer_cached(
@@ -845,19 +870,27 @@ async def _get_deployer_cached(
 
     Strategy (DAS-first, O(1)):
         1. Fetch DAS ``getAsset`` for the mint.
-        2. Extract deployer from ``authorities`` (update-authority) or
-           ``creators`` (on-chain verified creator).
-        3. For PumpFun tokens the update authority is the PumpFun program
-           itself — in that case the real deployer is ``creators[0].address``.
-        4. Fall back to the legacy signature-walk only when DAS fails.
+        2. Extract update-authority from ``authorities``.
+        3. If the update-authority is a known non-deployer (launchpad program,
+           burned/null authority = System Program, or any other program in
+           ``_NON_DEPLOYER_AUTHORITIES``), fall back to the first verified
+           creator in ``creators[]``, then to ``creators[0]``.
+        4. Fall back to the legacy signature-walk only when DAS returns no
+           usable deployer.
     """
     cache_key = f"rpc:deployer:{mint}"
     cached = await _cache_get(cache_key)
     if cached is not None:
         # SQLite cache returns lists; convert datetime string back
         if isinstance(cached, (list, tuple)) and len(cached) == 2:
-            return cached[0], _parse_datetime(cached[1])
-        return cached
+            _cached_deployer = cached[0]
+            # Reject stale cache entries that stored a non-deployer address
+            # (e.g. System Program from a burned authority, or a launchpad program).
+            # Let the code below re-resolve and overwrite the cache.
+            if _cached_deployer and _cached_deployer not in _NON_DEPLOYER_AUTHORITIES:
+                return _cached_deployer, _parse_datetime(cached[1])
+        elif isinstance(cached, str) and cached not in _NON_DEPLOYER_AUTHORITIES:
+            return cached, None
 
     deployer = ""
     created_at: Any = None
@@ -886,14 +919,20 @@ async def _get_deployer_cached(
         ua = ""
         if authorities:
             ua = authorities[0].get("address", "")
-        # 2) PumpFun detection: if UA is the PumpFun program, use creator[0]
-        if ua == _PUMPFUN_AUTHORITY or not ua:
+        # 2) If UA is a known non-deployer address (program / burned authority)
+        #    or is empty, resolve the real deployer from the creators list.
+        if not ua or ua in _NON_DEPLOYER_AUTHORITIES:
             deployer = next(
                 (c["address"] for c in creators if c.get("verified")),
                 creators[0]["address"] if creators else "",
             )
         else:
             deployer = ua
+        # 3) Final safety: if the resolved deployer is itself a known
+        #    non-deployer address (e.g. creator[0] is also a program), clear it
+        #    so the signature-walk below can find the real signer.
+        if deployer in _NON_DEPLOYER_AUTHORITIES:
+            deployer = ""
 
     # --- Signature-walk fallback (slow) — only when DAS returned no deployer ---
     if not deployer:
