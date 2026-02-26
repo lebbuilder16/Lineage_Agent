@@ -67,6 +67,7 @@ from .logging_config import generate_request_id, request_id_ctx, setup_logging
 from .models import (
     BatchLineageRequest,
     BatchLineageResponse,
+    BundleReport,
     CartelCommunity,
     CartelReport,
     DeployerProfile,
@@ -746,6 +747,67 @@ async def cartel_financial_graph(
     except Exception as exc:
         logger.exception("Financial graph failed for %s", deployer)
         raise HTTPException(status_code=500, detail="Internal server error") from exc
+
+
+# ------------------------------------------------------------------
+# Bundle wallet tracking endpoint (Initiative 5)
+# ------------------------------------------------------------------
+
+@app.get(
+    "/bundle/{mint}",
+    response_model=BundleReport,
+    tags=["intelligence"],
+    summary="Bundle wallet analysis for a token launch",
+)
+@limiter.limit("10/minute")
+async def get_bundle_report(
+    request: Request,
+    mint: str,
+    deployer: Optional[str] = None,
+) -> BundleReport:
+    """Detect Jito bundle wallets at token launch and trace their SOL flows.
+
+    Returns the list of early coordinated buyers, which ones were funded by
+    the deployer, how much SOL flowed back, and an extraction verdict.
+    """
+    if not _BASE58_RE.match(mint):
+        raise HTTPException(status_code=400, detail="Invalid Solana mint address")
+    if deployer and not _BASE58_RE.match(deployer):
+        raise HTTPException(status_code=400, detail="Invalid deployer address")
+
+    from .bundle_tracker_service import analyze_bundle
+    from .data_sources._clients import get_rpc_client as _grpc, get_jup_client as _gjup
+
+    # Resolve deployer from on-chain if not supplied
+    _deployer = deployer or ""
+    if not _deployer:
+        rpc = _grpc()
+        _deployer, _ = await rpc.get_deployer_and_timestamp(mint)
+    if not _deployer:
+        raise HTTPException(status_code=404, detail="Could not resolve deployer for this mint")
+
+    # Get current SOL price for USD conversion
+    _sol_price: Optional[float] = None
+    try:
+        jup = _gjup()
+        _sol_price = await jup.get_price("So11111111111111111111111111111111111111112")
+    except Exception:
+        pass
+
+    try:
+        report = await asyncio.wait_for(
+            analyze_bundle(mint, _deployer, _sol_price),
+            timeout=30.0,
+        )
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=504, detail="Bundle analysis timed out")
+    except Exception as exc:
+        logger.exception("Bundle analysis failed for %s", mint)
+        raise HTTPException(status_code=500, detail="Internal server error") from exc
+
+    if report is None:
+        raise HTTPException(status_code=404, detail="No bundle activity detected for this token")
+    return report
 
 
 # ------------------------------------------------------------------

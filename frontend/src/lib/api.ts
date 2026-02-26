@@ -65,10 +65,11 @@ export interface LineageResult {
   factory_rhythm?: FactoryRhythmReport | null;
   // New intelligence signals
   deployer_profile?: DeployerProfile | null;
-  // Forensic deep-dive signals (Initiatives 1-3)
+  // Forensic deep-dive signals (Initiatives 1-5)
   operator_impact?: OperatorImpactReport | null;
   sol_flow?: SolFlowReport | null;
   cartel_report?: CartelReport | null;
+  bundle_report?: BundleReport | null;
 }
 
 /* ---------- Forensic signal types ----------------------------------- */
@@ -269,6 +270,34 @@ export interface CartelCommunity {
 export interface CartelReport {
   mint: string;
   deployer_community: CartelCommunity | null;
+}
+
+/* ---------- Bundle wallet tracking (Initiative 5) ------------------- */
+
+export interface BundleWallet {
+  address: string;
+  sol_spent: number;
+  funded_by_deployer: boolean;
+  sol_returned_to_deployer: number;
+  exited: boolean;
+  current_token_balance: number | null;
+}
+
+export interface BundleReport {
+  mint: string;
+  deployer: string;
+  bundle_wallets: BundleWallet[];
+  total_sol_spent_by_bundle: number;
+  total_sol_returned_to_deployer: number;
+  total_usd_extracted: number | null;
+  confirmed_linked_wallets: number;
+  verdict: "clean" | "suspected_bundle" | "confirmed_bundle";
+  launch_slot: number | null;
+}
+
+export function fetchBundleReport(mint: string, deployer?: string): Promise<BundleReport> {
+  const qs = deployer ? `?deployer=${deployer}` : "";
+  return fetchJSON<BundleReport>(`/bundle/${mint}${qs}`, 35_000);
 }
 
 /* ---------- Error class --------------------------------------------- */

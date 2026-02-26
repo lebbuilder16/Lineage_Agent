@@ -128,6 +128,64 @@ class LineageResult(BaseModel):
     insider_sell: Optional[InsiderSellReport] = Field(
         None, description="Silent drain via insider token selling (Initiative 4)"
     )
+    bundle_report: Optional["BundleReport"] = Field(
+        None, description="Bundle wallet tracking — early buyers linked to deployer (Initiative 5)"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Bundle wallet tracking  (Initiative 5)
+# ---------------------------------------------------------------------------
+
+class BundleWallet(BaseModel):
+    """A wallet that participated in the launch bundle."""
+
+    address: str
+    sol_spent: float = Field(0.0, description="SOL spent buying the token at launch")
+    funded_by_deployer: bool = Field(
+        False,
+        description="True when deployer sent SOL to this wallet within 72 h before launch",
+    )
+    sol_returned_to_deployer: float = Field(
+        0.0, description="SOL this wallet sent back to the deployer after selling"
+    )
+    exited: bool = Field(
+        False, description="True when current token balance == 0 (fully sold out)"
+    )
+    current_token_balance: Optional[float] = Field(
+        None, description="Current token balance (UI amount)"
+    )
+
+
+class BundleReport(BaseModel):
+    """Bundle wallet analysis: early coordinated buyers at token launch."""
+
+    mint: str
+    deployer: str
+
+    bundle_wallets: list[BundleWallet] = Field(
+        default_factory=list,
+        description="All wallets detected in the launch bundle",
+    )
+    total_sol_spent_by_bundle: float = Field(
+        0.0, description="Total SOL deployed by all bundle wallets at launch"
+    )
+    total_sol_returned_to_deployer: float = Field(
+        0.0, description="Total SOL confirmed flowing back to deployer post-sell"
+    )
+    total_usd_extracted: Optional[float] = Field(
+        None, description="USD equivalent of SOL extracted (at time of analysis)"
+    )
+    confirmed_linked_wallets: int = Field(
+        0, description="Number of bundle wallets confirmed linked to the deployer"
+    )
+    verdict: Literal["clean", "suspected_bundle", "confirmed_bundle"] = Field(
+        "clean",
+        description="clean | suspected_bundle | confirmed_bundle",
+    )
+    launch_slot: Optional[int] = Field(
+        None, description="Solana slot number of the token launch"
+    )
 
 
 # ---------------------------------------------------------------------------

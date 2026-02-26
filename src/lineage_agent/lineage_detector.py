@@ -44,6 +44,7 @@ from .death_clock import compute_death_clock
 from .deployer_service import compute_deployer_profile
 from .factory_service import analyze_factory_rhythm, record_token_creation
 from .insider_sell_service import analyze_insider_sell
+from .bundle_tracker_service import analyze_bundle
 from .liquidity_arch import analyze_liquidity_architecture
 from .metadata_dna_service import build_operator_fingerprint
 from .zombie_detector import detect_resurrection
@@ -684,6 +685,32 @@ async def detect_lineage(
         logger.warning("[insider_sell] timed out for %s", _scan_mint[:8])
     except Exception as _is_exc:
         logger.warning("[insider_sell] enricher failed: %s", _is_exc)
+
+    # Initiative 5: Bundle wallet tracking
+    # Detect coordinated early buyers (Jito bundle) and trace SOL back to deployer.
+    # Sol price from query_meta or root_meta if available.
+    _sol_price: Optional[float] = None
+    try:
+        _wsol = "So11111111111111111111111111111111111111112"
+        _jup_sol = await jup.get_price(_wsol)
+        if _jup_sol and _jup_sol > 0:
+            _sol_price = _jup_sol
+    except Exception:
+        pass
+    try:
+        result.bundle_report = await asyncio.wait_for(
+            analyze_bundle(
+                mint=_scan_mint,
+                deployer=_scan_deployer,
+                sol_price_usd=_sol_price,
+            ),
+            timeout=25.0,
+        )
+    except asyncio.TimeoutError:
+        logger.warning("[bundle] timed out for %s", _scan_mint[:8])
+        asyncio.ensure_future(analyze_bundle(_scan_mint, _scan_deployer, _sol_price))
+    except Exception as _bun_exc:
+        logger.warning("[bundle] enricher failed: %s", _bun_exc)
 
     await _progress("Analysis complete", 100)
     await _cache_set(f"lineage:{mint_address}", result, ttl=CACHE_TTL_LINEAGE_SECONDS)
