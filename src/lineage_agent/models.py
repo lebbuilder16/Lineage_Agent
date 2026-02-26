@@ -190,7 +190,7 @@ class DeathClockForecast(BaseModel):
     median_rug_hours: float
     stdev_rug_hours: float
     elapsed_hours: float
-    risk_level: Literal["low", "medium", "high", "critical", "insufficient_data"]
+    risk_level: Literal["low", "medium", "high", "critical", "first_rug", "insufficient_data"]
     predicted_window_start: Optional[datetime] = None
     predicted_window_end: Optional[datetime] = None
     confidence_note: str = ""

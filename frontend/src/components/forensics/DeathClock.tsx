@@ -9,6 +9,7 @@ const RISK_CONFIG = {
   medium: { color: "bg-yellow-400", text: "text-yellow-400", label: "Medium Risk", widthPct: 45 },
   high: { color: "bg-orange-500", text: "text-orange-400", label: "High Risk", widthPct: 72 },
   critical: { color: "bg-red-500", text: "text-red-400", label: "Critical", widthPct: 95 },
+  first_rug: { color: "bg-amber-400", text: "text-amber-400", label: "1st Rug on Record", widthPct: 50 },
   insufficient_data: { color: "bg-zinc-600", text: "text-zinc-400", label: "Insufficient Data", widthPct: 0 },
 } as const;
 
@@ -20,7 +21,7 @@ export default function DeathClock({ forecast }: Props) {
   if (forecast === undefined) return null;
   if (forecast === null || forecast.risk_level === "insufficient_data") {
     return (
-      <ForensicCard icon="☠️" title="Death Clock" empty emptyLabel="Needs ≥2 prior rugs from this deployer">
+      <ForensicCard icon="☠️" title="Death Clock" empty emptyLabel="No prior rugs on record for this deployer">
         <></>
       </ForensicCard>
     );

@@ -488,10 +488,21 @@ async def detect_lineage(
             except Exception as _e:
                 logger.debug("record_token_creation (derivative) failed: %s", _e)
 
-    # ── DAS bootstrap: run in background so it doesn't block the response ─
-    # Forensic enrichers run right after; on first visit they may see < 3
-    # events, but next analysis will have full data.  Pattern: seed-on-miss.
-    asyncio.ensure_future(_bootstrap_deployer_history(root_meta.deployer))
+    # ── DAS bootstrap: run INLINE (awaited) so enrichers see full history ─
+    # Previously this was fire-and-forget which caused Factory Rhythm,
+    # Death Clock, Operator Fingerprint, and Cartel Detection to always see
+    # empty DB on the first scan.  The 8s timeout prevents blocking on slow
+    # RPC nodes; if it times out the response still returns (features may
+    # be sparse) and the next scan will have complete data.
+    try:
+        await asyncio.wait_for(
+            _bootstrap_deployer_history(root_meta.deployer),
+            timeout=8.0,
+        )
+    except asyncio.TimeoutError:
+        logger.warning("[bootstrap] DAS bootstrap timed out for %s", root_meta.deployer[:8])
+    except Exception as _be:
+        logger.warning("[bootstrap] DAS bootstrap failed: %s", _be)
 
     # Phase 1  — Zombie Token detection (sync, uses already-built result)
     try:
@@ -505,12 +516,31 @@ async def detect_lineage(
     except Exception as _e:
         logger.debug("liquidity_arch failed: %s", _e)
 
-    # Build metadata URI list for Operator Fingerprint
+    # Build metadata URI list for Operator Fingerprint.
+    # Seed from the current scan's tokens first, then enrich from the DB so
+    # that Operator Fingerprint sees all of this deployer's historical tokens
+    # (not just the single token being scanned right now).
     uri_tuples: list[tuple[str, str, str]] = [
         (t.mint, t.deployer or "", t.metadata_uri or "")
         for t in all_tokens
         if t.mint
     ]
+    try:
+        from .data_sources._clients import event_query as _eq_fp
+        _hist_rows = await _eq_fp(
+            where="event_type = 'token_created' AND deployer = ?",
+            params=(root_meta.deployer,),
+            columns="mint, deployer, metadata_uri",
+            limit=50,
+        )
+        _existing_mints = {m for m, _, _ in uri_tuples}
+        for _hr in _hist_rows:
+            _hm = _hr.get("mint", "")
+            if _hm and _hm not in _existing_mints:
+                uri_tuples.append((_hm, _hr.get("deployer") or root_meta.deployer, _hr.get("metadata_uri") or ""))
+                _existing_mints.add(_hm)
+    except Exception as _fp_err:
+        logger.debug("uri_tuples history expansion failed: %s", _fp_err)
 
     # Phases 2, 3, 5, 6, 7, 8, 9 — async enrichers in parallel
     async def _safe(coro, *, name: str = "enricher"):
@@ -553,21 +583,37 @@ async def detect_lineage(
         except Exception as _oi_exc:
             logger.warning("[operator_impact] enricher failed: %s", _oi_exc)
 
-    # Initiative 2: SOL flow — read from DB (fast); spawn trace in background
-    # if not cached.  The result becomes available on the next page load.
+    # Initiative 2: SOL flow — try DB first (fast path), then run the
+    # full trace inline with a 15s timeout so the first scan shows data.
+    # If the trace times out it continues in background for next visit.
     result.sol_flow = await _safe(
         get_sol_flow_report(root_meta.mint), name="sol_flow_read",
     )
     if result.sol_flow is None and root_meta.deployer:
-        asyncio.ensure_future(
-            trace_sol_flow(root_meta.mint, root_meta.deployer)
-        )
+        try:
+            result.sol_flow = await asyncio.wait_for(
+                trace_sol_flow(root_meta.mint, root_meta.deployer),
+                timeout=15.0,
+            )
+        except asyncio.TimeoutError:
+            logger.warning("[sol_flow] trace timed out for %s — continuing in background", root_meta.mint[:8])
+            asyncio.ensure_future(trace_sol_flow(root_meta.mint, root_meta.deployer))
+        except Exception as _sf_exc:
+            logger.warning("[sol_flow] trace failed: %s", _sf_exc)
 
-    # Initiative 3: build cartel edges in background; read existing data now
+    # Initiative 3: build cartel edges INLINE (awaited) before reading the
+    # report — previously the fire-and-forget meant compute_cartel_report
+    # always read an empty cartel_edges table on the first scan.
     if root_meta.deployer:
-        asyncio.ensure_future(
-            build_cartel_edges_for_deployer(root_meta.deployer)
-        )
+        try:
+            await asyncio.wait_for(
+                build_cartel_edges_for_deployer(root_meta.deployer),
+                timeout=8.0,
+            )
+        except asyncio.TimeoutError:
+            logger.warning("[cartel] edge build timed out for %s", root_meta.deployer[:8])
+        except Exception as _ce_exc:
+            logger.warning("[cartel] edge build failed: %s", _ce_exc)
     result.cartel_report = await _safe(
         compute_cartel_report(root_meta.mint, root_meta.deployer),
         name="cartel_report",
@@ -580,7 +626,7 @@ async def detect_lineage(
 
 # ── DAS bootstrap helper ─────────────────────────────────────────────────
 
-_BOOTSTRAP_MIN_THRESHOLD = 3  # only bootstrap if < this many events in DB
+_BOOTSTRAP_MIN_THRESHOLD = 20  # only bootstrap if < this many events in DB
 
 
 async def _bootstrap_deployer_history(deployer: str) -> None:

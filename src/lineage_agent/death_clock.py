@@ -22,7 +22,7 @@ from .models import DeathClockForecast
 
 logger = logging.getLogger(__name__)
 
-_MIN_SAMPLES = 2          # minimum rug events to compute forecast
+_MIN_SAMPLES = 1          # minimum rug events to compute forecast (1 = single-sample mode)
 _MAX_STDEV_RATIO = 2.0    # cap stdev at 2× median to avoid absurd windows
 
 
@@ -54,14 +54,15 @@ async def compute_death_clock(
     )
 
     if len(rows) < _MIN_SAMPLES:
+        # Zero rug events — no forecast possible at all
         return DeathClockForecast(
             deployer=deployer,
-            historical_rug_count=len(rows),
+            historical_rug_count=0,
             median_rug_hours=0.0,
             stdev_rug_hours=0.0,
             elapsed_hours=_elapsed_hours(token_created_at),
             risk_level="insufficient_data",
-            confidence_note=f"Only {len(rows)} rug event(s) on record — need at least {_MIN_SAMPLES}",
+            confidence_note="No prior rug events on record for this deployer",
         )
 
     # Parse durations
@@ -79,19 +80,28 @@ async def compute_death_clock(
     if len(durations_h) < _MIN_SAMPLES:
         return None
 
+    single_sample = len(durations_h) == 1
     median_h = statistics.median(durations_h)
-    stdev_h = (
-        statistics.stdev(durations_h)
-        if len(durations_h) >= 3
-        else median_h * 0.30
-    )
-    # Cap stdev to avoid absurd windows
-    stdev_h = min(stdev_h, median_h * _MAX_STDEV_RATIO)
+
+    if single_sample:
+        # Single rug in history: use a ±50% band to communicate low confidence
+        stdev_h = median_h * 0.5
+    else:
+        stdev_h = (
+            statistics.stdev(durations_h)
+            if len(durations_h) >= 3
+            else median_h * 0.30
+        )
+        # Cap stdev to avoid absurd windows
+        stdev_h = min(stdev_h, median_h * _MAX_STDEV_RATIO)
 
     elapsed_h = _elapsed_hours(token_created_at)
     ratio = elapsed_h / median_h if median_h > 0 else 0.0
 
-    if ratio < 0.5:
+    if single_sample:
+        # Single-sample mode: always show as "first_rug" regardless of elapsed ratio
+        risk_level = "first_rug"
+    elif ratio < 0.5:
         risk_level = "low"
     elif ratio < 0.8:
         risk_level = "medium"
@@ -119,7 +129,11 @@ async def compute_death_clock(
         risk_level=risk_level,  # type: ignore[arg-type]
         predicted_window_start=window_start,
         predicted_window_end=window_end,
-        confidence_note=f"Based on {len(durations_h)} confirmed rug(s)",
+        confidence_note=(
+            f"Single prior rug — estimate based on 1 data point (\u00b150% window)"
+            if single_sample
+            else f"Based on {len(durations_h)} confirmed rug(s)"
+        ),
     )
 
 

@@ -88,7 +88,7 @@ export interface DeathClockForecast {
   median_rug_hours: number;
   stdev_rug_hours: number;
   elapsed_hours: number;
-  risk_level: "low" | "medium" | "high" | "critical" | "insufficient_data";
+  risk_level: "low" | "medium" | "high" | "critical" | "first_rug" | "insufficient_data";
   predicted_window_start: string | null;
   predicted_window_end: string | null;
   confidence_note: string;
