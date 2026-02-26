@@ -194,6 +194,10 @@ class DeathClockForecast(BaseModel):
     predicted_window_start: Optional[datetime] = None
     predicted_window_end: Optional[datetime] = None
     confidence_note: str = ""
+    sample_count: int = Field(0, description="Number of historical rug samples used")
+    confidence_level: Literal["low", "medium", "high"] = Field(
+        "low", description="Statistical confidence in the prediction"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -281,13 +285,16 @@ class DeployerProfile(BaseModel):
 class OperatorImpactReport(BaseModel):
     """Cross-wallet damage ledger for an operator sharing a metadata DNA fingerprint."""
 
-    fingerprint: str = Field(..., description="The 16-char hex DNA fingerprint")
+    fingerprint: str = Field(..., description="The 32-char hex DNA fingerprint")
     linked_wallets: list[str] = Field(..., description="All deployer wallets sharing this fingerprint")
     total_tokens_launched: int
     total_rug_count: int
     rug_rate_pct: float = Field(ge=0.0, le=100.0)
     estimated_extracted_usd: float = Field(
         ge=0.0, description="Conservative 15% of rugged mcap estimate"
+    )
+    is_estimated: bool = Field(
+        True, description="True if extraction figure is a 15% heuristic, False if from on-chain trace"
     )
     active_tokens: list[str] = Field(default_factory=list, description="Mints still not rugged")
     narrative_sequence: list[str] = Field(
@@ -342,7 +349,7 @@ class SolFlowReport(BaseModel):
     mint: str
     deployer: str
     total_extracted_sol: float = Field(ge=0.0, description="Direct SOL outflows from deployer (hop 0)")
-    total_extracted_usd: Optional[float] = Field(None, description="USD value at time of extraction")
+    total_extracted_usd: Optional[float] = Field(None, description="USD value at time of extraction (SOL × market price)")
     flows: list[SolFlowEdge] = Field(default_factory=list)
     terminal_wallets: list[str] = Field(
         default_factory=list,

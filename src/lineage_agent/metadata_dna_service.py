@@ -253,7 +253,7 @@ async def _get_fingerprint(mint: str, uri: str) -> Optional[str]:
         return None
     service = _detect_service(uri)
     raw = f"{service}:{desc_norm}"
-    fp = hashlib.sha256(raw.encode()).hexdigest()[:16]
+    fp = hashlib.sha256(raw.encode()).hexdigest()[:32]
 
     await cache_set(cache_key, fp, ttl=86400)
     return fp

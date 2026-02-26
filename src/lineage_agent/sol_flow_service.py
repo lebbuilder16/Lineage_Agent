@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -27,6 +28,9 @@ from .models import SolFlowEdge, SolFlowReport
 from .wallet_labels import classify_address
 
 logger = logging.getLogger(__name__)
+
+# Wrapped SOL mint for Jupiter price lookup
+_WSOL_MINT = "So11111111111111111111111111111111111111112"
 
 # ── Skip lists ────────────────────────────────────────────────────────────────
 # Infrastructure, DEX programs, system accounts — not useful in a follow-the-money graph
@@ -62,7 +66,7 @@ _CEX_ADDRESSES: frozenset[str] = frozenset({
 })
 
 _MIN_TRANSFER_LAMPORTS = 100_000_000   # 0.1 SOL minimum
-_MAX_HOPS = 3
+_MAX_HOPS = int(os.getenv("SOL_TRACE_MAX_HOPS", "3"))
 _MAX_TXN_PER_WALLET = 50
 _TRACE_TIMEOUT = 20.0
 _HOP_SEM_CONCURRENCY = 3
@@ -170,7 +174,15 @@ async def _run_trace(
     except Exception:
         exits = []
 
-    return _flows_to_report(mint, deployer, all_flows, cross_chain_exits=exits)
+    # Fetch current SOL price for USD conversion (best-effort)
+    sol_price: Optional[float] = None
+    try:
+        jup = get_jup_client()
+        sol_price = await jup.get_price(_WSOL_MINT)
+    except Exception:
+        logger.debug("SOL price fetch failed — USD value will be None")
+
+    return _flows_to_report(mint, deployer, all_flows, cross_chain_exits=exits, sol_price_usd=sol_price)
 
 
 async def _trace_wallet(
@@ -283,6 +295,7 @@ def _flows_to_report(
     deployer: str,
     flows: list[dict],
     cross_chain_exits: Optional[list[CrossChainExit]] = None,
+    sol_price_usd: Optional[float] = None,
 ) -> SolFlowReport:
     """Convert raw flow dicts to a SolFlowReport model."""
     edges: list[SolFlowEdge] = []
@@ -308,6 +321,11 @@ def _flows_to_report(
     # Total extracted = direct outflows from the deployer (hop 0)
     total_sol = sum(e.amount_sol for e in edges if e.hop == 0)
 
+    # Compute USD value if SOL price is available
+    total_usd: Optional[float] = None
+    if sol_price_usd and total_sol > 0:
+        total_usd = round(total_sol * sol_price_usd, 2)
+
     # Terminal wallets = recipients that never appear as senders
     senders = {e.from_address for e in edges}
     terminal_wallets = list({e.to_address for e in edges if e.to_address not in senders})
@@ -323,7 +341,7 @@ def _flows_to_report(
         mint=mint,
         deployer=deployer,
         total_extracted_sol=round(total_sol, 4),
-        total_extracted_usd=None,
+        total_extracted_usd=total_usd,
         flows=edges,
         terminal_wallets=terminal_wallets,
         known_cex_detected=known_cex,

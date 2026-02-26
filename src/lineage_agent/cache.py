@@ -197,6 +197,10 @@ class SQLiteCache:
             os.makedirs(os.path.dirname(self._db_path) or ".", exist_ok=True)
             self._conn = await aiosqlite.connect(self._db_path)
             await self._conn.execute("PRAGMA journal_mode=WAL")
+            await self._conn.execute("PRAGMA busy_timeout=5000")
+            await self._conn.execute("PRAGMA synchronous=NORMAL")
+            await self._conn.execute("PRAGMA wal_autocheckpoint=1000")
+            await self._conn.execute("PRAGMA foreign_keys=ON")
             await self._init_schema(self._conn)
             return self._conn
 

@@ -42,6 +42,15 @@ async def test_health(client):
     body = resp.json()
     assert body["status"] == "ok"
     assert "uptime_seconds" in body
+
+
+@pytest.mark.anyio
+async def test_admin_health(client):
+    resp = await client.get("/admin/health")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "ok"
+    assert "uptime_seconds" in body
     assert "circuit_breakers" in body
     assert "dexscreener" in body["circuit_breakers"]
     assert "solana_rpc" in body["circuit_breakers"]

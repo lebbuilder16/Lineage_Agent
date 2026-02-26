@@ -59,8 +59,9 @@ def setup_logging() -> None:
                 defaults={"request_id": "-"},
             )
         )
-        # Inject request_id into records via a filter
-        handler.addFilter(_RequestIdFilter())
+
+    # Always inject request_id into records so it is available in both formats
+    handler.addFilter(_RequestIdFilter())
 
     root.addHandler(handler)
 

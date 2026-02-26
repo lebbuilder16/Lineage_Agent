@@ -331,12 +331,39 @@ export default function SolTracePage({ params }: Props) {
   }
 
   if (error || !report || !graph) {
+    const is404 = error?.includes("404") || error?.includes("No deployer") || error?.includes("analyse it first") || error?.includes("No SOL flows");
     return (
       <main className="mx-auto max-w-5xl px-4 py-10">
-        <p className="text-destructive">{error ?? "No flow data available for this token."}</p>
-        <Link href={`/lineage/${mint}`} className="mt-4 inline-block text-sm text-primary hover:underline">
-          ← Back to lineage
-        </Link>
+        <div className="rounded-xl border border-border bg-card p-8 text-center space-y-4">
+          {is404 ? (
+            <>
+              <div className="text-4xl">🔍</div>
+              <h2 className="text-xl font-semibold">No trace data available</h2>
+              <p className="text-sm text-muted-foreground max-w-md mx-auto">
+                This token hasn&apos;t been analysed yet, or no SOL flows were detected.
+                Run a lineage analysis first to populate the data.
+              </p>
+              <Link
+                href={`/lineage/${mint}`}
+                className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 transition"
+              >
+                ← Analyse this token
+              </Link>
+            </>
+          ) : (
+            <>
+              <div className="text-4xl">⚠️</div>
+              <h2 className="text-xl font-semibold text-destructive">Something went wrong</h2>
+              <p className="text-sm text-muted-foreground">{error ?? "No flow data available for this token."}</p>
+              <Link
+                href={`/lineage/${mint}`}
+                className="mt-2 inline-block text-sm text-primary hover:underline"
+              >
+                ← Back to lineage
+              </Link>
+            </>
+          )}
+        </div>
       </main>
     );
   }

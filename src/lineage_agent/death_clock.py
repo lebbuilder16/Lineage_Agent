@@ -63,6 +63,8 @@ async def compute_death_clock(
             elapsed_hours=_elapsed_hours(token_created_at),
             risk_level="insufficient_data",
             confidence_note="No prior rug events on record for this deployer",
+            sample_count=0,
+            confidence_level="low",
         )
 
     # Parse durations
@@ -120,6 +122,14 @@ async def compute_death_clock(
         window_start = window_start.replace(tzinfo=timezone.utc)
         window_end = window_end.replace(tzinfo=timezone.utc)
 
+    # Compute confidence level based on sample count
+    if len(durations_h) >= 5:
+        _confidence_level = "high"
+    elif len(durations_h) >= 2:
+        _confidence_level = "medium"
+    else:
+        _confidence_level = "low"
+
     return DeathClockForecast(
         deployer=deployer,
         historical_rug_count=len(durations_h),
@@ -129,6 +139,8 @@ async def compute_death_clock(
         risk_level=risk_level,  # type: ignore[arg-type]
         predicted_window_start=window_start,
         predicted_window_end=window_end,
+        sample_count=len(durations_h),
+        confidence_level=_confidence_level,  # type: ignore[arg-type]
         confidence_note=(
             f"Single prior rug — estimate based on 1 data point (\u00b150% window)"
             if single_sample

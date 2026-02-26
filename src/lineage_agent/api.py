@@ -75,6 +75,7 @@ from .models import (
     TokenSearchResult,
 )
 from .rug_detector import cancel_rug_sweep, schedule_rug_sweep
+from .db_maintenance import cancel_db_maintenance, schedule_db_maintenance
 
 # Initialise structured logging early
 setup_logging()
@@ -174,11 +175,13 @@ async def lifespan(application: FastAPI):
     schedule_rug_sweep()
     _schedule_alert_sweep()
     _schedule_cartel_sweep()
+    schedule_db_maintenance()
     yield
-    logger.info("Shutting down – closing HTTP clients …")
+    logger.info("Shutting down \u2013 closing HTTP clients \u2026")
     cancel_rug_sweep()
     cancel_alert_sweep()
     _cancel_cartel_sweep()
+    cancel_db_maintenance()
     await close_clients()
 
 
@@ -197,8 +200,8 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
-    allow_origin_regex=r"https://lineage-agent[a-zA-Z0-9\-]*\.vercel\.app",
-    allow_credentials=True,
+    allow_origin_regex=r"https://lineage-agent(-[a-z0-9]+)*\.vercel\.app",
+    allow_credentials=False,
     allow_methods=["GET", "POST"],
     allow_headers=["Content-Type", "Accept"],
 )
@@ -230,6 +233,23 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
 app.add_middleware(RequestIdMiddleware)
 
 
+# ---------------------------------------------------------------------------
+# Prometheus metrics
+# ---------------------------------------------------------------------------
+try:
+    from prometheus_fastapi_instrumentator import Instrumentator
+
+    _instrumentator = Instrumentator(
+        should_group_status_codes=True,
+        should_ignore_untemplated=True,
+        excluded_handlers=["/health", "/metrics", "/docs", "/openapi.json"],
+    )
+    _instrumentator.instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
+    logger.info("Prometheus metrics enabled at /metrics")
+except ImportError:
+    logger.info("prometheus-fastapi-instrumentator not installed — metrics disabled")
+
+
 # ------------------------------------------------------------------
 # Endpoints
 # ------------------------------------------------------------------
@@ -243,7 +263,17 @@ async def root():
 
 @app.get("/health", tags=["system"])
 async def health() -> dict:
-    """Health check including uptime, circuit breaker states, and cache stats."""
+    """Lightweight public health check."""
+    uptime_s = round(time.monotonic() - _start_time, 1)
+    return {
+        "status": "ok",
+        "uptime_seconds": uptime_s,
+    }
+
+
+@app.get("/admin/health", tags=["system"])
+async def admin_health() -> dict:
+    """Detailed health check including circuit breakers and cache stats."""
     from .data_sources._clients import cache
 
     uptime_s = round(time.monotonic() - _start_time, 1)
@@ -313,12 +343,18 @@ async def batch_lineage(
             )
 
     sem = asyncio.Semaphore(3)
+    per_mint_timeout = max(10, ANALYSIS_TIMEOUT_SECONDS // 2)
     results: dict[str, LineageResult | str] = {}
 
     async def _analyse(mint: str) -> None:
         async with sem:
             try:
-                results[mint] = await detect_lineage(mint)
+                results[mint] = await asyncio.wait_for(
+                    detect_lineage(mint), timeout=per_mint_timeout
+                )
+            except asyncio.TimeoutError:
+                logger.warning("Batch lineage timed out for %s", mint)
+                results[mint] = f"Analysis timed out after {per_mint_timeout}s"
             except Exception:
                 logger.exception("Batch lineage failed for %s", mint)
                 results[mint] = "Internal server error"
@@ -449,7 +485,7 @@ async def get_deployer_profile(
 # Operator Impact Report endpoint (Initiative 1)
 # ------------------------------------------------------------------
 
-_FP_RE = re.compile(r"^[0-9a-f]{16}$")
+_FP_RE = re.compile(r"^[0-9a-f]{16,32}$")
 
 
 @app.get(
