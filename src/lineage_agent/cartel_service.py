@@ -476,6 +476,9 @@ async def _build_report(mint: str, deployer: str) -> Optional[CartelReport]:
     for row in community_edge_rows:
         try:
             ev = json.loads(row.get("evidence_json") or "{}")
+            # Defensive: handle double-encoded JSON strings
+            if isinstance(ev, str):
+                ev = json.loads(ev)
         except Exception:
             ev = {}
         edge_list.append(CartelEdge(

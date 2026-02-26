@@ -50,9 +50,9 @@ from .zombie_detector import detect_resurrection
 # Initiative 1: Operator Impact Report
 from .operator_impact_service import compute_operator_impact
 # Initiative 2: Follow The SOL
-from .sol_flow_service import get_sol_flow_report
+from .sol_flow_service import get_sol_flow_report, trace_sol_flow
 # Initiative 3: Cartel Graph
-from .cartel_service import compute_cartel_report
+from .cartel_service import build_cartel_edges_for_deployer, compute_cartel_report
 from .data_sources.solana_rpc import SolanaRpcClient
 from .models import (
     DerivativeInfo,
@@ -486,6 +486,14 @@ async def detect_lineage(
             except Exception as _e:
                 logger.debug("record_token_creation (derivative) failed: %s", _e)
 
+    # ── DAS bootstrap: discover deployer's other tokens via Helius ─────
+    # If we have < 3 token_created events for this deployer, use searchAssets
+    # to seed the DB so Factory Rhythm / Death Clock / Deployer Profile work.
+    try:
+        await _bootstrap_deployer_history(root_meta.deployer)
+    except Exception as _boot_exc:
+        logger.debug("DAS bootstrap failed: %s", _boot_exc)
+
     # Phase 1  — Zombie Token detection (sync, uses already-built result)
     try:
         result.zombie_alert = detect_resurrection(result)
@@ -506,11 +514,11 @@ async def detect_lineage(
     ]
 
     # Phases 2, 3, 5, 6, 7, 8, 9 — async enrichers in parallel
-    async def _safe(coro):
+    async def _safe(coro, *, name: str = "enricher"):
         try:
             return await coro
         except Exception as exc:
-            logger.debug("Enricher failed: %s", exc)
+            logger.warning("[%s] enricher failed: %s", name, exc)
             return None
 
     (
@@ -519,18 +527,12 @@ async def detect_lineage(
         result.factory_rhythm,
         result.narrative_timing,
         result.deployer_profile,
-        result.sol_flow,
-        result.cartel_report,
     ) = await asyncio.gather(
-        _safe(compute_death_clock(root_meta.deployer, root_meta.created_at)),
-        _safe(build_operator_fingerprint(uri_tuples)),
-        _safe(analyze_factory_rhythm(root_meta.deployer)),
-        _safe(compute_narrative_timing(root_meta)),
-        _safe(compute_deployer_profile(root_meta.deployer)),
-        # Initiative 2: check DB for pre-computed sol flow (triggered by rug sweep)
-        _safe(get_sol_flow_report(root_meta.mint)),
-        # Initiative 3: community detection from pre-computed cartel edges
-        _safe(compute_cartel_report(root_meta.mint, root_meta.deployer)),
+        _safe(compute_death_clock(root_meta.deployer, root_meta.created_at), name="death_clock"),
+        _safe(build_operator_fingerprint(uri_tuples), name="operator_fingerprint"),
+        _safe(analyze_factory_rhythm(root_meta.deployer), name="factory_rhythm"),
+        _safe(compute_narrative_timing(root_meta), name="narrative_timing"),
+        _safe(compute_deployer_profile(root_meta.deployer), name="deployer_profile"),
     )
 
     # Initiative 1: Operator Impact — requires operator_fingerprint result
@@ -544,11 +546,132 @@ async def detect_lineage(
                 timeout=10.0,
             )
         except Exception as _oi_exc:
-            logger.debug("operator_impact enricher failed: %s", _oi_exc)
+            logger.warning("[operator_impact] enricher failed: %s", _oi_exc)
+
+    # Initiative 2: SOL flow — try DB first, else trace inline if deployer known
+    result.sol_flow = await _safe(
+        get_sol_flow_report(root_meta.mint), name="sol_flow_read",
+    )
+    if result.sol_flow is None and root_meta.deployer:
+        result.sol_flow = await _safe(
+            trace_sol_flow(root_meta.mint, root_meta.deployer),
+            name="sol_flow_trace",
+        )
+
+    # Initiative 3: build cartel edges inline (don't wait for hourly sweep)
+    if root_meta.deployer:
+        await _safe(
+            build_cartel_edges_for_deployer(root_meta.deployer),
+            name="cartel_edge_build",
+        )
+    result.cartel_report = await _safe(
+        compute_cartel_report(root_meta.mint, root_meta.deployer),
+        name="cartel_report",
+    )
 
     await _progress("Analysis complete", 100)
     await _cache_set(f"lineage:{mint_address}", result, ttl=CACHE_TTL_LINEAGE_SECONDS)
     return result
+
+
+# ── DAS bootstrap helper ─────────────────────────────────────────────────
+
+_BOOTSTRAP_MIN_THRESHOLD = 3  # only bootstrap if < this many events in DB
+
+
+async def _bootstrap_deployer_history(deployer: str) -> None:
+    """Discover a deployer's other tokens via Helius DAS and seed the DB.
+
+    This ensures that Factory Rhythm (≥3 tokens), Death Clock (≥2 rugs),
+    and Deployer Profile have enough data from the very first analysis.
+    Skips the call if the deployer already has ≥ _BOOTSTRAP_MIN_THRESHOLD
+    token_created events recorded.
+    """
+    if not deployer:
+        return
+
+    from .data_sources._clients import event_query as _eq, event_insert as _ei
+
+    # Check how many events we already have for this deployer
+    existing = await _eq(
+        where="event_type = 'token_created' AND deployer = ?",
+        params=(deployer,),
+        columns="mint",
+        limit=_BOOTSTRAP_MIN_THRESHOLD,
+    )
+    if len(existing) >= _BOOTSTRAP_MIN_THRESHOLD:
+        return  # already enough data
+
+    existing_mints = {r.get("mint") for r in existing}
+
+    rpc = _get_rpc_client()
+    try:
+        assets = await asyncio.wait_for(
+            rpc.search_assets_by_creator(deployer, limit=50),
+            timeout=8.0,
+        )
+    except (asyncio.TimeoutError, Exception) as exc:
+        logger.debug("DAS searchAssets timed out or failed for %s: %s", deployer, exc)
+        return
+
+    seeded = 0
+    for asset in assets:
+        try:
+            mint = asset.get("id", "")
+            if not mint or mint in existing_mints:
+                continue
+            content = asset.get("content") or {}
+            metadata = content.get("metadata") or {}
+            name = metadata.get("name", "")
+            symbol = metadata.get("symbol", "")
+            image_uri = (content.get("links") or {}).get("image", "")
+            metadata_uri = content.get("json_uri", "")
+
+            # Extract creation time from asset if available
+            created_at_raw = asset.get("created_at")  # Helius DAS field
+            created_at = None
+            if created_at_raw:
+                try:
+                    from datetime import datetime as _dt, timezone as _tz
+                    created_at = _dt.fromisoformat(str(created_at_raw).replace("Z", "+00:00"))
+                except (ValueError, TypeError):
+                    pass
+
+            await _ei(
+                event_type="token_created",
+                mint=mint,
+                deployer=deployer,
+                name=name,
+                symbol=symbol,
+                image_uri=image_uri,
+                metadata_uri=metadata_uri,
+                narrative=_guess_narrative(name, symbol),
+                created_at=created_at.isoformat() if created_at else None,
+            )
+            existing_mints.add(mint)
+            seeded += 1
+        except Exception:
+            continue
+
+    if seeded:
+        logger.info("DAS bootstrap: seeded %d tokens for deployer %s", seeded, deployer[:8])
+
+
+def _guess_narrative(name: str, symbol: str) -> str:
+    """Best-effort narrative classification from name/symbol."""
+    text = f"{name} {symbol}".lower()
+    keywords = {
+        "ai": "ai", "gpt": "ai", "neural": "ai",
+        "dog": "dog", "doge": "dog", "shib": "dog", "inu": "dog",
+        "cat": "cat", "meow": "cat", "kitty": "cat",
+        "pepe": "pepe", "frog": "pepe", "kek": "pepe",
+        "trump": "political", "biden": "political", "maga": "political",
+        "elon": "celebrity", "musk": "celebrity",
+    }
+    for kw, narrative in keywords.items():
+        if kw in text:
+            return narrative
+    return "meme"
 
 
 async def search_tokens(query: str) -> list[TokenSearchResult]:

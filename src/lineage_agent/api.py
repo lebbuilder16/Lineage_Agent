@@ -116,16 +116,19 @@ _cartel_sweep_task: Optional[asyncio.Task] = None
 
 
 async def _cartel_sweep_loop() -> None:
-    """Run cartel edge building hourly in the background."""
+    """Run cartel edge building: immediately on startup, then hourly."""
     logger.info("Cartel sweep background task started (interval=3600s)")
     while True:
         try:
-            await asyncio.sleep(3600)
             await run_cartel_sweep()
         except asyncio.CancelledError:
             break
         except Exception:
             logger.exception("Cartel sweep iteration failed")
+        try:
+            await asyncio.sleep(3600)
+        except asyncio.CancelledError:
+            break
 
 
 def _schedule_cartel_sweep() -> None:
@@ -503,9 +506,18 @@ async def get_sol_trace(
         from .sol_flow_service import _rows_to_report
         if db_rows:
             return _rows_to_report(mint, db_rows)
+        # Look up deployer for this mint from intelligence_events
+        from .data_sources._clients import event_query as _eq
+        _mint_rows = await _eq(
+            where="event_type = 'token_created' AND mint = ?",
+            params=(mint,), columns="deployer", limit=1,
+        )
+        _deployer = _mint_rows[0].get("deployer", "") if _mint_rows else ""
+        if not _deployer:
+            raise HTTPException(status_code=404, detail="No deployer found for this mint — analyse it first via /lineage")
         # If not in DB: trigger synchronously with 20s timeout
         report = await asyncio.wait_for(
-            trace_sol_flow(mint, ""),
+            trace_sol_flow(mint, _deployer),
             timeout=22.0,
         )
     except asyncio.TimeoutError:

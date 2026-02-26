@@ -102,10 +102,11 @@ async def build_operator_fingerprint(
     tasks = [_fp(m, d, u) for m, d, u in valid]
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
-    # Group deployers by fingerprint
+    # Group deployers by fingerprint — also count total tokens per fp
     fp_to_deployers: dict[str, list[str]] = {}
     fp_to_service: dict[str, str] = {}
     fp_to_desc: dict[str, str] = {}
+    fp_token_count: dict[str, int] = {}   # total tokens (including same-deployer)
 
     for r in results:
         if not isinstance(r, tuple):
@@ -117,16 +118,24 @@ async def build_operator_fingerprint(
         if deployer not in fp_to_deployers[fp]:
             fp_to_deployers[fp].append(deployer)
         fp_to_desc[fp] = fp  # placeholder; enrich below
+        fp_token_count[fp] = fp_token_count.get(fp, 0) + 1
 
-    # Find fingerprints shared by ≥2 distinct deployers
-    shared = {fp: deps for fp, deps in fp_to_deployers.items() if len(deps) >= 2}
+    # Accept fingerprints with either:
+    #   a) ≥2 distinct deployers (cross-wallet match — strongest signal), OR
+    #   b) 1 deployer but ≥2 tokens with same DNA (same-wallet, repeated pattern)
+    shared = {
+        fp: deps
+        for fp, deps in fp_to_deployers.items()
+        if len(deps) >= 2 or fp_token_count.get(fp, 0) >= 2
+    }
     if not shared:
         return None
 
-    # Pick the fingerprint with the most linked wallets
-    best_fp = max(shared, key=lambda k: len(shared[k]))
+    # Pick the fingerprint with the most linked wallets (break ties by token count)
+    best_fp = max(shared, key=lambda k: (len(shared[k]), fp_token_count.get(k, 0)))
     linked = shared[best_fp]
     service = fp_to_service.get(best_fp, "unknown")
+    is_cross_wallet = len(linked) >= 2
 
     # Enrich with tokens launched by each linked wallet
     linked_wallet_tokens = await _fetch_linked_wallet_tokens(linked)
@@ -143,7 +152,11 @@ async def build_operator_fingerprint(
         linked_wallets=linked,
         upload_service=service,
         description_pattern=best_fp[:16] + "...",
-        confidence="confirmed" if len(linked) >= 3 else "probable",
+        confidence=(
+            "confirmed" if is_cross_wallet and len(linked) >= 3
+            else "probable" if is_cross_wallet
+            else "probable"   # same-deployer pattern match
+        ),
         linked_wallet_tokens=linked_wallet_tokens,
     )
 
