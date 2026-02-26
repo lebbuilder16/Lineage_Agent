@@ -13,6 +13,7 @@ import {
 import "@xyflow/react/dist/style.css";
 import { fetchCartelCommunity, type CartelCommunity, type CartelEdge, ApiError } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import CartelFinancialGraph from "@/components/forensics/CartelFinancialGraph";
 
 interface Props {
   params: { id: string };
@@ -24,6 +25,9 @@ const SIGNAL_COLORS: Record<string, { stroke: string; label: string }> = {
   timing_sync:   { stroke: "#eab308", label: "Timing sync" },
   phash_cluster: { stroke: "#14b8a6", label: "Image cluster" },
   cross_holding: { stroke: "#3b82f6", label: "Cross-holding" },
+  funding_link:  { stroke: "#ef4444", label: "💸 Funding link" },
+  shared_lp:     { stroke: "#f97316", label: "🏊 Shared LP" },
+  sniper_ring:   { stroke: "#f43f5e", label: "🎯 Sniper ring" },
 };
 
 const CONFIDENCE_CONFIG = {
@@ -215,6 +219,24 @@ export default function CartelPage({ params }: Props) {
           Active since: <span className="text-foreground font-medium">{new Date(community.active_since).toLocaleDateString()}</span>
         </p>
       )}
+
+      {/* Financial Analysis — one panel per community wallet (up to 3) */}
+      <section className="space-y-3">
+        <h2 className="text-lg font-semibold">💰 Financial Coordination Analysis</h2>
+        <p className="text-xs text-muted-foreground">
+          On-chain pre-deploy funding, shared LP providers and sniper rings across wallets in this community.
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {community.wallets.slice(0, 3).map((wallet) => (
+            <CartelFinancialGraph key={wallet} deployer={wallet} />
+          ))}
+        </div>
+        {community.wallets.length > 3 && (
+          <p className="text-xs text-muted-foreground">
+            Showing financial analysis for the first 3 of {community.wallets.length} wallets.
+          </p>
+        )}
+      </section>
 
       {/* Wallets list */}
       <section className="space-y-3">

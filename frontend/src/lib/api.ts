@@ -228,9 +228,28 @@ export interface SolFlowReport {
 export interface CartelEdge {
   wallet_a: string;
   wallet_b: string;
-  signal_type: "dna_match" | "sol_transfer" | "timing_sync" | "phash_cluster" | "cross_holding";
+  signal_type:
+    | "dna_match"
+    | "sol_transfer"
+    | "timing_sync"
+    | "phash_cluster"
+    | "cross_holding"
+    | "funding_link"
+    | "shared_lp"
+    | "sniper_ring";
   signal_strength: number;
   evidence: Record<string, unknown>;
+}
+
+export interface FinancialGraphSummary {
+  deployer: string;
+  funding_links: number;
+  shared_lp_count: number;
+  sniper_ring_count: number;
+  metadata_edges: number;
+  financial_score: number;
+  edges: CartelEdge[];
+  connected_deployers: string[];
 }
 
 export interface CartelCommunity {
@@ -378,6 +397,10 @@ export function fetchCartelSearch(deployer: string): Promise<CartelReport> {
 
 export function fetchCartelCommunity(communityId: string): Promise<CartelCommunity> {
   return fetchJSON<CartelCommunity>(`/cartel/${encodeURIComponent(communityId)}`);
+}
+
+export function fetchFinancialGraph(deployer: string): Promise<FinancialGraphSummary> {
+  return fetchJSON<FinancialGraphSummary>(`/cartel/${encodeURIComponent(deployer)}/financial`, 60_000);
 }
 
 export function searchTokens(query: string): Promise<TokenSearchResult[]> {

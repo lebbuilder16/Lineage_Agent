@@ -15,6 +15,9 @@ const SIGNAL_COLORS: Record<string, string> = {
   timing_sync:   "bg-yellow-500/20 text-yellow-400 border-yellow-500/30",
   phash_cluster: "bg-teal-500/20 text-teal-400 border-teal-500/30",
   cross_holding: "bg-blue-500/20 text-blue-400 border-blue-500/30",
+  funding_link:  "bg-red-500/20 text-red-400 border-red-500/30",
+  shared_lp:     "bg-orange-600/20 text-orange-300 border-orange-600/30",
+  sniper_ring:   "bg-rose-500/20 text-rose-400 border-rose-500/30",
 };
 
 const SIGNAL_LABELS: Record<string, string> = {
@@ -23,6 +26,9 @@ const SIGNAL_LABELS: Record<string, string> = {
   timing_sync:   "Timing sync",
   phash_cluster: "Image cluster",
   cross_holding: "Cross-holding",
+  funding_link:  "💸 Funding link",
+  shared_lp:     "🏊 Shared LP",
+  sniper_ring:   "🎯 Sniper ring",
 };
 
 const CONFIDENCE_CONFIG = {
