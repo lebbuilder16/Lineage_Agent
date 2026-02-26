@@ -9,6 +9,7 @@ import {
   ApiError,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import CartelFinancialGraph from "@/components/forensics/CartelFinancialGraph";
 
 interface Props {
   params: { address: string };
@@ -255,6 +256,15 @@ export default function DeployerPage({ params }: Props) {
           No token history found. Run a lineage analysis on one of this deployer&apos;s tokens to populate the data.
         </p>
       )}
+
+      {/* Financial coordination analysis */}
+      <section className="space-y-2">
+        <h2 className="text-lg font-semibold">💰 Financial Coordination</h2>
+        <p className="text-xs text-muted-foreground">
+          Pre-deploy funding links, shared LP providers and sniper rings — on-demand on-chain analysis.
+        </p>
+        <CartelFinancialGraph deployer={address} />
+      </section>
 
       <Link href="/" className="inline-block text-sm text-primary hover:underline">
         ← Back to Home
