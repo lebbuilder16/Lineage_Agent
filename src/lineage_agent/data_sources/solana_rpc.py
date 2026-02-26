@@ -246,24 +246,49 @@ class SolanaRpcClient:
         from the same deployer that DexScreener search may miss.
         Returns a list of asset dicts, or [] on failure.
         """
+        # NOTE: Helius rejects `tokenType` when used with `creatorAddress`
+        # (requires `ownerAddress` instead).  We omit it and filter post-hoc.
+        # This call also bypasses the shared circuit breaker — searchAssets is
+        # optional enrichment and its failures must NOT cascade to block critical
+        # calls like getSignaturesForAddress or getAsset.
         result = await self._call("searchAssets", {
             "creatorAddress": creator,
             "creatorVerified": True,
-            "tokenType": "fungible",
             "page": page,
             "limit": min(limit, 1000),
-        })
+        }, circuit_protect=False)
         if isinstance(result, dict):
             items = result.get("items") or []
-            return items if isinstance(items, list) else []
+            if not isinstance(items, list):
+                return []
+            # Filter to fungible tokens only (NFTs / compressed NFTs excluded)
+            return [
+                item for item in items
+                if item.get("interface") in {"FungibleAsset", "FungibleToken"}
+            ]
         return []
 
     # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------
 
-    async def _call(self, method: str, params: list[Any] | dict) -> Any:
-        """JSON-RPC call with retry + exponential backoff, guarded by circuit breaker."""
+    async def _call(
+        self,
+        method: str,
+        params: list[Any] | dict,
+        *,
+        circuit_protect: bool = True,
+    ) -> Any:
+        """JSON-RPC call with retry + exponential backoff, guarded by circuit breaker.
+
+        Parameters
+        ----------
+        circuit_protect:
+            When *False* the call bypasses the shared circuit breaker entirely.
+            Use this for optional enrichment methods (e.g. ``searchAssets``) whose
+            failures should not cascade to block critical RPC calls such as
+            ``getSignaturesForAddress`` or ``getAsset``.
+        """
         self._id_counter += 1
         payload = {
             "jsonrpc": "2.0",
@@ -283,16 +308,16 @@ class SolanaRpcClient:
                 raise httpx.RequestError(f"Solana RPC {method}: all retries exhausted")
             return result
 
-        if self._cb is not None:
+        if self._cb is not None and circuit_protect:
             try:
                 return await self._cb.call(_do)
             except CircuitOpenError:
-                logger.warning("Solana RPC circuit OPEN – fast-failing %s", method)
+                logger.warning("Solana RPC circuit OPEN \u2013 fast-failing %s", method)
                 return None
             except Exception:
                 return None
-        return await async_http_post_json(
-            client, self._endpoint, json_payload=payload,
-            max_retries=_MAX_RETRIES, backoff_base=_BACKOFF_BASE,
-            label=f"Solana RPC ({method})",
-        )
+        # Either circuit_protect=False (bypass CB) or no CB configured: call directly.
+        try:
+            return await _do()
+        except Exception:
+            return None
