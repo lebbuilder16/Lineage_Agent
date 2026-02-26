@@ -537,6 +537,17 @@ async def detect_lineage(
 
     # Initiative 1: Operator Impact — requires operator_fingerprint result
     if result.operator_fingerprint is not None:
+        # Bootstrap linked wallets that have no events yet so the Operator
+        # Dossier page shows real data immediately on first visit.
+        _linked_to_boot = [
+            w for w in result.operator_fingerprint.linked_wallets
+            if w and w != root_meta.deployer
+        ]
+        if _linked_to_boot:
+            await asyncio.gather(*[
+                _safe(_bootstrap_deployer_history(w), name=f"boot_{w[:8]}")
+                for w in _linked_to_boot[:4]  # cap at 4 extra wallets
+            ])
         try:
             result.operator_impact = await asyncio.wait_for(
                 compute_operator_impact(
@@ -672,6 +683,10 @@ def _guess_narrative(name: str, symbol: str) -> str:
         if kw in text:
             return narrative
     return "meme"
+
+
+# Public export so api.py can trigger bootstrap from the operator endpoint
+bootstrap_deployer_history = _bootstrap_deployer_history
 
 
 async def search_tokens(query: str) -> list[TokenSearchResult]:

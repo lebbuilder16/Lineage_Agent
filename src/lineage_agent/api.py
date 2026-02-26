@@ -49,6 +49,7 @@ from config import (
 )
 from .circuit_breaker import get_all_statuses as cb_statuses
 from .lineage_detector import (
+    bootstrap_deployer_history,
     close_clients,
     detect_lineage,
     init_clients,
@@ -469,6 +470,12 @@ async def get_operator_impact(
         wallets = [r["wallet"] for r in wallet_rows]
         if not wallets:
             raise HTTPException(status_code=404, detail="No wallets found for this fingerprint")
+        # Bootstrap wallets that may have no intelligence_events yet.
+        # This ensures the Operator Dossier page always shows real data.
+        await asyncio.gather(
+            *[bootstrap_deployer_history(w) for w in wallets[:5]],
+            return_exceptions=True,
+        )
         report = await compute_operator_impact(fingerprint, wallets)
     except HTTPException:
         raise
