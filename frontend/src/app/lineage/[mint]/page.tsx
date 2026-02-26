@@ -15,10 +15,7 @@ import { SkeletonTokenInfo } from "@/components/skeletons/SkeletonTokenInfo";
 import { SkeletonDerivativeList } from "@/components/skeletons/SkeletonDerivativeList";
 import { addToHistory } from "@/components/CommandPalette";
 import ZombieAlert from "@/components/forensics/ZombieAlert";
-import DeathClock from "@/components/forensics/DeathClock";
-import OperatorFingerprint from "@/components/forensics/OperatorFingerprint";
 import LiquidityArch from "@/components/forensics/LiquidityArch";
-import FactoryRhythm from "@/components/forensics/FactoryRhythm";
 import DeployerProfileCard from "@/components/forensics/DeployerProfile";
 import OperatorImpactCard from "@/components/forensics/OperatorImpact";
 import SolTraceCard from "@/components/forensics/SolTrace";
@@ -148,10 +145,7 @@ export default function LineagePage() {
 
           {/* Forensic signals — always rendered when backend supports them */}
           {(data.liquidity_arch !== undefined ||
-            data.death_clock !== undefined ||
             data.zombie_alert !== undefined ||
-            data.factory_rhythm !== undefined ||
-            data.operator_fingerprint !== undefined ||
             data.deployer_profile !== undefined ||
             data.operator_impact !== undefined ||
             data.sol_flow !== undefined ||
@@ -172,9 +166,6 @@ export default function LineagePage() {
               <SolTraceCard report={data.sol_flow} mint={data.sol_flow?.mint ?? mint} />
               <CartelReportCard report={data.cartel_report} />
               <LiquidityArch report={data.liquidity_arch} />
-              <DeathClock forecast={data.death_clock} />
-              <FactoryRhythm report={data.factory_rhythm} />
-              <OperatorFingerprint fp={data.operator_fingerprint} />
             </motion.div>
           )}
 
