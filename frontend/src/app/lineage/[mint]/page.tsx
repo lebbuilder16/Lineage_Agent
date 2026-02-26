@@ -169,7 +169,7 @@ export default function LineagePage() {
               </h3>
               <DeployerProfileCard profile={data.deployer_profile} />
               <OperatorImpactCard report={data.operator_impact} />
-              <SolTraceCard report={data.sol_flow} mint={mint} />
+              <SolTraceCard report={data.sol_flow} mint={data.sol_flow?.mint ?? mint} />
               <CartelReportCard report={data.cartel_report} />
               <LiquidityArch report={data.liquidity_arch} />
               <DeathClock forecast={data.death_clock} />

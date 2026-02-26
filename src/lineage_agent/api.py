@@ -59,6 +59,7 @@ from .alert_service import cancel_alert_sweep, schedule_alert_sweep as _schedule
 from .deployer_service import compute_deployer_profile
 from .operator_impact_service import compute_operator_impact
 from .sol_flow_service import get_sol_flow_report, trace_sol_flow
+from .lineage_detector import resolve_deployer as _resolve_deployer
 from .cartel_service import compute_cartel_report, run_cartel_sweep
 from .data_sources._clients import operator_mapping_query, sol_flows_query
 from .logging_config import generate_request_id, request_id_ctx, setup_logging
@@ -520,6 +521,11 @@ async def get_sol_trace(
             params=(mint,), columns="deployer", limit=1,
         )
         _deployer = _mint_rows[0].get("deployer", "") if _mint_rows else ""
+        if not _deployer:
+            # Last resort: look up deployer directly from DAS / RPC
+            # (handles cases where intelligence_events has no record yet,
+            # e.g. first access after a server restart or on a fresh instance)
+            _deployer = await _resolve_deployer(mint)
         if not _deployer:
             raise HTTPException(status_code=404, detail="No deployer found for this mint — analyse it first via /lineage")
         # If not in DB: trigger synchronously with 20s timeout

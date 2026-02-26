@@ -700,6 +700,24 @@ async def search_tokens(query: str) -> list[TokenSearchResult]:
     return results
 
 
+async def resolve_deployer(mint: str) -> str:
+    """Return the deployer address for *mint* via DAS → signature-walk fallback.
+
+    Used by the sol-trace endpoint to resolve a deployer when neither the
+    sol_flows table nor intelligence_events has a record for the mint yet.
+    Returns an empty string on any failure.
+    """
+    try:
+        rpc = _get_rpc_client()
+        deployer, _ = await asyncio.wait_for(
+            _get_deployer_cached(rpc, mint), timeout=8.0
+        )
+        return deployer or ""
+    except Exception:
+        logger.debug("resolve_deployer failed for %s", mint, exc_info=True)
+        return ""
+
+
 def _assign_generations(root_mint: str, derivatives: list[DerivativeInfo]) -> None:
     """Assign ``generation`` and ``parent_mint`` to each derivative in-place.
 
