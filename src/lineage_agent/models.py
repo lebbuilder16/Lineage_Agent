@@ -92,6 +92,10 @@ class LineageResult(BaseModel):
     query_token: Optional[TokenMetadata] = Field(
         None, description="Metadata of the queried token"
     )
+    query_is_root: bool = Field(
+        False,
+        description="True when the scanned token IS the root (original). False means it is a clone.",
+    )
     # ── Forensic intelligence signals ──────────────────────────────────────
     zombie_alert: Optional[ZombieAlert] = Field(
         None, description="Resurrection / zombie token detection"

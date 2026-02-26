@@ -55,6 +55,8 @@ export interface LineageResult {
   derivatives: DerivativeInfo[];
   family_size: number;
   query_token: TokenMetadata | null;
+  /** True when the scanned token IS the root (original). False = clone. */
+  query_is_root: boolean;
   // Forensic intelligence signals
   zombie_alert?: ZombieAlert | null;
   death_clock?: DeathClockForecast | null;

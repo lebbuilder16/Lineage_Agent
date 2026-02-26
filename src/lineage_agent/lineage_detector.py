@@ -489,6 +489,7 @@ async def detect_lineage(
         confidence=round(confidence, 4),
         derivatives=derivatives,
         family_size=1 + len(derivatives),
+        query_is_root=(query_meta.mint == root_meta.mint) if (query_meta and root_meta) else True,
     )
 
     # ------------------------------------------------------------------
@@ -501,6 +502,17 @@ async def detect_lineage(
         await record_token_creation(root_meta)
     except Exception as _e:
         logger.debug("record_token_creation failed: %s", _e)
+    # Also record the query token if it differs from root (it's a clone)
+    if query_meta and root_meta and query_meta.mint != root_meta.mint:
+        try:
+            await record_token_creation(query_meta)
+        except Exception as _e:
+            logger.debug("record_token_creation (query) failed: %s", _e)
+
+    # Determine which deployer to profile: always the SCANNED token's deployer.
+    # Fall back to root deployer only if query deployer is unavailable.
+    _scan_deployer = (query_meta.deployer if query_meta and query_meta.deployer else root_meta.deployer)
+    _scan_mint     = (query_meta.mint     if query_meta else root_meta.mint)
 
     # Record confirmed derivatives (deployer_score == 1.0) as well
     for _d in result.derivatives:
@@ -521,20 +533,21 @@ async def detect_lineage(
                 logger.debug("record_token_creation (derivative) failed: %s", _e)
 
     # ── DAS bootstrap: run INLINE (awaited) so enrichers see full history ─
-    # Previously this was fire-and-forget which caused Factory Rhythm,
-    # Death Clock, Operator Fingerprint, and Cartel Detection to always see
-    # empty DB on the first scan.  The 8s timeout prevents blocking on slow
-    # RPC nodes; if it times out the response still returns (features may
-    # be sparse) and the next scan will have complete data.
+    # Bootstrap the SCANNED token's deployer (not root) so forensics profile
+    # the wallet that actually deployed the token the user is looking at.
+    # If the scan is a clone with a different deployer, also boot root async.
     try:
         await asyncio.wait_for(
-            _bootstrap_deployer_history(root_meta.deployer),
+            _bootstrap_deployer_history(_scan_deployer),
             timeout=8.0,
         )
     except asyncio.TimeoutError:
-        logger.warning("[bootstrap] DAS bootstrap timed out for %s", root_meta.deployer[:8])
+        logger.warning("[bootstrap] DAS bootstrap timed out for %s", _scan_deployer[:8])
     except Exception as _be:
         logger.warning("[bootstrap] DAS bootstrap failed: %s", _be)
+    # If clone: also bootstrap root deployer in background (no blocking)
+    if _scan_deployer != root_meta.deployer and root_meta.deployer:
+        asyncio.ensure_future(_bootstrap_deployer_history(root_meta.deployer))
 
     # Phase 1  — Zombie Token detection (sync, uses already-built result)
     try:
@@ -561,7 +574,7 @@ async def detect_lineage(
         from .data_sources._clients import event_query as _eq_fp
         _hist_rows = await _eq_fp(
             where="event_type = 'token_created' AND deployer = ?",
-            params=(root_meta.deployer,),
+            params=(_scan_deployer,),
             columns="mint, deployer, metadata_uri",
             limit=50,
         )
@@ -569,7 +582,7 @@ async def detect_lineage(
         for _hr in _hist_rows:
             _hm = _hr.get("mint", "")
             if _hm and _hm not in _existing_mints:
-                uri_tuples.append((_hm, _hr.get("deployer") or root_meta.deployer, _hr.get("metadata_uri") or ""))
+                uri_tuples.append((_hm, _hr.get("deployer") or _scan_deployer, _hr.get("metadata_uri") or ""))
                 _existing_mints.add(_hm)
     except Exception as _fp_err:
         logger.debug("uri_tuples history expansion failed: %s", _fp_err)
@@ -582,16 +595,18 @@ async def detect_lineage(
             logger.warning("[%s] enricher failed: %s", name, exc)
             return None
 
+    # All forensic enrichers operate on the SCANNED token's deployer
+    _scan_created_at = (query_meta.created_at if query_meta else root_meta.created_at)
     (
         result.death_clock,
         result.operator_fingerprint,
         result.factory_rhythm,
         result.deployer_profile,
     ) = await asyncio.gather(
-        _safe(compute_death_clock(root_meta.deployer, root_meta.created_at), name="death_clock"),
+        _safe(compute_death_clock(_scan_deployer, _scan_created_at), name="death_clock"),
         _safe(build_operator_fingerprint(uri_tuples), name="operator_fingerprint"),
-        _safe(analyze_factory_rhythm(root_meta.deployer), name="factory_rhythm"),
-        _safe(compute_deployer_profile(root_meta.deployer), name="deployer_profile"),
+        _safe(analyze_factory_rhythm(_scan_deployer), name="factory_rhythm"),
+        _safe(compute_deployer_profile(_scan_deployer), name="deployer_profile"),
     )
 
     # Initiative 1: Operator Impact — requires operator_fingerprint result
@@ -600,7 +615,7 @@ async def detect_lineage(
         # The Operator Dossier page triggers its own bootstrap on load.
         _linked_to_boot = [
             w for w in result.operator_fingerprint.linked_wallets
-            if w and w != root_meta.deployer
+            if w and w != _scan_deployer
         ]
         for _w in _linked_to_boot[:4]:
             asyncio.ensure_future(_bootstrap_deployer_history(_w))
@@ -615,39 +630,35 @@ async def detect_lineage(
         except Exception as _oi_exc:
             logger.warning("[operator_impact] enricher failed: %s", _oi_exc)
 
-    # Initiative 2: SOL flow — try DB first (fast path), then run the
-    # full trace inline with a 15s timeout so the first scan shows data.
-    # If the trace times out it continues in background for next visit.
+    # Initiative 2: SOL flow — scoped to the SCANNED token
     result.sol_flow = await _safe(
-        get_sol_flow_report(root_meta.mint), name="sol_flow_read",
+        get_sol_flow_report(_scan_mint), name="sol_flow_read",
     )
-    if result.sol_flow is None and root_meta.deployer:
+    if result.sol_flow is None and _scan_deployer:
         try:
             result.sol_flow = await asyncio.wait_for(
-                trace_sol_flow(root_meta.mint, root_meta.deployer),
+                trace_sol_flow(_scan_mint, _scan_deployer),
                 timeout=15.0,
             )
         except asyncio.TimeoutError:
-            logger.warning("[sol_flow] trace timed out for %s — continuing in background", root_meta.mint[:8])
-            asyncio.ensure_future(trace_sol_flow(root_meta.mint, root_meta.deployer))
+            logger.warning("[sol_flow] trace timed out for %s — continuing in background", _scan_mint[:8])
+            asyncio.ensure_future(trace_sol_flow(_scan_mint, _scan_deployer))
         except Exception as _sf_exc:
             logger.warning("[sol_flow] trace failed: %s", _sf_exc)
 
-    # Initiative 3: build cartel edges INLINE (awaited) before reading the
-    # report — previously the fire-and-forget meant compute_cartel_report
-    # always read an empty cartel_edges table on the first scan.
-    if root_meta.deployer:
+    # Initiative 3: cartel — scoped to the SCANNED token's deployer
+    if _scan_deployer:
         try:
             await asyncio.wait_for(
-                build_cartel_edges_for_deployer(root_meta.deployer),
+                build_cartel_edges_for_deployer(_scan_deployer),
                 timeout=8.0,
             )
         except asyncio.TimeoutError:
-            logger.warning("[cartel] edge build timed out for %s", root_meta.deployer[:8])
+            logger.warning("[cartel] edge build timed out for %s", _scan_deployer[:8])
         except Exception as _ce_exc:
             logger.warning("[cartel] edge build failed: %s", _ce_exc)
     result.cartel_report = await _safe(
-        compute_cartel_report(root_meta.mint, root_meta.deployer),
+        compute_cartel_report(_scan_mint, _scan_deployer),
         name="cartel_report",
     )
 
@@ -661,8 +672,8 @@ async def detect_lineage(
     try:
         result.insider_sell = await asyncio.wait_for(
             analyze_insider_sell(
-                mint=root_meta.mint,
-                deployer=root_meta.deployer,
+                mint=_scan_mint,
+                deployer=_scan_deployer,
                 linked_wallets=_linked_for_sell,
                 pairs=pairs,
                 rpc=rpc,
@@ -670,7 +681,7 @@ async def detect_lineage(
             timeout=10.0,
         )
     except asyncio.TimeoutError:
-        logger.warning("[insider_sell] timed out for %s", root_meta.mint[:8])
+        logger.warning("[insider_sell] timed out for %s", _scan_mint[:8])
     except Exception as _is_exc:
         logger.warning("[insider_sell] enricher failed: %s", _is_exc)
 
