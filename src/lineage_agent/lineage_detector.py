@@ -43,6 +43,7 @@ from .data_sources._clients import (
 from .death_clock import compute_death_clock
 from .deployer_service import compute_deployer_profile
 from .factory_service import analyze_factory_rhythm, record_token_creation
+from .insider_sell_service import analyze_insider_sell
 from .liquidity_arch import analyze_liquidity_architecture
 from .metadata_dna_service import build_operator_fingerprint
 from .zombie_detector import detect_resurrection
@@ -639,6 +640,29 @@ async def detect_lineage(
         compute_cartel_report(root_meta.mint, root_meta.deployer),
         name="cartel_report",
     )
+
+    # Initiative 4: Insider sell / silent drain detection.
+    # Uses DexScreener data already in memory + 1 RPC/wallet balance call.
+    _linked_for_sell = (
+        result.operator_fingerprint.linked_wallets
+        if result.operator_fingerprint
+        else []
+    )
+    try:
+        result.insider_sell = await asyncio.wait_for(
+            analyze_insider_sell(
+                mint=root_meta.mint,
+                deployer=root_meta.deployer,
+                linked_wallets=_linked_for_sell,
+                pairs=pairs,
+                rpc=rpc,
+            ),
+            timeout=10.0,
+        )
+    except asyncio.TimeoutError:
+        logger.warning("[insider_sell] timed out for %s", root_meta.mint[:8])
+    except Exception as _is_exc:
+        logger.warning("[insider_sell] enricher failed: %s", _is_exc)
 
     await _progress("Analysis complete", 100)
     await _cache_set(f"lineage:{mint_address}", result, ttl=CACHE_TTL_LINEAGE_SECONDS)

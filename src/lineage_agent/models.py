@@ -121,6 +121,9 @@ class LineageResult(BaseModel):
     cartel_report: Optional[CartelReport] = Field(
         None, description="Operator cartel community detection (Initiative 3)"
     )
+    insider_sell: Optional[InsiderSellReport] = Field(
+        None, description="Silent drain via insider token selling (Initiative 4)"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -403,3 +406,82 @@ class CartelReport(BaseModel):
 
     mint: str
     deployer_community: Optional[CartelCommunity] = None
+
+
+# ---------------------------------------------------------------------------
+# Insider sell / silent drain detection
+# ---------------------------------------------------------------------------
+
+class InsiderSellEvent(BaseModel):
+    """A single wallet's selling activity for a specific mint."""
+
+    wallet: str = Field(..., description="Wallet address (deployer or linked)")
+    role: Literal["deployer", "linked"] = Field(
+        "deployer", description="Relationship to the token deployer"
+    )
+    balance_now: float = Field(
+        0.0, description="Current token balance for this mint (raw UI amount)"
+    )
+    exited: bool = Field(
+        False, description="True when balance_now == 0 (fully exited position)"
+    )
+
+
+class InsiderSellReport(BaseModel):
+    """Silent drain detection: deployer/linked wallet token selling pressure."""
+
+    mint: str
+
+    # ── Market signals from DexScreener (zero extra network calls) ──────
+    sell_pressure_1h: Optional[float] = Field(
+        None, description="sells/(buys+sells) over last 1 h, 0–1"
+    )
+    sell_pressure_6h: Optional[float] = Field(
+        None, description="sells/(buys+sells) over last 6 h, 0–1"
+    )
+    sell_pressure_24h: Optional[float] = Field(
+        None, description="sells/(buys+sells) over last 24 h, 0–1"
+    )
+    price_change_1h: Optional[float] = Field(
+        None, description="Price % change over last 1 h"
+    )
+    price_change_6h: Optional[float] = Field(
+        None, description="Price % change over last 6 h"
+    )
+    price_change_24h: Optional[float] = Field(
+        None, description="Price % change over last 24 h"
+    )
+    volume_spike_ratio: Optional[float] = Field(
+        None,
+        description=(
+            "1 h volume divided by average hourly volume (24 h vol / 24). "
+            ">3 = burst selling spike."
+        ),
+    )
+
+    # ── On-chain confirmation (1 RPC call per wallet) ────────────────────
+    deployer_exited: Optional[bool] = Field(
+        None,
+        description="True when the deployer's token balance for this mint is 0",
+    )
+    wallet_events: list[InsiderSellEvent] = Field(
+        default_factory=list,
+        description="Per-wallet balance snapshot (deployer + up to 3 linked)",
+    )
+
+    # ── Verdict ──────────────────────────────────────────────────────────
+    flags: list[str] = Field(
+        default_factory=list,
+        description=(
+            "INSIDER_DUMP_CONFIRMED, ELEVATED_SELL_PRESSURE, "
+            "PRICE_CRASH, SELL_BURST, DEPLOYER_EXITED"
+        ),
+    )
+    risk_score: float = Field(
+        0.0, ge=0.0, le=1.0,
+        description="0 = clean, 1.0 = confirmed insider dump"
+    )
+    verdict: Literal["clean", "suspicious", "insider_dump"] = Field(
+        "clean",
+        description="clean | suspicious | insider_dump",
+    )

@@ -177,6 +177,34 @@ class SolanaRpcClient:
             return result
         return {}
 
+    async def get_wallet_token_balance(self, wallet: str, mint: str) -> float:
+        """Return the current UI token balance for *wallet* holding *mint*.
+
+        Calls ``getTokenAccountsByOwner`` with a mint filter — exactly 1 RPC
+        call.  Returns 0.0 when the wallet has no token account or the balance
+        is zero (i.e. the wallet has fully exited the position).
+        """
+        result = await self._call(
+            "getTokenAccountsByOwner",
+            [
+                wallet,
+                {"mint": mint},
+                {"encoding": "jsonParsed"},
+            ],
+        )
+        if not result or not isinstance(result, dict):
+            return 0.0
+        accounts = result.get("value") or []
+        total = 0.0
+        for account in accounts:
+            try:
+                info = account["account"]["data"]["parsed"]["info"]
+                amt = info.get("tokenAmount", {}).get("uiAmount") or 0.0
+                total += float(amt)
+            except Exception:
+                pass
+        return total
+
     async def get_deployer_token_holdings(
         self, wallet: str, *, limit: int = 50
     ) -> list[str]:
