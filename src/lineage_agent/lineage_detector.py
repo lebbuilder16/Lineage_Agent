@@ -946,9 +946,10 @@ async def _get_deployer_cached(
            created_at`` reflects Helius's *last-indexing* time, not the
            actual mint-init block time, and must NOT be used here.
     """
-    # v2: cache bust — v1 entries may contain an erroneous DAS indexing date
-    # instead of the real on-chain creation time.
-    cache_key = f"rpc:deployer:v2:{mint}"
+    # v3: cache bust — v2 entries stored deployer without on-chain timestamp
+    # because the signature-walk only ran when DAS failed to resolve the
+    # deployer.  v3 always performs the walk for the timestamp.
+    cache_key = f"rpc:deployer:v3:{mint}"
     cached = await _cache_get(cache_key)
     if cached is not None:
         # SQLite cache returns lists; convert datetime string back
@@ -1005,11 +1006,27 @@ async def _get_deployer_cached(
         if deployer in _NON_DEPLOYER_AUTHORITIES:
             deployer = ""
 
-    # --- Signature-walk fallback (slow) — only when DAS returned no deployer ---
+    # --- Signature-walk — always run for timestamp; also resolves deployer ---
+    # The signature-walk is the ONLY reliable source of the on-chain creation
+    # timestamp (blockTime of the oldest tx for the mint account).
+    # DAS token_info.created_at is the Helius indexing time, NOT mint creation.
+    # DexScreener pairCreatedAt is when the pool was listed (≠ mint creation for
+    # graduated PumpFun tokens).  Only the first-ever tx's blockTime is correct.
+    try:
+        _sw_deployer, _sw_ts = await asyncio.wait_for(
+            rpc.get_deployer_and_timestamp(mint), timeout=12.0
+        )
+    except (asyncio.TimeoutError, Exception) as _sw_exc:
+        logger.debug("Signature-walk failed/timed out for %s: %s", mint, _sw_exc)
+        _sw_deployer, _sw_ts = "", None
+
+    # Use on-chain timestamp if available
+    if _sw_ts:
+        created_at = _sw_ts
+
+    # If DAS didn't yield a deployer, use the signature-walk result
     if not deployer:
-        deployer, _ts = await rpc.get_deployer_and_timestamp(mint)
-        if _ts and not created_at:
-            created_at = _ts
+        deployer = _sw_deployer or ""
         # Safety: signature-walk can still return a program/launchpad address
         # (e.g. if the oldest tx fee-payer is the launchpad backend).  Clear it
         # so we don't poison the cache with a non-deployer address.
