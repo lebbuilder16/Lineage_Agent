@@ -939,6 +939,11 @@ async def _get_deployer_cached(
         deployer, _ts = await rpc.get_deployer_and_timestamp(mint)
         if _ts and not created_at:
             created_at = _ts
+        # Safety: signature-walk can still return a program/launchpad address
+        # (e.g. if the oldest tx fee-payer is the launchpad backend).  Clear it
+        # so we don't poison the cache with a non-deployer address.
+        if deployer in _NON_DEPLOYER_AUTHORITIES:
+            deployer = ""
 
     result = (deployer, created_at)
     # Long TTL: deployer/timestamp are immutable on-chain

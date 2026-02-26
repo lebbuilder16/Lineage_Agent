@@ -23,6 +23,25 @@ logger = logging.getLogger(__name__)
 _MAX_RETRIES = 3
 _BACKOFF_BASE = 1.5  # seconds
 
+# Addresses that are programs / burned authorities, NOT user wallets.
+# When extracting the deployer from a transaction's accountKeys we skip these
+# so that launchpad programs (Moonshot, PumpFun, etc.) that front-run as the
+# fee payer don't get stored as the deployer.
+_PROGRAM_ADDRESSES: frozenset[str] = frozenset({
+    "11111111111111111111111111111111",                    # System Program
+    "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",      # SPL Token Program
+    "Token2022rMLqfGMQpwkX83CmP5VWMdM8RX8bH6TfpHn",    # Token-2022
+    "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJe8bXV",     # Associated Token Program
+    "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s",      # Metaplex Metadata
+    "BPFLoaderUpgradeab1e11111111111111111111111",        # BPF Loader Upgradeable
+    "TSLvdd1pWpHVjahSpsvCXUbgwsL3JAcvokwaKt1eokM",      # PumpFun authority
+    "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBymtzbm",    # PumpFun program
+    "MoonCVVNZFSYkqNXP6bxHLPL6QQJiMEfzPWlVMMf9Ly",     # Moonshot program
+    "Ce6TQqeHC9p8KetsN6JsjHK7UTZk7nasjjnr7XxXp9F1",    # Moonshot fee / authority
+    "4wTV81rvZBKW8vFJX9PMwn5n46sYr6HfkWMqJjpPbZ6M",     # LetsBonk program
+    "DEXYosS6oEGvk8uCDayvwEZz4qEyDJRf9nFgYCaqPMTm",    # Believe / Degen launchpad
+})
+
 
 class SolanaRpcClient:
     """Async Solana JSON-RPC client."""
@@ -118,12 +137,23 @@ class SolanaRpcClient:
                     .get("message", {})
                     .get("accountKeys", [])
                 )
-                if account_keys:
-                    first = account_keys[0]
-                    if isinstance(first, dict):
-                        deployer = first.get("pubkey", "")
-                    elif isinstance(first, str):
-                        deployer = first
+                # jsonParsed encoding gives {pubkey, signer, writable} dicts.
+                # Iterate all keys and return the first *signer* wallet that is
+                # not a known program/launchpad address.  Launchpads like
+                # Moonshot sometimes list their program as accountKeys[0], so
+                # we must not blindly take index 0.
+                for key in account_keys:
+                    if isinstance(key, dict):
+                        addr = key.get("pubkey", "")
+                        is_signer = key.get("signer", False)
+                    else:
+                        # Older base64 encoding: all keys are strings, treat
+                        # each as a candidate (first non-program wins).
+                        addr = key
+                        is_signer = True
+                    if addr and is_signer and addr not in _PROGRAM_ADDRESSES:
+                        deployer = addr
+                        break
             except (KeyError, IndexError, TypeError):
                 pass
 

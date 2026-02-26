@@ -231,7 +231,7 @@ class TestGetDeployerAndTimestamp:
         tx_data = {
             "transaction": {
                 "message": {
-                    "accountKeys": [{"pubkey": "Deployer"}]
+                    "accountKeys": [{"pubkey": "Deployer", "signer": True}]
                 }
             }
         }
@@ -240,6 +240,30 @@ class TestGetDeployerAndTimestamp:
             deployer, ts = await rpc.get_deployer_and_timestamp("mintNOBT")
         assert deployer == "Deployer"
         assert ts is None
+
+    @pytest.mark.asyncio
+    async def test_skips_program_fee_payer(self, rpc):
+        """When accountKeys[0] is a known program, the next signer wallet is returned."""
+        sig_info = {"signature": "sigMoonshot", "blockTime": 1700000001}
+        tx_data = {
+            "transaction": {
+                "message": {
+                    "accountKeys": [
+                        # Moonshot program listed first (fee payer on launchpad txs)
+                        {"pubkey": "MoonCVVNZFSYkqNXP6bxHLPL6QQJiMEfzPWlVMMf9Ly", "signer": True},
+                        # Real user wallet
+                        {"pubkey": "UserWalletABC123", "signer": True},
+                        # Non-signer program
+                        {"pubkey": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", "signer": False},
+                    ]
+                }
+            }
+        }
+        with patch.object(rpc, "get_oldest_signature", new_callable=AsyncMock, return_value=sig_info), \
+             patch.object(rpc, "_call", new_callable=AsyncMock, return_value=tx_data):
+            deployer, ts = await rpc.get_deployer_and_timestamp("mintMOON")
+        assert deployer == "UserWalletABC123"
+        assert ts == datetime.fromtimestamp(1700000001, tz=timezone.utc)
 
 
 # ------------------------------------------------------------------
