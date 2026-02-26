@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   ReactFlow,
@@ -14,7 +14,7 @@ import "@xyflow/react/dist/style.css";
 import { fetchSolTrace, type SolFlowReport, type SolFlowEdge, ApiError } from "@/lib/api";
 
 interface Props {
-  params: Promise<{ mint: string }>;
+  params: { mint: string };
 }
 
 // Known CEX addresses (same as backend)
@@ -141,7 +141,7 @@ function formatUsd(n: number | null): string {
 }
 
 export default function SolTracePage({ params }: Props) {
-  const { mint } = use(params);
+  const { mint } = params;
   const [report, setReport] = useState<SolFlowReport | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);

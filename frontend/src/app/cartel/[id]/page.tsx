@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   ReactFlow,
@@ -15,7 +15,7 @@ import { fetchCartelCommunity, type CartelCommunity, type CartelEdge, ApiError }
 import { cn } from "@/lib/utils";
 
 interface Props {
-  params: Promise<{ id: string }>;
+  params: { id: string };
 }
 
 const SIGNAL_COLORS: Record<string, { stroke: string; label: string }> = {
@@ -111,7 +111,7 @@ function formatUsd(n: number): string {
 }
 
 export default function CartelPage({ params }: Props) {
-  const { id } = use(params);
+  const { id } = params;
   const [community, setCommunity] = useState<CartelCommunity | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);

@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
   fetchOperatorImpact,
@@ -10,7 +10,7 @@ import {
 import { cn } from "@/lib/utils";
 
 interface Props {
-  params: Promise<{ fingerprint: string }>;
+  params: { fingerprint: string };
 }
 
 const CONFIDENCE_CONFIG = {
@@ -37,7 +37,7 @@ function StatCard({ label, value, accent }: { label: string; value: string | num
 }
 
 export default function OperatorPage({ params }: Props) {
-  const { fingerprint } = use(params);
+  const { fingerprint } = params;
   const [report, setReport] = useState<OperatorImpactReport | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
