@@ -941,9 +941,14 @@ async def _get_deployer_cached(
            ``_NON_DEPLOYER_AUTHORITIES``), fall back to the first verified
            creator in ``creators[]``, then to ``creators[0]``.
         4. Fall back to the legacy signature-walk only when DAS returns no
-           usable deployer.
+           usable deployer.  The signature-walk is also the ONLY reliable
+           source of the on-chain creation timestamp — DAS ``token_info.
+           created_at`` reflects Helius's *last-indexing* time, not the
+           actual mint-init block time, and must NOT be used here.
     """
-    cache_key = f"rpc:deployer:{mint}"
+    # v2: cache bust — v1 entries may contain an erroneous DAS indexing date
+    # instead of the real on-chain creation time.
+    cache_key = f"rpc:deployer:v2:{mint}"
     cached = await _cache_get(cache_key)
     if cached is not None:
         # SQLite cache returns lists; convert datetime string back
@@ -970,11 +975,12 @@ async def _get_deployer_cached(
         if not isinstance(_asset_cached, dict):
             await _cache_set(_asset_cache_key, asset, ttl=86400)
 
-        # Timestamp -------------------------------------------------
-        # DAS may provide created_at in result root or token_info
-        _token_info = asset.get("token_info") or {}
-        _raw_ts = _token_info.get("created_at") or asset.get("created_at")
-        created_at = _parse_datetime(_raw_ts)
+        # NOTE: We intentionally do NOT read DAS ``token_info.created_at`` here.
+        # That field reflects when Helius last re-indexed the token, not when
+        # the mint was initialised on-chain.  Using it causes recently-indexed
+        # old tokens to appear "new" (e.g. a Jan 2025 PumpFun token showing
+        # Feb 2026 as its creation date).  The real on-chain timestamp is
+        # obtained below via the signature-walk when no deployer is found in DAS.
 
         # Deployer --------------------------------------------------
         authorities = asset.get("authorities") or []
