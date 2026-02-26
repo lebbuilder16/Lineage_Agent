@@ -115,6 +115,15 @@ class LineageResult(BaseModel):
     deployer_profile: Optional[DeployerProfile] = Field(
         None, description="Historical deployer behaviour profile"
     )
+    operator_impact: Optional[OperatorImpactReport] = Field(
+        None, description="Cross-wallet operator damage ledger (Initiative 1)"
+    )
+    sol_flow: Optional[SolFlowReport] = Field(
+        None, description="Post-rug SOL capital flow trace (Initiative 2)"
+    )
+    cartel_report: Optional[CartelReport] = Field(
+        None, description="Operator cartel community detection (Initiative 3)"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -284,3 +293,104 @@ class DeployerProfile(BaseModel):
     confidence: Literal["high", "medium", "low"] = "low"
 
 
+# ---------------------------------------------------------------------------
+# New Initiative 1: Operator Impact Report
+# ---------------------------------------------------------------------------
+
+class OperatorImpactReport(BaseModel):
+    """Cross-wallet damage ledger for an operator sharing a metadata DNA fingerprint."""
+
+    fingerprint: str = Field(..., description="The 16-char hex DNA fingerprint")
+    linked_wallets: list[str] = Field(..., description="All deployer wallets sharing this fingerprint")
+    total_tokens_launched: int
+    total_rug_count: int
+    rug_rate_pct: float = Field(ge=0.0, le=100.0)
+    estimated_extracted_usd: float = Field(
+        ge=0.0, description="Conservative 15% of rugged mcap estimate"
+    )
+    active_tokens: list[str] = Field(default_factory=list, description="Mints still not rugged")
+    narrative_sequence: list[str] = Field(
+        default_factory=list,
+        description="Narratives exploited, in chronological order of first appearance",
+    )
+    is_campaign_active: bool = Field(
+        default=False, description="True if any wallet had activity in the last 6 hours"
+    )
+    peak_concurrent_tokens: int = Field(
+        default=0, description="Max tokens live simultaneously within a 24h window"
+    )
+    first_activity: Optional[datetime] = None
+    last_activity: Optional[datetime] = None
+    wallet_profiles: list[DeployerProfile] = Field(default_factory=list)
+    confidence: Literal["high", "medium", "low"] = "low"
+
+
+# ---------------------------------------------------------------------------
+# New Initiative 2: Follow The SOL
+# ---------------------------------------------------------------------------
+
+class SolFlowEdge(BaseModel):
+    """A single SOL transfer edge in the post-rug capital flow graph."""
+
+    from_address: str
+    to_address: str
+    amount_sol: float = Field(ge=0.0)
+    hop: int = Field(ge=0, description="0 = direct from deployer, 1 = one hop away, etc.")
+    signature: str = Field(default="", description="Transaction signature")
+    block_time: Optional[datetime] = None
+
+
+class SolFlowReport(BaseModel):
+    """Multi-hop SOL capital flow trace for a rugged token."""
+
+    mint: str
+    deployer: str
+    total_extracted_sol: float = Field(ge=0.0, description="Direct SOL outflows from deployer (hop 0)")
+    total_extracted_usd: Optional[float] = Field(None, description="USD value at time of extraction")
+    flows: list[SolFlowEdge] = Field(default_factory=list)
+    terminal_wallets: list[str] = Field(
+        default_factory=list,
+        description="Final destination wallets never seen as senders",
+    )
+    known_cex_detected: bool = Field(
+        default=False, description="True if any known CEX hot wallet is a recipient"
+    )
+    hop_count: int = Field(default=1, ge=1, description="Deepest hop reached")
+    analysis_timestamp: datetime
+
+
+# ---------------------------------------------------------------------------
+# New Initiative 3: Cartel Graph
+# ---------------------------------------------------------------------------
+
+class CartelEdge(BaseModel):
+    """A coordination signal edge between two operator wallets."""
+
+    wallet_a: str
+    wallet_b: str
+    signal_type: Literal[
+        "dna_match", "sol_transfer", "timing_sync", "phash_cluster", "cross_holding"
+    ]
+    signal_strength: float = Field(ge=0.0, le=1.0)
+    evidence: dict = Field(default_factory=dict)
+
+
+class CartelCommunity(BaseModel):
+    """A detected cartel cluster — operators with 2+ coordinating signals."""
+
+    community_id: str = Field(..., description="Stable 12-char hex ID derived from wallet set")
+    wallets: list[str]
+    total_tokens_launched: int
+    total_rugs: int
+    estimated_extracted_usd: float = Field(ge=0.0)
+    active_since: Optional[datetime] = None
+    strongest_signal: str = ""
+    edges: list[CartelEdge] = Field(default_factory=list)
+    confidence: Literal["high", "medium", "low"] = "low"
+
+
+class CartelReport(BaseModel):
+    """Cartel graph result for a token's deployer."""
+
+    mint: str
+    deployer_community: Optional[CartelCommunity] = None

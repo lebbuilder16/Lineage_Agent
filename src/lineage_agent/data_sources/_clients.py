@@ -214,3 +214,63 @@ async def list_subscriptions(chat_id: int) -> list[dict]:
 async def all_subscriptions() -> list[dict]:
     """Return all active subscriptions (for alert sweep)."""
     return await cache.all_subscriptions()
+
+
+# ---------------------------------------------------------------------------
+# Operator mapping helpers
+# ---------------------------------------------------------------------------
+
+async def operator_mapping_upsert(fingerprint: str, wallet: str) -> None:
+    """Record that wallet shares a DNA fingerprint."""
+    await cache.operator_mapping_upsert(fingerprint, wallet)
+
+
+async def operator_mapping_query(fingerprint: str) -> list[dict]:
+    """Return all wallets linked to a fingerprint."""
+    return await cache.operator_mapping_query(fingerprint)
+
+
+async def operator_mapping_query_all() -> list[dict]:
+    """Return all (fingerprint, wallet) mappings."""
+    return await cache.operator_mapping_query_all()
+
+
+# ---------------------------------------------------------------------------
+# SOL flow helpers
+# ---------------------------------------------------------------------------
+
+async def sol_flow_insert_batch(flows: list[dict]) -> None:
+    """Batch-insert SOL flow edges."""
+    await cache.sol_flow_insert_batch(flows)
+
+
+async def sol_flows_query(mint: str) -> list[dict]:
+    """Return all SOL flows for a mint."""
+    return await cache.sol_flows_query(mint)
+
+
+async def sol_flows_query_by_from(from_address: str) -> list[dict]:
+    """Return all SOL flows originating from a wallet."""
+    return await cache.sol_flows_query_by_from(from_address)
+
+
+# ---------------------------------------------------------------------------
+# Cartel edge helpers
+# ---------------------------------------------------------------------------
+
+async def cartel_edge_upsert(
+    wallet_a: str, wallet_b: str, signal_type: str,
+    signal_strength: float, evidence: dict,
+) -> None:
+    """Upsert a cartel coordination edge."""
+    await cache.cartel_edge_upsert(wallet_a, wallet_b, signal_type, signal_strength, evidence)
+
+
+async def cartel_edges_query(wallet: str) -> list[dict]:
+    """Return all cartel edges involving a wallet."""
+    return await cache.cartel_edges_query(wallet)
+
+
+async def cartel_edges_query_all() -> list[dict]:
+    """Return all cartel edges (for sweep)."""
+    return await cache.cartel_edges_query_all()

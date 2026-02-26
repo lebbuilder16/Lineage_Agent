@@ -47,6 +47,12 @@ from .liquidity_arch import analyze_liquidity_architecture
 from .metadata_dna_service import build_operator_fingerprint
 from .narrative_service import compute_narrative_timing
 from .zombie_detector import detect_resurrection
+# Initiative 1: Operator Impact Report
+from .operator_impact_service import compute_operator_impact
+# Initiative 2: Follow The SOL
+from .sol_flow_service import get_sol_flow_report
+# Initiative 3: Cartel Graph
+from .cartel_service import compute_cartel_report
 from .data_sources.solana_rpc import SolanaRpcClient
 from .models import (
     DerivativeInfo,
@@ -499,7 +505,7 @@ async def detect_lineage(
         if t.mint
     ]
 
-    # Phases 2, 3, 5, 6 — async enrichers in parallel
+    # Phases 2, 3, 5, 6, 7, 8, 9 — async enrichers in parallel
     async def _safe(coro):
         try:
             return await coro
@@ -513,13 +519,32 @@ async def detect_lineage(
         result.factory_rhythm,
         result.narrative_timing,
         result.deployer_profile,
+        result.sol_flow,
+        result.cartel_report,
     ) = await asyncio.gather(
         _safe(compute_death_clock(root_meta.deployer, root_meta.created_at)),
         _safe(build_operator_fingerprint(uri_tuples)),
         _safe(analyze_factory_rhythm(root_meta.deployer)),
         _safe(compute_narrative_timing(root_meta)),
         _safe(compute_deployer_profile(root_meta.deployer)),
+        # Initiative 2: check DB for pre-computed sol flow (triggered by rug sweep)
+        _safe(get_sol_flow_report(root_meta.mint)),
+        # Initiative 3: community detection from pre-computed cartel edges
+        _safe(compute_cartel_report(root_meta.mint, root_meta.deployer)),
     )
+
+    # Initiative 1: Operator Impact — requires operator_fingerprint result
+    if result.operator_fingerprint is not None:
+        try:
+            result.operator_impact = await asyncio.wait_for(
+                compute_operator_impact(
+                    result.operator_fingerprint.fingerprint,
+                    result.operator_fingerprint.linked_wallets,
+                ),
+                timeout=10.0,
+            )
+        except Exception as _oi_exc:
+            logger.debug("operator_impact enricher failed: %s", _oi_exc)
 
     await _progress("Analysis complete", 100)
     await _cache_set(f"lineage:{mint_address}", result, ttl=CACHE_TTL_LINEAGE_SECONDS)

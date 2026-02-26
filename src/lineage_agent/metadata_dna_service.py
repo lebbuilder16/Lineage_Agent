@@ -24,7 +24,13 @@ from typing import Optional
 
 import httpx
 
-from .data_sources._clients import cache_get, cache_set, event_query, get_img_client
+from .data_sources._clients import (
+    cache_get,
+    cache_set,
+    event_query,
+    get_img_client,
+    operator_mapping_upsert,
+)
 from .models import DeployerTokenSummary, OperatorFingerprint
 
 logger = logging.getLogger(__name__)
@@ -124,6 +130,13 @@ async def build_operator_fingerprint(
 
     # Enrich with tokens launched by each linked wallet
     linked_wallet_tokens = await _fetch_linked_wallet_tokens(linked)
+
+    # Persist fingerprint→wallet mappings for Cartel Graph + Operator Impact
+    for wallet in linked:
+        try:
+            await operator_mapping_upsert(best_fp, wallet)
+        except Exception as _e:
+            logger.debug("operator_mapping_upsert failed for %s: %s", wallet, _e)
 
     return OperatorFingerprint(
         fingerprint=best_fp,

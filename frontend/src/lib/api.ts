@@ -64,6 +64,10 @@ export interface LineageResult {
   narrative_timing?: NarrativeTimingReport | null;
   // New intelligence signals
   deployer_profile?: DeployerProfile | null;
+  // Forensic deep-dive signals (Initiatives 1-3)
+  operator_impact?: OperatorImpactReport | null;
+  sol_flow?: SolFlowReport | null;
+  cartel_report?: CartelReport | null;
 }
 
 /* ---------- Forensic signal types ----------------------------------- */
@@ -173,6 +177,75 @@ export interface DeployerProfile {
   last_seen: string | null;
   tokens: DeployerTokenSummary[];
   confidence: "high" | "medium" | "low";
+}
+
+/* ---------- Initiative 1: Operator Impact Report -------------------- */
+
+export interface OperatorImpactReport {
+  fingerprint: string;
+  linked_wallets: string[];
+  total_tokens_launched: number;
+  total_rug_count: number;
+  rug_rate_pct: number;
+  estimated_extracted_usd: number;
+  active_tokens: string[];
+  narrative_sequence: string[];
+  is_campaign_active: boolean;
+  peak_concurrent_tokens: number;
+  first_activity: string | null;
+  last_activity: string | null;
+  wallet_profiles: DeployerProfile[];
+  confidence: "high" | "medium" | "low";
+}
+
+/* ---------- Initiative 2: Follow The SOL ---------------------------- */
+
+export interface SolFlowEdge {
+  from_address: string;
+  to_address: string;
+  amount_sol: number;
+  hop: number;
+  signature: string;
+  block_time: string | null;
+}
+
+export interface SolFlowReport {
+  mint: string;
+  deployer: string;
+  total_extracted_sol: number;
+  total_extracted_usd: number | null;
+  flows: SolFlowEdge[];
+  terminal_wallets: string[];
+  known_cex_detected: boolean;
+  hop_count: number;
+  analysis_timestamp: string;
+}
+
+/* ---------- Initiative 3: Cartel Graph ------------------------------ */
+
+export interface CartelEdge {
+  wallet_a: string;
+  wallet_b: string;
+  signal_type: "dna_match" | "sol_transfer" | "timing_sync" | "phash_cluster" | "cross_holding";
+  signal_strength: number;
+  evidence: Record<string, unknown>;
+}
+
+export interface CartelCommunity {
+  community_id: string;
+  wallets: string[];
+  total_tokens_launched: number;
+  total_rugs: number;
+  estimated_extracted_usd: number;
+  active_since: string | null;
+  strongest_signal: string;
+  edges: CartelEdge[];
+  confidence: "high" | "medium" | "low";
+}
+
+export interface CartelReport {
+  mint: string;
+  deployer_community: CartelCommunity | null;
 }
 
 /* ---------- Error class --------------------------------------------- */
@@ -287,6 +360,22 @@ export function fetchLineage(mint: string): Promise<LineageResult> {
 
 export function fetchDeployerProfile(address: string): Promise<DeployerProfile> {
   return fetchJSON<DeployerProfile>(`/deployer/${encodeURIComponent(address)}`);
+}
+
+export function fetchOperatorImpact(fingerprint: string): Promise<OperatorImpactReport> {
+  return fetchJSON<OperatorImpactReport>(`/operator/${encodeURIComponent(fingerprint)}`);
+}
+
+export function fetchSolTrace(mint: string): Promise<SolFlowReport> {
+  return fetchJSON<SolFlowReport>(`/lineage/${encodeURIComponent(mint)}/sol-trace`);
+}
+
+export function fetchCartelSearch(deployer: string): Promise<CartelReport> {
+  return fetchJSON<CartelReport>(`/cartel/search?deployer=${encodeURIComponent(deployer)}`);
+}
+
+export function fetchCartelCommunity(communityId: string): Promise<CartelCommunity> {
+  return fetchJSON<CartelCommunity>(`/cartel/${encodeURIComponent(communityId)}`);
 }
 
 export function searchTokens(query: string): Promise<TokenSearchResult[]> {

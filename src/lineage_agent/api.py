@@ -23,6 +23,7 @@ import logging
 import re
 import time
 from contextlib import asynccontextmanager
+from typing import Optional
 
 import sentry_sdk
 from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
@@ -55,8 +56,22 @@ from .lineage_detector import (
 )
 from .alert_service import cancel_alert_sweep, schedule_alert_sweep as _schedule_alert_sweep
 from .deployer_service import compute_deployer_profile
+from .operator_impact_service import compute_operator_impact
+from .sol_flow_service import get_sol_flow_report, trace_sol_flow
+from .cartel_service import compute_cartel_report, run_cartel_sweep
+from .data_sources._clients import operator_mapping_query, sol_flows_query
 from .logging_config import generate_request_id, request_id_ctx, setup_logging
-from .models import BatchLineageRequest, BatchLineageResponse, DeployerProfile, LineageResult, TokenSearchResult
+from .models import (
+    BatchLineageRequest,
+    BatchLineageResponse,
+    CartelCommunity,
+    CartelReport,
+    DeployerProfile,
+    LineageResult,
+    OperatorImpactReport,
+    SolFlowReport,
+    TokenSearchResult,
+)
 from .rug_detector import cancel_rug_sweep, schedule_rug_sweep
 
 # Initialise structured logging early
@@ -97,6 +112,33 @@ _start_time = time.monotonic()
 _BASE58_RE = re.compile(r"^[1-9A-HJ-NP-Za-km-z]{32,44}$")
 
 
+_cartel_sweep_task: Optional[asyncio.Task] = None
+
+
+async def _cartel_sweep_loop() -> None:
+    """Run cartel edge building hourly in the background."""
+    logger.info("Cartel sweep background task started (interval=3600s)")
+    while True:
+        try:
+            await asyncio.sleep(3600)
+            await run_cartel_sweep()
+        except asyncio.CancelledError:
+            break
+        except Exception:
+            logger.exception("Cartel sweep iteration failed")
+
+
+def _schedule_cartel_sweep() -> None:
+    global _cartel_sweep_task
+    _cartel_sweep_task = asyncio.create_task(_cartel_sweep_loop(), name="cartel_sweep")
+
+
+def _cancel_cartel_sweep() -> None:
+    global _cartel_sweep_task
+    if _cartel_sweep_task and not _cartel_sweep_task.done():
+        _cartel_sweep_task.cancel()
+
+
 # ---------------------------------------------------------------------------
 # Rate limiter
 # ---------------------------------------------------------------------------
@@ -126,10 +168,12 @@ async def lifespan(application: FastAPI):
     await init_clients()
     schedule_rug_sweep()
     _schedule_alert_sweep()
+    _schedule_cartel_sweep()
     yield
     logger.info("Shutting down – closing HTTP clients …")
     cancel_rug_sweep()
     cancel_alert_sweep()
+    _cancel_cartel_sweep()
     await close_clients()
 
 
@@ -394,6 +438,153 @@ async def get_deployer_profile(
             detail="No deployment history found for this address",
         )
     return profile
+
+
+# ------------------------------------------------------------------
+# Operator Impact Report endpoint (Initiative 1)
+# ------------------------------------------------------------------
+
+_FP_RE = re.compile(r"^[0-9a-f]{16}$")
+
+
+@app.get(
+    "/operator/{fingerprint}",
+    response_model=OperatorImpactReport,
+    tags=["intelligence"],
+    summary="Cross-wallet operator damage ledger",
+)
+@limiter.limit("20/minute")
+async def get_operator_impact(
+    request: Request,
+    fingerprint: str,
+) -> OperatorImpactReport:
+    """Return the aggregated damage ledger for an operator DNA fingerprint."""
+    if not _FP_RE.match(fingerprint):
+        raise HTTPException(status_code=400, detail="Invalid fingerprint — expected 16-char hex")
+    try:
+        wallet_rows = await operator_mapping_query(fingerprint)
+        wallets = [r["wallet"] for r in wallet_rows]
+        if not wallets:
+            raise HTTPException(status_code=404, detail="No wallets found for this fingerprint")
+        report = await compute_operator_impact(fingerprint, wallets)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Operator impact failed for %s", fingerprint)
+        raise HTTPException(status_code=500, detail="Internal server error") from exc
+    if report is None:
+        raise HTTPException(status_code=404, detail="No impact data found for this fingerprint")
+    return report
+
+
+# ------------------------------------------------------------------
+# SOL Trace endpoint (Initiative 2)
+# ------------------------------------------------------------------
+
+
+@app.get(
+    "/lineage/{mint}/sol-trace",
+    response_model=SolFlowReport,
+    tags=["intelligence"],
+    summary="Post-rug SOL capital flow trace",
+)
+@limiter.limit(RATE_LIMIT_LINEAGE)
+async def get_sol_trace(
+    request: Request,
+    mint: str,
+) -> SolFlowReport:
+    """Return (or trigger) the SOL flow trace for a rugged token."""
+    if not _BASE58_RE.match(mint):
+        raise HTTPException(status_code=400, detail="Invalid Solana mint address")
+    try:
+        # Check DB first (populated by rug sweep fire-and-forget tasks)
+        from .data_sources._clients import sol_flows_query as _sfq
+        db_rows = await _sfq(mint)
+        from .sol_flow_service import _rows_to_report
+        if db_rows:
+            return _rows_to_report(mint, db_rows)
+        # If not in DB: trigger synchronously with 20s timeout
+        report = await asyncio.wait_for(
+            trace_sol_flow(mint, ""),
+            timeout=22.0,
+        )
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=504, detail="SOL trace timed out — try again later")
+    except Exception as exc:
+        logger.exception("SOL trace failed for %s", mint)
+        raise HTTPException(status_code=500, detail="Internal server error") from exc
+    if report is None:
+        raise HTTPException(status_code=404, detail="No SOL flows found for this token")
+    return report
+
+
+# ------------------------------------------------------------------
+# Cartel Graph endpoints (Initiative 3)
+# ------------------------------------------------------------------
+
+
+@app.get(
+    "/cartel/search",
+    response_model=CartelReport,
+    tags=["intelligence"],
+    summary="Find cartel community for a deployer wallet",
+)
+@limiter.limit("20/minute")
+async def cartel_search(
+    request: Request,
+    deployer: str = Query(..., description="Deployer wallet address"),
+) -> CartelReport:
+    """Find the cartel community containing a deployer wallet."""
+    if not _BASE58_RE.match(deployer):
+        raise HTTPException(status_code=400, detail="Invalid Solana address")
+    try:
+        report = await compute_cartel_report(deployer, deployer)
+    except Exception as exc:
+        logger.exception("Cartel search failed for %s", deployer)
+        raise HTTPException(status_code=500, detail="Internal server error") from exc
+    if report is None:
+        raise HTTPException(status_code=500, detail="Internal server error")
+    return report
+
+
+@app.get(
+    "/cartel/{community_id}",
+    response_model=CartelCommunity,
+    tags=["intelligence"],
+    summary="Cartel community by ID",
+)
+@limiter.limit("20/minute")
+async def get_cartel_community(
+    request: Request,
+    community_id: str,
+) -> CartelCommunity:
+    """Return a cartel community by its stable community_id."""
+    if len(community_id) != 12 or not all(c in "0123456789abcdef" for c in community_id):
+        raise HTTPException(status_code=400, detail="Invalid community_id — expected 12-char hex")
+    try:
+        # Scan all cartel edges to find a community matching this ID
+        from .data_sources._clients import cartel_edges_query_all
+        all_edges = await cartel_edges_query_all()
+        if not all_edges:
+            raise HTTPException(status_code=404, detail="No cartel data available yet")
+        # Extract all unique wallets from edges
+        wallets = set()
+        for row in all_edges:
+            wallets.add(row["wallet_a"])
+            wallets.add(row["wallet_b"])
+        # Try each wallet until we find the one whose community matches
+        import hashlib
+        for wallet in wallets:
+            report = await compute_cartel_report(wallet, wallet)
+            if report and report.deployer_community:
+                if report.deployer_community.community_id == community_id:
+                    return report.deployer_community
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Cartel community lookup failed for %s", community_id)
+        raise HTTPException(status_code=500, detail="Internal server error") from exc
+    raise HTTPException(status_code=404, detail="Community not found")
 
 
 # ------------------------------------------------------------------

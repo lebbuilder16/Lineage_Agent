@@ -147,6 +147,38 @@ class SolanaRpcClient:
             return result
         return {}
 
+    async def get_deployer_token_holdings(
+        self, wallet: str, *, limit: int = 50
+    ) -> list[str]:
+        """Return mint addresses currently held by a wallet.
+
+        Uses ``getTokenAccountsByOwner`` with the SPL Token Program.
+        Returns a list of mint addresses with non-zero balance (up to *limit*).
+        Returns [] on any failure.
+        """
+        result = await self._call(
+            "getTokenAccountsByOwner",
+            [
+                wallet,
+                {"programId": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"},
+                {"encoding": "jsonParsed"},
+            ],
+        )
+        if not result or not isinstance(result, dict):
+            return []
+        accounts = result.get("value") or []
+        mints: list[str] = []
+        for account in accounts[:limit]:
+            try:
+                info = account["account"]["data"]["parsed"]["info"]
+                mint = info.get("mint", "")
+                amount = int(info.get("tokenAmount", {}).get("amount", "0"))
+                if mint and amount > 0:
+                    mints.append(mint)
+            except Exception:
+                pass
+        return mints
+
     async def search_assets_by_creator(
         self, creator: str, *, page: int = 1, limit: int = 100
     ) -> list[dict]:

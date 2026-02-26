@@ -97,6 +97,17 @@ async def _run_rug_sweep() -> int:
                 "Rug detected: %s (was $%.0f → now $%.0f)",
                 mint, row.get("liq_usd", 0), current_liq,
             )
+            # Fire-and-forget: trace where the SOL went (Initiative 2)
+            _deployer = row.get("deployer", "")
+            if _deployer:
+                try:
+                    from .sol_flow_service import trace_sol_flow
+                    asyncio.create_task(
+                        trace_sol_flow(mint, _deployer),
+                        name=f"sol_trace_{mint[:8]}",
+                    )
+                except Exception as _te:
+                    logger.debug("trace_sol_flow task launch failed: %s", _te)
         except Exception:
             logger.debug("Failed to record rug for %s", mint, exc_info=True)
 

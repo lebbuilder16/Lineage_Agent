@@ -14,13 +14,14 @@ Signal is active when:
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 import statistics
 from datetime import datetime, timezone
 from typing import Literal, Optional
 
-from .data_sources._clients import event_insert, event_query
+from .data_sources._clients import event_insert, event_query, get_img_client
 from .models import FactoryRhythmReport, TokenMetadata
 
 logger = logging.getLogger(__name__)
@@ -64,7 +65,21 @@ def classify_narrative(name: str, symbol: str) -> str:
 
 
 async def record_token_creation(token: TokenMetadata) -> None:
-    """Record a token_created event for use in factory rhythm analysis."""
+    """Record a token_created event for use in factory rhythm analysis.
+
+    Also computes and stores the image pHash for cartel detection.
+    """
+    # Compute pHash asynchronously (best-effort, non-blocking)
+    phash_hex: Optional[str] = None
+    extra_data: dict = {}
+    if token.image_uri:
+        try:
+            phash_hex = await _compute_phash(token.image_uri)
+            if phash_hex:
+                extra_data["phash"] = phash_hex
+        except Exception:
+            pass
+
     try:
         await event_insert(
             event_type="token_created",
@@ -76,9 +91,31 @@ async def record_token_creation(token: TokenMetadata) -> None:
             mcap_usd=token.market_cap_usd,
             liq_usd=token.liquidity_usd,
             created_at=token.created_at.isoformat() if token.created_at else None,
+            extra_json=json.dumps(extra_data) if extra_data else None,
+            phash=phash_hex,
         )
     except Exception:
         logger.debug("record_token_creation failed for %s", token.mint, exc_info=True)
+
+
+async def _compute_phash(image_uri: str) -> Optional[str]:
+    """Fetch image and compute pHash hex string. Returns None on failure."""
+    try:
+        import io
+        import imagehash
+        from PIL import Image
+        client = get_img_client()
+        resp = await client.get(image_uri, timeout=5.0)
+        if resp.status_code != 200:
+            return None
+        img = Image.open(io.BytesIO(resp.content)).convert("RGB")
+        ph = imagehash.phash(img)
+        # Convert 8x8 bit array to 64-bit integer hex
+        bits = [v for row in ph.hash for v in row]
+        val = int("".join("1" if b else "0" for b in bits), 2)
+        return format(val, "016x")
+    except Exception:
+        return None
 
 
 async def analyze_factory_rhythm(deployer: str) -> Optional[FactoryRhythmReport]:

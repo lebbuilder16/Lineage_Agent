@@ -114,6 +114,39 @@ class TTLCache:
     async def all_subscriptions(self) -> list[dict]:  # noqa: D102
         return []
 
+    # Stubs for operator_mappings (no-ops without SQLite)
+    async def operator_mapping_upsert(self, fingerprint: str, wallet: str) -> None:
+        pass
+
+    async def operator_mapping_query(self, fingerprint: str) -> list[dict]:
+        return []
+
+    async def operator_mapping_query_all(self) -> list[dict]:
+        return []
+
+    # Stubs for sol_flows (no-ops without SQLite)
+    async def sol_flow_insert_batch(self, flows: list[dict]) -> None:
+        pass
+
+    async def sol_flows_query(self, mint: str) -> list[dict]:
+        return []
+
+    async def sol_flows_query_by_from(self, from_address: str) -> list[dict]:
+        return []
+
+    # Stubs for cartel_edges (no-ops without SQLite)
+    async def cartel_edge_upsert(
+        self, wallet_a: str, wallet_b: str, signal_type: str,
+        signal_strength: float, evidence: dict,
+    ) -> None:
+        pass
+
+    async def cartel_edges_query(self, wallet: str) -> list[dict]:
+        return []
+
+    async def cartel_edges_query_all(self) -> list[dict]:
+        return []
+
 
 # ---------------------------------------------------------------------------
 # SQLite persistent cache
@@ -230,6 +263,91 @@ class SQLiteCache:
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_ie_unique_type_mint "
             "ON intelligence_events(event_type, mint)"
         )
+        # Migrate: add phash column for pHash cluster signal (safe, ignored if exists)
+        try:
+            await db.execute("ALTER TABLE intelligence_events ADD COLUMN phash TEXT")
+        except Exception:
+            pass  # Column already exists — safe to ignore
+
+        # operator_mappings: maps DNA fingerprints → deployer wallets
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS operator_mappings (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                fingerprint TEXT NOT NULL,
+                wallet      TEXT NOT NULL,
+                recorded_at REAL NOT NULL
+            )
+            """
+        )
+        await db.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_om_unique "
+            "ON operator_mappings(fingerprint, wallet)"
+        )
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_om_fp ON operator_mappings(fingerprint)"
+        )
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_om_wallet ON operator_mappings(wallet)"
+        )
+
+        # sol_flows: on-chain SOL capital flow edges (Follow The SOL)
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS sol_flows (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                mint            TEXT NOT NULL,
+                from_address    TEXT NOT NULL,
+                to_address      TEXT NOT NULL,
+                amount_lamports INTEGER NOT NULL DEFAULT 0,
+                signature       TEXT NOT NULL,
+                slot            INTEGER,
+                block_time      INTEGER,
+                hop             INTEGER NOT NULL DEFAULT 0,
+                recorded_at     REAL NOT NULL
+            )
+            """
+        )
+        await db.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_sf_unique "
+            "ON sol_flows(signature, from_address, to_address)"
+        )
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_sf_mint ON sol_flows(mint)"
+        )
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_sf_from ON sol_flows(from_address)"
+        )
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_sf_to ON sol_flows(to_address)"
+        )
+
+        # cartel_edges: coordination signal edges between operator wallets
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS cartel_edges (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                wallet_a        TEXT NOT NULL,
+                wallet_b        TEXT NOT NULL,
+                signal_type     TEXT NOT NULL,
+                signal_strength REAL NOT NULL DEFAULT 0.0,
+                evidence_json   TEXT,
+                first_seen      REAL NOT NULL,
+                last_seen       REAL NOT NULL
+            )
+            """
+        )
+        await db.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_ce_unique "
+            "ON cartel_edges(wallet_a, wallet_b, signal_type)"
+        )
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_ce_wallet_a ON cartel_edges(wallet_a)"
+        )
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_ce_wallet_b ON cartel_edges(wallet_b)"
+        )
+
         await db.commit()
         self._initialised = True
 
@@ -440,7 +558,7 @@ class SQLiteCache:
     _IE_ALLOWED_COLS: frozenset[str] = frozenset({
         "event_type", "mint", "deployer", "name", "symbol",
         "narrative", "mcap_usd", "liq_usd", "created_at",
-        "rugged_at", "extra_json",
+        "rugged_at", "extra_json", "phash",
     })
 
     async def insert_event(self, **kwargs: Any) -> None:
@@ -502,3 +620,188 @@ class SQLiteCache:
             await db.commit()
         except Exception:
             logger.warning("intelligence_events update failed", exc_info=True)
+
+    # ------------------------------------------------------------------
+    # Operator mappings
+    # ------------------------------------------------------------------
+
+    async def operator_mapping_upsert(self, fingerprint: str, wallet: str) -> None:
+        """Record that a wallet shares a DNA fingerprint. Idempotent."""
+        try:
+            db = await self._get_conn()
+            await db.execute(
+                "INSERT OR IGNORE INTO operator_mappings (fingerprint, wallet, recorded_at) "
+                "VALUES (?, ?, ?)",
+                (fingerprint, wallet, time.time()),
+            )
+            await db.commit()
+        except Exception:
+            logger.warning("operator_mapping_upsert failed", exc_info=True)
+
+    async def operator_mapping_query(self, fingerprint: str) -> list[dict]:
+        """Return all wallets linked to a fingerprint."""
+        try:
+            db = await self._get_conn()
+            cursor = await db.execute(
+                "SELECT fingerprint, wallet, recorded_at FROM operator_mappings "
+                "WHERE fingerprint = ?",
+                (fingerprint,),
+            )
+            rows = await cursor.fetchall()
+            cols = [d[0] for d in cursor.description]
+            return [dict(zip(cols, row)) for row in rows]
+        except Exception:
+            logger.warning("operator_mapping_query failed", exc_info=True)
+            return []
+
+    async def operator_mapping_query_all(self) -> list[dict]:
+        """Return all (fingerprint, wallet) mappings."""
+        try:
+            db = await self._get_conn()
+            cursor = await db.execute(
+                "SELECT fingerprint, wallet FROM operator_mappings ORDER BY fingerprint"
+            )
+            rows = await cursor.fetchall()
+            cols = [d[0] for d in cursor.description]
+            return [dict(zip(cols, row)) for row in rows]
+        except Exception:
+            logger.warning("operator_mapping_query_all failed", exc_info=True)
+            return []
+
+    # ------------------------------------------------------------------
+    # SOL flows
+    # ------------------------------------------------------------------
+
+    async def sol_flow_insert_batch(self, flows: list[dict]) -> None:
+        """Batch-insert SOL flow edges. Silently ignores duplicates."""
+        if not flows:
+            return
+        try:
+            db = await self._get_conn()
+            for flow in flows:
+                await db.execute(
+                    """
+                    INSERT OR IGNORE INTO sol_flows
+                      (mint, from_address, to_address, amount_lamports,
+                       signature, slot, block_time, hop, recorded_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        flow.get("mint", ""),
+                        flow.get("from_address", ""),
+                        flow.get("to_address", ""),
+                        flow.get("amount_lamports", 0),
+                        flow.get("signature", ""),
+                        flow.get("slot"),
+                        flow.get("block_time"),
+                        flow.get("hop", 0),
+                        time.time(),
+                    ),
+                )
+            await db.commit()
+        except Exception:
+            logger.warning("sol_flow_insert_batch failed", exc_info=True)
+
+    async def sol_flows_query(self, mint: str) -> list[dict]:
+        """Return all SOL flow edges for a mint address."""
+        try:
+            db = await self._get_conn()
+            cursor = await db.execute(
+                "SELECT * FROM sol_flows WHERE mint = ? ORDER BY hop, block_time",
+                (mint,),
+            )
+            rows = await cursor.fetchall()
+            cols = [d[0] for d in cursor.description]
+            return [dict(zip(cols, row)) for row in rows]
+        except Exception:
+            logger.warning("sol_flows_query failed", exc_info=True)
+            return []
+
+    async def sol_flows_query_by_from(self, from_address: str) -> list[dict]:
+        """Return all SOL flow edges originating from a wallet."""
+        try:
+            db = await self._get_conn()
+            cursor = await db.execute(
+                "SELECT * FROM sol_flows WHERE from_address = ? ORDER BY block_time",
+                (from_address,),
+            )
+            rows = await cursor.fetchall()
+            cols = [d[0] for d in cursor.description]
+            return [dict(zip(cols, row)) for row in rows]
+        except Exception:
+            logger.warning("sol_flows_query_by_from failed", exc_info=True)
+            return []
+
+    # ------------------------------------------------------------------
+    # Cartel edges
+    # ------------------------------------------------------------------
+
+    async def cartel_edge_upsert(
+        self,
+        wallet_a: str,
+        wallet_b: str,
+        signal_type: str,
+        signal_strength: float,
+        evidence: dict,
+    ) -> None:
+        """Upsert a cartel coordination edge. Normalises wallet pair order."""
+        try:
+            db = await self._get_conn()
+            now = time.time()
+            ev_json = json.dumps(evidence, default=str)
+            # Normalise order so (A,B) == (B,A)
+            w_a, w_b = (wallet_a, wallet_b) if wallet_a < wallet_b else (wallet_b, wallet_a)
+            cursor = await db.execute(
+                "SELECT id, signal_strength FROM cartel_edges "
+                "WHERE wallet_a = ? AND wallet_b = ? AND signal_type = ?",
+                (w_a, w_b, signal_type),
+            )
+            row = await cursor.fetchone()
+            if row:
+                new_strength = max(signal_strength, row[1])
+                await db.execute(
+                    "UPDATE cartel_edges SET signal_strength = ?, evidence_json = ?, last_seen = ? "
+                    "WHERE wallet_a = ? AND wallet_b = ? AND signal_type = ?",
+                    (new_strength, ev_json, now, w_a, w_b, signal_type),
+                )
+            else:
+                await db.execute(
+                    "INSERT INTO cartel_edges "
+                    "(wallet_a, wallet_b, signal_type, signal_strength, evidence_json, first_seen, last_seen) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (w_a, w_b, signal_type, signal_strength, ev_json, now, now),
+                )
+            await db.commit()
+        except Exception:
+            logger.warning("cartel_edge_upsert failed", exc_info=True)
+
+    async def cartel_edges_query(self, wallet: str) -> list[dict]:
+        """Return all cartel edges involving a wallet (as either endpoint)."""
+        try:
+            db = await self._get_conn()
+            cursor = await db.execute(
+                "SELECT * FROM cartel_edges "
+                "WHERE wallet_a = ? OR wallet_b = ? "
+                "ORDER BY signal_strength DESC",
+                (wallet, wallet),
+            )
+            rows = await cursor.fetchall()
+            cols = [d[0] for d in cursor.description]
+            return [dict(zip(cols, row)) for row in rows]
+        except Exception:
+            logger.warning("cartel_edges_query failed", exc_info=True)
+            return []
+
+    async def cartel_edges_query_all(self) -> list[dict]:
+        """Return all cartel edges ordered by strength (for graph rendering)."""
+        try:
+            db = await self._get_conn()
+            cursor = await db.execute(
+                "SELECT * FROM cartel_edges ORDER BY signal_strength DESC LIMIT 5000"
+            )
+            rows = await cursor.fetchall()
+            cols = [d[0] for d in cursor.description]
+            return [dict(zip(cols, row)) for row in rows]
+        except Exception:
+            logger.warning("cartel_edges_query_all failed", exc_info=True)
+            return []

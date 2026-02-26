@@ -21,6 +21,9 @@ import LiquidityArch from "@/components/forensics/LiquidityArch";
 import FactoryRhythm from "@/components/forensics/FactoryRhythm";
 import NarrativeTiming from "@/components/forensics/NarrativeTiming";
 import DeployerProfileCard from "@/components/forensics/DeployerProfile";
+import OperatorImpactCard from "@/components/forensics/OperatorImpact";
+import SolTraceCard from "@/components/forensics/SolTrace";
+import CartelReportCard from "@/components/forensics/CartelReportCard";
 import { motion, AnimatePresence } from "framer-motion";
 import { AlertCircle, RefreshCw, Crown, List, ChevronRight, TrendingUp, Droplets } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -151,7 +154,10 @@ export default function LineagePage() {
             data.factory_rhythm !== undefined ||
             data.narrative_timing !== undefined ||
             data.operator_fingerprint !== undefined ||
-            data.deployer_profile !== undefined) && (
+            data.deployer_profile !== undefined ||
+            data.operator_impact !== undefined ||
+            data.sol_flow !== undefined ||
+            data.cartel_report !== undefined) && (
             <motion.div
               initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
@@ -164,6 +170,9 @@ export default function LineagePage() {
                 <span className="flex-1 h-px bg-zinc-700" />
               </h3>
               <DeployerProfileCard profile={data.deployer_profile} />
+              <OperatorImpactCard report={data.operator_impact} />
+              <SolTraceCard report={data.sol_flow} mint={mint} />
+              <CartelReportCard report={data.cartel_report} />
               <LiquidityArch report={data.liquidity_arch} />
               <DeathClock forecast={data.death_clock} />
               <FactoryRhythm report={data.factory_rhythm} />
