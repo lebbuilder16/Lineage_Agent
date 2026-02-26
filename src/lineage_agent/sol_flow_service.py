@@ -22,7 +22,9 @@ from .data_sources._clients import (
     sol_flow_insert_batch,
     sol_flows_query,
 )
+from .bridge_tracker import CrossChainExit, detect_bridge_exits
 from .models import SolFlowEdge, SolFlowReport
+from .wallet_labels import classify_address
 
 logger = logging.getLogger(__name__)
 
@@ -162,7 +164,13 @@ async def _run_trace(
     if not all_flows:
         return None
 
-    return _flows_to_report(mint, deployer, all_flows)
+    # Detect cross-chain exits (best-effort — never raises)
+    try:
+        exits = await detect_bridge_exits(all_flows)
+    except Exception:
+        exits = []
+
+    return _flows_to_report(mint, deployer, all_flows, cross_chain_exits=exits)
 
 
 async def _trace_wallet(
@@ -270,12 +278,21 @@ def _parse_sol_flows(
 
 # ── Report construction ───────────────────────────────────────────────────────
 
-def _flows_to_report(mint: str, deployer: str, flows: list[dict]) -> SolFlowReport:
+def _flows_to_report(
+    mint: str,
+    deployer: str,
+    flows: list[dict],
+    cross_chain_exits: Optional[list[CrossChainExit]] = None,
+) -> SolFlowReport:
     """Convert raw flow dicts to a SolFlowReport model."""
     edges: list[SolFlowEdge] = []
     for f in flows:
         bt = f.get("block_time")
         block_dt = datetime.fromtimestamp(bt, tz=timezone.utc) if bt else None
+
+        from_info = classify_address(f["from_address"])
+        to_info   = classify_address(f["to_address"])
+
         edges.append(SolFlowEdge(
             from_address=f["from_address"],
             to_address=f["to_address"],
@@ -283,6 +300,9 @@ def _flows_to_report(mint: str, deployer: str, flows: list[dict]) -> SolFlowRepo
             hop=f.get("hop", 0),
             signature=f.get("signature", ""),
             block_time=block_dt,
+            from_label=from_info.label,
+            to_label=to_info.label,
+            entity_type=to_info.entity_type,
         ))
 
     # Total extracted = direct outflows from the deployer (hop 0)
@@ -295,6 +315,10 @@ def _flows_to_report(mint: str, deployer: str, flows: list[dict]) -> SolFlowRepo
     known_cex = any(e.to_address in _CEX_ADDRESSES for e in edges)
     max_hop = max((e.hop for e in edges), default=0)
 
+    # Rug timestamp = earliest hop-0 extraction moment
+    hop0_times = [e.block_time for e in edges if e.hop == 0 and e.block_time is not None]
+    rug_ts: Optional[datetime] = min(hop0_times) if hop0_times else None
+
     return SolFlowReport(
         mint=mint,
         deployer=deployer,
@@ -305,6 +329,8 @@ def _flows_to_report(mint: str, deployer: str, flows: list[dict]) -> SolFlowRepo
         known_cex_detected=known_cex,
         hop_count=max_hop + 1,
         analysis_timestamp=datetime.now(tz=timezone.utc),
+        rug_timestamp=rug_ts,
+        cross_chain_exits=cross_chain_exits or [],
     )
 
 

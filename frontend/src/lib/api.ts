@@ -195,6 +195,18 @@ export interface SolFlowEdge {
   hop: number;
   signature: string;
   block_time: string | null;
+  from_label: string | null;
+  to_label: string | null;
+  entity_type: string | null;
+}
+
+export interface CrossChainExit {
+  from_address: string;
+  bridge_name: string;
+  dest_chain: string;
+  dest_address: string;
+  amount_sol: number;
+  tx_signature: string;
 }
 
 export interface SolFlowReport {
@@ -207,6 +219,8 @@ export interface SolFlowReport {
   known_cex_detected: boolean;
   hop_count: number;
   analysis_timestamp: string;
+  rug_timestamp: string | null;
+  cross_chain_exits: CrossChainExit[];
 }
 
 /* ---------- Initiative 3: Cartel Graph ------------------------------ */

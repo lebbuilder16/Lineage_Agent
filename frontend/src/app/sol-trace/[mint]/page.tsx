@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   ReactFlow,
@@ -11,95 +11,127 @@ import {
   type Edge,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { fetchSolTrace, type SolFlowReport, type SolFlowEdge, ApiError } from "@/lib/api";
+import {
+  fetchSolTrace,
+  type CrossChainExit,
+  type SolFlowReport,
+  type SolFlowEdge,
+  ApiError,
+} from "@/lib/api";
 
 interface Props {
   params: { mint: string };
 }
 
-// Known CEX addresses (same as backend)
-const CEX_PREFIXES = [
-  "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM", // Binance
-  "H8sMJSCQxfKiFTCfDR3DUMLPwcRbM61LGFJ8N4dK3WjS", // Coinbase
-];
+// ── Colour palette ────────────────────────────────────────────────────────────
+const ENTITY_COLORS: Record<string, string> = {
+  deployer:  "#ef4444",  // red
+  cex:       "#f97316",  // orange
+  dex:       "#8b5cf6",  // purple
+  bridge:    "#a855f7",  // violet
+  launchpad: "#ec4899",  // pink
+  mev:       "#14b8a6",  // teal
+  system:    "#6b7280",  // grey
+  terminal:  "#4b5563",  // dark grey
+  wallet:    "#3b82f6",  // blue (unknown wallets)
+};
 
-function buildGraph(report: SolFlowReport): { nodes: Node[]; edges: Edge[] } {
-  const isCex = (addr: string) => CEX_PREFIXES.some((p) => addr.startsWith(p));
-  const isTerminal = (addr: string) => report.terminal_wallets.includes(addr);
+function nodeColor(addr: string, report: SolFlowReport): string {
+  if (addr === report.deployer) return ENTITY_COLORS.deployer;
+  const flow = report.flows.find((f) => f.to_address === addr || f.from_address === addr);
+  if (!flow) return ENTITY_COLORS.wallet;
+  const et = flow.to_address === addr ? flow.entity_type : null;
+  if (et && ENTITY_COLORS[et]) return ENTITY_COLORS[et];
+  if (report.terminal_wallets.includes(addr)) return ENTITY_COLORS.terminal;
+  return ENTITY_COLORS.wallet;
+}
 
-  // Gather unique addresses
+// ── buildGraph ────────────────────────────────────────────────────────────────
+
+function buildGraph(
+  report: SolFlowReport,
+  activeFlows: SolFlowEdge[],
+): { nodes: Node[]; edges: Edge[] } {
   const addrSet = new Set<string>([report.deployer]);
-  report.flows.forEach((f) => {
+  activeFlows.forEach((f) => {
     addrSet.add(f.from_address);
     addrSet.add(f.to_address);
   });
   const addrs = Array.from(addrSet);
 
-  // Group by hop for x-axis layout
   const hopOf: Record<string, number> = { [report.deployer]: 0 };
-  report.flows.forEach((f) => {
+  activeFlows.forEach((f) => {
     if (hopOf[f.to_address] === undefined) hopOf[f.to_address] = f.hop;
     hopOf[f.from_address] = Math.min(hopOf[f.from_address] ?? f.hop - 1, f.hop - 1);
   });
 
-  // Y position within each hop column
   const hopCounts: Record<number, number> = {};
-  addrs.forEach((a) => {
-    const h = hopOf[a] ?? 0;
-    hopCounts[h] = (hopCounts[h] ?? 0) + 1;
-  });
+  addrs.forEach((a) => { const h = hopOf[a] ?? 0; hopCounts[h] = (hopCounts[h] ?? 0) + 1; });
   const hopIdx: Record<number, number> = {};
   const nodeY: Record<string, number> = {};
   addrs.forEach((a) => {
     const h = hopOf[a] ?? 0;
-    hopIdx[h] = (hopIdx[h] ?? 0);
+    hopIdx[h] = hopIdx[h] ?? 0;
     const total = hopCounts[h];
-    nodeY[a] = (hopIdx[h] - Math.floor(total / 2)) * 100;
+    nodeY[a] = (hopIdx[h] - Math.floor(total / 2)) * 110;
     hopIdx[h]++;
   });
 
+  const nodeLabel = (addr: string): string => {
+    for (const f of report.flows) {
+      if (f.to_address === addr && f.to_label) return f.to_label;
+      if (f.from_address === addr && f.from_label) return f.from_label;
+    }
+    return `${addr.slice(0, 4)}…${addr.slice(-4)}`;
+  };
+
+  const entityType = (addr: string): string | null => {
+    if (addr === report.deployer) return "deployer";
+    for (const f of report.flows) {
+      if (f.to_address === addr && f.entity_type) return f.entity_type;
+    }
+    if (report.terminal_wallets.includes(addr)) return "terminal";
+    return null;
+  };
+
   const nodes: Node[] = addrs.map((addr) => {
     const hop = hopOf[addr] ?? 0;
-    const isSource = addr === report.deployer;
-    const cex = isCex(addr);
-    const terminal = isTerminal(addr);
-    const bgColor = isSource
-      ? "#ef4444"            // red — deployer
-      : cex
-        ? "#f97316"          // orange — CEX
-        : terminal
-          ? "#6b7280"        // grey — terminal unknown
-          : "#3b82f6";       // blue — intermediate
+    const bg = nodeColor(addr, report);
+    const et = entityType(addr);
+    const label = nodeLabel(addr);
+    const isLong = label.length > 12;
 
     return {
       id: addr,
-      position: { x: hop * 260, y: nodeY[addr] ?? 0 },
+      position: { x: hop * 280, y: nodeY[addr] ?? 0 },
       data: {
         label: (
           <div className="text-center px-1">
-            <div className="text-[10px] font-mono leading-tight">
-              {addr.slice(0, 4)}…{addr.slice(-4)}
+            <div className={`font-mono leading-tight ${isLong ? "text-[8px]" : "text-[10px]"}`}>
+              {label}
             </div>
-            {cex && <div className="text-[9px] text-orange-200 font-bold mt-0.5">CEX</div>}
-            {isSource && <div className="text-[9px] text-red-200 font-bold mt-0.5">DEPLOYER</div>}
+            {et && (
+              <div className="text-[8px] font-bold mt-0.5 uppercase tracking-wide opacity-80">
+                {et}
+              </div>
+            )}
           </div>
         ),
       },
       style: {
-        background: bgColor,
+        background: bg,
         color: "#fff",
         border: "none",
         borderRadius: "8px",
         fontSize: "11px",
-        width: 120,
+        width: 126,
         padding: "6px 4px",
       },
     };
   });
 
-  // Aggregate parallel flows into a single edge
   const edgeMap: Record<string, SolFlowEdge & { count: number }> = {};
-  report.flows.forEach((f) => {
+  activeFlows.forEach((f) => {
     const key = `${f.from_address}::${f.to_address}`;
     if (edgeMap[key]) {
       edgeMap[key].amount_sol += f.amount_sol;
@@ -117,7 +149,7 @@ function buildGraph(report: SolFlowReport): { nodes: Node[]; edges: Edge[] } {
       id: key,
       source: f.from_address,
       target: f.to_address,
-      label: `${f.amount_sol.toFixed(1)} SOL`,
+      label: `${f.amount_sol.toFixed(2)} SOL`,
       animated: true,
       style: { stroke: "#f97316", strokeWidth },
       labelStyle: { fontSize: "10px", fill: "#f97316", fontWeight: 600 },
@@ -127,6 +159,87 @@ function buildGraph(report: SolFlowReport): { nodes: Node[]; edges: Edge[] } {
 
   return { nodes, edges };
 }
+
+// ── Flow Timeline component ──────────────────────────────────────────────────
+
+interface FlowTimelineProps {
+  flows: SolFlowEdge[];
+  rugTimestamp: Date | null;
+  value: number;
+  onChange: (v: number) => void;
+  playing: boolean;
+  onPlayPause: () => void;
+  cutoffDate: Date | null;
+}
+
+function FlowTimeline({
+  flows,
+  rugTimestamp,
+  value,
+  onChange,
+  playing,
+  onPlayPause,
+  cutoffDate,
+}: FlowTimelineProps) {
+  const timedFlows = flows.filter((f) => f.block_time !== null);
+  if (timedFlows.length === 0) return null;
+
+  const times = timedFlows.map((f) => new Date(f.block_time!).getTime());
+  const minT = Math.min(...times);
+  const maxT = Math.max(...times);
+
+  const relLabel = (): string => {
+    if (!cutoffDate) return "All time";
+    const base = rugTimestamp ?? new Date(minT);
+    const diffMs = cutoffDate.getTime() - base.getTime();
+    if (diffMs < 0) return "Before rug";
+    const s = Math.floor(diffMs / 1000);
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    if (h > 0) return `+${h}h ${m}m after rug`;
+    return `+${m}m after rug`;
+  };
+
+  const visible = cutoffDate
+    ? timedFlows.filter((f) => new Date(f.block_time!).getTime() <= cutoffDate.getTime()).length
+    : timedFlows.length;
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-semibold">⏱ Flow Replay Timeline</h3>
+        <span className="text-xs text-muted-foreground">
+          {visible} / {timedFlows.length} flows visible
+        </span>
+      </div>
+      <div className="flex items-center gap-3">
+        <button
+          onClick={onPlayPause}
+          className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-primary-foreground text-sm transition hover:opacity-80"
+        >
+          {playing ? "⏸" : "▶"}
+        </button>
+        <div className="flex-1 space-y-1">
+          <input
+            type="range"
+            min={0}
+            max={100}
+            value={value}
+            onChange={(e) => onChange(Number(e.target.value))}
+            className="w-full accent-primary"
+          />
+          <div className="flex justify-between text-[10px] text-muted-foreground">
+            <span>{new Date(minT).toLocaleTimeString()}</span>
+            <span className="font-semibold text-orange-400">{relLabel()}</span>
+            <span>{new Date(maxT).toLocaleTimeString()}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
 
 function formatSol(n: number): string {
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K SOL`;
@@ -140,21 +253,73 @@ function formatUsd(n: number | null): string {
   return ` ≈ $${n.toFixed(0)}`;
 }
 
+// ── Main Page ─────────────────────────────────────────────────────────────────
+
 export default function SolTracePage({ params }: Props) {
   const { mint } = params;
   const [report, setReport] = useState<SolFlowReport | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const [sliderVal, setSliderVal] = useState(100);
+  const [playing, setPlaying] = useState(false);
+  const playRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   useEffect(() => {
     setLoading(true);
     fetchSolTrace(mint)
-      .then(setReport)
+      .then((r) => { setReport(r); setSliderVal(100); })
       .catch((e) => setError(e instanceof ApiError ? e.detail : String(e)))
       .finally(() => setLoading(false));
   }, [mint]);
 
-  const graph = useMemo(() => (report ? buildGraph(report) : null), [report]);
+  useEffect(() => {
+    if (playing) {
+      playRef.current = setInterval(() => {
+        setSliderVal((v) => {
+          if (v >= 100) { setPlaying(false); return 100; }
+          return Math.min(v + 1, 100);
+        });
+      }, 80);
+    } else if (playRef.current) {
+      clearInterval(playRef.current);
+    }
+    return () => { if (playRef.current) clearInterval(playRef.current); };
+  }, [playing]);
+
+  const rugTimestamp = useMemo(() => {
+    if (!report?.rug_timestamp) return null;
+    return new Date(report.rug_timestamp);
+  }, [report]);
+
+  const timelineRange = useMemo(() => {
+    if (!report) return null;
+    const timed = report.flows.filter((f) => f.block_time !== null);
+    if (timed.length === 0) return null;
+    const times = timed.map((f) => new Date(f.block_time!).getTime());
+    return { min: Math.min(...times), max: Math.max(...times) };
+  }, [report]);
+
+  const cutoffDate = useMemo(() => {
+    if (!timelineRange) return null;
+    const { min, max } = timelineRange;
+    const t = min + ((max - min) * sliderVal) / 100;
+    return new Date(t);
+  }, [sliderVal, timelineRange]);
+
+  const activeFlows = useMemo(() => {
+    if (!report) return [];
+    if (!cutoffDate || sliderVal === 100) return report.flows;
+    return report.flows.filter((f) => {
+      if (!f.block_time) return true;
+      return new Date(f.block_time).getTime() <= cutoffDate.getTime();
+    });
+  }, [report, cutoffDate, sliderVal]);
+
+  const graph = useMemo(
+    () => (report ? buildGraph(report, activeFlows) : null),
+    [report, activeFlows],
+  );
 
   if (loading) {
     return (
@@ -176,15 +341,23 @@ export default function SolTracePage({ params }: Props) {
     );
   }
 
+  const hasBridge = report.cross_chain_exits.length > 0;
+
   return (
     <main className="mx-auto max-w-6xl px-4 py-10 space-y-8">
+
       {/* Header */}
       <div className="space-y-1">
         <div className="flex flex-wrap items-center gap-3">
           <h1 className="text-2xl font-bold">💸 SOL Flow Trace</h1>
           {report.known_cex_detected && (
-            <span className="rounded-full border border-warning/30 bg-warning/10 px-3 py-1 text-xs font-bold text-warning">
+            <span className="rounded-full border border-orange-500/30 bg-orange-500/10 px-3 py-1 text-xs font-bold text-orange-400">
               CEX destination detected
+            </span>
+          )}
+          {hasBridge && (
+            <span className="rounded-full border border-violet-500/30 bg-violet-500/10 px-3 py-1 text-xs font-bold text-violet-400">
+              🌉 Cross-chain exit detected
             </span>
           )}
         </div>
@@ -213,16 +386,38 @@ export default function SolTracePage({ params }: Props) {
           <span className="text-muted-foreground">Flows: </span>
           <span className="font-bold">{report.flows.length}</span>
         </div>
+        {report.rug_timestamp && (
+          <div>
+            <span className="text-muted-foreground">Rug at: </span>
+            <span className="font-bold">{new Date(report.rug_timestamp).toLocaleString()}</span>
+          </div>
+        )}
       </div>
+
+      {/* Timeline */}
+      <FlowTimeline
+        flows={report.flows}
+        rugTimestamp={rugTimestamp}
+        value={sliderVal}
+        onChange={(v) => { setSliderVal(v); setPlaying(false); }}
+        playing={playing}
+        onPlayPause={() => {
+          if (sliderVal >= 100) setSliderVal(0);
+          setPlaying((p) => !p);
+        }}
+        cutoffDate={cutoffDate}
+      />
 
       {/* Flow graph */}
       <section>
         <h2 className="text-lg font-semibold mb-3">Flow Graph</h2>
-        <div className="legend flex flex-wrap gap-4 mb-3 text-xs">
-          <span className="flex items-center gap-1.5"><span className="h-3 w-3 rounded-full bg-red-500" /> Deployer</span>
-          <span className="flex items-center gap-1.5"><span className="h-3 w-3 rounded-full bg-blue-500" /> Intermediate</span>
-          <span className="flex items-center gap-1.5"><span className="h-3 w-3 rounded-full bg-orange-500" /> CEX</span>
-          <span className="flex items-center gap-1.5"><span className="h-3 w-3 rounded-full bg-gray-500" /> Terminal</span>
+        <div className="legend flex flex-wrap gap-3 mb-3 text-xs">
+          {Object.entries(ENTITY_COLORS).map(([type, color]) => (
+            <span key={type} className="flex items-center gap-1.5">
+              <span className="h-3 w-3 rounded-full" style={{ background: color }} />
+              <span className="capitalize">{type}</span>
+            </span>
+          ))}
         </div>
         <div className="rounded-xl border border-border overflow-hidden" style={{ height: "520px" }}>
           <ReactFlow
@@ -238,22 +433,86 @@ export default function SolTracePage({ params }: Props) {
         </div>
       </section>
 
+      {/* Cross-chain exits */}
+      {hasBridge && (
+        <section className="space-y-3">
+          <h2 className="text-lg font-semibold flex items-center gap-2">
+            🌉 Cross-Chain Exits
+            <span className="text-sm font-normal text-muted-foreground">
+              ({report.cross_chain_exits.length})
+            </span>
+          </h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {report.cross_chain_exits.map((exit: CrossChainExit, i: number) => (
+              <div
+                key={i}
+                className="rounded-xl border border-violet-500/30 bg-card p-4 space-y-2"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-violet-400">{exit.bridge_name}</span>
+                  <span className="text-xs font-bold text-destructive">{formatSol(exit.amount_sol)}</span>
+                </div>
+                <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                  <span className="rounded bg-muted px-1.5 py-0.5 font-mono">
+                    {exit.from_address.slice(0, 6)}…{exit.from_address.slice(-4)}
+                  </span>
+                  <span>→</span>
+                  <span className="font-semibold text-violet-300">{exit.dest_chain}</span>
+                  {exit.dest_address && (
+                    <>
+                      <span>→</span>
+                      <span className="font-mono text-[10px]">{exit.dest_address.slice(0, 10)}…</span>
+                    </>
+                  )}
+                </div>
+                {exit.tx_signature && (
+                  <a
+                    href={`https://solscan.io/tx/${exit.tx_signature}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-block text-[10px] text-primary hover:underline"
+                  >
+                    View tx on Solscan ↗
+                  </a>
+                )}
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
       {/* Terminal wallets */}
       {report.terminal_wallets.length > 0 && (
         <section className="space-y-2">
-          <h2 className="text-lg font-semibold">Terminal Wallets</h2>
+          <h2 className="text-lg font-semibold">
+            Terminal Wallets
+            <span className="ml-2 text-sm font-normal text-muted-foreground">
+              ({report.terminal_wallets.length})
+            </span>
+          </h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            {report.terminal_wallets.map((w) => (
-              <div
-                key={w}
-                className="flex items-center justify-between rounded-lg border border-border bg-card px-3 py-2"
-              >
-                <code className="font-mono text-xs text-muted-foreground">{w}</code>
-              </div>
-            ))}
+            {report.terminal_wallets.map((w) => {
+              const labelInfo = report.flows.find((f) => f.to_address === w);
+              const label = labelInfo?.to_label;
+              return (
+                <div
+                  key={w}
+                  className="flex items-center justify-between rounded-lg border border-border bg-card px-3 py-2"
+                >
+                  <div className="space-y-0.5">
+                    {label && (
+                      <div className="text-xs font-semibold text-orange-400">{label}</div>
+                    )}
+                    <code className="font-mono text-xs text-muted-foreground">{w}</code>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </section>
       )}
     </main>
   );
 }
+
+

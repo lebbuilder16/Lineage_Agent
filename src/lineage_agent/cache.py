@@ -322,6 +322,17 @@ class SQLiteCache:
             "CREATE INDEX IF NOT EXISTS idx_sf_to ON sol_flows(to_address)"
         )
 
+        # sol_flows schema migrations (safe ADD COLUMN — ignored if column already exists)
+        for _col_sql in [
+            "ALTER TABLE sol_flows ADD COLUMN from_label TEXT",
+            "ALTER TABLE sol_flows ADD COLUMN to_label TEXT",
+            "ALTER TABLE sol_flows ADD COLUMN entity_type TEXT",
+        ]:
+            try:
+                await db.execute(_col_sql)
+            except Exception:
+                pass  # column already exists — skip
+
         # cartel_edges: coordination signal edges between operator wallets
         await db.execute(
             """

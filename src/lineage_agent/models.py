@@ -319,6 +319,21 @@ class SolFlowEdge(BaseModel):
     hop: int = Field(ge=0, description="0 = direct from deployer, 1 = one hop away, etc.")
     signature: str = Field(default="", description="Transaction signature")
     block_time: Optional[datetime] = None
+    # Identity resolution (populated by classify_address)
+    from_label: Optional[str] = Field(None, description="Human-readable label for from_address")
+    to_label: Optional[str] = Field(None, description="Human-readable label for to_address")
+    entity_type: Optional[str] = Field(None, description="Entity type of to_address (cex, dex, bridge, …)")
+
+
+class CrossChainExit(BaseModel):
+    """A detected cross-chain capital exit via a bridge program."""
+
+    from_address: str = Field(description="Solana wallet that triggered the bridge transaction")
+    bridge_name: str = Field(description="Human-readable bridge name (e.g. Wormhole Token Bridge)")
+    dest_chain: str = Field(description="Destination chain name (e.g. Ethereum)")
+    dest_address: str = Field(default="", description="Destination wallet address on the target chain")
+    amount_sol: float = Field(ge=0.0, description="SOL amount sent into the bridge")
+    tx_signature: str = Field(default="", description="Solana transaction signature")
 
 
 class SolFlowReport(BaseModel):
@@ -338,6 +353,12 @@ class SolFlowReport(BaseModel):
     )
     hop_count: int = Field(default=1, ge=1, description="Deepest hop reached")
     analysis_timestamp: datetime
+    rug_timestamp: Optional[datetime] = Field(
+        None, description="Earliest block_time of hop-0 flows (first moment of extraction)"
+    )
+    cross_chain_exits: list[CrossChainExit] = Field(
+        default_factory=list, description="Detected cross-chain bridge exits"
+    )
 
 
 # ---------------------------------------------------------------------------
