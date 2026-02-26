@@ -127,7 +127,19 @@ async def detect_lineage(
         # SQLite cache returns dicts (JSON-deserialized); convert back to model
         if isinstance(cached, dict):
             try:
-                return LineageResult(**cached)
+                cached_result = LineageResult(**cached)
+                # Bust stale "Unknown" entries: confidence=0 + empty name means
+                # DAS name/symbol were not read at cache time (pre-fix).
+                # Re-compute so the fixed enrichment path runs.
+                _qt = cached_result.query_token
+                if cached_result.confidence == 0.0 and not (_qt.name or _qt.symbol):
+                    logger.info(
+                        "Busting stale confidence=0/Unknown lineage cache for %s",
+                        mint_address,
+                    )
+                    await _cache_delete(f"lineage:{mint_address}")
+                else:
+                    return cached_result
             except Exception:
                 # Schema changed after deploy — discard and re-compute
                 logger.warning(
@@ -160,17 +172,24 @@ async def detect_lineage(
     if created_at is not None:
         query_meta.created_at = created_at
 
-    # Enrich with on-chain DAS (Helius getAsset) — fills metadata_uri, image, deployer
+    # Enrich with on-chain DAS (Helius getAsset) — fills name, symbol, metadata_uri, image, deployer
+    # Fungible SPL tokens (Moonshot, LetsBonk, etc.) often have no DexScreener pairs
+    # at scan time, so query_meta.name/symbol may be empty.  DAS always stores the
+    # canonical name and symbol in content.metadata — read them here before the
+    # early-exit guard below.
     try:
         _q_asset = await _get_asset_cached(rpc, mint_address)
+        _q_content = _q_asset.get("content") or {}
+        _q_content_meta = _q_content.get("metadata") or {}
+        # Name / symbol — only fill from DAS when DexScreener returned nothing
+        if not query_meta.name:
+            query_meta.name = _q_content_meta.get("name") or ""
+        if not query_meta.symbol:
+            query_meta.symbol = _q_content_meta.get("symbol") or ""
         if not query_meta.metadata_uri:
-            query_meta.metadata_uri = (
-                (_q_asset.get("content") or {}).get("json_uri") or ""
-            )
+            query_meta.metadata_uri = _q_content.get("json_uri") or ""
         if not query_meta.image_uri:
-            query_meta.image_uri = (
-                ((_q_asset.get("content") or {}).get("links") or {}).get("image") or ""
-            )
+            query_meta.image_uri = (_q_content.get("links") or {}).get("image") or ""
         if not query_meta.deployer or query_meta.deployer in _NON_DEPLOYER_AUTHORITIES:
             _q_creators = _q_asset.get("creators") or []
             _resolved = next(
