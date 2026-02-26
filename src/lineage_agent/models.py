@@ -381,7 +381,8 @@ class CartelEdge(BaseModel):
     wallet_a: str
     wallet_b: str
     signal_type: Literal[
-        "dna_match", "sol_transfer", "timing_sync", "phash_cluster", "cross_holding"
+        "dna_match", "sol_transfer", "timing_sync", "phash_cluster", "cross_holding",
+        "funding_link", "shared_lp", "sniper_ring",
     ]
     signal_strength: float = Field(ge=0.0, le=1.0)
     evidence: dict = Field(default_factory=dict)
@@ -406,6 +407,29 @@ class CartelReport(BaseModel):
 
     mint: str
     deployer_community: Optional[CartelCommunity] = None
+
+
+class FinancialGraphSummary(BaseModel):
+    """Summary of financial coordination signals for a deployer."""
+
+    deployer: str
+    funding_links: int = Field(0, description="Pre-deploy SOL funding edges found")
+    shared_lp_count: int = Field(0, description="Shared LP provider edges found")
+    sniper_ring_count: int = Field(0, description="Sniper ring edges found")
+    metadata_edges: int = Field(0, description="Original metadata/timing signal edges")
+    financial_score: float = Field(
+        0.0,
+        ge=0.0,
+        description=(
+            "Composite score: funding×30 + shared_lp×25 + sniper×20 "
+            "+ coordinated_launches×15 + metadata×10"
+        ),
+    )
+    edges: list[CartelEdge] = Field(default_factory=list)
+    connected_deployers: list[str] = Field(
+        default_factory=list,
+        description="Other deployer wallets linked via financial signals",
+    )
 
 
 # ---------------------------------------------------------------------------

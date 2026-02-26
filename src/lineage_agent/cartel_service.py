@@ -1,7 +1,7 @@
 """
 Cartel Graph — detect coordinated operator networks on Solana.
 
-Uses 5 independent on-chain coordination signals to build a weighted graph,
+Uses 8 independent on-chain coordination signals to build a weighted graph,
 then runs Louvain community detection (python-louvain / networkx) to find
 cartel clusters.
 
@@ -11,6 +11,11 @@ Signals:
   3. timing_sync   — same-narrative launches within 30 minutes of each other
   4. phash_cluster — near-identical token logos (pHash hamming ≤ 8 / 64 bits)
   5. cross_holding — deployer B holds tokens created by deployer A
+
+Financial graph signals (cartel_financial_service):
+  6. funding_link  — pre-deploy SOL funding between deployers (72 h window)
+  7. shared_lp     — same wallet bootstrapped liquidity for different deployers
+  8. sniper_ring   — coordinated early buying across different deployers
 
 The cartel sweep runs hourly via the FastAPI lifespan. Per-lineage lookup
 reads pre-computed edges from cartel_edges table and runs community detection.
@@ -70,15 +75,20 @@ async def compute_cartel_report(mint: str, deployer: str) -> Optional[CartelRepo
 
 
 async def build_cartel_edges_for_deployer(deployer: str) -> int:
-    """Build all 5 coordination signal edges for a single deployer.
+    """Build all coordination signal edges for a single deployer.
 
     Returns number of new/updated edges.
+    Runs the 5 original metadata/timing signals PLUS
+    the 3 financial graph signals (funding_link, shared_lp, sniper_ring).
     """
+    from .cartel_financial_service import build_financial_edges
+
     results = await asyncio.gather(
         _signal_timing_sync(deployer),
         _signal_phash_cluster(deployer),
         _signal_sol_transfer(deployer),
         _signal_cross_holdings(deployer),
+        build_financial_edges(deployer),
         return_exceptions=True,
     )
     total = sum(r for r in results if isinstance(r, int))

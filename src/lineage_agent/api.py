@@ -61,6 +61,7 @@ from .operator_impact_service import compute_operator_impact
 from .sol_flow_service import get_sol_flow_report, trace_sol_flow
 from .lineage_detector import resolve_deployer as _resolve_deployer
 from .cartel_service import compute_cartel_report, run_cartel_sweep
+from .cartel_financial_service import build_financial_edges
 from .data_sources._clients import operator_mapping_query, sol_flows_query
 from .logging_config import generate_request_id, request_id_ctx, setup_logging
 from .models import (
@@ -69,6 +70,7 @@ from .models import (
     CartelCommunity,
     CartelReport,
     DeployerProfile,
+    FinancialGraphSummary,
     LineageResult,
     OperatorImpactReport,
     SolFlowReport,
@@ -646,6 +648,104 @@ async def get_cartel_community(
         logger.exception("Cartel community lookup failed for %s", community_id)
         raise HTTPException(status_code=500, detail="Internal server error") from exc
     raise HTTPException(status_code=404, detail="Community not found")
+
+
+@app.get(
+    "/cartel/{deployer}/financial",
+    response_model=FinancialGraphSummary,
+    tags=["intelligence"],
+    summary="Financial coordination graph for a deployer",
+)
+@limiter.limit("10/minute")
+async def cartel_financial_graph(
+    request: Request,
+    deployer: str,
+) -> FinancialGraphSummary:
+    """Build and return the financial coordination graph for a deployer.
+
+    Runs the 3 financial signals (funding_link, shared_lp, sniper_ring)
+    on-demand and returns a summary with scoring and edge details.
+    """
+    if not _BASE58_RE.match(deployer):
+        raise HTTPException(status_code=400, detail="Invalid Solana address")
+    try:
+        # Trigger financial edge collection for this deployer
+        await asyncio.wait_for(build_financial_edges(deployer), timeout=60.0)
+
+        # Fetch all edges for scoring
+        from .data_sources._clients import cartel_edges_query
+        all_edges = await cartel_edges_query(deployer)
+
+        import json as _json
+        _FINANCIAL_TYPES = {"funding_link", "shared_lp", "sniper_ring"}
+        _METADATA_TYPES = {"dna_match", "sol_transfer", "timing_sync", "phash_cluster", "cross_holding"}
+
+        funding = 0
+        shared_lp = 0
+        sniper = 0
+        metadata = 0
+        timing = 0
+        edge_list: list = []
+        connected: set[str] = set()
+
+        from .models import CartelEdge as _CE
+        for row in all_edges:
+            st = row.get("signal_type", "")
+            try:
+                ev = _json.loads(row.get("evidence_json") or "{}")
+                if isinstance(ev, str):
+                    ev = _json.loads(ev)
+            except Exception:
+                ev = {}
+            edge = _CE(
+                wallet_a=row["wallet_a"],
+                wallet_b=row["wallet_b"],
+                signal_type=st,
+                signal_strength=float(row.get("signal_strength", 0.5)),
+                evidence=ev,
+            )
+            edge_list.append(edge)
+
+            other = row["wallet_b"] if row["wallet_a"] == deployer else row["wallet_a"]
+            if st in _FINANCIAL_TYPES:
+                connected.add(other)
+
+            if st == "funding_link":
+                funding += 1
+            elif st == "shared_lp":
+                shared_lp += 1
+            elif st == "sniper_ring":
+                sniper += 1
+            elif st == "timing_sync":
+                timing += 1
+            elif st in _METADATA_TYPES:
+                metadata += 1
+
+        score = (
+            funding * 30
+            + shared_lp * 25
+            + sniper * 20
+            + timing * 15
+            + metadata * 10
+        )
+
+        return FinancialGraphSummary(
+            deployer=deployer,
+            funding_links=funding,
+            shared_lp_count=shared_lp,
+            sniper_ring_count=sniper,
+            metadata_edges=metadata + timing,
+            financial_score=score,
+            edges=edge_list,
+            connected_deployers=sorted(connected),
+        )
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=504, detail="Financial graph analysis timed out")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Financial graph failed for %s", deployer)
+        raise HTTPException(status_code=500, detail="Internal server error") from exc
 
 
 # ------------------------------------------------------------------
