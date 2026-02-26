@@ -81,8 +81,15 @@ class DexScreenerClient:
         if not pairs:
             return TokenMetadata(mint=mint)
 
+        # Restrict to Solana pairs for accurate aggregation; fall back to all
+        # pairs only when no Solana-tagged entries are present.
+        solana_pairs = [
+            p for p in pairs
+            if (p.get("chainId") or "").lower() == "solana"
+        ] or pairs
+
         best = max(
-            pairs, key=lambda p: (p.get("liquidity") or {}).get("usd") or 0
+            solana_pairs, key=lambda p: (p.get("liquidity") or {}).get("usd") or 0
         )
         # Our mint might be the base OR the quote token in the pair.
         base_token = best.get("baseToken") or {}
@@ -106,19 +113,40 @@ class DexScreenerClient:
                 if created_at is None or dt < created_at:
                     created_at = dt
 
+        # Aggregate total liquidity across ALL Solana pools (Raydium, Orca,
+        # Meteora, …).  Showing only the best pool's liquidity understates the
+        # true on-market depth when a token has multiple pools.
+        liq_sum = sum(
+            _safe_float((p.get("liquidity") or {}).get("usd")) or 0.0
+            for p in solana_pairs
+        )
+        total_liquidity: Optional[float] = liq_sum if liq_sum > 0 else None
+
+        # Scan ALL Solana pairs for the best market cap.  DexScreener populates
+        # `marketCap` (circulating supply × price) only when on-chain supply
+        # data is available; `fdv` (total supply × price) is set more often.
+        # Prefer `marketCap` — they differ for tokens with locked/burned supply.
+        market_cap: Optional[float] = None
+        for p in solana_pairs:
+            mc = _safe_float(p.get("marketCap"))
+            if mc:
+                market_cap = mc
+                break
+        if not market_cap:
+            for p in solana_pairs:
+                fdv = _safe_float(p.get("fdv"))
+                if fdv:
+                    market_cap = fdv
+                    break
+
         return TokenMetadata(
             mint=mint,
             name=token_info.get("name", ""),
             symbol=token_info.get("symbol", ""),
             image_uri=image_uri,
             price_usd=_safe_float(best.get("priceUsd")),
-            market_cap_usd=(
-                _safe_float(best.get("marketCap"))
-                or _safe_float(best.get("fdv"))  # fdv filled far more often
-            ),
-            liquidity_usd=_safe_float(
-                (best.get("liquidity") or {}).get("usd")
-            ),
+            market_cap_usd=market_cap,
+            liquidity_usd=total_liquidity,
             created_at=created_at,
             dex_url=best.get("url", ""),
         )
@@ -128,10 +156,9 @@ class DexScreenerClient:
     ) -> list[TokenSearchResult]:
         """Convert raw DexScreener pair dicts to ``TokenSearchResult`` list."""
         seen: dict[str, TokenSearchResult] = {}
-        # Track the earliest pairCreatedAt per mint independently of liquidity.
-        # The highest-liquidity pair is used for price/mcap data, but the
-        # oldest pair date is the best proxy for token age.
+        # Track per-mint aggregates across all Solana pairs for the same token.
         earliest_created: dict[str, datetime] = {}
+        accumulated_liq: dict[str, float] = {}  # total liquidity across pools
 
         for pair in pairs:
             base = pair.get("baseToken") or {}
@@ -145,6 +172,9 @@ class DexScreenerClient:
             liq = _safe_float((pair.get("liquidity") or {}).get("usd"))
             info = pair.get("info") or {}
 
+            # Accumulate total liquidity for this mint across all its pools
+            accumulated_liq[mint] = accumulated_liq.get(mint, 0.0) + (liq or 0.0)
+
             # Always track the earliest pairCreatedAt for this mint
             pair_created_ms = pair.get("pairCreatedAt")
             if pair_created_ms:
@@ -155,6 +185,7 @@ class DexScreenerClient:
                 if prev is None or pair_dt < prev:
                     earliest_created[mint] = pair_dt
 
+            # Keep the highest-liquidity pair to source price / mcap / image
             existing = seen.get(mint)
             if existing and (existing.liquidity_usd or 0) >= (liq or 0):
                 continue
@@ -165,14 +196,23 @@ class DexScreenerClient:
                 symbol=base.get("symbol", ""),
                 image_uri=info.get("imageUrl", ""),
                 price_usd=_safe_float(pair.get("priceUsd")),
-                market_cap_usd=_safe_float(pair.get("marketCap")),
-                liquidity_usd=liq,
+                # Prefer circulating-supply market cap; fall back to FDV so
+                # that the value is consistent with the detail view.
+                market_cap_usd=(
+                    _safe_float(pair.get("marketCap"))
+                    or _safe_float(pair.get("fdv"))
+                ),
+                liquidity_usd=liq,  # replaced with total below
                 dex_url=pair.get("url", ""),
             )
 
-        # Attach the earliest pairCreatedAt to each result
+        # Attach the earliest pairCreatedAt and the aggregated liquidity to each
+        # result so users see the true on-market depth, not just the best pool.
         for mint, result in seen.items():
             result.pair_created_at = earliest_created.get(mint)
+            total_liq = accumulated_liq.get(mint, 0.0)
+            if total_liq > 0:
+                result.liquidity_usd = total_liq
 
         return list(seen.values())
 

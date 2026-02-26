@@ -28,7 +28,7 @@ class TestPairsToMetadata:
         )
         assert meta.name == "Bonk"
         assert meta.symbol == "BONK"
-        assert meta.liquidity_usd == 15_000_000  # highest liquidity pair
+        assert meta.liquidity_usd == 20_000_000  # total across all Solana pools
         assert meta.image_uri == "https://example.com/bonk.png"
         assert meta.dex_url == "https://dexscreener.com/solana/bonk"
 
@@ -76,7 +76,7 @@ class TestPairsToSearchResults:
         ]
         results = client.pairs_to_search_results(pairs)
         assert len(results) == 1
-        assert results[0].liquidity_usd == 500  # kept highest liquidity
+        assert results[0].liquidity_usd == 600  # aggregated across all pools (100 + 500)
 
     def test_empty_input(self, client):
         assert client.pairs_to_search_results([]) == []
