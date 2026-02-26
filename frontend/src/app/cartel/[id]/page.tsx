@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import {
   ReactFlow,
@@ -13,6 +14,12 @@ import {
 import "@xyflow/react/dist/style.css";
 import { fetchCartelCommunity, type CartelCommunity, type CartelEdge, ApiError } from "@/lib/api";
 import { cn } from "@/lib/utils";
+
+// Three.js must be client-side only (no SSR)
+const CartelGraph3D = dynamic(
+  () => import("@/components/forensics/CartelGraph3D"),
+  { ssr: false, loading: () => <div className="h-[580px] rounded-xl border border-border bg-muted animate-pulse" /> }
+);
 
 interface Props {
   params: { id: string };
@@ -118,6 +125,7 @@ export default function CartelPage({ params }: Props) {
   const [community, setCommunity] = useState<CartelCommunity | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [view, setView] = useState<"2d" | "3d">("3d");
 
   useEffect(() => {
     setLoading(true);
@@ -188,28 +196,57 @@ export default function CartelPage({ params }: Props) {
 
       {/* Graph */}
       <section>
-        <h2 className="text-lg font-semibold mb-3">Network Graph</h2>
-        {/* Legend */}
-        <div className="flex flex-wrap gap-4 mb-3 text-xs">
-          {Object.entries(SIGNAL_COLORS).map(([key, { stroke, label }]) => (
-            <span key={key} className="flex items-center gap-1.5">
-              <span className="inline-block h-0.5 w-5 rounded" style={{ backgroundColor: stroke }} />
-              {label}
-            </span>
-          ))}
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-lg font-semibold">Network Graph</h2>
+          <div className="flex items-center gap-1 rounded-lg border border-border p-0.5 text-xs">
+            <button
+              onClick={() => setView("3d")}
+              className={cn(
+                "rounded-md px-3 py-1 font-medium transition-colors",
+                view === "3d" ? "bg-indigo-600 text-white" : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              3D
+            </button>
+            <button
+              onClick={() => setView("2d")}
+              className={cn(
+                "rounded-md px-3 py-1 font-medium transition-colors",
+                view === "2d" ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              2D
+            </button>
+          </div>
         </div>
-        <div className="rounded-xl border border-border overflow-hidden" style={{ height: "520px" }}>
-          <ReactFlow
-            nodes={graph.nodes}
-            edges={graph.edges}
-            fitView
-            proOptions={{ hideAttribution: true }}
-          >
-            <Background gap={16} color="#333" />
-            <Controls />
-            <MiniMap nodeColor={() => "#4f46e5"} />
-          </ReactFlow>
-        </div>
+
+        {view === "3d" ? (
+          <CartelGraph3D wallets={community.wallets} edges={community.edges} />
+        ) : (
+          <>
+            {/* 2D legend */}
+            <div className="flex flex-wrap gap-4 mb-3 text-xs">
+              {Object.entries(SIGNAL_COLORS).map(([key, { stroke, label }]) => (
+                <span key={key} className="flex items-center gap-1.5">
+                  <span className="inline-block h-0.5 w-5 rounded" style={{ backgroundColor: stroke }} />
+                  {label}
+                </span>
+              ))}
+            </div>
+            <div className="rounded-xl border border-border overflow-hidden" style={{ height: "520px" }}>
+              <ReactFlow
+                nodes={graph.nodes}
+                edges={graph.edges}
+                fitView
+                proOptions={{ hideAttribution: true }}
+              >
+                <Background gap={16} color="#333" />
+                <Controls />
+                <MiniMap nodeColor={() => "#4f46e5"} />
+              </ReactFlow>
+            </div>
+          </>
+        )}
       </section>
 
       {/* Active since */}
