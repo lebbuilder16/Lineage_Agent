@@ -527,8 +527,8 @@ async def get_sol_trace(
             trace_sol_flow(mint, _deployer),
             timeout=22.0,
         )
-    except asyncio.TimeoutError:
-        raise HTTPException(status_code=504, detail="SOL trace timed out — try again later")
+    except (asyncio.TimeoutError, HTTPException):
+        raise
     except Exception as exc:
         logger.exception("SOL trace failed for %s", mint)
         raise HTTPException(status_code=500, detail="Internal server error") from exc
