@@ -157,7 +157,13 @@ class DexScreenerClient:
         """Convert raw DexScreener pair dicts to ``TokenSearchResult`` list."""
         seen: dict[str, TokenSearchResult] = {}
         # Track per-mint aggregates across all Solana pairs for the same token.
-        earliest_created: dict[str, datetime] = {}
+        # pairCreatedAt of the highest-liquidity pair per mint.
+        # We intentionally use the MAIN (highest-liquidity) pool's creation date
+        # rather than the earliest across all pools.  Tokens can have small test
+        # pools created days before the real viral launch; anchoring to the
+        # main pool avoids making a copycat appear older than an organic PumpFun
+        # launch (e.g., pre-minted token with a tiny early pool).
+        selected_pair_created: dict[str, Optional[datetime]] = {}
         accumulated_liq: dict[str, float] = {}  # total liquidity across pools
 
         for pair in pairs:
@@ -175,20 +181,18 @@ class DexScreenerClient:
             # Accumulate total liquidity for this mint across all its pools
             accumulated_liq[mint] = accumulated_liq.get(mint, 0.0) + (liq or 0.0)
 
-            # Always track the earliest pairCreatedAt for this mint
-            pair_created_ms = pair.get("pairCreatedAt")
-            if pair_created_ms:
-                pair_dt = datetime.fromtimestamp(
-                    pair_created_ms / 1000, tz=timezone.utc
-                )
-                prev = earliest_created.get(mint)
-                if prev is None or pair_dt < prev:
-                    earliest_created[mint] = pair_dt
-
             # Keep the highest-liquidity pair to source price / mcap / image
             existing = seen.get(mint)
             if existing and (existing.liquidity_usd or 0) >= (liq or 0):
                 continue
+
+            # Record the pairCreatedAt of this (now-highest-liq) pair.
+            pair_created_ms = pair.get("pairCreatedAt")
+            selected_pair_created[mint] = (
+                datetime.fromtimestamp(pair_created_ms / 1000, tz=timezone.utc)
+                if pair_created_ms
+                else None
+            )
 
             seen[mint] = TokenSearchResult(
                 mint=mint,
@@ -206,10 +210,10 @@ class DexScreenerClient:
                 dex_url=pair.get("url", ""),
             )
 
-        # Attach the earliest pairCreatedAt and the aggregated liquidity to each
+        # Attach the main-pool pairCreatedAt and the aggregated liquidity to each
         # result so users see the true on-market depth, not just the best pool.
         for mint, result in seen.items():
-            result.pair_created_at = earliest_created.get(mint)
+            result.pair_created_at = selected_pair_created.get(mint)
             total_liq = accumulated_liq.get(mint, 0.0)
             if total_liq > 0:
                 result.liquidity_usd = total_liq

@@ -328,11 +328,21 @@ async def detect_lineage(
             )
             c_asset = await _get_asset_cached(rpc, candidate.mint)
 
-        # Fallback: DexScreener pairCreatedAt when on-chain timestamp unavailable.
-        # This is critical for root selection — without it, tokens with no DAS
-        # timestamp appear "infinitely new" and are never chosen as root.
-        if c_created is None and candidate.pair_created_at is not None:
-            c_created = candidate.pair_created_at
+        # Anchor to on-market date for root-selection accuracy.
+        # A token may have been pre-minted (mint account created) well before
+        # going viral; its true "trading start" is when its main liquidity pool
+        # was listed on DexScreener — not when the mint was initialised.
+        # Rule: effective created_at = max(chain_timestamp, pairCreatedAt).
+        # • No chain timestamp → fall back to pairCreatedAt (existing behaviour).
+        # • Chain timestamp earlier than pairCreatedAt → use pairCreatedAt (pre-mint).
+        # • Chain timestamp later than pairCreatedAt → keep chain timestamp (normal).
+        if candidate.pair_created_at is not None:
+            if c_created is None:
+                c_created = candidate.pair_created_at
+            elif candidate.pair_created_at > c_created:
+                # Token was pre-minted before its real launch: treat listing date
+                # as the trading-start so it doesn't falsely appear "oldest".
+                c_created = candidate.pair_created_at
 
         # Derive image / metadata_uri from DAS if not available from DexScreener
         c_metadata_uri = (c_asset.get("content") or {}).get("json_uri") or ""
@@ -861,7 +871,14 @@ def _assign_generations(root_mint: str, derivatives: list[DerivativeInfo]) -> No
 
 
 def _parse_datetime(value: Any) -> datetime | None:
-    """Convert a value to datetime, handling strings from SQLite cache."""
+    """Convert a value to datetime, handling strings from SQLite cache.
+
+    Accepted formats:
+    - ``datetime`` objects (pass-through)
+    - ISO-format strings (e.g. from ``json.dumps(default=str)``)
+    - Integer / float Unix timestamps in seconds (e.g. Helius DAS
+      ``token_info.created_at`` field which is returned as a plain int)
+    """
     if value is None:
         return None
     if isinstance(value, datetime):
@@ -874,6 +891,11 @@ def _parse_datetime(value: Any) -> datetime | None:
                 dt = dt.replace(tzinfo=timezone.utc)
             return dt
         except (ValueError, TypeError):
+            return None
+    if isinstance(value, (int, float)):
+        try:
+            return datetime.fromtimestamp(float(value), tz=timezone.utc)
+        except (ValueError, OSError, OverflowError):
             return None
     return None
 

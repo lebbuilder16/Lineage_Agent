@@ -78,5 +78,53 @@ class TestPairsToSearchResults:
         assert len(results) == 1
         assert results[0].liquidity_usd == 600  # aggregated across all pools (100 + 500)
 
+    def test_pair_created_at_uses_main_pool_not_earliest(self, client):
+        """pair_created_at should reflect the highest-liquidity pool's date.
+
+        Regression test for the jelly-my-jelly root-inversion bug: a token
+        with an early low-liquidity test pool (pairCreatedAt = t1) and a later
+        high-liquidity main pool (pairCreatedAt = t2 > t1) must report
+        pair_created_at = t2.  Using t1 would make it look older than organic
+        PumpFun launches and incorrectly select it as the root.
+        """
+        import time
+        # Pool A: small test pool, created earlier (2025-01-29 12:00 UTC)
+        early_ms = int(1738148400 * 1000)   # 2025-01-29 12:00 UTC
+        # Pool B: main viral pool, created later (2025-01-30 15:31 UTC)
+        main_ms = int(1738247460 * 1000)    # 2025-01-30 15:31 UTC
+
+        pairs = [
+            {
+                "chainId": "solana",
+                "baseToken": {"address": "MINT_X", "name": "CopyToken", "symbol": "CPY"},
+                "info": {},
+                "priceUsd": "0.001",
+                "marketCap": 100_000,
+                "liquidity": {"usd": 500},       # tiny test pool
+                "url": "https://dex.com/test-pool",
+                "pairCreatedAt": early_ms,
+            },
+            {
+                "chainId": "solana",
+                "baseToken": {"address": "MINT_X", "name": "CopyToken", "symbol": "CPY"},
+                "info": {},
+                "priceUsd": "0.001",
+                "marketCap": 100_000,
+                "liquidity": {"usd": 133_900_000},  # main viral pool
+                "url": "https://dex.com/main-pool",
+                "pairCreatedAt": main_ms,
+            },
+        ]
+        results = client.pairs_to_search_results(pairs)
+        assert len(results) == 1
+        r = results[0]
+        assert r.pair_created_at is not None
+        # Must use the MAIN pool date (Jan 30), NOT the test pool date (Jan 29)
+        assert r.pair_created_at.day == 30, (
+            f"Expected pair_created_at = Jan 30 (main pool), got day={r.pair_created_at.day}"
+        )
+        # Total liquidity still aggregated from both pools
+        assert r.liquidity_usd == pytest.approx(133_900_500)
+
     def test_empty_input(self, client):
         assert client.pairs_to_search_results([]) == []
