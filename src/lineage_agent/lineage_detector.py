@@ -631,64 +631,7 @@ async def detect_lineage(
         except Exception as _oi_exc:
             logger.warning("[operator_impact] enricher failed: %s", _oi_exc)
 
-    # Initiative 2: SOL flow — scoped to the SCANNED token
-    result.sol_flow = await _safe(
-        get_sol_flow_report(_scan_mint), name="sol_flow_read",
-    )
-    if result.sol_flow is None and _scan_deployer:
-        try:
-            result.sol_flow = await asyncio.wait_for(
-                trace_sol_flow(_scan_mint, _scan_deployer),
-                timeout=15.0,
-            )
-        except asyncio.TimeoutError:
-            logger.warning("[sol_flow] trace timed out for %s — continuing in background", _scan_mint[:8])
-            asyncio.ensure_future(trace_sol_flow(_scan_mint, _scan_deployer))
-        except Exception as _sf_exc:
-            logger.warning("[sol_flow] trace failed: %s", _sf_exc)
-
-    # Initiative 3: cartel — scoped to the SCANNED token's deployer
-    if _scan_deployer:
-        try:
-            await asyncio.wait_for(
-                build_cartel_edges_for_deployer(_scan_deployer),
-                timeout=8.0,
-            )
-        except asyncio.TimeoutError:
-            logger.warning("[cartel] edge build timed out for %s", _scan_deployer[:8])
-        except Exception as _ce_exc:
-            logger.warning("[cartel] edge build failed: %s", _ce_exc)
-    result.cartel_report = await _safe(
-        compute_cartel_report(_scan_mint, _scan_deployer),
-        name="cartel_report",
-    )
-
-    # Initiative 4: Insider sell / silent drain detection.
-    # Uses DexScreener data already in memory + 1 RPC/wallet balance call.
-    _linked_for_sell = (
-        result.operator_fingerprint.linked_wallets
-        if result.operator_fingerprint
-        else []
-    )
-    try:
-        result.insider_sell = await asyncio.wait_for(
-            analyze_insider_sell(
-                mint=_scan_mint,
-                deployer=_scan_deployer,
-                linked_wallets=_linked_for_sell,
-                pairs=pairs,
-                rpc=rpc,
-            ),
-            timeout=10.0,
-        )
-    except asyncio.TimeoutError:
-        logger.warning("[insider_sell] timed out for %s", _scan_mint[:8])
-    except Exception as _is_exc:
-        logger.warning("[insider_sell] enricher failed: %s", _is_exc)
-
-    # Initiative 5: Bundle wallet tracking
-    # Detect coordinated early buyers (Jito bundle) and trace SOL back to deployer.
-    # Sol price from query_meta or root_meta if available.
+    # Fetch SOL price once (used by bundle tracker for USD conversion)
     _sol_price: Optional[float] = None
     try:
         _wsol = "So11111111111111111111111111111111111111112"
@@ -697,20 +640,77 @@ async def detect_lineage(
             _sol_price = _jup_sol
     except Exception:
         pass
-    try:
-        result.bundle_report = await asyncio.wait_for(
-            analyze_bundle(
-                mint=_scan_mint,
-                deployer=_scan_deployer,
-                sol_price_usd=_sol_price,
-            ),
-            timeout=25.0,
+
+    # Initiatives 2, 3, 4, 5 — all independent, run in parallel.
+    # Wall-time = max(sol_flow≤20s, cartel≤8s, insider≤10s, bundle≤25s) = 25s
+    # vs. sequential 58s — critical to stay within ANALYSIS_TIMEOUT_SECONDS.
+    _linked_for_sell = (
+        result.operator_fingerprint.linked_wallets
+        if result.operator_fingerprint
+        else []
+    )
+
+    async def _run_sol_flow() -> Optional[object]:
+        flow = await _safe(get_sol_flow_report(_scan_mint), name="sol_flow_read")
+        if flow is None and _scan_deployer:
+            try:
+                flow = await asyncio.wait_for(
+                    trace_sol_flow(_scan_mint, _scan_deployer), timeout=20.0
+                )
+            except asyncio.TimeoutError:
+                logger.warning("[sol_flow] timed out — continuing in background")
+                asyncio.ensure_future(trace_sol_flow(_scan_mint, _scan_deployer))
+            except Exception as _e:
+                logger.warning("[sol_flow] failed: %s", _e)
+        return flow
+
+    async def _run_cartel() -> Optional[object]:
+        if _scan_deployer:
+            try:
+                await asyncio.wait_for(
+                    build_cartel_edges_for_deployer(_scan_deployer), timeout=8.0
+                )
+            except Exception:
+                pass
+        return await _safe(
+            compute_cartel_report(_scan_mint, _scan_deployer), name="cartel_report"
         )
-    except asyncio.TimeoutError:
-        logger.warning("[bundle] timed out for %s", _scan_mint[:8])
-        asyncio.ensure_future(analyze_bundle(_scan_mint, _scan_deployer, _sol_price))
-    except Exception as _bun_exc:
-        logger.warning("[bundle] enricher failed: %s", _bun_exc)
+
+    async def _run_insider() -> Optional[object]:
+        try:
+            return await asyncio.wait_for(
+                analyze_insider_sell(
+                    mint=_scan_mint,
+                    deployer=_scan_deployer,
+                    linked_wallets=_linked_for_sell,
+                    pairs=pairs,
+                    rpc=rpc,
+                ),
+                timeout=10.0,
+            )
+        except asyncio.TimeoutError:
+            logger.warning("[insider_sell] timed out for %s", _scan_mint[:8])
+            return None
+        except Exception as _e:
+            logger.warning("[insider_sell] failed: %s", _e)
+            return None
+
+    async def _run_bundle() -> Optional[object]:
+        return await _safe(
+            analyze_bundle(_scan_mint, _scan_deployer, _sol_price), name="bundle"
+        )
+
+    (
+        result.sol_flow,
+        result.cartel_report,
+        result.insider_sell,
+        result.bundle_report,
+    ) = await asyncio.gather(
+        _run_sol_flow(),
+        _run_cartel(),
+        _run_insider(),
+        _run_bundle(),
+    )
 
     await _progress("Analysis complete", 100)
     await _cache_set(f"lineage:{mint_address}", result, ttl=CACHE_TTL_LINEAGE_SECONDS)
