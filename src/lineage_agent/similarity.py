@@ -64,7 +64,7 @@ def compute_symbol_similarity(symbol_a: str, symbol_b: str) -> float:
 async def compute_image_similarity(
     url_a: str,
     url_b: str,
-    timeout: int = 10,
+    timeout: int = 5,
     client: Optional[httpx.AsyncClient] = None,
 ) -> float:
     """Perceptual-hash similarity between two images fetched by URL.
@@ -107,31 +107,21 @@ async def compute_image_similarity(
     return similarity
 
 
-async def _phash_from_url(url: str, timeout: int = 10, client: httpx.AsyncClient | None = None):
-    """Download an image and compute its perceptual hash.
-
-    If *client* is provided it will be reused (no overhead from creating
-    a fresh TCP connection per call).  Retries once on transient failure.
-    """
-    _MAX_ATTEMPTS = 2
-    for attempt in range(_MAX_ATTEMPTS):
-        try:
-            if client is not None:
-                resp = await client.get(url)
+async def _phash_from_url(url: str, timeout: int = 5, client: httpx.AsyncClient | None = None):
+    """Download an image and compute its perceptual hash."""
+    try:
+        if client is not None:
+            resp = await client.get(url)
+            resp.raise_for_status()
+        else:
+            async with httpx.AsyncClient(timeout=timeout) as _client:
+                resp = await _client.get(url)
                 resp.raise_for_status()
-            else:
-                async with httpx.AsyncClient(timeout=timeout) as _client:
-                    resp = await _client.get(url)
-                    resp.raise_for_status()
-            img = Image.open(io.BytesIO(resp.content)).convert("RGB")
-            return imagehash.phash(img)
-        except Exception as exc:  # noqa: BLE001
-            if attempt < _MAX_ATTEMPTS - 1:
-                await asyncio.sleep(0.5)
-                continue
-            logger.debug("Could not compute phash for %s: %s", url, exc)
-            return None
-    return None
+        img = Image.open(io.BytesIO(resp.content)).convert("RGB")
+        return imagehash.phash(img)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("Could not compute phash for %s: %s", url, exc)
+        return None
 
 
 # ------------------------------------------------------------------

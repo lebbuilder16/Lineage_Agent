@@ -229,7 +229,7 @@ async def detect_lineage(
         try:
             deployer_assets = await asyncio.wait_for(
                 rpc.search_assets_by_creator(query_meta.deployer),
-                timeout=8.0,
+                timeout=5.0,
             )
             _seen = {c.mint for c in candidates}
             for _da in deployer_assets:
@@ -275,7 +275,8 @@ async def detect_lineage(
     # Candidates that came from the deployer search always pass — they share
     # the deployer by definition even if names differ.
     pre_filtered = []
-    for candidate in candidates[: MAX_DERIVATIVES * 3]:
+    _candidate_cap = min(MAX_DERIVATIVES * 2, 80)   # keep scoring fast
+    for candidate in candidates[:_candidate_cap]:
         name_sim = compute_name_similarity(query_meta.name, candidate.name)
         sym_sim = compute_symbol_similarity(
             query_meta.symbol, candidate.symbol
@@ -292,8 +293,10 @@ async def detect_lineage(
     await _progress(f"Scoring {len(pre_filtered)} candidates", 60)
 
     # Enrich all pre-filtered candidates concurrently (bounded)
-    sem = asyncio.Semaphore(MAX_CONCURRENT_RPC)
-    img_sem = asyncio.Semaphore(5)  # limit concurrent image downloads
+    # Use a higher concurrency than the global config to maximise throughput
+    # for the candidate-scoring phase (pure reads, no write contention).
+    sem = asyncio.Semaphore(max(MAX_CONCURRENT_RPC, 15))
+    img_sem = asyncio.Semaphore(10)  # parallel image downloads
 
     async def _enrich(
         candidate: TokenSearchResult, name_sim: float, sym_sim: float
@@ -486,13 +489,10 @@ async def detect_lineage(
             except Exception as _e:
                 logger.debug("record_token_creation (derivative) failed: %s", _e)
 
-    # ── DAS bootstrap: discover deployer's other tokens via Helius ─────
-    # If we have < 3 token_created events for this deployer, use searchAssets
-    # to seed the DB so Factory Rhythm / Death Clock / Deployer Profile work.
-    try:
-        await _bootstrap_deployer_history(root_meta.deployer)
-    except Exception as _boot_exc:
-        logger.debug("DAS bootstrap failed: %s", _boot_exc)
+    # ── DAS bootstrap: run in background so it doesn't block the response ─
+    # Forensic enrichers run right after; on first visit they may see < 3
+    # events, but next analysis will have full data.  Pattern: seed-on-miss.
+    asyncio.ensure_future(_bootstrap_deployer_history(root_meta.deployer))
 
     # Phase 1  — Zombie Token detection (sync, uses already-built result)
     try:
@@ -537,17 +537,14 @@ async def detect_lineage(
 
     # Initiative 1: Operator Impact — requires operator_fingerprint result
     if result.operator_fingerprint is not None:
-        # Bootstrap linked wallets that have no events yet so the Operator
-        # Dossier page shows real data immediately on first visit.
+        # Bootstrap linked wallets in background — doesn't block this response.
+        # The Operator Dossier page triggers its own bootstrap on load.
         _linked_to_boot = [
             w for w in result.operator_fingerprint.linked_wallets
             if w and w != root_meta.deployer
         ]
-        if _linked_to_boot:
-            await asyncio.gather(*[
-                _safe(_bootstrap_deployer_history(w), name=f"boot_{w[:8]}")
-                for w in _linked_to_boot[:4]  # cap at 4 extra wallets
-            ])
+        for _w in _linked_to_boot[:4]:
+            asyncio.ensure_future(_bootstrap_deployer_history(_w))
         try:
             result.operator_impact = await asyncio.wait_for(
                 compute_operator_impact(
@@ -559,21 +556,20 @@ async def detect_lineage(
         except Exception as _oi_exc:
             logger.warning("[operator_impact] enricher failed: %s", _oi_exc)
 
-    # Initiative 2: SOL flow — try DB first, else trace inline if deployer known
+    # Initiative 2: SOL flow — read from DB (fast); spawn trace in background
+    # if not cached.  The result becomes available on the next page load.
     result.sol_flow = await _safe(
         get_sol_flow_report(root_meta.mint), name="sol_flow_read",
     )
     if result.sol_flow is None and root_meta.deployer:
-        result.sol_flow = await _safe(
-            trace_sol_flow(root_meta.mint, root_meta.deployer),
-            name="sol_flow_trace",
+        asyncio.ensure_future(
+            trace_sol_flow(root_meta.mint, root_meta.deployer)
         )
 
-    # Initiative 3: build cartel edges inline (don't wait for hourly sweep)
+    # Initiative 3: build cartel edges in background; read existing data now
     if root_meta.deployer:
-        await _safe(
-            build_cartel_edges_for_deployer(root_meta.deployer),
-            name="cartel_edge_build",
+        asyncio.ensure_future(
+            build_cartel_edges_for_deployer(root_meta.deployer)
         )
     result.cartel_report = await _safe(
         compute_cartel_report(root_meta.mint, root_meta.deployer),
@@ -619,7 +615,7 @@ async def _bootstrap_deployer_history(deployer: str) -> None:
     try:
         assets = await asyncio.wait_for(
             rpc.search_assets_by_creator(deployer, limit=50),
-            timeout=8.0,
+            timeout=5.0,
         )
     except (asyncio.TimeoutError, Exception) as exc:
         logger.debug("DAS searchAssets timed out or failed for %s: %s", deployer, exc)
