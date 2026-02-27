@@ -136,6 +136,34 @@ class TestDetectLineageIntegration:
         assert 0.0 <= result.confidence <= 1.0
 
     @pytest.mark.asyncio
+    async def test_query_deployer_prefers_creator_over_update_authority(self):
+        """Regression: deployer must match on-chain creator (Solscan-style)."""
+        dex = AsyncMock()
+        dex.get_token_pairs = AsyncMock(return_value=_QUERY_PAIRS)
+        dex.search_tokens = AsyncMock(return_value=[])
+        dex.pairs_to_metadata = _make_dex_client().pairs_to_metadata
+        dex.pairs_to_search_results = _make_dex_client().pairs_to_search_results
+
+        creator = "5hH3qDQEHXa7Rff5k1Tz3Dot6HFTjQcfMQQJRXyxRszA"
+        wrong_ua_or_signer = "29bu1111111111111111111111111111111111W4mw"
+
+        rpc = AsyncMock()
+        rpc.get_asset = AsyncMock(return_value={
+            "authorities": [{"address": wrong_ua_or_signer}],
+            "creators": [{"address": creator, "verified": True}],
+        })
+        rpc.get_deployer_and_timestamp = AsyncMock(
+            return_value=(wrong_ua_or_signer, datetime(2024, 1, 1, tzinfo=timezone.utc))
+        )
+        rpc.search_assets_by_creator = AsyncMock(return_value=[])
+
+        with patch("lineage_agent.lineage_detector._get_dex_client", return_value=dex), \
+             patch("lineage_agent.lineage_detector._get_rpc_client", return_value=rpc):
+            result = await detect_lineage("QueryMint1234567890123456789012345678")
+
+        assert result.query_token.deployer == creator
+
+    @pytest.mark.asyncio
     async def test_no_name_no_symbol(self):
         """Token with no name/symbol should return early with self as root."""
         empty_pairs = [

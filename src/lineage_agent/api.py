@@ -776,13 +776,12 @@ async def get_bundle_report(
         raise HTTPException(status_code=400, detail="Invalid deployer address")
 
     from .bundle_tracker_service import analyze_bundle
-    from .data_sources._clients import get_rpc_client as _grpc, get_jup_client as _gjup
+    from .data_sources._clients import get_jup_client as _gjup
 
     # Resolve deployer from on-chain if not supplied
     _deployer = deployer or ""
     if not _deployer:
-        rpc = _grpc()
-        _deployer, _ = await rpc.get_deployer_and_timestamp(mint)
+        _deployer = await _resolve_deployer(mint)
     if not _deployer:
         raise HTTPException(status_code=404, detail="Could not resolve deployer for this mint")
 

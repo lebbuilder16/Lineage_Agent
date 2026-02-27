@@ -971,23 +971,21 @@ async def _get_deployer_cached(
 ) -> tuple[str, Any]:
     """Fetch deployer + timestamp with per-mint caching (never changes).
 
-    Strategy (DAS-first, O(1)):
+    Strategy (creator-first, O(1) + sig-walk):
         1. Fetch DAS ``getAsset`` for the mint.
-        2. Extract update-authority from ``authorities``.
-        3. If the update-authority is a known non-deployer (launchpad program,
-           burned/null authority = System Program, or any other program in
-           ``_NON_DEPLOYER_AUTHORITIES``), fall back to the first verified
-           creator in ``creators[]``, then to ``creators[0]``.
-        4. Fall back to the legacy signature-walk only when DAS returns no
-           usable deployer.  The signature-walk is also the ONLY reliable
+        2. Resolve deployer from ``creators[]`` (first verified creator,
+           else first creator).
+        3. Ignore update-authority as primary source for deployer identity
+           because it can be changed post-launch and diverge from creator.
+        4. Fall back to signature-walk only when DAS has no usable creator.
+           The signature-walk is also the ONLY reliable
            source of the on-chain creation timestamp — DAS ``token_info.
            created_at`` reflects Helius's *last-indexing* time, not the
            actual mint-init block time, and must NOT be used here.
     """
-    # v3: cache bust — v2 entries stored deployer without on-chain timestamp
-    # because the signature-walk only ran when DAS failed to resolve the
-    # deployer.  v3 always performs the walk for the timestamp.
-    cache_key = f"rpc:deployer:v3:{mint}"
+    # v4: cache bust — v3 could persist update-authority addresses as deployer.
+    # v4 stores creator-first resolution + signature-walk timestamp.
+    cache_key = f"rpc:deployer:v4:{mint}"
     cached = await _cache_get(cache_key)
     if cached is not None:
         # SQLite cache returns lists; convert datetime string back
@@ -1025,24 +1023,42 @@ async def _get_deployer_cached(
         authorities = asset.get("authorities") or []
         creators = asset.get("creators") or []
 
-        # 1) Check update-authority (first authority entry)
+        # 1) Canonical source: creators[] (Solscan-style creator identity)
+        _verified_creator = next(
+            (
+                c.get("address", "")
+                for c in creators
+                if isinstance(c, dict) and c.get("verified") and c.get("address")
+            ),
+            "",
+        )
+        _first_creator = next(
+            (
+                c.get("address", "")
+                for c in creators
+                if isinstance(c, dict) and c.get("address")
+            ),
+            "",
+        )
+        deployer = _verified_creator or _first_creator
+
+        # 2) Ignore update-authority as identity source (it can drift over time)
         ua = ""
-        if authorities:
+        if authorities and isinstance(authorities[0], dict):
             ua = authorities[0].get("address", "")
-        # 2) If UA is a known non-deployer address (program / burned authority)
-        #    or is empty, resolve the real deployer from the creators list.
-        if not ua or ua in _NON_DEPLOYER_AUTHORITIES:
-            deployer = next(
-                (c["address"] for c in creators if c.get("verified")),
-                creators[0]["address"] if creators else "",
-            )
-        else:
-            deployer = ua
-        # 3) Final safety: if the resolved deployer is itself a known
-        #    non-deployer address (e.g. creator[0] is also a program), clear it
-        #    so the signature-walk below can find the real signer.
+
+        # 3) Safety: non-deployer authorities/programs must never be persisted
         if deployer in _NON_DEPLOYER_AUTHORITIES:
             deployer = ""
+
+        if deployer and ua and ua != deployer:
+            logger.warning(
+                "Deployer mismatch for %s: creators[]=%s, update_authority=%s. "
+                "Using creators[] as source of truth.",
+                mint,
+                deployer,
+                ua,
+            )
 
     # --- Signature-walk — always run for timestamp; also resolves deployer ---
     # The signature-walk is the ONLY reliable source of the on-chain creation
@@ -1055,21 +1071,33 @@ async def _get_deployer_cached(
             rpc.get_deployer_and_timestamp(mint), timeout=12.0
         )
     except (asyncio.TimeoutError, Exception) as _sw_exc:
-        logger.debug("Signature-walk failed/timed out for %s: %s", mint, _sw_exc)
+        logger.warning("Signature-walk failed/timed out for %s: %s", mint, _sw_exc)
         _sw_deployer, _sw_ts = "", None
 
     # Use on-chain timestamp if available
     if _sw_ts:
         created_at = _sw_ts
 
-    # If DAS didn't yield a deployer, use the signature-walk result
+    # If creators[] didn't yield a deployer, use signature-walk explicitly
     if not deployer:
         deployer = _sw_deployer or ""
-        # Safety: signature-walk can still return a program/launchpad address
-        # (e.g. if the oldest tx fee-payer is the launchpad backend).  Clear it
-        # so we don't poison the cache with a non-deployer address.
+        if deployer:
+            logger.warning(
+                "Using signature-walk deployer for %s because creators[] had no "
+                "usable address.",
+                mint,
+            )
+        # Safety: signature-walk can still return a program/launchpad address.
         if deployer in _NON_DEPLOYER_AUTHORITIES:
             deployer = ""
+    elif _sw_deployer and _sw_deployer != deployer:
+        logger.warning(
+            "Deployer mismatch for %s: creators[]=%s, sig_walk=%s. "
+            "Using creators[] as source of truth.",
+            mint,
+            deployer,
+            _sw_deployer,
+        )
 
     result = (deployer, created_at)
     # Long TTL: deployer/timestamp are immutable on-chain
