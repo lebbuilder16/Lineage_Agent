@@ -49,7 +49,9 @@ _DORMANCY_THRESHOLD_DAYS      = 30     # wallet "dormant" if inactive for this m
 _PRE_LAUNCH_ACTIVITY_WINDOW_H = 72    # hours before launch for activity scan
 _MIN_PREFUND_LAMPORTS         = 10_000_000   # 0.01 SOL minimum funding to count
 _MIN_POSTSELL_LAMPORTS        = 50_000_000   # 0.05 SOL minimum outflow to trace
-_COORDINATED_SELL_SLOT_WINDOW = 5      # slots: if ≥3 wallets sell within this → coordinated
+_COORDINATED_SELL_SLOT_WINDOW = 200     # slots: if ≥2 wallets sell within this → coordinated
+                                        # PumpFun bundle sellers typically dump within minutes,
+                                        # not in the same slot.  200 slots ≈ 80 seconds.
 _COMMON_SINK_MIN_COUNT        = 2      # ≥N bundle wallets → same destination = common sink
 _MAX_BUNDLE_WALLETS           = 10     # cap to avoid timeouts on very wide bundles
 _MAX_POSTSELL_HOPS            = 2      # BFS hops for post-sell outflow tracing
@@ -1033,10 +1035,10 @@ def _compute_overall_verdict(
     # ── Bulk-exit heuristic (no per-wallet COORDINATED_DUMP needed) ──────
     # When post-sell fund-tracing finds no outflows (typical for PumpFun
     # wallets that haven't moved SOL yet), per-wallet verdicts stay at
-    # EARLY_BUYER.  However, a large bundle where many wallets fully sold
-    # is a coordinated dump regardless of fund destination evidence.
+    # EARLY_BUYER.  However, a large bundle where multiple wallets fully
+    # sold is a coordinated dump regardless of fund destination evidence.
     total = len(analyses)
-    if total >= 3 and sold_count >= 2 and sold_count / total >= 0.4:
+    if total >= 3 and sold_count >= 2:
         return "coordinated_dump_unknown_team", evidence
     if coordinated_sell and sold_count >= 2:
         return "coordinated_dump_unknown_team", evidence

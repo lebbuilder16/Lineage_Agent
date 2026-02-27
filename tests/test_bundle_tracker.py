@@ -464,8 +464,8 @@ class TestDetectCoordinatedSell:
     def test_sells_outside_window(self):
         results = [
             _make_post_sell(sell_detected=True, sell_slot=100),
-            _make_post_sell(sell_detected=True, sell_slot=200),
-            _make_post_sell(sell_detected=True, sell_slot=300),
+            _make_post_sell(sell_detected=True, sell_slot=500),
+            _make_post_sell(sell_detected=True, sell_slot=900),
         ]
         assert _detect_coordinated_sell(results) is False
 
@@ -496,7 +496,7 @@ class TestCoordinatedSellSlots:
     def test_no_coordinated_sells(self):
         results = [
             _make_post_sell(sell_detected=True, sell_slot=100),
-            _make_post_sell(sell_detected=True, sell_slot=200),
+            _make_post_sell(sell_detected=True, sell_slot=500),
         ]
         slots = _coordinated_sell_slots(results)
         assert len(slots) == 0
@@ -713,11 +713,11 @@ class TestComputeOverallVerdict:
         assert verdict == "early_buyers_no_link_proven"
 
     def test_bulk_exit_heuristic_large_bundle(self):
-        """≥3 wallets with ≥40% sells → coordinated_dump even without per-wallet COORDINATED_DUMP."""
+        """≥3 wallets with ≥2 sells → coordinated_dump even without per-wallet COORDINATED_DUMP."""
         analyses = [
             _make_analysis("W1", BundleWalletVerdict.EARLY_BUYER, sell=True),
             _make_analysis("W2", BundleWalletVerdict.EARLY_BUYER, sell=True),
-            _make_analysis("W3", BundleWalletVerdict.EARLY_BUYER, sell=True),
+            _make_analysis("W3", BundleWalletVerdict.EARLY_BUYER),
             _make_analysis("W4", BundleWalletVerdict.EARLY_BUYER),
             _make_analysis("W5", BundleWalletVerdict.EARLY_BUYER),
         ]
@@ -731,8 +731,7 @@ class TestComputeOverallVerdict:
             _make_analysis("W2", BundleWalletVerdict.EARLY_BUYER, sell=True),
         ]
         verdict, evidence = _compute_overall_verdict(analyses, [], [], [], set(), False)
-        # Only 2 wallets total → bulk-exit threshold (≥3) not met, but
-        # coordinated_sell with ≥2 sells triggers second heuristic if coord_sell=True
+        # Only 2 wallets total → bulk-exit threshold (≥3) not met
         assert verdict == "early_buyers_no_link_proven"
 
     def test_coordinated_sell_with_two_sells_elevates(self):
