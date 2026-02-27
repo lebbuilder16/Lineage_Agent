@@ -628,10 +628,11 @@ async def get_sol_trace(
             len(_bundle_seeds),
             [s[:8] for s in _bundle_seeds[:4]],
         )
-        # Trigger synchronously
+        # Trigger synchronously (trace_sol_flow has its own 45s timeout
+        # and returns partial results on timeout, so outer timeout is generous)
         report = await asyncio.wait_for(
             trace_sol_flow(mint, _deployer, extra_seed_wallets=_bundle_seeds),
-            timeout=35.0,
+            timeout=55.0,
         )
     except (asyncio.TimeoutError, HTTPException):
         raise

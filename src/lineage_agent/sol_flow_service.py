@@ -41,8 +41,10 @@ _SKIP_ADDRESSES = SKIP_PROGRAMS
 _MIN_TRANSFER_LAMPORTS = MIN_TRANSFER_LAMPORTS
 _MAX_HOPS = int(os.getenv("SOL_TRACE_MAX_HOPS", "3"))
 _MAX_TXN_PER_WALLET = 50
-_TRACE_TIMEOUT = 30.0
-_HOP_SEM_CONCURRENCY = 4
+_MAX_TXN_HOP1_PLUS = 20          # Fewer txs per wallet for hops > 0
+_MAX_FRONTIER_PER_HOP = 8        # Cap BFS frontier to avoid explosion
+_TRACE_TIMEOUT = 45.0
+_HOP_SEM_CONCURRENCY = 5
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -58,7 +60,8 @@ async def trace_sol_flow(
     """Trace SOL flows from a deployer wallet after a rug (BFS, max 3 hops).
 
     Results are persisted to the sol_flows table so subsequent calls read
-    from DB instead of re-running RPC scans.
+    from DB instead of re-running RPC scans.  On timeout, returns whatever
+    partial results were collected (flows are persisted per-hop anyway).
 
     Args:
         mint:                Rugged token's mint address (for DB grouping).
@@ -73,6 +76,9 @@ async def trace_sol_flow(
     Returns:
         SolFlowReport if any flows found, else None.
     """
+    # Shared accumulator — _run_trace appends flows here so we can return
+    # partial results on timeout (flows are already persisted per-hop).
+    collected_flows: list[dict] = []
     try:
         return await asyncio.wait_for(
             _run_trace(
@@ -80,14 +86,36 @@ async def trace_sol_flow(
                 max_hops=max_hops,
                 max_txn_per_wallet=max_txn_per_wallet,
                 extra_seed_wallets=extra_seed_wallets or [],
+                _collected=collected_flows,
             ),
             timeout=_TRACE_TIMEOUT,
         )
     except asyncio.TimeoutError:
-        logger.warning("trace_sol_flow timed out — mint=%s deployer=%s", mint, deployer)
+        logger.warning(
+            "trace_sol_flow timed out — mint=%s deployer=%s partial_flows=%d",
+            mint, deployer, len(collected_flows),
+        )
+        # Return partial results instead of None
+        if collected_flows:
+            try:
+                exits = await detect_bridge_exits(collected_flows)
+            except Exception:
+                exits = []
+            sol_price: Optional[float] = None
+            try:
+                jup = get_jup_client()
+                sol_price = await jup.get_price(_WSOL_MINT)
+            except Exception:
+                pass
+            return _flows_to_report(
+                mint, deployer, collected_flows,
+                cross_chain_exits=exits, sol_price_usd=sol_price,
+            )
         return None
     except Exception:
         logger.exception("trace_sol_flow failed for mint=%s", mint)
+        if collected_flows:
+            return _flows_to_report(mint, deployer, collected_flows)
         return None
 
 
@@ -112,10 +140,10 @@ async def _run_trace(
     max_hops: int,
     max_txn_per_wallet: int,
     extra_seed_wallets: list[str],
+    _collected: list[dict],
 ) -> Optional[SolFlowReport]:
     rpc = get_rpc_client()
     sem = asyncio.Semaphore(_HOP_SEM_CONCURRENCY)
-    all_flows: list[dict] = []
     # Include bundle wallets (or any extra seeds) as additional hop-0 starting
     # points.  On PumpFun / Jito patterns the actual SOL extraction is done by
     # bundle wallets, not the deployer — so tracing only the deployer misses
@@ -132,14 +160,19 @@ async def _run_trace(
         if not frontier:
             break
 
+        # For hops > 0, use fewer txns per wallet to stay within timeout
+        txn_limit = max_txn_per_wallet if hop == 0 else min(max_txn_per_wallet, _MAX_TXN_HOP1_PLUS)
+
         tasks = [
-            _trace_wallet(rpc, sem, wallet, mint, hop, max_txn_per_wallet)
+            _trace_wallet(rpc, sem, wallet, mint, hop, txn_limit)
             for wallet in frontier
         ]
         hop_results = await asyncio.gather(*tasks, return_exceptions=True)
 
         new_frontier: set[str] = set()
         hop_flows: list[dict] = []
+        # Track flow amounts per destination for frontier prioritisation
+        dest_amounts: dict[str, int] = {}
         for result in hop_results:
             if isinstance(result, Exception):
                 logger.debug("[sol-trace] hop %d exception: %s", hop, result)
@@ -149,26 +182,36 @@ async def _run_trace(
                 to_addr = flow["to_address"]
                 if to_addr not in visited and to_addr not in _SKIP_ADDRESSES:
                     new_frontier.add(to_addr)
+                    dest_amounts[to_addr] = dest_amounts.get(to_addr, 0) + flow.get("amount_lamports", 0)
 
         logger.info(
             "[sol-trace] hop %d: %d wallets traced, %d flows found, %d new frontier",
             hop, len(frontier), len(hop_flows), len(new_frontier),
         )
-        all_flows.extend(hop_flows)
+        _collected.extend(hop_flows)
 
         # Persist hop flows incrementally
         if hop_flows:
             await sol_flow_insert_batch(hop_flows)
 
+        # Cap frontier to top N destinations by amount to prevent explosion
+        if len(new_frontier) > _MAX_FRONTIER_PER_HOP:
+            sorted_dests = sorted(new_frontier, key=lambda a: dest_amounts.get(a, 0), reverse=True)
+            new_frontier = set(sorted_dests[:_MAX_FRONTIER_PER_HOP])
+            logger.info(
+                "[sol-trace] hop %d frontier capped %d -> %d (top by amount)",
+                hop, len(dest_amounts), _MAX_FRONTIER_PER_HOP,
+            )
+
         visited.update(new_frontier)
         frontier = new_frontier
 
-    if not all_flows:
+    if not _collected:
         return None
 
     # Detect cross-chain exits (best-effort — never raises)
     try:
-        exits = await detect_bridge_exits(all_flows)
+        exits = await detect_bridge_exits(_collected)
     except Exception:
         exits = []
 
@@ -180,7 +223,7 @@ async def _run_trace(
     except Exception:
         logger.debug("SOL price fetch failed — USD value will be None")
 
-    return _flows_to_report(mint, deployer, all_flows, cross_chain_exits=exits, sol_price_usd=sol_price)
+    return _flows_to_report(mint, deployer, _collected, cross_chain_exits=exits, sol_price_usd=sol_price)
 
 
 async def _trace_wallet(
