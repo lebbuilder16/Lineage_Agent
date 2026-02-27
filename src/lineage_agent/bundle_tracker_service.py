@@ -51,7 +51,7 @@ _MIN_PREFUND_LAMPORTS         = 10_000_000   # 0.01 SOL minimum funding to count
 _MIN_POSTSELL_LAMPORTS        = 50_000_000   # 0.05 SOL minimum outflow to trace
 _COORDINATED_SELL_SLOT_WINDOW = 5      # slots: if ≥3 wallets sell within this → coordinated
 _COMMON_SINK_MIN_COUNT        = 2      # ≥N bundle wallets → same destination = common sink
-_MAX_BUNDLE_WALLETS           = 20     # cap to avoid DoS on very wide bundles
+_MAX_BUNDLE_WALLETS           = 10     # cap to avoid timeouts on very wide bundles
 _MAX_POSTSELL_HOPS            = 2      # BFS hops for post-sell outflow tracing
 _ANALYSIS_TIMEOUT_S           = 55     # hard timeout for the full analysis
 _TRACE_SIGS_PER_WALLET        = 100    # signatures to fetch per wallet for post-sell scan
@@ -65,7 +65,7 @@ _PUMP_PROGRAM = "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBymtzbm"
 _MAX_PAGINATION_PAGES = 30
 # Concurrency throttle — max parallel RPC calls from the bundle tracker.
 # Prevents Helius rate-limit storms that trip the shared circuit breaker.
-_RPC_CONCURRENCY = 6
+_RPC_CONCURRENCY = 8
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -213,13 +213,21 @@ async def _run_forensic(
     # ── Step 0: Anchor the true creation slot ────────────────────────────
     # Uses SolanaRpcClient.get_oldest_signature() which correctly paginates
     # getSignaturesForAddress backward (newest→oldest) to find the very first
-    # transaction for this mint.  This is the proven codepath also used by
-    # get_deployer_and_timestamp().
+    # transaction for this mint.
+    #
+    # For PumpFun tokens, use the bonding curve PDA first — it has far fewer
+    # transactions than the mint itself (which accumulates trades), so
+    # pagination is dramatically faster (often 1 page vs 10+).
     #
     # circuit_protect=False — the bundle tracker is an intensive analysis tool;
     # its RPC failures must NOT trip the shared circuit breaker that guards the
     # main API endpoints.
-    oldest_sig = await rpc.get_oldest_signature(mint, circuit_protect=False)
+    curve = _pump_bonding_curve(mint)
+    oldest_sig = None
+    if curve:
+        oldest_sig = await rpc.get_oldest_signature(curve, circuit_protect=False)
+    if oldest_sig is None:
+        oldest_sig = await rpc.get_oldest_signature(mint, circuit_protect=False)
     if oldest_sig is None:
         logger.debug("[bundle] no signatures found for %s", mint[:8])
         return None

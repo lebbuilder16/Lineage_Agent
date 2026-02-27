@@ -656,7 +656,7 @@ class TestComputeOverallVerdict:
 # ===================================================================
 
 def test_max_bundle_wallets_cap():
-    assert _MAX_BUNDLE_WALLETS == 20
+    assert _MAX_BUNDLE_WALLETS == 10
 
 
 def test_bundle_slot_window_is_20():
