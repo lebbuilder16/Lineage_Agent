@@ -151,8 +151,13 @@ class TestParseResponse:
             "risk_score": 82,
             "confidence": "high",
             "rug_pattern": "coordinated_bundle",
-            "narrative": "Three wallets coordinated a dump.",
-            "key_findings": ["finding 1", "finding 2"],
+            "verdict_summary": "Coordinated bundle dump: 3 wallets sold within 50 slots.",
+            "narrative": {
+                "observation": "Three wallets bought in slot 12345 and sold within 50 slots.",
+                "pattern": "Classic coordinated bundle exit by pre-funded team wallets.",
+                "risk": "Retail holders left holding worthless tokens after team exit.",
+            },
+            "key_findings": ["[COORDINATION] All 3 wallets sold within 50 slots.", "[IDENTITY] Common pre-funder detected."],
             "wallet_classifications": {"AAABBBCCCDDD": "bundle_wallet"},
             "operator_hypothesis": "Probably the same team as token X.",
         }
@@ -164,6 +169,9 @@ class TestParseResponse:
         assert result["confidence"] == "high"
         assert result["mint"] == MINT
         assert "analyzed_at" in result
+        assert "verdict_summary" in result
+        assert isinstance(result["narrative"], dict)
+        assert "observation" in result["narrative"]
 
     def test_json_with_markdown_fences(self):
         payload = self._valid_payload()
@@ -184,7 +192,8 @@ class TestParseResponse:
         assert result["confidence"] == "low"
         assert result["rug_pattern"] == "unknown"
         assert result["risk_score"] is None
-        assert "This is not JSON" in result["narrative"]
+        assert isinstance(result["narrative"], dict)
+        assert "This is not JSON" in result["narrative"]["observation"]
 
     def test_model_and_mint_injected(self):
         payload = self._valid_payload()
@@ -221,8 +230,13 @@ class TestAnalyzeToken:
             "risk_score": 87,
             "confidence": "high",
             "rug_pattern": "serial_clone",
-            "narrative": "Five identical tokens in 4 minutes.",
-            "key_findings": ["clone farming", "shared metadata URI"],
+            "verdict_summary": "Serial clone: 5 tokens in 4 minutes via vortexdeployer.com.",
+            "narrative": {
+                "observation": "Five tokens named 'TestToken' deployed in 4 minutes.",
+                "pattern": "Automated clone-farming via shared metadata platform.",
+                "risk": "Each clone targets retail buyers before the previous collapses.",
+            },
+            "key_findings": ["[DEPLOYMENT] 5 clones in 4 minutes.", "[IDENTITY] Shared metadata URI."],
             "wallet_classifications": {},
             "operator_hypothesis": "Automated clone-farming platform.",
         }

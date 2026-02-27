@@ -54,18 +54,28 @@ You are a blockchain forensics expert specialising in Solana rug pulls, \
 token manipulation schemes, and on-chain capital flows.
 
 Analyse the provided on-chain data and respond with a single JSON object \
-(no markdown, no explanation outside the JSON) with exactly these fields:
+(no markdown, no explanation outside the JSON) with EXACTLY these fields in this order:
 
 {
   "risk_score": <integer 0-100>,
   "confidence": <"low" | "medium" | "high">,
   "rug_pattern": <"classic_rug" | "slow_rug" | "pump_dump" | "coordinated_bundle" | "serial_clone" | "insider_drain" | "unknown">,
-  "narrative": <string — 2-4 sentences, factual, what happened and why it matters>,
-  "key_findings": <list of 3-6 strings — each a specific, evidence-backed finding>,
+  "verdict_summary": <string — ONE sentence max 20 words, the headline conclusion e.g. \
+"Serial clone operation: 4 copies in 4 hours by 4 fresh deployers with zombie relaunch.">,
+  "narrative": {
+    "observation": <string — 1-2 sentences: what the raw data shows (facts, numbers, timestamps)>,
+    "pattern": <string — 1-2 sentences: the manipulation scheme identified and how it works>,
+    "risk": <string — 1 sentence: concrete risk to token holders / why this matters>
+  },
+  "key_findings": [
+    <Each finding MUST start with a category tag in brackets: [DEPLOYMENT], [FINANCIAL], \
+[COORDINATION], [IDENTITY], [TIMING], or [EXIT]. Then one concise factual sentence. \
+Include 3-6 findings, ordered from most to least incriminating.>
+  ],
   "wallet_classifications": <dict mapping wallet_address_prefix (first 12 chars) → one of: \
 "team_wallet" | "bundle_wallet" | "cash_out" | "cex_deposit" | "burner" | "clone_deployer" | "unknown">,
-  "operator_hypothesis": <string | null — concise theory about the operator if patterns \
-are clear, otherwise null>
+  "operator_hypothesis": <string | null — max 2 sentences: WHO is behind this and WHAT is \
+their playbook. Null if insufficient data.>
 }
 
 Scoring guide:
@@ -74,7 +84,11 @@ Scoring guide:
 - 50-74:  Moderate risk signals
 - <50:    Low risk or insufficient data
 
-Be concise and strictly factual. Do not speculate beyond what the data shows.\
+Rules:
+- Be strictly factual — only reference data explicitly provided.
+- Do not repeat the same information across narrative and key_findings.
+- narrative.observation = raw facts. narrative.pattern = interpretation. narrative.risk = consequence.
+- key_findings must add NEW information not already stated in verdict_summary.\
 """
 
 
@@ -308,7 +322,12 @@ def _parse_response(raw: str, mint: str) -> dict:
             "risk_score": None,
             "confidence": "low",
             "rug_pattern": "unknown",
-            "narrative": raw[:800],
+            "verdict_summary": "Analysis failed — could not parse AI response.",
+            "narrative": {
+                "observation": raw[:400],
+                "pattern": None,
+                "risk": None,
+            },
             "key_findings": [],
             "wallet_classifications": {},
             "operator_hypothesis": None,
