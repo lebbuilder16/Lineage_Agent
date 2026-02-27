@@ -52,7 +52,6 @@ from .lineage_detector import (
     bootstrap_deployer_history,
     close_clients,
     detect_lineage,
-    get_cached_lineage_report,
     init_clients,
     search_tokens,
 )
@@ -991,9 +990,10 @@ async def get_ai_analysis(
     from .bundle_tracker_service import get_cached_bundle_report
     from .sol_flow_service import get_sol_flow_report
 
-    # Gather cached reports from DB concurrently — no heavy RPC calls
+    # detect_lineage handles its own cache (instant if cached, RPC fallback if not)
+    # sol_flow + bundle are pure DB reads — all run concurrently
     lineage_res, sol_flow_res, bundle_res = await asyncio.gather(
-        asyncio.wait_for(get_cached_lineage_report(mint), timeout=10.0),
+        asyncio.wait_for(detect_lineage(mint), timeout=55.0),
         get_sol_flow_report(mint),
         get_cached_bundle_report(mint),
         return_exceptions=True,
@@ -1006,14 +1006,6 @@ async def get_ai_analysis(
         sol_flow_res = None
     if isinstance(bundle_res, Exception):
         bundle_res = None
-
-    # If nothing cached, suggest running analysis first
-    if not lineage_res and not sol_flow_res and not bundle_res:
-        # Last-chance: try live lineage (reads cache internally, falls back to RPC)
-        try:
-            lineage_res = await asyncio.wait_for(detect_lineage(mint), timeout=55.0)
-        except Exception as exc:
-            logger.warning("[analyze] fallback detect_lineage failed for %s: %s", mint[:12], exc)
 
     if not lineage_res and not sol_flow_res and not bundle_res:
         raise HTTPException(
