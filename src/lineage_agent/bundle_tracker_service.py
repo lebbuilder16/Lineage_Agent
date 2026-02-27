@@ -19,6 +19,7 @@ The result is persisted so subsequent scans read from cache.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 from collections import Counter
@@ -56,6 +57,90 @@ _TRACE_SIGS_PER_WALLET        = 100    # signatures to fetch per wallet for post
 _SOL_DECIMALS                 = 1_000_000_000
 
 _SKIP_PROGRAMS = SKIP_PROGRAMS
+
+# PumpFun program ID — used for bonding curve PDA derivation
+_PUMP_PROGRAM = "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBymtzbm"
+# Maximum pages to paginate when hunting for creation slot (1000 sigs/page)
+_MAX_PAGINATION_PAGES = 30
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Pure-Python PDA derivation (no solders / base58 dependency)
+# ─────────────────────────────────────────────────────────────────────────────
+
+_ED25519_P = 2**255 - 19
+_ED25519_D = (-121665 * pow(121666, _ED25519_P - 2, _ED25519_P)) % _ED25519_P
+_B58_ALPHA = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+_B58_MAP   = {c: i for i, c in enumerate(_B58_ALPHA)}
+
+
+def _is_on_ed25519_curve(b: bytes) -> bool:
+    """Return True if *b* (32 bytes, little-endian) is a valid Ed25519 point.
+    PDAs must be *off* curve, so callers invert this check."""
+    try:
+        y_int = int.from_bytes(b, "little")
+        sign  = y_int >> 255
+        y     = y_int & ((1 << 255) - 1)
+        y2    = (y * y) % _ED25519_P
+        u     = (y2 - 1) % _ED25519_P
+        v     = (_ED25519_D * y2 + 1) % _ED25519_P
+        x2    = (u * pow(v, _ED25519_P - 2, _ED25519_P)) % _ED25519_P
+        if x2 == 0:
+            return sign == 0
+        x = pow(x2, (_ED25519_P + 3) // 8, _ED25519_P)
+        if (x * x) % _ED25519_P != x2:
+            x = (x * pow(2, (_ED25519_P - 1) // 4, _ED25519_P)) % _ED25519_P
+        if (x * x) % _ED25519_P != x2:
+            return False
+        return True
+    except Exception:
+        return False
+
+
+def _b58decode_32(s: str) -> bytes:
+    """Decode a 32-byte Solana pubkey from base58."""
+    n = 0
+    for c in s:
+        n = n * 58 + _B58_MAP[c]
+    return n.to_bytes(32, "big")
+
+
+def _b58encode(b: bytes) -> str:
+    """Encode bytes to base58 (Solana-style)."""
+    n = int.from_bytes(b, "big")
+    out: list[str] = []
+    while n:
+        n, r = divmod(n, 58)
+        out.append(_B58_ALPHA[r])
+    for byte in b:
+        if byte == 0:
+            out.append(_B58_ALPHA[0])
+        else:
+            break
+    return "".join(reversed(out))
+
+
+def _find_pda(seeds: list[bytes], program_id: str) -> Optional[str]:
+    """Derive a Program Derived Address (PDA) in pure Python."""
+    try:
+        prog = _b58decode_32(program_id)
+        for nonce in range(255, -1, -1):
+            candidate = hashlib.sha256(
+                b"".join(seeds) + bytes([nonce]) + prog + b"ProgramDerivedAddress"
+            ).digest()
+            if not _is_on_ed25519_curve(candidate):
+                return _b58encode(candidate)
+    except Exception as exc:
+        logger.debug("[bundle] PDA derivation failed: %s", exc)
+    return None
+
+
+def _pump_bonding_curve(mint: str) -> Optional[str]:
+    """Return the PumpFun bonding curve PDA for *mint*, or None on failure."""
+    try:
+        return _find_pda([b"bonding-curve", _b58decode_32(mint)], _PUMP_PROGRAM)
+    except Exception:
+        return None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -118,20 +203,12 @@ async def _run_forensic(
     rpc: SolanaRpcClient,
 ) -> Optional[BundleExtractionReport]:
 
-    # ── Step 1a: Get first N signatures for the mint ─────────────────────
-    sigs = await rpc._call(
-        "getSignaturesForAddress",
-        [mint, {"limit": _MAX_LAUNCH_SIGS, "commitment": "finalized"}],
-    )
-    if not sigs or not isinstance(sigs, list):
-        return None
-
-    sigs = list(reversed(sigs))  # oldest-first
-    if not sigs:
-        return None
-
-    creation_slot: Optional[int] = sigs[0].get("slot")
-    creation_time: Optional[int] = sigs[0].get("blockTime")
+    # ── Step 0: Anchor the true creation slot ────────────────────────────
+    # getSignaturesForAddress returns the MOST RECENT signatures by default.
+    # For tokens with >50 txs the naive approach gives a wrong creation_slot.
+    # We use Helius DAS (getAsset) to get slot_created_at instantly, then
+    # paginate to that slot.  Fallback: paginate all the way to the oldest sig.
+    creation_slot, creation_time = await _get_creation_anchor(rpc, mint)
     if creation_slot is None:
         return None
 
@@ -141,14 +218,10 @@ async def _run_forensic(
         else datetime.now(tz=timezone.utc)
     )
 
-    # ── Step 1b: Fetch bundle-window transactions ─────────────────────────
-    bundle_sigs = [
-        s["signature"]
-        for s in sigs
-        if s.get("slot", creation_slot + 999) <= creation_slot + _BUNDLE_SLOT_WINDOW
-        and not s.get("err")
-        and s.get("signature")
-    ]
+    # ── Step 1: Collect bundle-window signatures ──────────────────────────
+    # Paginate from newest → oldest, stopping once we've covered the window.
+    # For PumpFun we paginate the bonding curve (fewer txs than the mint).
+    bundle_sigs = await _find_bundle_sigs_paginated(rpc, mint, creation_slot)
     if not bundle_sigs:
         return None
 
@@ -280,6 +353,178 @@ async def _run_forensic(
         overall_verdict=overall_verdict,
         evidence_chain=evidence_chain,
     )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Creation-slot anchoring helpers
+# ─────────────────────────────────────────────────────────────────────────────
+
+async def _get_creation_anchor(
+    rpc: "SolanaRpcClient",
+    mint: str,
+) -> tuple[Optional[int], Optional[int]]:
+    """Return (creation_slot, creation_blocktime) for *mint*.
+
+    Strategy (in order):
+    1. Helius DAS ``getAsset`` → ``slot_created_at``  (1 RPC call, O(1))
+    2. Paginate ``getSignaturesForAddress`` backward to the oldest sig.
+
+    The slot from DAS is exact; the blocktime is obtained from the oldest
+    signature batch once we know roughly where to look.
+    """
+    # ── Strategy 1: Helius DAS ────────────────────────────────────────────
+    try:
+        asset = await rpc.get_asset(mint)
+        das_slot = asset.get("slot_created_at")
+        if das_slot and isinstance(das_slot, int):
+            logger.debug("[bundle] DAS anchor slot=%d for %s", das_slot, mint[:8])
+            # We have the slot; blocktime comes from the paginated batch below.
+            bt = await _blocktime_at_slot(rpc, mint, das_slot)
+            return das_slot, bt
+    except Exception as exc:
+        logger.debug("[bundle] DAS anchor failed for %s: %s", mint[:8], exc)
+
+    # ── Strategy 2: full backward pagination ─────────────────────────────
+    try:
+        sig, slot, bt = await _paginate_to_oldest(rpc, mint)
+        if slot is not None:
+            logger.debug("[bundle] pagination anchor slot=%d for %s", slot, mint[:8])
+            return slot, bt
+    except Exception as exc:
+        logger.debug("[bundle] pagination fallback failed for %s: %s", mint[:8], exc)
+
+    return None, None
+
+
+async def _blocktime_at_slot(
+    rpc: "SolanaRpcClient",
+    mint: str,
+    target_slot: int,
+) -> Optional[int]:
+    """Return blockTime of the creation-slot signature (best-effort)."""
+    # Fetch newest batch and check if target_slot is already in it
+    batch = await rpc._call(
+        "getSignaturesForAddress",
+        [mint, {"limit": 1000, "commitment": "finalized"}],
+    )
+    if batch and isinstance(batch, list):
+        for s in reversed(batch):  # oldest last → reversed = oldest first
+            if s.get("slot") == target_slot and not s.get("err"):
+                return s.get("blockTime")
+    return None
+
+
+async def _paginate_to_oldest(
+    rpc: "SolanaRpcClient",
+    address: str,
+) -> tuple[Optional[str], Optional[int], Optional[int]]:
+    """Paginate getSignaturesForAddress backward until the oldest page.
+
+    Returns (signature, slot, blocktime) of the very first transaction.
+    Safety cap: ``_MAX_PAGINATION_PAGES`` pages (30 000 sigs max).
+    """
+    before: Optional[str] = None
+    for _ in range(_MAX_PAGINATION_PAGES):
+        params: dict = {"limit": 1000, "commitment": "finalized"}
+        if before:
+            params["before"] = before
+        batch = await rpc._call("getSignaturesForAddress", [address, params])
+        if not batch or not isinstance(batch, list):
+            break
+        valid = [s for s in batch if not s.get("err") and s.get("signature")]
+        if len(batch) < 1000:
+            # Last page — oldest sig is the last valid one
+            if valid:
+                oldest = valid[-1]
+                return oldest["signature"], oldest.get("slot"), oldest.get("blockTime")
+            break
+        if valid:
+            before = valid[-1]["signature"]
+        else:
+            before = batch[-1].get("signature")
+            if not before:
+                break
+    return None, None, None
+
+
+async def _find_bundle_sigs_paginated(
+    rpc: "SolanaRpcClient",
+    mint: str,
+    creation_slot: int,
+) -> list[str]:
+    """Return signatures inside [creation_slot, creation_slot+WINDOW].
+
+    For PumpFun tokens we paginate the bonding curve (much fewer txs than
+    the mint itself once trading begins).  Falls back to the mint address.
+    For both addresses we paginate newest→oldest and stop as soon as the
+    current batch spans past ``creation_slot``.
+    """
+    # Try bonding curve first (PumpFun optimisation)
+    curve = _pump_bonding_curve(mint)
+    addresses = [curve, mint] if curve else [mint]
+
+    for address in addresses:
+        if not address:
+            continue
+        result = await _collect_window_sigs(rpc, address, creation_slot)
+        if result:
+            logger.debug(
+                "[bundle] found %d window sigs on %s for %s",
+                len(result), "curve" if address == curve else "mint", mint[:8],
+            )
+            return result
+
+    return []
+
+
+async def _collect_window_sigs(
+    rpc: "SolanaRpcClient",
+    address: str,
+    creation_slot: int,
+) -> list[str]:
+    """Paginate *address* (newest→oldest) and collect sigs in the bundle window."""
+    window_end   = creation_slot + _BUNDLE_SLOT_WINDOW
+    before: Optional[str] = None
+
+    for _ in range(_MAX_PAGINATION_PAGES):
+        params: dict = {"limit": 1000, "commitment": "finalized"}
+        if before:
+            params["before"] = before
+        batch = await rpc._call("getSignaturesForAddress", [address, params])
+        if not batch or not isinstance(batch, list):
+            break
+
+        valid = [s for s in batch if not s.get("err") and s.get("signature") and s.get("slot") is not None]
+        if not valid:
+            if len(batch) < 1000:
+                break
+            before = batch[-1].get("signature") or ""
+            if not before:
+                break
+            continue
+
+        min_slot = min(s["slot"] for s in valid)
+
+        # Once we've gone past (older than) the creation slot, extract the window
+        if min_slot <= creation_slot:
+            return [
+                s["signature"]
+                for s in valid
+                if creation_slot <= s["slot"] <= window_end
+            ]
+
+        if len(batch) < 1000:
+            # Reached the beginning without finding the window
+            # (address pre-dates the range somehow — shouldn't happen)
+            return [
+                s["signature"]
+                for s in valid
+                if creation_slot <= s["slot"] <= window_end
+            ]
+
+        before = valid[-1]["signature"]
+
+    return []
 
 
 # ─────────────────────────────────────────────────────────────────────────────

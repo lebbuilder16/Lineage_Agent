@@ -732,11 +732,14 @@ async def detect_lineage(
     # links — we do NOT attribute random bundle wallets to the team without proof.
     _bundle_seeds: list[str] = []
     if result.bundle_report and result.bundle_report.overall_verdict in (
-        "confirmed_team_extraction", "suspected_team_extraction"
+        "confirmed_team_extraction",
+        "suspected_team_extraction",
+        "coordinated_dump_unknown_team",
     ):
         _bundle_seeds = (
             result.bundle_report.confirmed_team_wallets
             + result.bundle_report.suspected_team_wallets
+            + result.bundle_report.coordinated_dump_wallets
         )[:12]  # cap at 12 wallets to bound RPC cost
 
     if _bundle_seeds:
