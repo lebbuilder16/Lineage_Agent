@@ -52,6 +52,7 @@ from .lineage_detector import (
     bootstrap_deployer_history,
     close_clients,
     detect_lineage,
+    get_cached_lineage_report,
     init_clients,
     search_tokens,
 )
@@ -986,43 +987,47 @@ async def get_ai_analysis(
     if not _BASE58_RE.match(mint):
         raise HTTPException(status_code=400, detail="Invalid Solana mint address")
 
-    from .ai_analyst import analyze_token
+    from .ai_analyst import analyze_token, _build_unified_response
     from .bundle_tracker_service import get_cached_bundle_report
     from .sol_flow_service import get_sol_flow_report
 
-    # Gather existing reports from DB concurrently — no heavy RPC calls
-    lineage_task = asyncio.create_task(
-        asyncio.wait_for(detect_lineage(mint), timeout=55.0)
-    )
-    sol_flow_task = asyncio.create_task(get_sol_flow_report(mint))
-    bundle_task   = asyncio.create_task(get_cached_bundle_report(mint))
-
-    lineage_result, sol_flow_report, bundle_report = await asyncio.gather(
-        lineage_task, sol_flow_task, bundle_task,
+    # Gather cached reports from DB concurrently — no heavy RPC calls
+    lineage_res, sol_flow_res, bundle_res = await asyncio.gather(
+        asyncio.wait_for(get_cached_lineage_report(mint), timeout=10.0),
+        get_sol_flow_report(mint),
+        get_cached_bundle_report(mint),
         return_exceptions=True,
     )
-    # Treat exceptions as None (graceful degradation)
-    if isinstance(lineage_result, Exception):
-        logger.warning("[analyze] lineage failed for %s: %s", mint[:12], lineage_result)
-        lineage_result = None
-    if isinstance(sol_flow_report, Exception):
-        sol_flow_report = None
-    if isinstance(bundle_report, Exception):
-        bundle_report = None
+    # Graceful degradation: treat any exception as missing data
+    if isinstance(lineage_res, Exception):
+        logger.warning("[analyze] lineage cache read failed for %s: %s", mint[:12], lineage_res)
+        lineage_res = None
+    if isinstance(sol_flow_res, Exception):
+        sol_flow_res = None
+    if isinstance(bundle_res, Exception):
+        bundle_res = None
 
-    if not lineage_result and not sol_flow_report and not bundle_report:
+    # If nothing cached, suggest running analysis first
+    if not lineage_res and not sol_flow_res and not bundle_res:
+        # Last-chance: try live lineage (reads cache internally, falls back to RPC)
+        try:
+            lineage_res = await asyncio.wait_for(detect_lineage(mint), timeout=55.0)
+        except Exception as exc:
+            logger.warning("[analyze] fallback detect_lineage failed for %s: %s", mint[:12], exc)
+
+    if not lineage_res and not sol_flow_res and not bundle_res:
         raise HTTPException(
             status_code=404,
-            detail="No on-chain data found. Trigger /lineage?mint=... and /bundle/{mint} first.",
+            detail="No on-chain data found. Run /lineage?mint=... and /bundle/{mint} first.",
         )
 
     try:
-        result = await asyncio.wait_for(
+        ai_result = await asyncio.wait_for(
             analyze_token(
                 mint,
-                lineage_result=lineage_result,
-                bundle_report=bundle_report,
-                sol_flow_report=sol_flow_report,
+                lineage_result=lineage_res,
+                bundle_report=bundle_res,
+                sol_flow_report=sol_flow_res,
             ),
             timeout=40.0,
         )
@@ -1032,12 +1037,18 @@ async def get_ai_analysis(
         logger.exception("AI analysis failed for %s", mint)
         raise HTTPException(status_code=500, detail="Internal server error") from exc
 
-    if result is None:
+    if ai_result is None:
         raise HTTPException(
             status_code=503,
             detail="AI analysis unavailable — check ANTHROPIC_API_KEY configuration",
         )
-    return result
+
+    return _build_unified_response(
+        mint, ai_result,
+        lineage=lineage_res,
+        bundle=bundle_res,
+        sol_flow=sol_flow_res,
+    )
 
 
 # ------------------------------------------------------------------

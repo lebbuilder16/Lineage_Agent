@@ -91,6 +91,25 @@ _WEIGHTS = {
 ProgressCallback = Optional[Callable[[str, int], Awaitable[None]]]
 
 
+async def get_cached_lineage_report(mint: str) -> Optional[LineageResult]:
+    """Return a cached LineageResult from cache/DB, or None.
+
+    Pure cache read — never triggers RPC calls or heavy analysis.
+    Suitable for fast endpoints that only enrich existing results.
+    """
+    try:
+        cached = await _cache_get(f"lineage:v4:{mint}")
+        if cached is None:
+            return None
+        if isinstance(cached, LineageResult):
+            return cached
+        if isinstance(cached, dict):
+            return LineageResult(**cached)
+    except Exception:
+        logger.debug("[lineage] get_cached_lineage_report failed for %s", mint[:8])
+    return None
+
+
 async def detect_lineage(
     mint_address: str,
     *,

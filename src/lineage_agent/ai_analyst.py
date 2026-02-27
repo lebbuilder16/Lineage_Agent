@@ -294,6 +294,213 @@ def _build_prompt(
     return "\n".join(parts)
 
 
+# ── Unified 3-layer response builder ─────────────────────────────────────────
+
+def _build_unified_response(
+    mint: str,
+    ai_result: dict,
+    lineage: Optional[Any] = None,
+    bundle: Optional[Any] = None,
+    sol_flow: Optional[Any] = None,
+) -> dict:
+    """Assemble the final 3-layer response:
+
+    - ``token``       : identity metadata (name, mcap, liquidity…)
+    - ``ai_analysis`` : Claude verdict (risk_score, narrative, findings…)
+    - ``forensic``    : summarised backend metrics (bundle, sol_flow, lineage)
+    - ``evidence``    : raw on-chain proof (wallet list, flows, clones)
+    """
+
+    # ── Token identity ────────────────────────────────────────────────────
+    token: dict = {"mint": mint}
+    if lineage:
+        qt = getattr(lineage, "query_token", None) or getattr(lineage, "root", None)
+        if qt:
+            token = {
+                "mint": mint,
+                "name": getattr(qt, "name", "") or "",
+                "symbol": getattr(qt, "symbol", "") or "",
+                "image_uri": getattr(qt, "image_uri", "") or "",
+                "deployer": getattr(qt, "deployer", "") or "",
+                "created_at": (
+                    qt.created_at.isoformat()
+                    if getattr(qt, "created_at", None)
+                    else None
+                ),
+                "market_cap_usd": getattr(qt, "market_cap_usd", None),
+                "liquidity_usd": getattr(qt, "liquidity_usd", None),
+                "dex_url": getattr(qt, "dex_url", "") or "",
+            }
+
+    # ── AI analysis (Claude output, clean) ───────────────────────────────
+    ai_analysis = {
+        "risk_score":          ai_result.get("risk_score"),
+        "confidence":          ai_result.get("confidence"),
+        "rug_pattern":         ai_result.get("rug_pattern"),
+        "verdict_summary":     ai_result.get("verdict_summary"),
+        "narrative":           ai_result.get("narrative"),
+        "key_findings":        ai_result.get("key_findings", []),
+        "operator_hypothesis": ai_result.get("operator_hypothesis"),
+        "model":               ai_result.get("model"),
+        "analyzed_at":         ai_result.get("analyzed_at"),
+    }
+    if ai_result.get("parse_error"):
+        ai_analysis["parse_error"] = True
+
+    # ── Forensic summary (pre-computed backend metrics) ───────────────────
+    forensic: dict = {}
+
+    if bundle:
+        forensic["bundle"] = {
+            "verdict":                   getattr(bundle, "overall_verdict", None),
+            "wallets_count":             len(getattr(bundle, "bundle_wallets", []) or []),
+            "confirmed_team_wallets":    getattr(bundle, "confirmed_team_wallets", []),
+            "suspected_team_wallets":    getattr(bundle, "suspected_team_wallets", []),
+            "coordinated_dump_wallets":  getattr(bundle, "coordinated_dump_wallets", []),
+            "launch_slot":               getattr(bundle, "launch_slot", None),
+            "total_sol_spent":           getattr(bundle, "total_sol_spent_by_bundle", 0.0),
+            "total_sol_extracted":       getattr(bundle, "total_sol_extracted_confirmed", 0.0),
+            "coordinated_sell_detected": getattr(bundle, "coordinated_sell_detected", False),
+            "common_prefund_source":     getattr(bundle, "common_prefund_source", None),
+            "common_sink_wallets":       getattr(bundle, "common_sink_wallets", []),
+            "evidence_chain":            getattr(bundle, "evidence_chain", []),
+        }
+
+    if sol_flow:
+        forensic["sol_flow"] = {
+            "total_extracted_sol": getattr(sol_flow, "total_extracted_sol", 0.0),
+            "total_extracted_usd": getattr(sol_flow, "total_extracted_usd", None),
+            "hops_traced":         getattr(sol_flow, "hop_count", 1),
+            "terminal_wallets_count": len(getattr(sol_flow, "terminal_wallets", []) or []),
+            "known_cex_detected":  getattr(sol_flow, "known_cex_detected", False),
+            "cross_chain_exits_count": len(getattr(sol_flow, "cross_chain_exits", []) or []),
+            "rug_timestamp": (
+                sol_flow.rug_timestamp.isoformat()
+                if getattr(sol_flow, "rug_timestamp", None)
+                else None
+            ),
+        }
+
+    if lineage:
+        derivatives = getattr(lineage, "derivatives", []) or []
+        deployers = {d.deployer for d in derivatives if getattr(d, "deployer", "")}
+        forensic["lineage"] = {
+            "family_size":              getattr(lineage, "family_size", 0),
+            "clones_count":             len(derivatives),
+            "lineage_confidence":       round(getattr(lineage, "confidence", 0.0), 3),
+            "query_is_root":            getattr(lineage, "query_is_root", False),
+            "unique_deployers_count":   len(deployers),
+            "zombie_relaunch_detected": getattr(lineage, "zombie_alert", None) is not None,
+            "death_clock_risk":         (
+                getattr(lineage.death_clock, "risk_level", None)
+                if getattr(lineage, "death_clock", None)
+                else None
+            ),
+            "rug_count":                (
+                getattr(lineage.deployer_profile, "rug_count", 0)
+                if getattr(lineage, "deployer_profile", None)
+                else 0
+            ),
+        }
+
+    # ── Raw evidence (on-chain proof for power users) ─────────────────────
+    evidence: dict = {}
+
+    # Wallet classifications from Claude
+    wc = ai_result.get("wallet_classifications")
+    if wc:
+        evidence["wallet_classifications"] = wc
+
+    if bundle:
+        evidence["bundle_wallets"] = [
+            {
+                "wallet":    w.wallet,
+                "verdict":   w.verdict,
+                "sol_spent": w.sol_spent,
+                "flags":     getattr(w, "red_flags", []) or [],
+            }
+            for w in (getattr(bundle, "bundle_wallets", []) or [])[:25]
+        ]
+
+    if sol_flow:
+        flows = getattr(sol_flow, "flows", []) or []
+        evidence["sol_flows"] = [
+            {
+                "hop":        e.hop,
+                "from":       e.from_address,
+                "to":         e.to_address,
+                "amount_sol": round(e.amount_sol, 6),
+                "to_label":   getattr(e, "to_label", None),
+                "entity_type": getattr(e, "entity_type", None),
+                "signature":  e.signature,
+                "block_time": (
+                    e.block_time.isoformat() if getattr(e, "block_time", None) else None
+                ),
+            }
+            for e in sorted(flows, key=lambda x: x.amount_sol, reverse=True)[:30]
+        ]
+        evidence["terminal_wallets"] = getattr(sol_flow, "terminal_wallets", []) or []
+
+        exits = getattr(sol_flow, "cross_chain_exits", []) or []
+        if exits:
+            evidence["cross_chain_exits"] = [
+                {
+                    "bridge":      getattr(ex, "bridge_name", ""),
+                    "dest_chain":  getattr(ex, "dest_chain", ""),
+                    "dest_address": getattr(ex, "dest_address", ""),
+                    "amount_sol":  getattr(ex, "amount_sol", 0.0),
+                    "signature":   getattr(ex, "tx_signature", ""),
+                }
+                for ex in exits
+            ]
+
+    if lineage:
+        derivatives = getattr(lineage, "derivatives", []) or []
+        evidence["clone_tokens"] = [
+            {
+                "mint":       d.mint,
+                "name":       getattr(d, "name", ""),
+                "symbol":     getattr(d, "symbol", ""),
+                "generation": getattr(d, "generation", None),
+                "deployer":   getattr(d, "deployer", ""),
+                "created_at": (
+                    d.created_at.isoformat()
+                    if getattr(d, "created_at", None)
+                    else None
+                ),
+                "market_cap_usd": getattr(d, "market_cap_usd", None),
+                "similarity_score": (
+                    round(d.evidence.composite_score, 3)
+                    if getattr(d, "evidence", None)
+                    else None
+                ),
+            }
+            for d in sorted(derivatives, key=lambda x: getattr(x, "generation", 99))
+        ]
+
+        root = getattr(lineage, "root", None)
+        if root and root.mint != mint:
+            evidence["root_token"] = {
+                "mint":       root.mint,
+                "name":       getattr(root, "name", ""),
+                "symbol":     getattr(root, "symbol", ""),
+                "deployer":   getattr(root, "deployer", ""),
+                "created_at": (
+                    root.created_at.isoformat()
+                    if getattr(root, "created_at", None)
+                    else None
+                ),
+                "market_cap_usd": getattr(root, "market_cap_usd", None),
+            }
+
+    return {
+        "token":       token,
+        "ai_analysis": ai_analysis,
+        "forensic":    forensic,
+        "evidence":    evidence,
+    }
+
+
 # ── Response parsing ──────────────────────────────────────────────────────────
 
 def _parse_response(raw: str, mint: str) -> dict:
