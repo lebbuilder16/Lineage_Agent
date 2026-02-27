@@ -4,7 +4,8 @@ Pydantic models used throughout the Meme Lineage Agent.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
+from enum import Enum
 from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
@@ -128,8 +129,8 @@ class LineageResult(BaseModel):
     insider_sell: Optional[InsiderSellReport] = Field(
         None, description="Silent drain via insider token selling (Initiative 4)"
     )
-    bundle_report: Optional["BundleReport"] = Field(
-        None, description="Bundle wallet tracking — early buyers linked to deployer (Initiative 5)"
+    bundle_report: Optional["BundleExtractionReport"] = Field(
+        None, description="Bundle wallet forensic analysis — pre+post sell behavior with verified extraction (Initiative 5)"
     )
 
 
@@ -185,6 +186,150 @@ class BundleReport(BaseModel):
     )
     launch_slot: Optional[int] = Field(
         None, description="Solana slot number of the token launch"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Initiative 5 — Forensic Bundle Analysis (pre+post sell behavior)
+# ---------------------------------------------------------------------------
+
+class BundleWalletVerdict(str, Enum):
+    """Per-wallet attribution verdict — confirmed only when on-chain proof exists."""
+    CONFIRMED_TEAM   = "confirmed_team"    # direct on-chain link to deployer
+    SUSPECTED_TEAM   = "suspected_team"    # indirect / circumstantial link
+    COORDINATED_DUMP = "coordinated_dump"  # coordinated but no deployer link
+    EARLY_BUYER      = "early_buyer"       # no signals — genuine buyer
+
+
+class FundDestination(BaseModel):
+    """A SOL destination detected in post-sell outflow tracing."""
+    destination: str
+    lamports: int = Field(0, ge=0)
+    hop: int = Field(0, ge=0, description="0 = direct, 1 = one hop from sell wallet")
+    link_to_deployer: bool = Field(False, description="Destination is deployer or deployer-linked")
+    seen_in_other_bundles: bool = Field(False, description="Same destination seen from ≥2 bundle wallets")
+
+
+class PreSellBehavior(BaseModel):
+    """Behavior of a bundle wallet BEFORE selling its token position."""
+    wallet_age_days: Optional[float] = Field(None, description="Days since first on-chain activity")
+    is_dormant: bool = Field(False, description="True if wallet had no activity for >30 days before launch")
+    prefund_source: Optional[str] = Field(None, description="Address that funded this wallet before launch")
+    prefund_sol: float = Field(0.0, description="SOL received in funding transfer")
+    prefund_hours_before_launch: Optional[float] = Field(None, description="Hours between funding and launch")
+    prefund_source_is_deployer: bool = Field(False, description="Prefund source is the token deployer")
+    prefund_source_is_known_funder: bool = Field(False, description="Prefund source also funded other bundle wallets")
+    pre_launch_tx_count: int = Field(0, ge=0, description="Number of txs in 72h before launch")
+    pre_launch_unique_tokens: int = Field(0, ge=0, description="Unique token mints interacted with before launch")
+    prior_bundle_count: int = Field(0, ge=0, description="Times this wallet appeared in earlier bundles (any deployer)")
+    same_deployer_prior_launches: int = Field(0, ge=0, description="Prior launches by same deployer where this wallet bundled")
+
+
+class PostSellBehavior(BaseModel):
+    """Behavior of a bundle wallet AFTER selling its token position."""
+    sell_detected: bool = Field(False, description="On-chain full-exit sell confirmed")
+    sell_slot: Optional[int] = Field(None, description="Slot of the detected sell transaction")
+    sell_tx_signature: Optional[str] = Field(None, description="Signature of the sell transaction")
+    sol_received_from_sell: float = Field(0.0, ge=0.0, description="SOL received when selling")
+    fund_destinations: list[FundDestination] = Field(
+        default_factory=list,
+        description="SOL destinations traced ≤2 hops after sell, only post-sell txs",
+    )
+    direct_transfer_to_deployer: bool = Field(
+        False, description="Wallet sent SOL directly to deployer after selling"
+    )
+    transfer_to_deployer_linked_wallet: bool = Field(
+        False, description="Wallet sent SOL to a wallet also linked to deployer"
+    )
+    indirect_via_intermediary: bool = Field(
+        False, description="Multi-hop path from this wallet back to deployer confirmed"
+    )
+    common_destination_with_other_bundles: bool = Field(
+        False, description="≥2 bundle wallets sent SOL to the same destination"
+    )
+
+
+class BundleWalletAnalysis(BaseModel):
+    """Complete forensic analysis of a single bundle wallet."""
+    wallet: str = Field(..., description="Wallet public key")
+    sol_spent: float = Field(0.0, ge=0.0, description="SOL spent buying token at launch")
+    pre_sell: PreSellBehavior = Field(default_factory=PreSellBehavior)
+    post_sell: PostSellBehavior = Field(default_factory=PostSellBehavior)
+    red_flags: list[str] = Field(
+        default_factory=list,
+        description="Human-readable evidence flags that drove the verdict",
+    )
+    verdict: BundleWalletVerdict = Field(
+        BundleWalletVerdict.EARLY_BUYER,
+        description="Attribution verdict — only elevated when on-chain proof exists",
+    )
+
+
+class BundleExtractionReport(BaseModel):
+    """Forensic bundle extraction report — on-chain proof required before team attribution."""
+    mint: str
+    deployer: str
+    launch_slot: Optional[int] = None
+
+    bundle_wallets: list[BundleWalletAnalysis] = Field(
+        default_factory=list,
+        description="Per-wallet forensic breakdown",
+    )
+
+    # Categorised wallet lists (public keys)
+    confirmed_team_wallets: list[str] = Field(
+        default_factory=list,
+        description="Wallets with direct on-chain deployer link",
+    )
+    suspected_team_wallets: list[str] = Field(
+        default_factory=list,
+        description="Wallets with indirect / circumstantial deployer link",
+    )
+    coordinated_dump_wallets: list[str] = Field(
+        default_factory=list,
+        description="Coordinated wallets without proved deployer link",
+    )
+    early_buyer_wallets: list[str] = Field(
+        default_factory=list,
+        description="Wallets with no adverse signals",
+    )
+
+    # Aggregates
+    total_sol_spent_by_bundle: float = Field(0.0, ge=0.0)
+    total_sol_extracted_confirmed: float = Field(
+        0.0, ge=0.0,
+        description="SOL confirmed returning to deployer-linked addresses",
+    )
+    total_usd_extracted: Optional[float] = Field(None, description="USD at time of analysis")
+
+    # Cross-wallet patterns
+    common_prefund_source: Optional[str] = Field(
+        None, description="Address that funded multiple bundle wallets before launch"
+    )
+    common_sink_wallets: list[str] = Field(
+        default_factory=list,
+        description="Destination wallets that received funds from ≥2 bundle wallets",
+    )
+    coordinated_sell_detected: bool = Field(
+        False, description="≥3 bundle wallets sold within 5 slots of each other"
+    )
+
+    # Verdict and evidence
+    overall_verdict: Literal[
+        "confirmed_team_extraction",
+        "suspected_team_extraction",
+        "coordinated_dump_unknown_team",
+        "early_buyers_no_link_proven",
+    ] = Field(
+        "early_buyers_no_link_proven",
+        description="Global extraction verdict — requires concrete proof for higher severity",
+    )
+    evidence_chain: list[str] = Field(
+        default_factory=list,
+        description="Ordered list of on-chain evidence items supporting the verdict",
+    )
+    analysis_timestamp: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc)
     )
 
 

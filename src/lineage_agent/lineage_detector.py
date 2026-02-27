@@ -715,6 +715,61 @@ async def detect_lineage(
         _run_bundle(),
     )
 
+    # ── PumpFun / Jito bundle extraction fix ─────────────────────────────────
+    # Modern token launches (PumpFun, Jito bundles) extract SOL via bundle
+    # wallets, NOT through the deployer directly.  The deployer trace above
+    # may return empty or shallow results because the deployer rarely moves
+    # SOL itself — the bundle wallets sell and route proceeds elsewhere.
+    #
+    # Strategy: if a confirmed/suspected bundle is detected, also trace SOL
+    # flows from the confirmed bundle wallets as additional hop-0 seeds.
+    #  • If the deployer trace returned nothing  → run synchronously now
+    #    (within budget) so this response already includes bundle flows.
+    #  • If the deployer trace returned something → fire-and-forget to enrich
+    #    the DB; the enriched report is visible on the next page load.
+    # Use only forensically-proven team wallets as SOL trace seeds.
+    # CONFIRMED_TEAM and SUSPECTED_TEAM wallets have verifiable on-chain deployer
+    # links — we do NOT attribute random bundle wallets to the team without proof.
+    _bundle_seeds: list[str] = []
+    if result.bundle_report and result.bundle_report.overall_verdict in (
+        "confirmed_team_extraction", "suspected_team_extraction"
+    ):
+        _bundle_seeds = (
+            result.bundle_report.confirmed_team_wallets
+            + result.bundle_report.suspected_team_wallets
+        )[:12]  # cap at 12 wallets to bound RPC cost
+
+    if _bundle_seeds:
+        if result.sol_flow is None:
+            # No deployer flows found — try synchronously with bundle seeds.
+            # This is the common PumpFun case.
+            try:
+                result.sol_flow = await asyncio.wait_for(
+                    trace_sol_flow(
+                        _scan_mint, _scan_deployer,
+                        extra_seed_wallets=_bundle_seeds,
+                    ),
+                    timeout=15.0,
+                )
+                logger.info(
+                    "[sol_flow] bundle-seed trace: %d seeds → %d flows for %s",
+                    len(_bundle_seeds),
+                    len(result.sol_flow.flows) if result.sol_flow else 0,
+                    _scan_mint[:8],
+                )
+            except asyncio.TimeoutError:
+                logger.warning("[sol_flow] bundle-seed trace timed out for %s", _scan_mint[:8])
+                asyncio.ensure_future(
+                    trace_sol_flow(_scan_mint, _scan_deployer, extra_seed_wallets=_bundle_seeds)
+                )
+            except Exception as _bse:
+                logger.warning("[sol_flow] bundle-seed trace failed: %s", _bse)
+        else:
+            # Deployer already has flows — enrich DB in background.
+            asyncio.ensure_future(
+                trace_sol_flow(_scan_mint, _scan_deployer, extra_seed_wallets=_bundle_seeds)
+            )
+
     await _progress("Analysis complete", 100)
     await _cache_set(f"lineage:v4:{mint_address}", result, ttl=CACHE_TTL_LINEAGE_SECONDS)
     return result

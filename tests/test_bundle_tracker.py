@@ -1,7 +1,11 @@
 """Unit tests for lineage_agent.bundle_tracker_service.
 
-Covers the sync/pure helpers (_extract_buyers, _tx_has_sol_transfer_from_deployer)
-and the verdict thresholds — all without touching the network.
+Covers the sync/pure helpers without touching the network:
+  - _extract_buyers
+  - _is_full_sell / _compute_sol_received
+  - _find_incoming_sol_transfer / _extract_sol_outflows
+  - Phase-4 coordination detectors
+  - Phase-5 wallet + overall verdict computation
 """
 
 from __future__ import annotations
@@ -10,10 +14,25 @@ import pytest
 
 from lineage_agent.bundle_tracker_service import (
     _extract_buyers,
-    _tx_has_sol_transfer_from_deployer,
+    _is_full_sell,
+    _compute_sol_received,
+    _find_incoming_sol_transfer,
+    _extract_sol_outflows,
+    _detect_common_prefund_source,
+    _detect_coordinated_sell,
+    _detect_common_sinks,
+    _compute_wallet_verdict,
+    _compute_overall_verdict,
     _MAX_BUNDLE_WALLETS,
     _SOL_DECIMALS,
-    _PRE_FUND_MIN_SOL,
+    _MIN_PREFUND_LAMPORTS,
+)
+from lineage_agent.models import (
+    PreSellBehavior,
+    PostSellBehavior,
+    FundDestination,
+    BundleWalletAnalysis,
+    BundleWalletVerdict,
 )
 
 
@@ -22,14 +41,14 @@ from lineage_agent.bundle_tracker_service import (
 # ===================================================================
 
 def _make_tx(
-    signers: list[dict],  # [{"pubkey": str, "pre_bal": int, "post_bal": int}]
+    signers: list[dict],
     *,
     extra_accounts: list[dict] | None = None,
+    pre_token_balances: list[dict] | None = None,
+    post_token_balances: list[dict] | None = None,
 ) -> dict:
     """Build a minimal Solana jsonParsed transaction."""
-    accounts = []
-    pre_bals = []
-    post_bals = []
+    accounts, pre_bals, post_bals = [], [], []
     for s in signers:
         accounts.append({"pubkey": s["pubkey"], "signer": True})
         pre_bals.append(s["pre_bal"])
@@ -40,8 +59,51 @@ def _make_tx(
         post_bals.append(ea.get("post_bal", 0))
     return {
         "transaction": {"message": {"accountKeys": accounts}},
-        "meta": {"preBalances": pre_bals, "postBalances": post_bals},
+        "meta": {
+            "preBalances": pre_bals,
+            "postBalances": post_bals,
+            "preTokenBalances": pre_token_balances or [],
+            "postTokenBalances": post_token_balances or [],
+        },
     }
+
+
+def _make_pre_sell(
+    prefund_source_is_deployer: bool = False,
+    prefund_source_is_known_funder: bool = False,
+    is_dormant: bool = False,
+    same_deployer_prior_launches: int = 0,
+    prior_bundle_count: int = 0,
+    prefund_source: str | None = None,
+) -> PreSellBehavior:
+    return PreSellBehavior(
+        prefund_source_is_deployer=prefund_source_is_deployer,
+        prefund_source_is_known_funder=prefund_source_is_known_funder,
+        is_dormant=is_dormant,
+        same_deployer_prior_launches=same_deployer_prior_launches,
+        prior_bundle_count=prior_bundle_count,
+        prefund_source=prefund_source,
+    )
+
+
+def _make_post_sell(
+    sell_detected: bool = False,
+    sell_slot: int | None = None,
+    direct_transfer_to_deployer: bool = False,
+    transfer_to_deployer_linked_wallet: bool = False,
+    indirect_via_intermediary: bool = False,
+    common_destination_with_other_bundles: bool = False,
+    sol_received_from_sell: float = 0.0,
+) -> PostSellBehavior:
+    return PostSellBehavior(
+        sell_detected=sell_detected,
+        sell_slot=sell_slot,
+        direct_transfer_to_deployer=direct_transfer_to_deployer,
+        transfer_to_deployer_linked_wallet=transfer_to_deployer_linked_wallet,
+        indirect_via_intermediary=indirect_via_intermediary,
+        common_destination_with_other_bundles=common_destination_with_other_bundles,
+        sol_received_from_sell=sol_received_from_sell,
+    )
 
 
 # ===================================================================
@@ -72,8 +134,8 @@ class TestExtractBuyers:
         assert deployer not in wallets
 
     def test_system_programs_excluded(self):
-        deployer = "DEPLOYER_111"
         system_prog = "11111111111111111111111111111111"
+        deployer = "DEPLOYER_111"
         tx = _make_tx([
             {"pubkey": deployer, "pre_bal": 10 * _SOL_DECIMALS, "post_bal": 9 * _SOL_DECIMALS},
             {"pubkey": system_prog, "pre_bal": 5 * _SOL_DECIMALS, "post_bal": 3 * _SOL_DECIMALS},
@@ -95,7 +157,6 @@ class TestExtractBuyers:
         assert "NonSigner" not in wallets
 
     def test_positive_balance_delta_not_buyer(self):
-        """A signer whose SOL increased is not a buyer."""
         deployer = "DEPLOYER_111"
         tx = _make_tx([
             {"pubkey": deployer, "pre_bal": 10 * _SOL_DECIMALS, "post_bal": 9 * _SOL_DECIMALS},
@@ -106,10 +167,8 @@ class TestExtractBuyers:
         assert "Receiver" not in wallets
 
     def test_multiple_buyers_accumulate(self):
-        """Two transactions from same buyer accumulate SOL spent."""
         deployer = "DEPLOYER_111"
         wallets: dict[str, float] = {}
-
         tx1 = _make_tx([
             {"pubkey": deployer, "pre_bal": 10 * _SOL_DECIMALS, "post_bal": 9 * _SOL_DECIMALS},
             {"pubkey": "BuyerA", "pre_bal": 5 * _SOL_DECIMALS, "post_bal": 4 * _SOL_DECIMALS},
@@ -118,13 +177,11 @@ class TestExtractBuyers:
             {"pubkey": deployer, "pre_bal": 9 * _SOL_DECIMALS, "post_bal": 8 * _SOL_DECIMALS},
             {"pubkey": "BuyerA", "pre_bal": 4 * _SOL_DECIMALS, "post_bal": 2 * _SOL_DECIMALS},
         ])
-
         _extract_buyers(tx1, deployer, wallets)
         _extract_buyers(tx2, deployer, wallets)
         assert wallets["BuyerA"] == pytest.approx(3.0, abs=0.01)
 
     def test_tiny_spend_ignored(self):
-        """SOL decrease below threshold (0.001) is ignored."""
         deployer = "DEPLOYER_111"
         tx = _make_tx([
             {"pubkey": deployer, "pre_bal": 10 * _SOL_DECIMALS, "post_bal": 9 * _SOL_DECIMALS},
@@ -132,7 +189,6 @@ class TestExtractBuyers:
         ])
         wallets: dict[str, float] = {}
         _extract_buyers(tx, deployer, wallets)
-        # Delta ~0.0001 SOL, below 0.001 threshold → excluded
         assert "TinyBuyer" not in wallets
 
     def test_empty_tx_graceful(self):
@@ -142,107 +198,401 @@ class TestExtractBuyers:
 
 
 # ===================================================================
-# _tx_has_sol_transfer_from_deployer
+# _is_full_sell
 # ===================================================================
 
-class TestTxHasSolTransfer:
-    """SOL transfer detection between deployer and recipient."""
+class TestIsFullSell:
 
-    def test_valid_transfer(self):
-        deployer = "DEPLOYER"
+    def _token_bal(self, owner: str, mint: str, amount: float) -> dict:
+        return {
+            "owner": owner,
+            "mint": mint,
+            "uiTokenAmount": {"uiAmount": amount},
+        }
+
+    def test_full_sell_detected(self):
+        wallet = "WALLET1"
+        tx = _make_tx(
+            [{"pubkey": wallet, "pre_bal": _SOL_DECIMALS, "post_bal": 2 * _SOL_DECIMALS}],
+            pre_token_balances=[self._token_bal(wallet, "MINT_A", 1_000_000.0)],
+            post_token_balances=[self._token_bal(wallet, "MINT_A", 0.0)],
+        )
+        assert _is_full_sell(tx, wallet) is True
+
+    def test_partial_sell_not_full(self):
+        wallet = "WALLET1"
+        tx = _make_tx(
+            [{"pubkey": wallet, "pre_bal": _SOL_DECIMALS, "post_bal": 2 * _SOL_DECIMALS}],
+            pre_token_balances=[self._token_bal(wallet, "MINT_A", 1_000_000.0)],
+            post_token_balances=[self._token_bal(wallet, "MINT_A", 500_000.0)],
+        )
+        assert _is_full_sell(tx, wallet) is False
+
+    def test_no_pre_balance_not_sell(self):
+        wallet = "WALLET1"
+        tx = _make_tx(
+            [{"pubkey": wallet, "pre_bal": _SOL_DECIMALS, "post_bal": 2 * _SOL_DECIMALS}],
+            pre_token_balances=[],
+            post_token_balances=[],
+        )
+        assert _is_full_sell(tx, wallet) is False
+
+    def test_different_owner_not_sell(self):
+        wallet = "WALLET1"
+        other = "WALLET2"
+        tx = _make_tx(
+            [{"pubkey": wallet, "pre_bal": _SOL_DECIMALS, "post_bal": 2 * _SOL_DECIMALS}],
+            pre_token_balances=[self._token_bal(other, "MINT_A", 1_000_000.0)],
+            post_token_balances=[self._token_bal(other, "MINT_A", 0.0)],
+        )
+        assert _is_full_sell(tx, wallet) is False
+
+    def test_empty_tx_graceful(self):
+        assert _is_full_sell({}, "WALLET") is False
+
+
+# ===================================================================
+# _compute_sol_received
+# ===================================================================
+
+class TestComputeSolReceived:
+
+    def test_positive_gain(self):
+        wallet = "WALLET1"
+        tx = _make_tx([
+            {"pubkey": "OTHER", "pre_bal": 10 * _SOL_DECIMALS, "post_bal": 7 * _SOL_DECIMALS},
+            {"pubkey": wallet, "pre_bal": 1 * _SOL_DECIMALS, "post_bal": 4 * _SOL_DECIMALS},
+        ])
+        result = _compute_sol_received(tx, wallet)
+        assert result == pytest.approx(3.0, abs=0.001)
+
+    def test_negative_delta_returns_zero(self):
+        wallet = "WALLET1"
+        tx = _make_tx([
+            {"pubkey": wallet, "pre_bal": 5 * _SOL_DECIMALS, "post_bal": 3 * _SOL_DECIMALS},
+        ])
+        assert _compute_sol_received(tx, wallet) == 0.0
+
+    def test_wallet_not_in_tx(self):
+        tx = _make_tx([
+            {"pubkey": "OTHER", "pre_bal": _SOL_DECIMALS, "post_bal": _SOL_DECIMALS},
+        ])
+        assert _compute_sol_received(tx, "MISSING") == 0.0
+
+
+# ===================================================================
+# _find_incoming_sol_transfer
+# ===================================================================
+
+class TestFindIncomingSolTransfer:
+
+    def test_detects_funding_above_threshold(self):
+        sender = "FUNDER"
         recipient = "RECIPIENT"
-        tx = _make_tx(
-            [{"pubkey": deployer, "pre_bal": 10 * _SOL_DECIMALS, "post_bal": int(9.5 * _SOL_DECIMALS)}],
-            extra_accounts=[
-                {"pubkey": recipient, "pre_bal": 1 * _SOL_DECIMALS, "post_bal": int(1.5 * _SOL_DECIMALS)},
-            ],
-        )
-        assert _tx_has_sol_transfer_from_deployer(tx, deployer, recipient) is True
+        fund_amount = _MIN_PREFUND_LAMPORTS * 2
+        tx = _make_tx([
+            {"pubkey": sender, "pre_bal": 10 * _SOL_DECIMALS, "post_bal": 10 * _SOL_DECIMALS - fund_amount},
+        ], extra_accounts=[
+            {"pubkey": recipient, "pre_bal": 0, "post_bal": fund_amount},
+        ])
+        found_sender, sol = _find_incoming_sol_transfer(tx, recipient)
+        assert found_sender == sender
+        assert sol * _SOL_DECIMALS >= _MIN_PREFUND_LAMPORTS
 
-    def test_below_threshold(self):
-        deployer = "DEPLOYER"
+    def test_below_threshold_returns_none(self):
+        sender = "FUNDER"
         recipient = "RECIPIENT"
-        small = int(_PRE_FUND_MIN_SOL * _SOL_DECIMALS * 0.5)  # below threshold
-        tx = _make_tx(
-            [{"pubkey": deployer, "pre_bal": 10 * _SOL_DECIMALS, "post_bal": 10 * _SOL_DECIMALS - small}],
-            extra_accounts=[
-                {"pubkey": recipient, "pre_bal": 1 * _SOL_DECIMALS, "post_bal": 1 * _SOL_DECIMALS + small},
-            ],
-        )
-        assert _tx_has_sol_transfer_from_deployer(tx, deployer, recipient) is False
+        tiny = _MIN_PREFUND_LAMPORTS // 2
+        tx = _make_tx([
+            {"pubkey": sender, "pre_bal": _SOL_DECIMALS, "post_bal": _SOL_DECIMALS - tiny},
+        ], extra_accounts=[
+            {"pubkey": recipient, "pre_bal": 0, "post_bal": tiny},
+        ])
+        found_sender, sol = _find_incoming_sol_transfer(tx, recipient)
+        assert found_sender is None
 
-    def test_deployer_not_in_tx(self):
-        tx = _make_tx(
-            [{"pubkey": "OTHER", "pre_bal": 10 * _SOL_DECIMALS, "post_bal": 9 * _SOL_DECIMALS}],
-        )
-        assert _tx_has_sol_transfer_from_deployer(tx, "DEPLOYER", "RECIPIENT") is False
-
-    def test_empty_tx(self):
-        assert _tx_has_sol_transfer_from_deployer({}, "D", "R") is False
+    def test_recipient_not_in_tx(self):
+        tx = _make_tx([{"pubkey": "OTHER", "pre_bal": _SOL_DECIMALS, "post_bal": _SOL_DECIMALS}])
+        sender, sol = _find_incoming_sol_transfer(tx, "MISSING_RECIPIENT")
+        assert sender is None
+        assert sol == 0.0
 
 
 # ===================================================================
-# Verdict thresholds (integration-style — test the logic)
+# _extract_sol_outflows
 # ===================================================================
 
-class TestVerdictThresholds:
-    """Verify the verdict classification boundaries."""
+class TestExtractSolOutflows:
 
-    def test_confirmed_bundle_high_link_ratio(self):
-        """≥50% confirmed linked → confirmed_bundle."""
-        confirmed = 3
-        total = 5
-        total_sol_returned = 0.5
-        ratio = confirmed / total
-        if ratio >= 0.5 or (confirmed >= 2 and total_sol_returned > 1.0):
-            verdict = "confirmed_bundle"
-        else:
-            verdict = "clean"
-        assert verdict == "confirmed_bundle"
+    def test_detects_outflow_above_min(self):
+        sender = "WALLET1"
+        dest = "DEST1"
+        amount = 100_000_000  # 0.1 SOL
+        tx = _make_tx([
+            {"pubkey": sender, "pre_bal": _SOL_DECIMALS, "post_bal": _SOL_DECIMALS - amount},
+        ], extra_accounts=[
+            {"pubkey": dest, "pre_bal": 0, "post_bal": amount},
+        ])
+        outflows = _extract_sol_outflows(tx, sender, min_lamports=50_000_000)
+        assert dest in outflows
+        assert outflows[dest] == amount
 
-    def test_confirmed_bundle_sol_returned(self):
-        """≥2 confirmed + >1.0 SOL returned → confirmed_bundle."""
-        confirmed = 2
-        total = 10
-        total_sol_returned = 1.5
-        ratio = confirmed / total
-        if ratio >= 0.5 or (confirmed >= 2 and total_sol_returned > 1.0):
-            verdict = "confirmed_bundle"
-        elif confirmed >= 1 or 5.0 > 5.0:
-            verdict = "suspected_bundle"
-        else:
-            verdict = "clean"
-        assert verdict == "confirmed_bundle"
+    def test_below_min_lamports_excluded(self):
+        sender = "WALLET1"
+        dest = "DEST1"
+        amount = 10_000_000  # 0.01 SOL
+        tx = _make_tx([
+            {"pubkey": sender, "pre_bal": _SOL_DECIMALS, "post_bal": _SOL_DECIMALS - amount},
+        ], extra_accounts=[
+            {"pubkey": dest, "pre_bal": 0, "post_bal": amount},
+        ])
+        outflows = _extract_sol_outflows(tx, sender, min_lamports=50_000_000)
+        assert dest not in outflows
 
-    def test_suspected_bundle(self):
-        """1 confirmed, <1 SOL returned → suspected_bundle."""
-        confirmed = 1
-        total = 5
-        total_sol_spent = 3.0
-        total_sol_returned = 0.2
-        ratio = confirmed / total
-        if ratio >= 0.5 or (confirmed >= 2 and total_sol_returned > 1.0):
-            verdict = "confirmed_bundle"
-        elif confirmed >= 1 or total_sol_spent > 5.0:
-            verdict = "suspected_bundle"
-        else:
-            verdict = "clean"
-        assert verdict == "suspected_bundle"
+    def test_sender_not_in_tx_returns_empty(self):
+        tx = _make_tx([{"pubkey": "OTHER", "pre_bal": _SOL_DECIMALS, "post_bal": _SOL_DECIMALS}])
+        assert _extract_sol_outflows(tx, "MISSING") == {}
 
-    def test_clean_verdict(self):
-        """No confirmed linked, low spend → clean."""
-        confirmed = 0
-        total = 3
-        total_sol_spent = 0.5
-        total_sol_returned = 0.0
-        ratio = confirmed / total
-        if ratio >= 0.5 or (confirmed >= 2 and total_sol_returned > 1.0):
-            verdict = "confirmed_bundle"
-        elif confirmed >= 1 or total_sol_spent > 5.0:
-            verdict = "suspected_bundle"
-        else:
-            verdict = "clean"
-        assert verdict == "clean"
 
-    def test_max_bundle_wallets_cap(self):
-        assert _MAX_BUNDLE_WALLETS == 20
+# ===================================================================
+# Phase-4: Cross-wallet coordination detectors
+# ===================================================================
+
+class TestDetectCommonPrefundSource:
+
+    def test_common_funder_detected(self):
+        results = [
+            _make_pre_sell(prefund_source="FUNDER_A"),
+            _make_pre_sell(prefund_source="FUNDER_A"),
+            _make_pre_sell(prefund_source="FUNDER_B"),
+        ]
+        assert _detect_common_prefund_source(results) == "FUNDER_A"
+
+    def test_no_common_funder(self):
+        results = [
+            _make_pre_sell(prefund_source="FUNDER_A"),
+            _make_pre_sell(prefund_source="FUNDER_B"),
+        ]
+        assert _detect_common_prefund_source(results) is None
+
+    def test_no_funders_at_all(self):
+        results = [_make_pre_sell(), _make_pre_sell()]
+        assert _detect_common_prefund_source(results) is None
+
+
+class TestDetectCoordinatedSell:
+
+    def test_three_sells_within_window(self):
+        results = [
+            _make_post_sell(sell_detected=True, sell_slot=100),
+            _make_post_sell(sell_detected=True, sell_slot=102),
+            _make_post_sell(sell_detected=True, sell_slot=104),
+        ]
+        assert _detect_coordinated_sell(results) is True
+
+    def test_sells_outside_window(self):
+        results = [
+            _make_post_sell(sell_detected=True, sell_slot=100),
+            _make_post_sell(sell_detected=True, sell_slot=200),
+            _make_post_sell(sell_detected=True, sell_slot=300),
+        ]
+        assert _detect_coordinated_sell(results) is False
+
+    def test_fewer_than_three_sells(self):
+        results = [
+            _make_post_sell(sell_detected=True, sell_slot=100),
+            _make_post_sell(sell_detected=True, sell_slot=101),
+        ]
+        assert _detect_coordinated_sell(results) is False
+
+    def test_no_sells(self):
+        results = [_make_post_sell(), _make_post_sell()]
+        assert _detect_coordinated_sell(results) is False
+
+
+class TestDetectCommonSinks:
+
+    def test_common_sink_detected(self):
+        dest_a = FundDestination(destination="SINK_1", lamports=100_000_000, hop=0)
+        dest_b = FundDestination(destination="SINK_1", lamports=200_000_000, hop=0)
+        ps1 = _make_post_sell()
+        ps2 = _make_post_sell()
+        ps1.fund_destinations = [dest_a]
+        ps2.fund_destinations = [dest_b]
+        sinks = _detect_common_sinks([ps1, ps2])
+        assert "SINK_1" in sinks
+
+    def test_no_common_sink(self):
+        ps1 = _make_post_sell()
+        ps2 = _make_post_sell()
+        ps1.fund_destinations = [FundDestination(destination="SINK_1", lamports=100_000_000, hop=0)]
+        ps2.fund_destinations = [FundDestination(destination="SINK_2", lamports=100_000_000, hop=0)]
+        sinks = _detect_common_sinks([ps1, ps2])
+        assert len(sinks) == 0
+
+    def test_system_program_excluded(self):
+        system_prog = "11111111111111111111111111111111"
+        ps1 = _make_post_sell()
+        ps2 = _make_post_sell()
+        ps1.fund_destinations = [FundDestination(destination=system_prog, lamports=100_000_000, hop=0)]
+        ps2.fund_destinations = [FundDestination(destination=system_prog, lamports=100_000_000, hop=0)]
+        sinks = _detect_common_sinks([ps1, ps2])
+        assert system_prog not in sinks
+
+
+# ===================================================================
+# Phase-5: Wallet verdict computation
+# ===================================================================
+
+class TestComputeWalletVerdict:
+
+    def test_confirmed_team_direct_transfer(self):
+        pre = _make_pre_sell()
+        post = _make_post_sell(direct_transfer_to_deployer=True)
+        flags, verdict = _compute_wallet_verdict(pre, post)
+        assert verdict == BundleWalletVerdict.CONFIRMED_TEAM
+        assert "DIRECT_TRANSFER_TO_DEPLOYER" in flags
+
+    def test_confirmed_team_funded_and_linked(self):
+        pre = _make_pre_sell(prefund_source_is_deployer=True)
+        post = _make_post_sell(transfer_to_deployer_linked_wallet=True)
+        flags, verdict = _compute_wallet_verdict(pre, post)
+        assert verdict == BundleWalletVerdict.CONFIRMED_TEAM
+
+    def test_suspected_team_linked_wallet(self):
+        pre = _make_pre_sell()
+        post = _make_post_sell(transfer_to_deployer_linked_wallet=True)
+        flags, verdict = _compute_wallet_verdict(pre, post)
+        assert verdict == BundleWalletVerdict.SUSPECTED_TEAM
+        assert "TRANSFERRED_TO_DEPLOYER_LINKED_WALLET" in flags
+
+    def test_suspected_team_deployer_funded_with_flags(self):
+        pre = _make_pre_sell(prefund_source_is_deployer=True, is_dormant=True)
+        post = _make_post_sell()
+        flags, verdict = _compute_wallet_verdict(pre, post)
+        # prefund_source_is_deployer + is_dormant = 2 flags → SUSPECTED_TEAM
+        assert verdict == BundleWalletVerdict.SUSPECTED_TEAM
+
+    def test_coordinated_dump_three_flags(self):
+        pre = _make_pre_sell(is_dormant=True, prefund_source_is_known_funder=True)
+        post = _make_post_sell(common_destination_with_other_bundles=True)
+        flags, verdict = _compute_wallet_verdict(pre, post)
+        assert verdict == BundleWalletVerdict.COORDINATED_DUMP
+
+    def test_coordinated_dump_known_funder_plus_common_sink(self):
+        pre = _make_pre_sell(prefund_source_is_known_funder=True)
+        post = _make_post_sell(common_destination_with_other_bundles=True)
+        flags, verdict = _compute_wallet_verdict(pre, post)
+        assert verdict == BundleWalletVerdict.COORDINATED_DUMP
+
+    def test_early_buyer_no_signals(self):
+        pre = _make_pre_sell()
+        post = _make_post_sell()
+        flags, verdict = _compute_wallet_verdict(pre, post)
+        assert verdict == BundleWalletVerdict.EARLY_BUYER
+        assert flags == []
+
+    def test_early_buyer_with_one_flag(self):
+        pre = _make_pre_sell(is_dormant=True)
+        post = _make_post_sell()
+        flags, verdict = _compute_wallet_verdict(pre, post)
+        assert verdict == BundleWalletVerdict.EARLY_BUYER
+        assert "DORMANT_BEFORE_LAUNCH" in flags
+
+
+# ===================================================================
+# Phase-5: Overall verdict computation
+# ===================================================================
+
+def _make_analysis(wallet: str, verdict: BundleWalletVerdict, sell: bool = False) -> BundleWalletAnalysis:
+    return BundleWalletAnalysis(
+        wallet=wallet,
+        sol_spent=1.0,
+        pre_sell=_make_pre_sell(),
+        post_sell=_make_post_sell(sell_detected=sell),
+        red_flags=[],
+        verdict=verdict,
+    )
+
+
+class TestComputeOverallVerdict:
+
+    def test_confirmed_extraction_two_confirmed(self):
+        analyses = [
+            _make_analysis("W1", BundleWalletVerdict.CONFIRMED_TEAM),
+            _make_analysis("W2", BundleWalletVerdict.CONFIRMED_TEAM),
+        ]
+        verdict, evidence = _compute_overall_verdict(analyses, ["W1", "W2"], [], [], set(), False)
+        assert verdict == "confirmed_team_extraction"
+
+    def test_confirmed_extraction_one_confirmed_one_suspected(self):
+        analyses = [
+            _make_analysis("W1", BundleWalletVerdict.CONFIRMED_TEAM),
+            _make_analysis("W2", BundleWalletVerdict.SUSPECTED_TEAM),
+        ]
+        verdict, evidence = _compute_overall_verdict(analyses, ["W1"], ["W2"], [], set(), False)
+        assert verdict == "confirmed_team_extraction"
+
+    def test_suspected_extraction_two_suspected(self):
+        analyses = [
+            _make_analysis("W1", BundleWalletVerdict.SUSPECTED_TEAM),
+            _make_analysis("W2", BundleWalletVerdict.SUSPECTED_TEAM),
+        ]
+        verdict, evidence = _compute_overall_verdict(analyses, [], ["W1", "W2"], [], set(), False)
+        assert verdict == "suspected_team_extraction"
+
+    def test_suspected_extraction_dumps_with_common_sink(self):
+        analyses = [
+            _make_analysis("W1", BundleWalletVerdict.COORDINATED_DUMP),
+            _make_analysis("W2", BundleWalletVerdict.COORDINATED_DUMP),
+            _make_analysis("W3", BundleWalletVerdict.COORDINATED_DUMP),
+        ]
+        verdict, evidence = _compute_overall_verdict(
+            analyses, [], [], ["W1", "W2", "W3"], {"SINK_1"}, False
+        )
+        assert verdict == "suspected_team_extraction"
+
+    def test_coordinated_dump_no_deployer_link(self):
+        analyses = [
+            _make_analysis("W1", BundleWalletVerdict.COORDINATED_DUMP),
+            _make_analysis("W2", BundleWalletVerdict.COORDINATED_DUMP),
+            _make_analysis("W3", BundleWalletVerdict.COORDINATED_DUMP),
+        ]
+        verdict, evidence = _compute_overall_verdict(
+            analyses, [], [], ["W1", "W2", "W3"], set(), False
+        )
+        assert verdict == "coordinated_dump_unknown_team"
+
+    def test_coordinated_dump_two_dumps_coordinated_sell(self):
+        analyses = [
+            _make_analysis("W1", BundleWalletVerdict.COORDINATED_DUMP),
+            _make_analysis("W2", BundleWalletVerdict.COORDINATED_DUMP),
+        ]
+        verdict, evidence = _compute_overall_verdict(
+            analyses, [], [], ["W1", "W2"], set(), True
+        )
+        assert verdict == "coordinated_dump_unknown_team"
+
+    def test_early_buyers_no_link(self):
+        analyses = [
+            _make_analysis("W1", BundleWalletVerdict.EARLY_BUYER),
+            _make_analysis("W2", BundleWalletVerdict.EARLY_BUYER),
+        ]
+        verdict, evidence = _compute_overall_verdict(analyses, [], [], [], set(), False)
+        assert verdict == "early_buyers_no_link_proven"
+
+    def test_evidence_chain_populated(self):
+        analyses = [_make_analysis("W1", BundleWalletVerdict.CONFIRMED_TEAM, sell=True)]
+        _, evidence = _compute_overall_verdict(analyses, ["W1"], [], [], set(), False)
+        assert any("direct on-chain deployer link" in e for e in evidence)
+        assert any("fully exited" in e for e in evidence)
+
+
+# ===================================================================
+# Constants sanity
+# ===================================================================
+
+def test_max_bundle_wallets_cap():
+    assert _MAX_BUNDLE_WALLETS == 20
+
+

@@ -104,8 +104,33 @@ async def _run_rug_sweep() -> int:
             if _deployer:
                 try:
                     from .sol_flow_service import trace_sol_flow
+                    from .data_sources._clients import bundle_report_query as _brq
+
+                    # PumpFun/Jito fix: seed the SOL trace with confirmed bundle
+                    # wallets in addition to the deployer.  The bundle wallets
+                    # are the actual extractors on modern protocol launches.
+                    _bundle_seeds: list[str] = []
+                    try:
+                        import json as _json
+                        _cached = await _brq(mint)
+                        if _cached:
+                            _bd = _json.loads(_cached)
+                            if _bd.get("overall_verdict") in (
+                                "confirmed_team_extraction",
+                                "suspected_team_extraction",
+                            ):
+                                _bundle_seeds = (
+                                    [w for w in _bd.get("confirmed_team_wallets", []) if w != _deployer]
+                                    + [w for w in _bd.get("suspected_team_wallets", []) if w != _deployer]
+                                )[:12]
+                    except Exception:
+                        pass
+
                     asyncio.create_task(
-                        trace_sol_flow(mint, _deployer),
+                        trace_sol_flow(
+                            mint, _deployer,
+                            extra_seed_wallets=_bundle_seeds,
+                        ),
                         name=f"sol_trace_{mint[:8]}",
                     )
                 except Exception as _te:

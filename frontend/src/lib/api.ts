@@ -69,7 +69,7 @@ export interface LineageResult {
   operator_impact?: OperatorImpactReport | null;
   sol_flow?: SolFlowReport | null;
   cartel_report?: CartelReport | null;
-  bundle_report?: BundleReport | null;
+  bundle_report?: BundleExtractionReport | null;
 }
 
 /* ---------- Forensic signal types ----------------------------------- */
@@ -272,32 +272,86 @@ export interface CartelReport {
   deployer_community: CartelCommunity | null;
 }
 
-/* ---------- Bundle wallet tracking (Initiative 5) ------------------- */
+/* ---------- Bundle wallet forensic tracking (Initiative 5) --------- */
 
-export interface BundleWallet {
-  address: string;
-  sol_spent: number;
-  funded_by_deployer: boolean;
-  sol_returned_to_deployer: number;
-  exited: boolean;
-  current_token_balance: number | null;
+export type BundleWalletVerdict =
+  | "confirmed_team"
+  | "suspected_team"
+  | "coordinated_dump"
+  | "early_buyer";
+
+export interface FundDestination {
+  destination: string;
+  lamports: number;
+  hop: number;
+  link_to_deployer: boolean;
+  seen_in_other_bundles: boolean;
 }
 
-export interface BundleReport {
+export interface PreSellBehavior {
+  wallet_age_days: number | null;
+  is_dormant: boolean;
+  prefund_source: string | null;
+  prefund_sol: number;
+  prefund_hours_before_launch: number | null;
+  prefund_source_is_deployer: boolean;
+  prefund_source_is_known_funder: boolean;
+  pre_launch_tx_count: number;
+  pre_launch_unique_tokens: number;
+  prior_bundle_count: number;
+  same_deployer_prior_launches: number;
+}
+
+export interface PostSellBehavior {
+  sell_detected: boolean;
+  sell_slot: number | null;
+  sell_tx_signature: string | null;
+  sol_received_from_sell: number;
+  fund_destinations: FundDestination[];
+  direct_transfer_to_deployer: boolean;
+  transfer_to_deployer_linked_wallet: boolean;
+  indirect_via_intermediary: boolean;
+  common_destination_with_other_bundles: boolean;
+}
+
+export interface BundleWalletAnalysis {
+  wallet: string;
+  sol_spent: number;
+  pre_sell: PreSellBehavior;
+  post_sell: PostSellBehavior;
+  red_flags: string[];
+  verdict: BundleWalletVerdict;
+}
+
+export type BundleOverallVerdict =
+  | "confirmed_team_extraction"
+  | "suspected_team_extraction"
+  | "coordinated_dump_unknown_team"
+  | "early_buyers_no_link_proven";
+
+export interface BundleExtractionReport {
   mint: string;
   deployer: string;
-  bundle_wallets: BundleWallet[];
-  total_sol_spent_by_bundle: number;
-  total_sol_returned_to_deployer: number;
-  total_usd_extracted: number | null;
-  confirmed_linked_wallets: number;
-  verdict: "clean" | "suspected_bundle" | "confirmed_bundle";
   launch_slot: number | null;
+  bundle_wallets: BundleWalletAnalysis[];
+  confirmed_team_wallets: string[];
+  suspected_team_wallets: string[];
+  coordinated_dump_wallets: string[];
+  early_buyer_wallets: string[];
+  total_sol_spent_by_bundle: number;
+  total_sol_extracted_confirmed: number;
+  total_usd_extracted: number | null;
+  common_prefund_source: string | null;
+  common_sink_wallets: string[];
+  coordinated_sell_detected: boolean;
+  overall_verdict: BundleOverallVerdict;
+  evidence_chain: string[];
+  analysis_timestamp: string;
 }
 
-export function fetchBundleReport(mint: string, deployer?: string): Promise<BundleReport> {
+export function fetchBundleReport(mint: string, deployer?: string): Promise<BundleExtractionReport> {
   const qs = deployer ? `?deployer=${deployer}` : "";
-  return fetchJSON<BundleReport>(`/bundle/${mint}${qs}`, 35_000);
+  return fetchJSON<BundleExtractionReport>(`/bundle/${mint}${qs}`, 35_000);
 }
 
 /* ---------- Error class --------------------------------------------- */

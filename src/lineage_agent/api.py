@@ -67,7 +67,7 @@ from .logging_config import generate_request_id, request_id_ctx, setup_logging
 from .models import (
     BatchLineageRequest,
     BatchLineageResponse,
-    BundleReport,
+    BundleExtractionReport,
     CartelCommunity,
     CartelReport,
     DeployerProfile,
@@ -590,9 +590,29 @@ async def get_sol_trace(
             _deployer = await _resolve_deployer(mint)
         if not _deployer:
             raise HTTPException(status_code=404, detail="No deployer found for this mint — analyse it first via /lineage")
+        # Look up bundle wallets from DB to include as extra trace seeds.
+        # PumpFun/Jito tokens: deployer rarely moves SOL directly — bundle
+        # wallets are the actual extractors.
+        # Use only wallets with verified on-chain deployer links as seeds.
+        _bundle_seeds: list[str] = []
+        try:
+            import json as _json
+            from .data_sources._clients import bundle_report_query as _brq
+            _cached_br = await _brq(mint)
+            if _cached_br:
+                _bd = _json.loads(_cached_br)
+                if _bd.get("overall_verdict") in (
+                    "confirmed_team_extraction", "suspected_team_extraction",
+                ):
+                    _bundle_seeds = (
+                        [w for w in _bd.get("confirmed_team_wallets", []) if w != _deployer]
+                        + [w for w in _bd.get("suspected_team_wallets", []) if w != _deployer]
+                    )[:12]
+        except Exception:
+            pass
         # If not in DB: trigger synchronously with 20s timeout
         report = await asyncio.wait_for(
-            trace_sol_flow(mint, _deployer),
+            trace_sol_flow(mint, _deployer, extra_seed_wallets=_bundle_seeds),
             timeout=22.0,
         )
     except (asyncio.TimeoutError, HTTPException):
@@ -787,16 +807,16 @@ async def cartel_financial_graph(
 
 @app.get(
     "/bundle/{mint}",
-    response_model=BundleReport,
+    response_model=BundleExtractionReport,
     tags=["intelligence"],
-    summary="Bundle wallet analysis for a token launch",
+    summary="Forensic bundle wallet analysis for a token launch",
 )
 @limiter.limit("10/minute")
 async def get_bundle_report(
     request: Request,
     mint: str,
     deployer: Optional[str] = None,
-) -> BundleReport:
+) -> BundleExtractionReport:
     """Detect Jito bundle wallets at token launch and trace their SOL flows.
 
     Returns the list of early coordinated buyers, which ones were funded by

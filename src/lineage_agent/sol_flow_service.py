@@ -53,6 +53,7 @@ async def trace_sol_flow(
     *,
     max_hops: int = _MAX_HOPS,
     max_txn_per_wallet: int = _MAX_TXN_PER_WALLET,
+    extra_seed_wallets: Optional[list[str]] = None,
 ) -> Optional[SolFlowReport]:
     """Trace SOL flows from a deployer wallet after a rug (BFS, max 3 hops).
 
@@ -60,17 +61,26 @@ async def trace_sol_flow(
     from DB instead of re-running RPC scans.
 
     Args:
-        mint:               Rugged token's mint address (for DB grouping).
-        deployer:           Initial wallet to start tracing from.
-        max_hops:           BFS depth (default 3).
-        max_txn_per_wallet: Transaction limit per wallet per hop (default 50).
+        mint:                Rugged token's mint address (for DB grouping).
+        deployer:            Initial wallet to start tracing from.
+        max_hops:            BFS depth (default 3).
+        max_txn_per_wallet:  Transaction limit per wallet per hop (default 50).
+        extra_seed_wallets:  Additional wallets to start tracing from at hop=0.
+                             Used for PumpFun / Jito bundle patterns where the
+                             actual SOL extraction happens via bundle wallets
+                             rather than directly through the deployer.
 
     Returns:
         SolFlowReport if any flows found, else None.
     """
     try:
         return await asyncio.wait_for(
-            _run_trace(mint, deployer, max_hops=max_hops, max_txn_per_wallet=max_txn_per_wallet),
+            _run_trace(
+                mint, deployer,
+                max_hops=max_hops,
+                max_txn_per_wallet=max_txn_per_wallet,
+                extra_seed_wallets=extra_seed_wallets or [],
+            ),
             timeout=_TRACE_TIMEOUT,
         )
     except asyncio.TimeoutError:
@@ -101,12 +111,18 @@ async def _run_trace(
     *,
     max_hops: int,
     max_txn_per_wallet: int,
+    extra_seed_wallets: list[str],
 ) -> Optional[SolFlowReport]:
     rpc = get_rpc_client()
     sem = asyncio.Semaphore(_HOP_SEM_CONCURRENCY)
     all_flows: list[dict] = []
-    frontier: set[str] = {deployer}
-    visited: set[str] = {deployer}
+    # Include bundle wallets (or any extra seeds) as additional hop-0 starting
+    # points.  On PumpFun / Jito patterns the actual SOL extraction is done by
+    # bundle wallets, not the deployer — so tracing only the deployer misses
+    # the bulk of the capital flow.
+    seed_set = {deployer} | {w for w in extra_seed_wallets if w and w != deployer}
+    frontier: set[str] = set(seed_set)
+    visited: set[str] = set(seed_set)
 
     for hop in range(max_hops):
         if not frontier:
