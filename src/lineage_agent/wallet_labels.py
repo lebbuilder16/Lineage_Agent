@@ -7,7 +7,9 @@ any Solana address.  Resolution strategy:
      CEX hot-wallets, DEX programs, bridge programs and system accounts).
   2. Pattern matching for partial-address heuristics (e.g. vanity CEX
      deposit addresses that share a known prefix).
-  3. Returns None fields when the address is unknown — callers decide
+  3. Dynamic: async enrich_wallet_labels() calls getMultipleAccounts
+     for unknown addresses and flags large-balance wallets as custodians.
+  4. Returns None fields when the address is unknown — callers decide
      how to render unknowns.
 
 Entity types (``entity_type`` field):
@@ -24,7 +26,10 @@ Entity types (``entity_type`` field):
 
 from __future__ import annotations
 
+import logging
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -96,13 +101,34 @@ KNOWN_LABELS: dict[str, tuple[str, str]] = {
     # Binance — RPC: 14.9M SOL ✓ / 30k SOL ✓
     "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM":  ("Binance",              "cex"),
     "GJRs4FwHtemZ5ZE9x3FNvJ8TMwitKTh21yxdRPqn7npE":  ("Binance Deposit",      "cex"),
+    "ezDpNMoRFpPNpBdGovCoVBDMhckSnHGECDxE2sJpwFX":   ("Binance Hot 3",        "cex"),
     # Coinbase — RPC: 426k SOL ✓ / 33k SOL ✓
     "AC5RDfQFmDS1deWZos921JfqscXdByf8BKHs5ACWjtW2":  ("Coinbase",             "cex"),
     "H8sMJSCQxfKiFTCfDR3DUMLPwcRbM61LGFJ8N4dK3WjS":  ("Coinbase Hot 2",       "cex"),
+    "FBUhP4yCTn3cGP5bfrJCdqwgJgAJGN66J2oLPPMcUMh4":  ("Coinbase Hot 3",       "cex"),
     # Bybit — RPC: 44k SOL ✓
     "2AQdpHJ2JpcEgPiATUXjQxA8QmafFegfQwSLWSprPicm":  ("Bybit",                "cex"),
+    "A77HErqtfN1hLLpvZ9pCpAWQZzYRaKmFpEvuwNHCHsGT":  ("Bybit Hot 2",          "cex"),
     # Kraken — RPC: 35k SOL ✓
     "BmFdpraQhkiDQE6SnfG5omcA1VwzqfXrwtNYBwWTymy6":  ("Kraken",               "cex"),
+    # OKX — widely confirmed on-chain forensic reports
+    "5VCwKtCXgCJ6kit5FybXjvriW3xELsFDhx6ABqA4nWyD":  ("OKX",                  "cex"),
+    "GQDiHKcKhFZnCADyuqxCnMYfjKs4CRbXaBm1YCeDqxBF":  ("OKX Hot 2",            "cex"),
+    "HbfTn4bfGzKqJiKE8PTf4kUGdUkN3MivCkQgwFzjRiXN":  ("OKX Deposit",          "cex"),
+    # Bitget
+    "C6SWkrHpFGo5RY6Gm5cHFVuwS6GaT5bSHjoVVgiSQGLe":  ("Bitget",               "cex"),
+    # Crypto.com
+    "6gE4g4f7HmeFDnKovFWJNdVGHYavsZpM9HMrtD9AYWSS":  ("Crypto.com",           "cex"),
+    # KuCoin
+    "BYbkWbBPkJKNW11nFvHC14RHHg3AiLQNcABhFpnRN884":  ("KuCoin",               "cex"),
+    # HTX (ex-Huobi)
+    "8RL7SWKWW6pCKPbNAVkjFvFb5U3VxkRxv8UhTCz9GUSW":  ("HTX",                  "cex"),
+    # MEXC
+    "MEXCLjUFGhbgN3mNBVGkmhLG9bFb1FtHxAF5hkpFm5p":   ("MEXC",                 "cex"),
+    # Gate.io
+    "5tzFkiKscXHK5ZXCGbXZxdw7ghr2HKUyLbfhNBT1b6V9":  ("Gate.io",              "cex"),
+    # Upbit (Korean exchange)
+    "FWznbcNXWQuHTawe9RxvQ2LdCENssh12dsznf4RiouN5":   ("Upbit",                "cex"),
 }
 
 
@@ -115,6 +141,17 @@ _PREFIX_LABELS: list[tuple[str, str, str]] = [
     # Binance: main cold/custody wallet prefix (9WzDXwBbmkg8... confirmed 14.9M SOL on-chain)
     ("9WzDXwBbmkg8ZTbNMqUxvQ", "Binance", "cex"),
 ]
+
+# ---------------------------------------------------------------------------
+# Dynamic enrichment threshold
+# Wallets above this SOL balance that are not executable programs and not
+# already known are labelled as "Large Custodian" (likely CEX hot wallet).
+# ---------------------------------------------------------------------------
+_CUSTODIAN_SOL_THRESHOLD = 5_000  # ≈ $1M+ — almost certainly institutional
+
+# Module-level cache for dynamic enrichment results
+# address → (label, entity_type) or None
+_dynamic_cache: dict[str, tuple[str, str] | None] = {}
 
 
 # ---------------------------------------------------------------------------
@@ -189,3 +226,78 @@ def is_bridge_program(address: str) -> bool:
 def label_or_short(address: str) -> str:
     """Convenience: return label if known, else first4…last4."""
     return classify_address(address).short()
+
+
+async def enrich_wallet_labels(
+    addresses: list[str],
+    rpc,
+) -> dict[str, WalletInfo]:
+    """Dynamically enrich unknown wallet addresses via getMultipleAccounts.
+
+    For each address not already in KNOWN_LABELS, fetches on-chain account
+    data (one batched RPC call per chunk of 100).  Accounts with a SOL
+    balance above _CUSTODIAN_SOL_THRESHOLD and that are not executable
+    programs are labelled as "Large Custodian (CEX?)".
+
+    Results are cached module-level to avoid redundant RPC calls.
+
+    Args:
+        addresses: List of addresses to enrich (duplicates OK).
+        rpc:       SolanaRPCClient instance.
+
+    Returns:
+        Dict mapping address → WalletInfo for any address that could be
+        enriched dynamically.  Addresses already in KNOWN_LABELS or still
+        unknown after the RPC call are omitted.
+    """
+    # Deduplicate and skip already-known addresses
+    unknown = [
+        a for a in set(addresses)
+        if a not in KNOWN_LABELS
+        and a not in _dynamic_cache
+        and a  # skip empty string
+    ]
+
+    if unknown:
+        # Batch into chunks of 100 (RPC limit)
+        for chunk_start in range(0, len(unknown), 100):
+            chunk = unknown[chunk_start:chunk_start + 100]
+            try:
+                result = await rpc._call(
+                    "getMultipleAccounts",
+                    [chunk, {"encoding": "base64", "commitment": "finalized"}],
+                    circuit_protect=False,
+                )
+                account_list = (
+                    result.get("value") or []
+                    if isinstance(result, dict)
+                    else []
+                )
+                for addr, account in zip(chunk, account_list):
+                    if not account or not isinstance(account, dict):
+                        _dynamic_cache[addr] = None
+                        continue
+                    lamports = account.get("lamports", 0)
+                    executable = account.get("executable", False)
+                    sol_balance = lamports / 1_000_000_000.0
+                    if not executable and sol_balance >= _CUSTODIAN_SOL_THRESHOLD:
+                        label = f"Large Custodian ({sol_balance:,.0f} SOL)"
+                        _dynamic_cache[addr] = (label, "cex")
+                        logger.debug(
+                            "[wallet_labels] dynamic CEX: %s balance=%.0f SOL",
+                            addr[:12], sol_balance,
+                        )
+                    else:
+                        _dynamic_cache[addr] = None
+            except Exception:
+                logger.debug("[wallet_labels] enrich_wallet_labels RPC failed for chunk")
+                for addr in chunk:
+                    _dynamic_cache.setdefault(addr, None)
+
+    # Build result dict from cache
+    enriched: dict[str, WalletInfo] = {}
+    for addr in set(addresses):
+        cached = _dynamic_cache.get(addr)
+        if cached is not None:
+            enriched[addr] = WalletInfo(addr, label=cached[0], entity_type=cached[1])
+    return enriched

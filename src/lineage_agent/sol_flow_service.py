@@ -26,7 +26,7 @@ from .data_sources._clients import (
 from .bridge_tracker import CrossChainExit, detect_bridge_exits
 from .constants import MIN_TRANSFER_LAMPORTS, SKIP_PROGRAMS
 from .models import SolFlowEdge, SolFlowReport
-from .wallet_labels import classify_address
+from .wallet_labels import classify_address, enrich_wallet_labels
 
 logger = logging.getLogger(__name__)
 
@@ -107,9 +107,12 @@ async def trace_sol_flow(
                 sol_price = await jup.get_price(_WSOL_MINT)
             except Exception:
                 pass
+            rpc = get_rpc_client()
+            dyn = await _enrich_partial(collected_flows, rpc)
             return _flows_to_report(
                 mint, deployer, collected_flows,
                 cross_chain_exits=exits, sol_price_usd=sol_price,
+                dynamic_labels=dyn,
             )
         return None
     except Exception:
@@ -117,6 +120,15 @@ async def trace_sol_flow(
         if collected_flows:
             return _flows_to_report(mint, deployer, collected_flows)
         return None
+
+
+async def _enrich_partial(flows: list[dict], rpc) -> dict:
+    """Best-effort dynamic enrichment for partial (timeout) flows."""
+    try:
+        all_dest = list({f["to_address"] for f in flows})
+        return await enrich_wallet_labels(all_dest, rpc)
+    except Exception:
+        return {}
 
 
 async def get_sol_flow_report(mint: str) -> Optional[SolFlowReport]:
@@ -223,7 +235,22 @@ async def _run_trace(
     except Exception:
         logger.debug("SOL price fetch failed — USD value will be None")
 
-    return _flows_to_report(mint, deployer, _collected, cross_chain_exits=exits, sol_price_usd=sol_price)
+    # Dynamic enrichment: label unknown terminal wallets via getMultipleAccounts
+    all_dest = list({f["to_address"] for f in _collected})
+    try:
+        dynamic_labels = await enrich_wallet_labels(all_dest, rpc)
+        enriched_count = len(dynamic_labels)
+        if enriched_count:
+            logger.info("[sol-trace] dynamic enrichment: %d new labels", enriched_count)
+    except Exception:
+        dynamic_labels = {}
+
+    return _flows_to_report(
+        mint, deployer, _collected,
+        cross_chain_exits=exits,
+        sol_price_usd=sol_price,
+        dynamic_labels=dynamic_labels,
+    )
 
 
 async def _trace_wallet(
@@ -426,15 +453,17 @@ def _flows_to_report(
     flows: list[dict],
     cross_chain_exits: Optional[list[CrossChainExit]] = None,
     sol_price_usd: Optional[float] = None,
+    dynamic_labels: Optional[dict] = None,
 ) -> SolFlowReport:
     """Convert raw flow dicts to a SolFlowReport model."""
+    _dyn = dynamic_labels or {}
     edges: list[SolFlowEdge] = []
     for f in flows:
         bt = f.get("block_time")
         block_dt = datetime.fromtimestamp(bt, tz=timezone.utc) if bt else None
 
-        from_info = classify_address(f["from_address"])
-        to_info   = classify_address(f["to_address"])
+        from_info = _dyn.get(f["from_address"]) or classify_address(f["from_address"])
+        to_info   = _dyn.get(f["to_address"])   or classify_address(f["to_address"])
 
         edges.append(SolFlowEdge(
             from_address=f["from_address"],
