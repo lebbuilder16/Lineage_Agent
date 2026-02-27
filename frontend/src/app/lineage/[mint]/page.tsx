@@ -1,30 +1,22 @@
 "use client";
 
 import { useParams } from "next/navigation";
-import { useEffect, useState } from "react";
-import Link from "next/link";
+import { useEffect, useState, useMemo } from "react";
 import { useLineageWS } from "@/lib/useLineageWS";
 import { fetchAnalysis, type AnalyzeResponse } from "@/lib/api";
-import { LineageCard } from "@/components/LineageCard";
-import { TokenInfo } from "@/components/TokenInfo";
-import { EvidencePanel } from "@/components/EvidencePanel";
-import { FamilyTree } from "@/components/FamilyTree";
 import { SearchBar } from "@/components/SearchBar";
-import { ShareButton } from "@/components/ShareButton";
-import { SkeletonLineageCard } from "@/components/skeletons/SkeletonLineageCard";
-import { SkeletonTokenInfo } from "@/components/skeletons/SkeletonTokenInfo";
-import { SkeletonDerivativeList } from "@/components/skeletons/SkeletonDerivativeList";
 import { addToHistory } from "@/components/CommandPalette";
+import HeroCard from "@/components/HeroCard";
 import ZombieAlert from "@/components/forensics/ZombieAlert";
-import LiquidityArch from "@/components/forensics/LiquidityArch";
-import DeployerProfileCard from "@/components/forensics/DeployerProfile";
-import OperatorImpactCard from "@/components/forensics/OperatorImpact";
-import SolTraceCard from "@/components/forensics/SolTrace";
-import CartelReportCard from "@/components/forensics/CartelReportCard";
-import BundleReportCard from "@/components/forensics/BundleReportCard";
-import AIAnalysisCard from "@/components/forensics/AIAnalysisCard";
+import ForensicTabs, { type TabDef } from "@/components/forensics/ForensicTabs";
+import OverviewTab from "@/components/forensics/OverviewTab";
+import BundleTab from "@/components/forensics/BundleTab";
+import MoneyFlowTab from "@/components/forensics/MoneyFlowTab";
+import LineageTab from "@/components/forensics/LineageTab";
+import DeployerTab from "@/components/forensics/DeployerTab";
+import { formatSol } from "@/lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
-import { AlertCircle, RefreshCw, Crown, List, ChevronRight, TrendingUp, Droplets } from "lucide-react";
+import { AlertCircle, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export default function LineagePage() {
@@ -55,24 +47,117 @@ export default function LineagePage() {
       ? `${name} — Lineage Agent`
       : `Lineage: ${mint?.slice(0, 8)}... — Lineage Agent`;
 
-    // Save to ⌘K history when data loads
     if (data?.root && mint) {
       addToHistory(mint, data.root.name || data.root.symbol || mint.slice(0, 8));
     }
   }, [data, mint]);
 
+  /* ── Build tab definitions ────────────────────────────────────────── */
+  const tabs: TabDef[] = useMemo(() => {
+    if (!data) return [];
+
+    const riskBadge = analysis?.ai_analysis?.risk_score != null
+      ? `${analysis.ai_analysis.risk_score}`
+      : analysisLoading
+        ? "…"
+        : null;
+
+    const bundleBadge = data.bundle_report?.overall_verdict
+      ? data.bundle_report.overall_verdict === "confirmed_team_extraction"
+        ? "🔴"
+        : data.bundle_report.overall_verdict === "suspected_team_extraction"
+          ? "🟠"
+          : data.bundle_report.overall_verdict === "coordinated_dump_unknown_team"
+            ? "⚠️"
+            : "✅"
+      : null;
+
+    const hasMoneyFlow = data.sol_flow != null || data.operator_impact != null;
+    const hasDeployer =
+      data.deployer_profile != null ||
+      data.cartel_report?.deployer_community != null ||
+      (data.death_clock != null && data.death_clock.risk_level !== "insufficient_data") ||
+      data.factory_rhythm != null;
+
+    return [
+      {
+        id: "overview",
+        label: "Overview",
+        icon: "🔍",
+        badge: riskBadge,
+        content: (
+          <OverviewTab
+            data={data}
+            analysis={analysis}
+            analysisLoading={analysisLoading}
+          />
+        ),
+      },
+      {
+        id: "bundle",
+        label: "Bundle",
+        icon: "📦",
+        badge: bundleBadge,
+        disabled: data.bundle_report == null,
+        content: <BundleTab report={data.bundle_report} />,
+      },
+      {
+        id: "money-flow",
+        label: "Money Flow",
+        icon: "💸",
+        badge: data.sol_flow
+          ? formatSol(data.sol_flow.total_extracted_sol)
+          : null,
+        disabled: !hasMoneyFlow,
+        content: (
+          <MoneyFlowTab
+            solFlow={data.sol_flow}
+            operatorImpact={data.operator_impact}
+            mint={mint}
+          />
+        ),
+      },
+      {
+        id: "lineage",
+        label: "Lineage",
+        icon: "🌳",
+        badge: data.family_size > 1 ? data.family_size : null,
+        disabled: data.derivatives.length === 0,
+        content: (
+          <LineageTab data={data} liquidityArch={data.liquidity_arch} />
+        ),
+      },
+      {
+        id: "deployer",
+        label: "Deployer",
+        icon: "🏭",
+        badge: data.deployer_profile
+          ? `${data.deployer_profile.rug_rate_pct.toFixed(0)}%`
+          : null,
+        disabled: !hasDeployer,
+        content: (
+          <DeployerTab
+            profile={data.deployer_profile}
+            cartel={data.cartel_report}
+            deathClock={data.death_clock}
+            factory={data.factory_rhythm}
+          />
+        ),
+      },
+    ];
+  }, [data, analysis, analysisLoading, mint]);
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <SearchBar compact />
 
-      {/* Loading — skeleton UI */}
+      {/* ── Loading — skeleton ──────────────────────────────────────── */}
       {isLoading && (
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          className="space-y-6"
+          className="space-y-5"
         >
-          {/* NProgress-style top bar — z-[60] above pill nav z-50 */}
           {progress && (
             <div className="fixed top-0 left-0 right-0 z-[60] h-0.5 bg-white/5 overflow-hidden">
               <div
@@ -81,9 +166,31 @@ export default function LineagePage() {
               />
             </div>
           )}
-          <SkeletonLineageCard />
-          <SkeletonTokenInfo />
-          <SkeletonDerivativeList count={3} />
+          {/* Hero skeleton */}
+          <div className="rounded-2xl border border-white/5 bg-card p-5 animate-pulse space-y-4">
+            <div className="flex gap-4">
+              <div className="h-12 w-12 rounded-full bg-muted" />
+              <div className="flex-1 space-y-2">
+                <div className="h-5 w-40 rounded bg-muted" />
+                <div className="h-3 w-64 rounded bg-muted/60" />
+              </div>
+            </div>
+            <div className="flex gap-3">
+              {[1, 2, 3, 4].map((i) => (
+                <div key={i} className="h-3 w-16 rounded bg-muted/40" />
+              ))}
+            </div>
+            <div className="h-8 w-full rounded-lg bg-muted/30" />
+          </div>
+          {/* Tab skeleton */}
+          <div className="space-y-3">
+            <div className="flex gap-2">
+              {[1, 2, 3, 4, 5].map((i) => (
+                <div key={i} className="h-8 w-20 rounded-lg bg-muted/30 animate-pulse" />
+              ))}
+            </div>
+            <div className="h-48 rounded-xl border border-zinc-800 bg-zinc-950/70 animate-pulse" />
+          </div>
           {progress && (
             <p className="text-xs text-center text-muted-foreground animate-pulse-subtle">
               {progress.step}
@@ -92,7 +199,7 @@ export default function LineagePage() {
         </motion.div>
       )}
 
-      {/* Error */}
+      {/* ── Error ──────────────────────────────────────────────────── */}
       {error && !isLoading && (
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-6 text-center space-y-3">
           <div className="flex justify-center">
@@ -107,7 +214,7 @@ export default function LineagePage() {
             className={cn(
               "inline-flex items-center gap-2 rounded-full px-5 py-2 text-sm font-display font-bold",
               "bg-neon text-black hover:bg-neon/90",
-              "transition-colors"
+              "transition-colors",
             )}
           >
             <RefreshCw className="h-3.5 w-3.5" />
@@ -116,173 +223,32 @@ export default function LineagePage() {
         </div>
       )}
 
-      {/* Results */}
+      {/* ── Results ────────────────────────────────────────────────── */}
       <AnimatePresence>
-      {data && (
-        <motion.div
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.35, ease: "easeOut" }}
-          className="space-y-6"
-        >
-          {/* Header row: summary card + share */}
-          <div className="flex items-start gap-3">
-            <div className="flex-1 min-w-0">
-              <LineageCard data={data} />
-            </div>
-            <div className="pt-1 shrink-0">
-              <ShareButton data={data} />
-            </div>
-          </div>
+        {data && (
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.35, ease: "easeOut" }}
+            className="space-y-5"
+          >
+            {/* Zombie banner — above hero when confirmed */}
+            {data.zombie_alert && <ZombieAlert alert={data.zombie_alert} />}
 
-          {/* Zombie alert — prominent banner, only shown when confirmed */}
-          {data.zombie_alert && <ZombieAlert alert={data.zombie_alert} />}
+            {/* Hero: token info + badges + AI verdict */}
+            <HeroCard
+              data={data}
+              analysis={analysis}
+              analysisLoading={analysisLoading}
+            />
 
-          {/* Root token */}
-          {data.root && (
-            <motion.section
-              initial={{ opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.05 }}
-              className="space-y-3"
-            >
-              <div className="flex flex-wrap items-center gap-3">
-                <SectionHeader icon={<Crown className="h-4 w-4" />} title="Root Token" />
-                {data.factory_rhythm?.is_factory && (
-                  <span className="rounded-full border border-red-700/70 bg-red-950/50 px-2.5 py-0.5 text-xs font-bold text-red-300">
-                    🏭 Factory Deployer
-                  </span>
-                )}
-              </div>
-              <TokenInfo token={data.root} isRoot />
-            </motion.section>
-          )}
-
-          {/* Forensic signals — rendered when AI analysis is in progress or when backend forensic data is available */}
-          {(analysisLoading ||
-            analysis !== null ||
-            data.liquidity_arch !== undefined ||
-            data.zombie_alert !== undefined ||
-            data.deployer_profile !== undefined ||
-            data.operator_impact !== undefined ||
-            data.sol_flow !== undefined ||
-            data.cartel_report !== undefined ||
-            data.bundle_report !== undefined) && (
-            <motion.div
-              initial={{ opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.08 }}
-              className="space-y-0"
-            >
-              <h3 className="text-xs font-bold uppercase tracking-widest text-zinc-500 mb-3 flex items-center gap-2">
-                <span className="w-4 h-px bg-zinc-700" />
-                Forensic Intelligence
-                <span className="flex-1 h-px bg-zinc-700" />
-              </h3>
-              <AIAnalysisCard analysis={analysis} isLoading={analysisLoading} />
-              <DeployerProfileCard profile={data.deployer_profile} />
-              <OperatorImpactCard report={data.operator_impact} />
-              <SolTraceCard report={data.sol_flow} mint={data.sol_flow?.mint ?? mint} />
-              <CartelReportCard report={data.cartel_report} />
-              {data.bundle_report && (
-                <BundleReportCard report={data.bundle_report} />
-              )}
-              <LiquidityArch report={data.liquidity_arch} />
-            </motion.div>
-          )}
-
-          {/* Family tree */}
-          {data.derivatives.length > 0 && (
-            <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
-              <FamilyTree key={mint} data={data} />
-            </motion.div>
-          )}
-
-          {/* Derivatives */}
-          {data.derivatives.length > 0 && (
-            <motion.section
-              initial={{ opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.15 }}
-              className="space-y-3"
-            >
-              <SectionHeader
-                icon={<List className="h-4 w-4" />}
-                title="Derivatives"
-                count={data.derivatives.length}
-              />
-              <div className="space-y-4">
-                {data.derivatives.map((d: import("@/lib/api").DerivativeInfo, i: number) => (
-                  <motion.div
-                    key={d.mint}
-                    initial={{ opacity: 0, y: 8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.15 + i * 0.04, ease: "easeOut" }}
-                    className="grid md:grid-cols-2 gap-3"
-                  >
-                    <Link
-                      href={`/lineage/${d.mint}`}
-                      className="group rounded-2xl border border-white/5 bg-card p-4 hover:border-neon/20 hover:bg-white/[0.03] transition-all duration-150 block"
-                    >
-                      <div className="flex items-center justify-between gap-2 mb-2">
-                        <h4 className="font-medium text-sm truncate">
-                          {d.name || d.symbol || d.mint.slice(0, 12)}
-                        </h4>
-                        <ChevronRight className="h-4 w-4 text-muted-foreground/40 group-hover:text-muted-foreground shrink-0 transition-colors" />
-                      </div>
-                      <p className="address mb-2">{d.mint}</p>
-                      <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                        {d.market_cap_usd != null && (
-                          <span className="flex items-center gap-1">
-                            <TrendingUp className="h-3 w-3" />
-                            <strong className="text-foreground">
-                              ${d.market_cap_usd.toLocaleString("en-US", { maximumFractionDigits: 0 })}
-                            </strong>
-                          </span>
-                        )}
-                        {d.liquidity_usd != null && (
-                          <span className="flex items-center gap-1">
-                            <Droplets className="h-3 w-3" />
-                            <strong className="text-foreground">
-                              ${d.liquidity_usd.toLocaleString("en-US", { maximumFractionDigits: 0 })}
-                            </strong>
-                          </span>
-                        )}
-                      </div>
-                    </Link>
-                    <EvidencePanel evidence={d.evidence} />
-                  </motion.div>
-                ))}
-              </div>
-            </motion.section>
-          )}
-        </motion.div>
-      )}
+            {/* Forensic tabs */}
+            {tabs.length > 0 && (
+              <ForensicTabs tabs={tabs} defaultTab="overview" />
+            )}
+          </motion.div>
+        )}
       </AnimatePresence>
-    </div>
-  );
-}
-
-function SectionHeader({
-  icon,
-  title,
-  count,
-}: {
-  icon: React.ReactNode;
-  title: string;
-  count?: number;
-}) {
-  return (
-    <div className="flex items-center gap-2">
-      <div className="flex h-6 w-6 items-center justify-center rounded-md bg-neon/10 text-neon">
-        {icon}
-      </div>
-      <h2 className="display-heading font-bold text-sm text-white uppercase tracking-wide">{title}</h2>
-      {count != null && (
-        <span className="ml-1 rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-xs text-white/50 tabular-nums">
-          {count}
-        </span>
-      )}
     </div>
   );
 }
