@@ -75,7 +75,7 @@ class SolanaRpcClient:
     # ------------------------------------------------------------------
 
     async def get_oldest_signature(
-        self, address: str
+        self, address: str, *, circuit_protect: bool = True,
     ) -> Optional[dict[str, Any]]:
         """Walk backwards through signature pages to find the oldest tx.
 
@@ -92,7 +92,8 @@ class SolanaRpcClient:
             ]
             if before:
                 params[1]["before"] = before  # type: ignore[index]
-            result = await self._call("getSignaturesForAddress", params)
+            result = await self._call("getSignaturesForAddress", params,
+                                       circuit_protect=circuit_protect)
             if not result or not isinstance(result, list) or len(result) == 0:
                 break
             oldest = result[-1]

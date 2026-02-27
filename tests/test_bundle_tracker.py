@@ -679,7 +679,7 @@ class TestCollectWindowSigs:
                 self._pages: list[list[dict]] = []
                 self._page_idx = 0
 
-            async def _call(self, method, params):
+            async def _call(self, method, params, **kwargs):
                 self.call_log.append((method, params))
                 if self._page_idx < len(self._pages):
                     page = self._pages[self._page_idx]

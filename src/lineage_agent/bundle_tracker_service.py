@@ -63,6 +63,9 @@ _SKIP_PROGRAMS = SKIP_PROGRAMS
 _PUMP_PROGRAM = "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBymtzbm"
 # Maximum pages to paginate when hunting for creation slot (1000 sigs/page)
 _MAX_PAGINATION_PAGES = 30
+# Concurrency throttle — max parallel RPC calls from the bundle tracker.
+# Prevents Helius rate-limit storms that trip the shared circuit breaker.
+_RPC_CONCURRENCY = 6
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -209,7 +212,11 @@ async def _run_forensic(
     # getSignaturesForAddress backward (newest→oldest) to find the very first
     # transaction for this mint.  This is the proven codepath also used by
     # get_deployer_and_timestamp().
-    oldest_sig = await rpc.get_oldest_signature(mint)
+    #
+    # circuit_protect=False — the bundle tracker is an intensive analysis tool;
+    # its RPC failures must NOT trip the shared circuit breaker that guards the
+    # main API endpoints.
+    oldest_sig = await rpc.get_oldest_signature(mint, circuit_protect=False)
     if oldest_sig is None:
         logger.debug("[bundle] no signatures found for %s", mint[:8])
         return None
@@ -235,8 +242,14 @@ async def _run_forensic(
     if not bundle_sigs:
         return None
 
+    sem = asyncio.Semaphore(_RPC_CONCURRENCY)
+
+    async def _throttled_fetch(sig: str) -> Optional[dict]:
+        async with sem:
+            return await _fetch_tx(rpc, sig)
+
     tx_results = await asyncio.gather(
-        *[_fetch_tx(rpc, sig) for sig in bundle_sigs],
+        *[_throttled_fetch(sig) for sig in bundle_sigs],
         return_exceptions=True,
     )
 
@@ -260,10 +273,11 @@ async def _run_forensic(
     # ─────────────────────────────────────────────────────────────────────
     # Phase 2 — Pre-sell behavior (per wallet, parallel)
     # ─────────────────────────────────────────────────────────────────────
-    pre_sell_tasks = [
-        _analyze_pre_sell(rpc, wallet, deployer, launch_dt)
-        for wallet in wallets
-    ]
+    async def _throttled_pre_sell(w: str) -> PreSellBehavior:
+        async with sem:
+            return await _analyze_pre_sell(rpc, w, deployer, launch_dt)
+
+    pre_sell_tasks = [_throttled_pre_sell(w) for w in wallets]
     pre_sell_results: list[PreSellBehavior] = [
         r if not isinstance(r, Exception) else PreSellBehavior()
         for r in await asyncio.gather(*pre_sell_tasks, return_exceptions=True)
@@ -278,10 +292,11 @@ async def _run_forensic(
         if ps.prefund_source_is_deployer and ps.prefund_source:
             deployer_linked.add(ps.prefund_source)
 
-    post_sell_tasks = [
-        _analyze_post_sell(rpc, wallet, mint, deployer, deployer_linked, launch_dt, creation_slot)
-        for wallet in wallets
-    ]
+    async def _throttled_post_sell(w: str) -> PostSellBehavior:
+        async with sem:
+            return await _analyze_post_sell(rpc, w, mint, deployer, deployer_linked, launch_dt, creation_slot)
+
+    post_sell_tasks = [_throttled_post_sell(w) for w in wallets]
     post_sell_results: list[PostSellBehavior] = [
         r if not isinstance(r, Exception) else PostSellBehavior()
         for r in await asyncio.gather(*post_sell_tasks, return_exceptions=True)
@@ -418,7 +433,7 @@ async def _collect_window_sigs(
         params: dict = {"limit": 1000, "commitment": "finalized"}
         if before:
             params["before"] = before
-        batch = await rpc._call("getSignaturesForAddress", [address, params])
+        batch = await rpc._call("getSignaturesForAddress", [address, params], circuit_protect=False)
         if not batch or not isinstance(batch, list):
             break
 
@@ -470,6 +485,7 @@ async def _analyze_pre_sell(
         sigs = await rpc._call(
             "getSignaturesForAddress",
             [wallet, {"limit": 100, "commitment": "finalized"}],
+            circuit_protect=False,
         )
         if not sigs or not isinstance(sigs, list):
             return pre
@@ -583,6 +599,7 @@ async def _analyze_post_sell(
         sigs = await rpc._call(
             "getSignaturesForAddress",
             [wallet, {"limit": _TRACE_SIGS_PER_WALLET, "commitment": "finalized"}],
+            circuit_protect=False,
         )
         if not sigs or not isinstance(sigs, list):
             return post
@@ -794,6 +811,7 @@ async def _trace_hop1(
         sigs = await rpc._call(
             "getSignaturesForAddress",
             [wallet, {"limit": 30, "commitment": "finalized"}],
+            circuit_protect=False,
         )
         if not sigs or not isinstance(sigs, list):
             return out
@@ -970,6 +988,7 @@ async def _fetch_tx(rpc: SolanaRpcClient, sig: str) -> Optional[dict]:
     return await rpc._call(
         "getTransaction",
         [sig, {"encoding": "jsonParsed", "maxSupportedTransactionVersion": 0}],
+        circuit_protect=False,
     )
 
 

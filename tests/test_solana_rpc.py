@@ -155,7 +155,7 @@ class TestGetOldestSignature:
 
         call_count = 0
 
-        async def fake_call(method, params):
+        async def fake_call(method, params, **kwargs):
             nonlocal call_count
             call_count += 1
             if call_count == 1:
