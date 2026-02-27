@@ -114,6 +114,7 @@ async def detect_lineage(
     mint_address: str,
     *,
     progress_cb: ProgressCallback = None,
+    force_refresh: bool = False,
 ) -> LineageResult:
     """Detect the lineage of a Solana token identified by *mint_address*.
 
@@ -124,6 +125,10 @@ async def detect_lineage(
     progress_cb:
         Optional async callback ``(step_description, percent) -> None`` for
         streaming progress updates (used by the WebSocket endpoint).
+    force_refresh:
+        When True, delete the lineage + deployer-timestamp caches for this
+        mint before re-running the full analysis.  Use after a fix is deployed
+        to clear a stale cached creation date.
 
     Steps
     -----
@@ -142,6 +147,14 @@ async def detect_lineage(
                 await progress_cb(step, pct)
             except Exception:
                 pass  # never let progress reporting break analysis
+
+    # Force-refresh: delete stale lineage + deployer-timestamp caches so the
+    # full pipeline re-runs with the latest on-chain data.
+    if force_refresh:
+        await _cache_delete(f"lineage:v4:{mint_address}")
+        await _cache_delete(f"rpc:deployer:v4:{mint_address}")
+        await _cache_delete(f"rpc:asset:{mint_address}")
+        logger.info("[force_refresh] cleared lineage + RPC caches for %s", mint_address)
 
     # Check cache first
     cached = await _cache_get(f"lineage:v4:{mint_address}")
@@ -202,7 +215,16 @@ async def detect_lineage(
         deployer, created_at = _deployer_result
         query_meta.deployer = deployer
         if created_at is not None:
-            query_meta.created_at = created_at
+            # Only accept the RPC sig-walk timestamp when it is OLDER than (or
+            # equal to) DexScreener's pairCreatedAt.
+            # Rationale: a liquidity pair cannot exist before its token mint, so
+            # pairCreatedAt is a hard lower bound on when the token existed.
+            # When the sig-walk returns a NEWER date than pairCreatedAt it means
+            # the walk hit the pagination cap on a high-volume token and found a
+            # mid-history transaction rather than the true creation tx.
+            # In that case, keep DexScreener's pairCreatedAt as the creation date.
+            if query_meta.created_at is None or created_at < query_meta.created_at:
+                query_meta.created_at = created_at
     else:
         deployer = ""
         logger.debug("Deployer lookup failed for %s: %s", mint_address, _deployer_result)

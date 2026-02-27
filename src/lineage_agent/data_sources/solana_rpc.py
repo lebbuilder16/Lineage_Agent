@@ -79,13 +79,13 @@ class SolanaRpcClient:
     ) -> Optional[dict[str, Any]]:
         """Walk backwards through signature pages to find the oldest tx.
 
-        Limits to 10 rounds (10 x 1000 sigs) to reach creation tx for
+        Limits to 20 rounds (20 x 1000 sigs) to reach creation tx for
         wallets with large transaction histories.
         """
         before: Optional[str] = None
         oldest: Optional[dict] = None
 
-        for _ in range(10):
+        for _ in range(20):
             params: list[Any] = [
                 address,
                 {"limit": 1000, "commitment": "finalized"},

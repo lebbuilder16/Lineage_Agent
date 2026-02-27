@@ -325,6 +325,7 @@ async def admin_health() -> dict:
 async def get_lineage(
     request: Request,
     mint: str = Query(..., description="Solana mint address of the token"),
+    force_refresh: bool = Query(False, description="Bust cache and re-run full analysis"),
 ) -> LineageResult:
     """Return full lineage information for the given token mint."""
     if not mint or not _BASE58_RE.match(mint):
@@ -334,7 +335,7 @@ async def get_lineage(
         )
     try:
         return await asyncio.wait_for(
-            detect_lineage(mint), timeout=ANALYSIS_TIMEOUT_SECONDS
+            detect_lineage(mint, force_refresh=force_refresh), timeout=ANALYSIS_TIMEOUT_SECONDS
         )
     except asyncio.TimeoutError:
         raise HTTPException(
