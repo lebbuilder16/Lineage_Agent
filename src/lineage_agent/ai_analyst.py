@@ -18,8 +18,8 @@ from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
-# Model selection: haiku for speed/cost, sonnet for higher accuracy
-_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-3-5-haiku-20241022")
+# Model selection: claude-3-7-sonnet (latest, Feb 2025) — override via ANTHROPIC_MODEL env var
+_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-3-7-sonnet-20250219")
 _MAX_TOKENS = 1200
 _TIMEOUT = 30.0  # seconds
 
@@ -125,6 +125,8 @@ async def analyze_token(
         exc_name = type(exc).__name__
         if "RateLimit" in exc_name:
             logger.warning("[ai_analyst] rate-limited for mint=%s", mint[:12])
+        elif "NotFound" in exc_name:
+            logger.error("[ai_analyst] model not found (%s) — set ANTHROPIC_MODEL env var. %s", _MODEL, exc)
         elif "APIConnection" in exc_name:
             logger.error("[ai_analyst] connection error: %s", exc)
         elif "APIStatus" in exc_name:
