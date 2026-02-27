@@ -818,6 +818,7 @@ async def get_bundle_report(
     request: Request,
     mint: str,
     deployer: Optional[str] = None,
+    force_refresh: bool = False,
 ) -> BundleExtractionReport:
     """Detect Jito bundle wallets at token launch and trace their SOL flows.
 
@@ -849,7 +850,7 @@ async def get_bundle_report(
 
     try:
         report = await asyncio.wait_for(
-            analyze_bundle(mint, _deployer, _sol_price),
+            analyze_bundle(mint, _deployer, _sol_price, force_refresh=force_refresh),
             timeout=30.0,
         )
     except asyncio.TimeoutError:

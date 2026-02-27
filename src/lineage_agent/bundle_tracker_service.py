@@ -155,6 +155,8 @@ async def analyze_bundle(
     mint: str,
     deployer: str,
     sol_price_usd: Optional[float] = None,
+    *,
+    force_refresh: bool = False,
 ) -> Optional[BundleExtractionReport]:
     """Forensic bundle analysis for *mint*.
 
@@ -165,13 +167,14 @@ async def analyze_bundle(
     Returns ``None`` on RPC failure or no bundle activity.
     """
     # ── 0. Cache check ────────────────────────────────────────────────────
-    try:
-        cached_json = await bundle_report_query(mint)
-        if cached_json:
-            data = json.loads(cached_json)
-            return BundleExtractionReport(**data)
-    except Exception:
-        logger.debug("[bundle] cache read failed for %s", mint[:8])
+    if not force_refresh:
+        try:
+            cached_json = await bundle_report_query(mint)
+            if cached_json:
+                data = json.loads(cached_json)
+                return BundleExtractionReport(**data)
+        except Exception:
+            logger.debug("[bundle] cache read failed for %s", mint[:8])
 
     rpc = get_rpc_client()
     try:
