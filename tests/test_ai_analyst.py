@@ -14,7 +14,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from lineage_agent.ai_analyst import _build_prompt, _parse_response, analyze_token
+from lineage_agent.ai_analyst import (
+    _build_prompt,
+    _extract_deployer,
+    _parse_response,
+    _rule_based_fallback,
+    _sanity_check,
+    analyze_token,
+)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -255,10 +262,23 @@ class TestAnalyzeToken:
                 death_clock=None,
                 deployer_profile=None,
             )
-            result = await analyze_token(MINT, lineage_result=lineage)
+            bundle = _ns(
+                overall_verdict="classic_rug",
+                launch_slot=0,
+                bundle_wallets=["wallet1"],
+                total_sol_spent_by_bundle=5.0,
+                coordinated_sell_detected=True,
+                confirmed_team_wallets=[],
+                suspected_team_wallets=[],
+                coordinated_dump_wallets=[],
+                common_prefund_source=None,
+                common_sink_wallets=[],
+                evidence_chain=[],
+            )
+            result = await analyze_token(MINT, lineage_result=lineage, bundle_report=bundle)
 
         assert result is not None
-        assert result["risk_score"] == 87
+        assert result["risk_score"] == 87  # sanity check allows high score when bundle data present
         assert result["rug_pattern"] == "serial_clone"
         assert result["mint"] == MINT
 
@@ -296,7 +316,10 @@ class TestAnalyzeToken:
                 evidence_chain=[],
             )
             result = await analyze_token(MINT, bundle_report=bundle)
-        assert result is None
+        # P3-B: rule-based fallback is returned instead of None on API error
+        assert result is not None
+        assert result.get("is_fallback") is True
+        assert result.get("model") == "rule_based_fallback"
 
     @pytest.mark.asyncio
     async def test_rate_limit_returns_none(self):
@@ -317,7 +340,10 @@ class TestAnalyzeToken:
                 flows=[],
             )
             result = await analyze_token(MINT, sol_flow_report=sol_flow)
-        assert result is None
+        # P3-B: rule-based fallback is returned instead of None on rate-limit
+        assert result is not None
+        assert result.get("is_fallback") is True
+        assert result.get("model") == "rule_based_fallback"
 
     @pytest.mark.asyncio
     async def test_parse_error_still_returns_result(self):
@@ -372,3 +398,167 @@ class TestGetCachedBundleReport:
             from lineage_agent.bundle_tracker_service import get_cached_bundle_report
             result = await get_cached_bundle_report(MINT)
         assert result is None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# _build_prompt — deployer history section (P1-B)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestBuildPromptDeployerHistory:
+    def test_no_history_no_section(self):
+        prompt = _build_prompt(MINT, None, None, None, deployer_history=None)
+        assert "DEPLOYER TRACK RECORD" not in prompt
+
+    def test_empty_history_no_section(self):
+        prompt = _build_prompt(MINT, None, None, None, deployer_history=[])
+        assert "DEPLOYER TRACK RECORD" not in prompt
+
+    def test_history_section_rendered(self):
+        history = [
+            {"name": "ScamToken", "mint": "SCAM111111111111111111111", "mcap_usd": 42000, "rugged_at": "2025-12-01"},
+            {"name": "FakeInu",   "mint": "FAKE222222222222222222222", "mcap_usd": None,  "rugged_at": "2025-11-15"},
+        ]
+        prompt = _build_prompt(MINT, None, None, None, deployer_history=history)
+        assert "DEPLOYER TRACK RECORD" in prompt
+        assert "ScamToken" in prompt
+        assert "FakeInu" in prompt
+        assert "mcap=$42,000" in prompt
+        # name with no mcap should still appear without error (mint sliced to 12 chars)
+        assert "FAKE22222222" in prompt
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# _sanity_check (P0-A)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestSanityCheck:
+    def _result(self, score=50, confidence="high"):
+        return {
+            "risk_score": score,
+            "confidence": confidence,
+            "key_findings": ["existing finding"],
+        }
+
+    def test_no_score_returns_unchanged(self):
+        result = {"confidence": "high", "key_findings": []}
+        out = _sanity_check(result, None, None, None)
+        assert out == result
+
+    def test_high_score_no_evidence_capped(self):
+        result = _sanity_check(self._result(score=87), lineage=None, bundle=None, sol_flow=None)
+        assert result["risk_score"] == 55
+        assert result["confidence"] == "low"
+        assert any("CAVEAT" in f for f in result["key_findings"])
+
+    def test_high_score_with_bundle_passes_through(self):
+        bundle = _ns(overall_verdict="classic_rug")
+        result = _sanity_check(self._result(score=87), lineage=None, bundle=bundle, sol_flow=None)
+        assert result["risk_score"] == 87  # not capped
+
+    def test_high_score_with_sol_flow_passes_through(self):
+        sol_flow = _ns(total_extracted_sol=5.0)
+        result = _sanity_check(self._result(score=87), lineage=None, bundle=None, sol_flow=sol_flow)
+        assert result["risk_score"] == 87  # not capped
+
+    def test_low_score_raised_on_serial_rugger(self):
+        deployer_profile = _ns(total_tokens_deployed=10, rug_count=8)  # 80% rug rate
+        lineage = _ns(deployer_profile=deployer_profile)
+        result = _sanity_check(self._result(score=20), lineage=lineage, bundle=None, sol_flow=None)
+        assert result["risk_score"] == 45  # 20 + 25
+        assert any("CAVEAT" in f for f in result["key_findings"])
+
+    def test_low_score_low_rug_rate_unchanged(self):
+        deployer_profile = _ns(total_tokens_deployed=10, rug_count=2)  # 20% rug rate
+        lineage = _ns(deployer_profile=deployer_profile)
+        result = _sanity_check(self._result(score=20), lineage=lineage, bundle=None, sol_flow=None)
+        assert result["risk_score"] == 20  # unchanged
+
+    def test_caveats_prepended_to_existing_findings(self):
+        result = _sanity_check(self._result(score=87), lineage=None, bundle=None, sol_flow=None)
+        assert result["key_findings"][0].startswith("[CAVEAT]")
+        assert "existing finding" in result["key_findings"]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# _extract_deployer (P1-B helper)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestExtractDeployer:
+    def test_none_lineage_returns_none(self):
+        assert _extract_deployer(None) is None
+
+    def test_lineage_with_root_returns_deployer(self):
+        lineage = _ns(root=_ns(deployer="ROOTDEPLOYERADDR"), query_token=None)
+        assert _extract_deployer(lineage) == "ROOTDEPLOYERADDR"
+
+    def test_lineage_with_query_token_preferred(self):
+        lineage = _ns(
+            query_token=_ns(deployer="QUERYTOKENDEPLOYER"),
+            root=_ns(deployer="ROOTDEPLOYER"),
+        )
+        assert _extract_deployer(lineage) == "QUERYTOKENDEPLOYER"
+
+    def test_no_deployer_field_returns_none(self):
+        lineage = _ns(root=_ns(deployer=None), query_token=None)
+        assert _extract_deployer(lineage) is None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# _rule_based_fallback (P3-B)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestRuleBasedFallback:
+    def test_all_none_returns_none(self):
+        assert _rule_based_fallback(MINT) is None
+
+    def test_bundle_only_confirmed_rug(self):
+        bundle = _ns(overall_verdict="confirmed_coordinated_dump")
+        result = _rule_based_fallback(MINT, bundle=bundle)
+        assert result is not None
+        assert result["is_fallback"] is True
+        assert result["model"] == "rule_based_fallback"
+        assert result["risk_score"] >= 80
+        assert any("BUNDLE" in f for f in result["key_findings"])
+
+    def test_sol_flow_high_extraction(self):
+        sol_flow = _ns(total_extracted_sol=15.0)
+        result = _rule_based_fallback(MINT, sol_flow=sol_flow)
+        assert result is not None
+        assert result["risk_score"] >= 85
+        assert any("FINANCIAL" in f for f in result["key_findings"])
+
+    def test_sol_flow_low_extraction(self):
+        sol_flow = _ns(total_extracted_sol=0.5)
+        result = _rule_based_fallback(MINT, sol_flow=sol_flow)
+        assert result is not None
+        assert result["risk_score"] < 50  # low-extraction → moderate/low signal
+
+    def test_lineage_with_many_clones(self):
+        lineage = _ns(
+            derivatives=[_ns() for _ in range(15)],
+            deployer_profile=None,
+            zombie_alert=None,
+        )
+        result = _rule_based_fallback(MINT, lineage=lineage)
+        assert result is not None
+        assert any("IDENTITY" in f for f in result["key_findings"])
+
+    def test_zombie_alert_included(self):
+        lineage = _ns(
+            derivatives=[],
+            deployer_profile=None,
+            zombie_alert=_ns(original_mint="ORIG1234"),
+        )
+        result = _rule_based_fallback(MINT, lineage=lineage)
+        assert result is not None
+        assert any("Zombie" in f or "zombie" in f.lower() for f in result["key_findings"])
+
+    def test_result_structure_complete(self):
+        bundle = _ns(overall_verdict="suspected_coordination")
+        result = _rule_based_fallback(MINT, bundle=bundle)
+        for key in ("mint", "model", "analyzed_at", "risk_score", "confidence",
+                    "rug_pattern", "verdict_summary", "narrative", "key_findings",
+                    "wallet_classifications", "operator_hypothesis", "is_fallback"):
+            assert key in result, f"Missing key: {key}"
+        assert result["mint"] == MINT
+        assert result["confidence"] == "low"
