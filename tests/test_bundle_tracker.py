@@ -20,6 +20,7 @@ from lineage_agent.bundle_tracker_service import (
     _extract_sol_outflows,
     _detect_common_prefund_source,
     _detect_coordinated_sell,
+    _coordinated_sell_slots,
     _detect_common_sinks,
     _compute_wallet_verdict,
     _compute_overall_verdict,
@@ -453,6 +454,13 @@ class TestDetectCoordinatedSell:
         ]
         assert _detect_coordinated_sell(results) is True
 
+    def test_two_sells_within_window(self):
+        results = [
+            _make_post_sell(sell_detected=True, sell_slot=100),
+            _make_post_sell(sell_detected=True, sell_slot=103),
+        ]
+        assert _detect_coordinated_sell(results) is True
+
     def test_sells_outside_window(self):
         results = [
             _make_post_sell(sell_detected=True, sell_slot=100),
@@ -461,16 +469,40 @@ class TestDetectCoordinatedSell:
         ]
         assert _detect_coordinated_sell(results) is False
 
-    def test_fewer_than_three_sells(self):
+    def test_single_sell(self):
         results = [
             _make_post_sell(sell_detected=True, sell_slot=100),
-            _make_post_sell(sell_detected=True, sell_slot=101),
         ]
         assert _detect_coordinated_sell(results) is False
 
     def test_no_sells(self):
         results = [_make_post_sell(), _make_post_sell()]
         assert _detect_coordinated_sell(results) is False
+
+
+class TestCoordinatedSellSlots:
+
+    def test_returns_slots_within_window(self):
+        results = [
+            _make_post_sell(sell_detected=True, sell_slot=100),
+            _make_post_sell(sell_detected=True, sell_slot=103),
+            _make_post_sell(sell_detected=True, sell_slot=500),
+        ]
+        slots = _coordinated_sell_slots(results)
+        assert 100 in slots
+        assert 103 in slots
+        assert 500 not in slots
+
+    def test_no_coordinated_sells(self):
+        results = [
+            _make_post_sell(sell_detected=True, sell_slot=100),
+            _make_post_sell(sell_detected=True, sell_slot=200),
+        ]
+        slots = _coordinated_sell_slots(results)
+        assert len(slots) == 0
+
+    def test_empty_input(self):
+        assert _coordinated_sell_slots([]) == set()
 
 
 class TestDetectCommonSinks:
@@ -562,6 +594,42 @@ class TestComputeWalletVerdict:
         assert verdict == BundleWalletVerdict.EARLY_BUYER
         assert "DORMANT_BEFORE_LAUNCH" in flags
 
+    # ── Bundle-specific signals ──────────────────────────────────────────
+
+    def test_bundle_sell_detected_flag(self):
+        """Wallet that sold in a bundle with ≥3 wallets gets BUNDLE_SELL_DETECTED."""
+        pre = _make_pre_sell()
+        post = _make_post_sell(sell_detected=True)
+        flags, verdict = _compute_wallet_verdict(pre, post, num_bundle_wallets=5)
+        assert "BUNDLE_SELL_DETECTED" in flags
+
+    def test_no_bundle_sell_flag_small_bundle(self):
+        """Wallet in a small bundle (<3 wallets) doesn't get BUNDLE_SELL_DETECTED."""
+        pre = _make_pre_sell()
+        post = _make_post_sell(sell_detected=True)
+        flags, verdict = _compute_wallet_verdict(pre, post, num_bundle_wallets=2)
+        assert "BUNDLE_SELL_DETECTED" not in flags
+
+    def test_coordinated_sell_timing_flag(self):
+        """Wallet flagged as coordinated sell participant gets COORDINATED_SELL_TIMING."""
+        pre = _make_pre_sell()
+        post = _make_post_sell(sell_detected=True)
+        flags, verdict = _compute_wallet_verdict(
+            pre, post, is_coordinated_sell_participant=True, num_bundle_wallets=5,
+        )
+        assert "COORDINATED_SELL_TIMING" in flags
+
+    def test_bundle_sell_plus_coordinated_sell_gives_coordinated_dump(self):
+        """BUNDLE_SELL_DETECTED + COORDINATED_SELL_TIMING → COORDINATED_DUMP."""
+        pre = _make_pre_sell()
+        post = _make_post_sell(sell_detected=True)
+        flags, verdict = _compute_wallet_verdict(
+            pre, post, is_coordinated_sell_participant=True, num_bundle_wallets=5,
+        )
+        assert verdict == BundleWalletVerdict.COORDINATED_DUMP
+        assert "BUNDLE_SELL_DETECTED" in flags
+        assert "COORDINATED_SELL_TIMING" in flags
+
 
 # ===================================================================
 # Phase-5: Overall verdict computation
@@ -643,6 +711,39 @@ class TestComputeOverallVerdict:
         ]
         verdict, evidence = _compute_overall_verdict(analyses, [], [], [], set(), False)
         assert verdict == "early_buyers_no_link_proven"
+
+    def test_bulk_exit_heuristic_large_bundle(self):
+        """≥3 wallets with ≥40% sells → coordinated_dump even without per-wallet COORDINATED_DUMP."""
+        analyses = [
+            _make_analysis("W1", BundleWalletVerdict.EARLY_BUYER, sell=True),
+            _make_analysis("W2", BundleWalletVerdict.EARLY_BUYER, sell=True),
+            _make_analysis("W3", BundleWalletVerdict.EARLY_BUYER, sell=True),
+            _make_analysis("W4", BundleWalletVerdict.EARLY_BUYER),
+            _make_analysis("W5", BundleWalletVerdict.EARLY_BUYER),
+        ]
+        verdict, evidence = _compute_overall_verdict(analyses, [], [], [], set(), False)
+        assert verdict == "coordinated_dump_unknown_team"
+
+    def test_bulk_exit_heuristic_requires_three_wallets(self):
+        """Only 2 wallets — bulk-exit doesn't apply, stays early_buyers."""
+        analyses = [
+            _make_analysis("W1", BundleWalletVerdict.EARLY_BUYER, sell=True),
+            _make_analysis("W2", BundleWalletVerdict.EARLY_BUYER, sell=True),
+        ]
+        verdict, evidence = _compute_overall_verdict(analyses, [], [], [], set(), False)
+        # Only 2 wallets total → bulk-exit threshold (≥3) not met, but
+        # coordinated_sell with ≥2 sells triggers second heuristic if coord_sell=True
+        assert verdict == "early_buyers_no_link_proven"
+
+    def test_coordinated_sell_with_two_sells_elevates(self):
+        """coordinated_sell=True + 2 sells → coordinated_dump."""
+        analyses = [
+            _make_analysis("W1", BundleWalletVerdict.EARLY_BUYER, sell=True),
+            _make_analysis("W2", BundleWalletVerdict.EARLY_BUYER, sell=True),
+            _make_analysis("W3", BundleWalletVerdict.EARLY_BUYER),
+        ]
+        verdict, evidence = _compute_overall_verdict(analyses, [], [], [], set(), True)
+        assert verdict == "coordinated_dump_unknown_team"
 
     def test_evidence_chain_populated(self):
         analyses = [_make_analysis("W1", BundleWalletVerdict.CONFIRMED_TEAM, sell=True)]

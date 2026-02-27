@@ -336,9 +336,22 @@ async def _run_forensic(
     # ─────────────────────────────────────────────────────────────────────
     # Phase 5 — Per-wallet verdict + aggregation
     # ─────────────────────────────────────────────────────────────────────
+    # Determine which sell_slots participated in coordinated sell timing
+    coord_sell_slots = _coordinated_sell_slots(post_sell_results)
+    num_bundle = len(wallets)
+
     wallet_analyses: list[BundleWalletAnalysis] = []
     for (wallet, sol_spent), pre, post in zip(top_buyers, pre_sell_results, post_sell_results):
-        flags, verdict = _compute_wallet_verdict(pre, post)
+        is_coord = (
+            post.sell_detected
+            and post.sell_slot is not None
+            and post.sell_slot in coord_sell_slots
+        )
+        flags, verdict = _compute_wallet_verdict(
+            pre, post,
+            is_coordinated_sell_participant=is_coord,
+            num_bundle_wallets=num_bundle,
+        )
         wallet_analyses.append(BundleWalletAnalysis(
             wallet=wallet,
             sol_spent=round(sol_spent, 4),
@@ -868,18 +881,34 @@ def _detect_common_prefund_source(
 
 
 def _detect_coordinated_sell(post_sell_results: list[PostSellBehavior]) -> bool:
-    """Return True if ≥3 wallets sold within _COORDINATED_SELL_SLOT_WINDOW of each other."""
+    """Return True if ≥2 wallets sold within _COORDINATED_SELL_SLOT_WINDOW of each other."""
     sell_slots = sorted(
         ps.sell_slot
         for ps in post_sell_results
         if ps.sell_detected and ps.sell_slot is not None
     )
-    if len(sell_slots) < 3:
+    if len(sell_slots) < 2:
         return False
-    for i in range(len(sell_slots) - 2):
-        if sell_slots[i + 2] - sell_slots[i] <= _COORDINATED_SELL_SLOT_WINDOW:
+    for i in range(len(sell_slots) - 1):
+        if sell_slots[i + 1] - sell_slots[i] <= _COORDINATED_SELL_SLOT_WINDOW:
             return True
     return False
+
+
+def _coordinated_sell_slots(post_sell_results: list[PostSellBehavior]) -> set[int]:
+    """Return sell_slots that are within _COORDINATED_SELL_SLOT_WINDOW of another sell."""
+    sell_slots = sorted(
+        ps.sell_slot
+        for ps in post_sell_results
+        if ps.sell_detected and ps.sell_slot is not None
+    )
+    coordinated: set[int] = set()
+    for i, s in enumerate(sell_slots):
+        for j, t in enumerate(sell_slots):
+            if i != j and abs(s - t) <= _COORDINATED_SELL_SLOT_WINDOW:
+                coordinated.add(s)
+                break
+    return coordinated
 
 
 def _detect_common_sinks(post_sell_results: list[PostSellBehavior]) -> set[str]:
@@ -904,6 +933,9 @@ def _detect_common_sinks(post_sell_results: list[PostSellBehavior]) -> set[str]:
 def _compute_wallet_verdict(
     pre: PreSellBehavior,
     post: PostSellBehavior,
+    *,
+    is_coordinated_sell_participant: bool = False,
+    num_bundle_wallets: int = 0,
 ) -> tuple[list[str], BundleWalletVerdict]:
     """Score-based per-wallet verdict. Returns (red_flags, verdict)."""
     flags: list[str] = []
@@ -935,6 +967,13 @@ def _compute_wallet_verdict(
     if pre.prior_bundle_count > 2:
         flags.append(f"PROFESSIONAL_BUNDLER ({pre.prior_bundle_count} bundles)")
 
+    # ── Bundle-specific signals ──────────────────────────────────────────
+    # A wallet that *sold* from a multi-wallet bundle is inherently suspect.
+    if post.sell_detected and num_bundle_wallets >= 3:
+        flags.append("BUNDLE_SELL_DETECTED")
+    if is_coordinated_sell_participant:
+        flags.append("COORDINATED_SELL_TIMING")
+
     # ── SUSPECTED_TEAM ────────────────────────────────────────────────────
     if post.transfer_to_deployer_linked_wallet:
         return flags, BundleWalletVerdict.SUSPECTED_TEAM
@@ -944,6 +983,9 @@ def _compute_wallet_verdict(
         return flags, BundleWalletVerdict.SUSPECTED_TEAM
 
     # ── COORDINATED_DUMP ─────────────────────────────────────────────────
+    # Sold from bundle AND timed with other sellers → definitive coordination.
+    if "BUNDLE_SELL_DETECTED" in flags and "COORDINATED_SELL_TIMING" in flags:
+        return flags, BundleWalletVerdict.COORDINATED_DUMP
     if len(flags) >= 3:
         return flags, BundleWalletVerdict.COORDINATED_DUMP
     if pre.prefund_source_is_known_funder and post.common_destination_with_other_bundles:
@@ -986,6 +1028,17 @@ def _compute_overall_verdict(
     if len(dumps) >= 3 and common_sinks:
         return "suspected_team_extraction", evidence
     if len(dumps) >= 3 or (len(dumps) >= 2 and coordinated_sell):
+        return "coordinated_dump_unknown_team", evidence
+
+    # ── Bulk-exit heuristic (no per-wallet COORDINATED_DUMP needed) ──────
+    # When post-sell fund-tracing finds no outflows (typical for PumpFun
+    # wallets that haven't moved SOL yet), per-wallet verdicts stay at
+    # EARLY_BUYER.  However, a large bundle where many wallets fully sold
+    # is a coordinated dump regardless of fund destination evidence.
+    total = len(analyses)
+    if total >= 3 and sold_count >= 2 and sold_count / total >= 0.4:
+        return "coordinated_dump_unknown_team", evidence
+    if coordinated_sell and sold_count >= 2:
         return "coordinated_dump_unknown_team", evidence
 
     return "early_buyers_no_link_proven", evidence

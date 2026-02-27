@@ -610,6 +610,15 @@ async def get_sol_trace(
                         + [w for w in _bd.get("suspected_team_wallets", []) if w != _deployer]
                         + [w for w in _bd.get("coordinated_dump_wallets", []) if w != _deployer]
                     )[:12]
+                    # Fallback: if categorised lists are empty, use wallets
+                    # that sold — they ARE the extraction vectors.
+                    if not _bundle_seeds:
+                        _bundle_seeds = [
+                            w.get("wallet", "")
+                            for w in _bd.get("bundle_wallets", [])
+                            if w.get("post_sell", {}).get("sell_detected")
+                            and w.get("wallet", "") != _deployer
+                        ][:12]
         except Exception:
             pass
         # If not in DB: trigger synchronously with 20s timeout
