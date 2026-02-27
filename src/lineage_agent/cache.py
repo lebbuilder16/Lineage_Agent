@@ -648,6 +648,13 @@ class SQLiteCache:
                 values,
             )
             await db.commit()
+
+            # P0-C: invalidate stale AI analysis whenever a token is confirmed rugged
+            mint_val = kwargs.get("mint")
+            if kwargs.get("event_type") == "token_rugged" and mint_val:
+                await self.invalidate(f"ai:v1:{mint_val}")
+                logger.debug("[cache] invalidated ai:v1:%s after token_rugged event", mint_val[:12])
+
         except Exception:
             logger.warning("intelligence_events insert failed", exc_info=True)
 

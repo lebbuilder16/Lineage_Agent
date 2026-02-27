@@ -108,6 +108,9 @@ CACHE_TTL_LINEAGE_SECONDS: int = _parse_int(
 CACHE_TTL_DEPLOYER_SECONDS: int = _parse_int(
     "CACHE_TTL_DEPLOYER_SECONDS", "600", minimum=1
 )
+CACHE_TTL_AI_SECONDS: int = _parse_int(
+    "CACHE_TTL_AI_SECONDS", "300", minimum=30
+)
 # Shared extraction rate used by operator_impact_service and cartel_service.
 # Represents the estimated fraction of rugged mcap extracted by the operator.
 EXTRACTION_RATE_MCAP: float = float(os.getenv("EXTRACTION_RATE_MCAP", "0.15"))

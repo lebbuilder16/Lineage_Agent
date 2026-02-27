@@ -99,6 +99,8 @@ async def analyze_token(
     lineage_result: Optional[Any] = None,
     bundle_report: Optional[Any] = None,
     sol_flow_report: Optional[Any] = None,
+    cache: Optional[Any] = None,
+    force_refresh: bool = False,
 ) -> Optional[dict]:
     """Generate an AI forensic analysis from available on-chain reports.
 
@@ -112,7 +114,33 @@ async def analyze_token(
         logger.warning("[ai_analyst] analyze_token called with no data for %s", mint[:12])
         return None
 
-    prompt = _build_prompt(mint, lineage_result, bundle_report, sol_flow_report)
+    from config import CACHE_TTL_AI_SECONDS  # local import to avoid circular dep
+
+    # ── P0-B: cache check ────────────────────────────────────────────────────
+    cache_key = f"ai:v1:{mint}"
+    if cache and not force_refresh:
+        cached = cache.get(cache_key)
+        if cached is not None:
+            logger.info("[ai_analyst] cache hit for %s", mint[:12])
+            return cached
+
+    # ── P1-B: deployer history from intelligence_events ──────────────────────
+    deployer_history: list[dict] = []
+    if cache:
+        deployer = _extract_deployer(lineage_result)
+        if deployer:
+            try:
+                deployer_history = await cache.query_events(
+                    where="deployer = ? AND event_type = 'token_rugged'",
+                    params=(deployer,),
+                    columns="mint, name, rugged_at, mcap_usd",
+                    limit=5,
+                    order_by="recorded_at DESC",
+                )
+            except Exception:
+                pass  # history unavailable — continue without it
+
+    prompt = _build_prompt(mint, lineage_result, bundle_report, sol_flow_report, deployer_history)
 
     try:
         client = _get_client()
@@ -129,14 +157,20 @@ async def analyze_token(
             message.usage.input_tokens, message.usage.output_tokens,
         )
         result = _parse_response(raw, mint)
+
+        # ── P0-A: sanity-check the score against hard evidence ────────────────
+        result = _sanity_check(result, lineage_result, bundle_report, sol_flow_report)
+
+        # ── P0-B: persist to cache ────────────────────────────────────────────
+        if cache:
+            cache.set(cache_key, result, ttl=CACHE_TTL_AI_SECONDS)
+
         return result
 
     except RuntimeError as exc:
-        # Missing package or API key
+        # Missing package or API key — fall through to rule-based
         logger.error("[ai_analyst] %s", exc)
-        return None
     except Exception as exc:
-        # Catch anthropic errors by name to avoid hard import dependency
         exc_name = type(exc).__name__
         if "RateLimit" in exc_name:
             logger.warning("[ai_analyst] rate-limited for mint=%s", mint[:12])
@@ -148,7 +182,14 @@ async def analyze_token(
             logger.error("[ai_analyst] API error: %s", exc)
         else:
             logger.exception("[ai_analyst] unexpected error for mint=%s", mint[:12])
-        return None
+
+    # ── P3-B: rule-based fallback when Claude is unavailable ─────────────────
+    logger.info("[ai_analyst] falling back to rule-based scoring for %s", mint[:12])
+    fallback = _rule_based_fallback(mint, lineage_result, bundle_report, sol_flow_report)
+    if cache and fallback:
+        # Short TTL for fallback results — retry real analysis sooner
+        cache.set(cache_key, fallback, ttl=min(CACHE_TTL_AI_SECONDS, 60))
+    return fallback
 
 
 # ── Prompt construction ───────────────────────────────────────────────────────
@@ -158,6 +199,7 @@ def _build_prompt(
     lineage: Optional[Any],
     bundle: Optional[Any],
     sol_flow: Optional[Any],
+    deployer_history: Optional[list] = None,
 ) -> str:
     parts: list[str] = [f"Token mint: {mint}\n"]
 
@@ -291,7 +333,181 @@ def _build_prompt(
                     f"{label} {edge.amount_sol:.4f} SOL"
                 )
 
+    # ── P1-B: Deployer cross-token track record ───────────────────────────
+    if deployer_history:
+        parts.append("\n=== DEPLOYER TRACK RECORD (prior rugs from database) ===")
+        for ev in deployer_history:
+            name_     = ev.get("name") or "?"
+            mint_     = str(ev.get("mint") or "?")[:12]
+            mcap      = ev.get("mcap_usd")
+            rugged_at = ev.get("rugged_at") or "?"
+            mcap_str  = f" mcap=${mcap:,.0f}" if mcap else ""
+            parts.append(f"  {name_} ({mint_}...){mcap_str} rugged={rugged_at}")
+
     return "\n".join(parts)
+
+
+# ── P0-A: Post-Claude sanity check ───────────────────────────────────────────
+
+def _sanity_check(
+    result: dict,
+    lineage: Optional[Any],
+    bundle: Optional[Any],
+    sol_flow: Optional[Any],
+) -> dict:
+    """Cap hallucinated high scores and raise suppressed ones using hard evidence.
+
+    Rules applied in order (each appends a [CAVEAT] finding when triggered):
+      1. High score (>70) with zero bundle AND zero sol_flow → cap at 55, confidence=low
+      2. Low score (<35) despite deployer rug_rate > 60% → raise +25, cap at 55
+    """
+    score = result.get("risk_score")
+    if score is None:
+        return result
+
+    has_bundle = bundle is not None
+    has_flow   = sol_flow is not None
+
+    deployer_rug_rate = 0.0
+    if lineage:
+        dp = getattr(lineage, "deployer_profile", None)
+        if dp:
+            total = max(getattr(dp, "total_tokens_deployed", 0) or 1, 1)
+            rugs  = getattr(dp, "rug_count", 0) or 0
+            deployer_rug_rate = rugs / total
+
+    caveats: list[str] = []
+
+    # Rule 1: inflated score with no forensic backing
+    if score > 70 and not has_bundle and not has_flow:
+        result["risk_score"] = min(score, 55)
+        result["confidence"] = "low"
+        caveats.append(
+            "[CAVEAT] Score capped — bundle/flow data unavailable; cannot confirm on-chain extraction."
+        )
+
+    # Rule 2: suppressed score despite proven serial rugger deployer
+    if score < 35 and deployer_rug_rate > 0.60:
+        result["risk_score"] = min(score + 25, 55)
+        if result.get("confidence") == "high":
+            result["confidence"] = "medium"
+        caveats.append(
+            f"[CAVEAT] Score raised — deployer rug rate {deployer_rug_rate:.0%} on prior tokens."
+        )
+
+    if caveats:
+        findings = result.get("key_findings") or []
+        result["key_findings"] = caveats + findings
+
+    return result
+
+
+# ── P1-B: Deployer address extractor ─────────────────────────────────────────
+
+def _extract_deployer(lineage: Optional[Any]) -> Optional[str]:
+    """Pull deployer address from a LineageResult (query_token preferred over root)."""
+    if not lineage:
+        return None
+    qt = getattr(lineage, "query_token", None) or getattr(lineage, "root", None)
+    if not qt:
+        return None
+    deployer = getattr(qt, "deployer", None)
+    return deployer if deployer else None
+
+
+# ── P3-B: Rule-based fallback when Claude is unavailable ─────────────────────
+
+def _rule_based_fallback(
+    mint: str,
+    lineage: Optional[Any] = None,
+    bundle: Optional[Any] = None,
+    sol_flow: Optional[Any] = None,
+) -> Optional[dict]:
+    """Derive a basic risk score from structured data alone (no LLM).
+
+    Used when the Anthropic API is down, rate-limited, or has no key set.
+    Returns None if there is truly insufficient data to score.
+    """
+    ts = datetime.now(tz=timezone.utc).isoformat()
+    weighted: list[tuple[float, float]] = []  # (score, weight)
+    findings: list[str] = []
+
+    # Bundle signal
+    if bundle:
+        verdict = getattr(bundle, "overall_verdict", "") or ""
+        if "confirmed" in verdict or "coordinated" in verdict:
+            weighted.append((88.0, 0.40))
+            findings.append("[BUNDLE] Coordinated team dump confirmed at launch.")
+        elif "suspected" in verdict:
+            weighted.append((65.0, 0.40))
+            findings.append("[BUNDLE] Suspected team coordination on launch.")
+        else:
+            weighted.append((28.0, 0.40))
+
+    # SOL flow signal
+    if sol_flow:
+        extracted = getattr(sol_flow, "total_extracted_sol", 0) or 0.0
+        if extracted > 10:
+            weighted.append((90.0, 0.35))
+            findings.append(f"[FINANCIAL] {extracted:.1f} SOL extracted from token.")
+        elif extracted > 1:
+            weighted.append((62.0, 0.35))
+            findings.append(f"[FINANCIAL] {extracted:.2f} SOL extracted from token.")
+        elif extracted > 0:
+            weighted.append((38.0, 0.35))
+        else:
+            weighted.append((20.0, 0.35))
+
+    # Lineage signals
+    if lineage:
+        clones = len(getattr(lineage, "derivatives", []) or [])
+        dp     = getattr(lineage, "deployer_profile", None)
+        rug_count = getattr(dp, "rug_count", 0) or 0 if dp else 0
+
+        if clones > 10:
+            weighted.append((78.0, 0.25))
+            findings.append(f"[IDENTITY] {clones} clones detected — industrial-scale serial clone.")
+        elif clones > 2:
+            weighted.append((55.0, 0.25))
+            findings.append(f"[IDENTITY] {clones} clones detected.")
+        elif clones > 0:
+            weighted.append((40.0, 0.25))
+
+        if rug_count > 2:
+            findings.append(f"[DEPLOYMENT] Deployer has {rug_count} prior rugged tokens.")
+            # Boost weight if already high
+            if weighted:
+                last_score, last_w = weighted[-1]
+                weighted[-1] = (min(last_score + 15, 90), last_w)
+
+        if getattr(lineage, "zombie_alert", None):
+            findings.append("[IDENTITY] Zombie relaunch — original token already died.")
+            weighted.append((75.0, 0.15))
+
+    if not weighted:
+        return None
+
+    total_w  = sum(w for _, w in weighted)
+    risk_score = round(sum(s * w for s, w in weighted) / total_w)
+
+    return {
+        "mint":         mint,
+        "model":        "rule_based_fallback",
+        "analyzed_at":  ts,
+        "risk_score":   risk_score,
+        "confidence":   "low",
+        "rug_pattern":  "unknown",
+        "verdict_summary": "Automated rule-based analysis (AI temporarily unavailable).",
+        "narrative": {
+            "observation": "Score derived from bundle verdict, SOL flow, and lineage signals.",
+            "pattern":     None,
+            "risk":        "AI narrative unavailable — treat this score as a preliminary indicator only.",
+        },
+        "key_findings":          findings or ["[CAVEAT] Insufficient data for rule-based scoring."],
+        "wallet_classifications": {},
+        "operator_hypothesis":   None,
+        "is_fallback":           True,
+    }
 
 
 # ── Unified 3-layer response builder ─────────────────────────────────────────

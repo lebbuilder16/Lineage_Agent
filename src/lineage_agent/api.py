@@ -1015,12 +1015,15 @@ async def get_ai_analysis(
         )
 
     try:
+        from .data_sources._clients import cache as _cache  # noqa: PLC0415
         ai_result = await asyncio.wait_for(
             analyze_token(
                 mint,
                 lineage_result=lineage_res,
                 bundle_report=bundle_res,
                 sol_flow_report=sol_flow_res,
+                cache=_cache,
+                force_refresh=force_refresh,
             ),
             timeout=40.0,
         )
