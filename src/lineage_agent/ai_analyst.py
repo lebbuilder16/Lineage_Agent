@@ -10,6 +10,7 @@ minimal (~$0.001–0.003 per report with claude-3-5-haiku).
 
 from __future__ import annotations
 
+import inspect
 import json
 import logging
 import os
@@ -119,7 +120,8 @@ async def analyze_token(
     # ── P0-B: cache check ────────────────────────────────────────────────────
     cache_key = f"ai:v1:{mint}"
     if cache and not force_refresh:
-        cached = cache.get(cache_key)
+        _cget = cache.get(cache_key)
+        cached = (await _cget) if inspect.isawaitable(_cget) else _cget
         if cached is not None:
             logger.info("[ai_analyst] cache hit for %s", mint[:12])
             return cached
@@ -163,7 +165,9 @@ async def analyze_token(
 
         # ── P0-B: persist to cache ────────────────────────────────────────────
         if cache:
-            cache.set(cache_key, result, ttl=CACHE_TTL_AI_SECONDS)
+            _cset = cache.set(cache_key, result, ttl=CACHE_TTL_AI_SECONDS)
+            if inspect.isawaitable(_cset):
+                await _cset
 
         return result
 
@@ -188,7 +192,9 @@ async def analyze_token(
     fallback = _rule_based_fallback(mint, lineage_result, bundle_report, sol_flow_report)
     if cache and fallback:
         # Short TTL for fallback results — retry real analysis sooner
-        cache.set(cache_key, fallback, ttl=min(CACHE_TTL_AI_SECONDS, 60))
+        _cset = cache.set(cache_key, fallback, ttl=min(CACHE_TTL_AI_SECONDS, 60))
+        if inspect.isawaitable(_cset):
+            await _cset
     return fallback
 
 
