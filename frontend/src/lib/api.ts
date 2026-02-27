@@ -587,3 +587,130 @@ export function fetchLineageBatch(
     mints,
   });
 }
+
+/* ---------- AI Forensic Analysis ------------------------------------ */
+
+export interface AIAnalysisNarrative {
+  observation: string;
+  pattern: string;
+  risk: string;
+}
+
+export interface AIAnalysis {
+  risk_score: number | null;
+  confidence: "low" | "medium" | "high";
+  rug_pattern: string;
+  verdict_summary: string;
+  narrative: AIAnalysisNarrative;
+  key_findings: string[];
+  operator_hypothesis: string | null;
+  model: string;
+  analyzed_at: string;
+  parse_error?: boolean;
+}
+
+export interface AnalyzeForensicBundle {
+  verdict: string;
+  wallets_count: number;
+  confirmed_team_wallets: string[];
+  suspected_team_wallets: string[];
+  coordinated_dump_wallets: string[];
+  launch_slot: number | null;
+  total_sol_spent: number;
+  total_sol_extracted: number;
+  coordinated_sell_detected: boolean;
+  common_prefund_source: string | null;
+  common_sink_wallets: string[];
+  evidence_chain: string[];
+}
+
+export interface AnalyzeForensicSolFlow {
+  total_extracted_sol: number;
+  total_extracted_usd: number | null;
+  hops_traced: number;
+  terminal_wallets_count: number;
+  known_cex_detected: boolean;
+  cross_chain_exits_count: number;
+  rug_timestamp: string | null;
+}
+
+export interface AnalyzeForensicLineage {
+  family_size: number;
+  clones_count: number;
+  lineage_confidence: number;
+  query_is_root: boolean;
+  unique_deployers_count: number;
+  zombie_relaunch_detected: boolean;
+  death_clock_risk: string | null;
+  rug_count: number;
+}
+
+export interface AnalyzeResponse {
+  token: {
+    mint: string;
+    name?: string;
+    symbol?: string;
+    image_uri?: string;
+    deployer?: string;
+    created_at?: string | null;
+    market_cap_usd?: number | null;
+    liquidity_usd?: number | null;
+    dex_url?: string;
+  };
+  ai_analysis: AIAnalysis;
+  forensic: {
+    bundle?: AnalyzeForensicBundle;
+    sol_flow?: AnalyzeForensicSolFlow;
+    lineage?: AnalyzeForensicLineage;
+  };
+  evidence: {
+    wallet_classifications?: Record<string, string>;
+    bundle_wallets?: Array<{
+      wallet: string;
+      verdict: string;
+      sol_spent: number;
+      flags: string[];
+    }>;
+    sol_flows?: Array<{
+      hop: number;
+      from: string;
+      to: string;
+      amount_sol: number;
+      to_label: string | null;
+      entity_type: string | null;
+      signature: string;
+      block_time: string | null;
+    }>;
+    terminal_wallets?: string[];
+    clone_tokens?: Array<{
+      mint: string;
+      name: string;
+      symbol: string;
+      generation: number | null;
+      deployer: string;
+      created_at: string | null;
+      market_cap_usd: number | null;
+      similarity_score: number | null;
+    }>;
+    root_token?: {
+      mint: string;
+      name: string;
+      symbol: string;
+      deployer: string;
+      created_at: string | null;
+      market_cap_usd: number | null;
+    };
+  };
+}
+
+export async function fetchAnalysis(mint: string): Promise<AnalyzeResponse> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 90_000); // 90s — Claude can be slow
+  try {
+    const res = await fetch(`${API_BASE}/analyze/${mint}`, { signal: ctrl.signal });
+    if (!res.ok) throw new Error(`${res.status}`);
+    return res.json();
+  } finally {
+    clearTimeout(timer);
+  }
+}

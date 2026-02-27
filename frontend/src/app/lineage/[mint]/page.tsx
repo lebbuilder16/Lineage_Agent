@@ -1,9 +1,10 @@
 "use client";
 
 import { useParams } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useLineageWS } from "@/lib/useLineageWS";
+import { fetchAnalysis, type AnalyzeResponse } from "@/lib/api";
 import { LineageCard } from "@/components/LineageCard";
 import { TokenInfo } from "@/components/TokenInfo";
 import { EvidencePanel } from "@/components/EvidencePanel";
@@ -21,6 +22,7 @@ import OperatorImpactCard from "@/components/forensics/OperatorImpact";
 import SolTraceCard from "@/components/forensics/SolTrace";
 import CartelReportCard from "@/components/forensics/CartelReportCard";
 import BundleReportCard from "@/components/forensics/BundleReportCard";
+import AIAnalysisCard from "@/components/forensics/AIAnalysisCard";
 import { motion, AnimatePresence } from "framer-motion";
 import { AlertCircle, RefreshCw, Crown, List, ChevronRight, TrendingUp, Droplets } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -30,10 +32,22 @@ export default function LineagePage() {
   const mint = params.mint;
 
   const { data, isLoading, error, progress, analyze } = useLineageWS();
+  const [analysis, setAnalysis] = useState<AnalyzeResponse | null>(null);
+  const [analysisLoading, setAnalysisLoading] = useState(false);
 
   useEffect(() => {
     if (mint) analyze(mint);
   }, [mint, analyze]);
+
+  useEffect(() => {
+    if (!mint) return;
+    setAnalysis(null);
+    setAnalysisLoading(true);
+    fetchAnalysis(mint)
+      .then(setAnalysis)
+      .catch(() => setAnalysis(null))
+      .finally(() => setAnalysisLoading(false));
+  }, [mint]);
 
   useEffect(() => {
     const name = data?.root?.name || data?.query_token?.name;
@@ -144,8 +158,10 @@ export default function LineagePage() {
             </motion.section>
           )}
 
-          {/* Forensic signals — always rendered when backend supports them */}
-          {(data.liquidity_arch !== undefined ||
+          {/* Forensic signals — rendered when AI analysis is in progress or when backend forensic data is available */}
+          {(analysisLoading ||
+            analysis !== null ||
+            data.liquidity_arch !== undefined ||
             data.zombie_alert !== undefined ||
             data.deployer_profile !== undefined ||
             data.operator_impact !== undefined ||
@@ -163,6 +179,7 @@ export default function LineagePage() {
                 Forensic Intelligence
                 <span className="flex-1 h-px bg-zinc-700" />
               </h3>
+              <AIAnalysisCard analysis={analysis} isLoading={analysisLoading} />
               <DeployerProfileCard profile={data.deployer_profile} />
               <OperatorImpactCard report={data.operator_impact} />
               <SolTraceCard report={data.sol_flow} mint={data.sol_flow?.mint ?? mint} />
