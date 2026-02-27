@@ -65,6 +65,7 @@ from .models import (
 from .similarity import (
     compute_composite_score,
     compute_deployer_score,
+    compute_deployer_score_with_operator,
     compute_image_similarity,
     compute_name_similarity,
     compute_symbol_similarity,
@@ -376,7 +377,9 @@ async def detect_lineage(
         ):
             return None
 
-        dep_score = compute_deployer_score(query_meta.deployer, c_deployer)
+        dep_score = await compute_deployer_score_with_operator(
+            query_meta.deployer, c_deployer
+        )
         temp_score = compute_temporal_score(created_at, c_created)
 
         scores = {
@@ -801,20 +804,12 @@ async def _bootstrap_deployer_history(deployer: str) -> None:
 
 
 def _guess_narrative(name: str, symbol: str) -> str:
-    """Best-effort narrative classification from name/symbol."""
-    text = f"{name} {symbol}".lower()
-    keywords = {
-        "ai": "ai", "gpt": "ai", "neural": "ai",
-        "dog": "dog", "doge": "dog", "shib": "dog", "inu": "dog",
-        "cat": "cat", "meow": "cat", "kitty": "cat",
-        "pepe": "pepe", "frog": "pepe", "kek": "pepe",
-        "trump": "political", "biden": "political", "maga": "political",
-        "elon": "celebrity", "musk": "celebrity",
-    }
-    for kw, narrative in keywords.items():
-        if kw in text:
-            return narrative
-    return "meme"
+    """Best-effort narrative classification from name/symbol.
+
+    Delegates to the unified classify_narrative() from utils.py.
+    """
+    from .utils import classify_narrative
+    return classify_narrative(name, symbol)
 
 
 # Public export so api.py can trigger bootstrap from the operator endpoint
@@ -911,31 +906,16 @@ def _assign_generations(root_mint: str, derivatives: list[DerivativeInfo]) -> No
 def _parse_datetime(value: Any) -> datetime | None:
     """Convert a value to datetime, handling strings from SQLite cache.
 
+    Delegates to the unified parse_datetime() from utils.py.
+
     Accepted formats:
     - ``datetime`` objects (pass-through)
     - ISO-format strings (e.g. from ``json.dumps(default=str)``)
     - Integer / float Unix timestamps in seconds (e.g. Helius DAS
       ``token_info.created_at`` field which is returned as a plain int)
     """
-    if value is None:
-        return None
-    if isinstance(value, datetime):
-        return value
-    if isinstance(value, str):
-        try:
-            # ISO format strings from json.dumps(default=str)
-            dt = datetime.fromisoformat(value)
-            if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=timezone.utc)
-            return dt
-        except (ValueError, TypeError):
-            return None
-    if isinstance(value, (int, float)):
-        try:
-            return datetime.fromtimestamp(float(value), tz=timezone.utc)
-        except (ValueError, OSError, OverflowError):
-            return None
-    return None
+    from .utils import parse_datetime
+    return parse_datetime(value)
 
 
 # Addresses that should never be treated as a token deployer.

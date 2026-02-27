@@ -136,6 +136,37 @@ def compute_deployer_score(deployer_a: str, deployer_b: str) -> float:
     return 1.0 if deployer_a == deployer_b else 0.0
 
 
+async def compute_deployer_score_with_operator(
+    deployer_a: str,
+    deployer_b: str,
+) -> float:
+    """Enhanced deployer score that gives partial credit for operator links.
+
+    Returns:
+        1.0  — same wallet address
+        0.8  — different wallets but sharing an OperatorFingerprint
+        0.0  — no relationship found
+    """
+    if not deployer_a or not deployer_b:
+        return 0.0
+    if deployer_a == deployer_b:
+        return 1.0
+
+    # Check if both deployers share a DNA fingerprint via operator_mappings
+    try:
+        from .data_sources._clients import operator_mapping_query_by_wallet
+
+        rows = await operator_mapping_query_by_wallet(deployer_a)
+        if rows:
+            linked_wallets = {r["wallet"] for r in rows}
+            if deployer_b in linked_wallets:
+                return 0.8
+    except Exception:
+        logger.debug("operator_mapping lookup failed for deployer score", exc_info=True)
+
+    return 0.0
+
+
 # ------------------------------------------------------------------
 # Temporal score  (older token -> more likely root)
 # ------------------------------------------------------------------

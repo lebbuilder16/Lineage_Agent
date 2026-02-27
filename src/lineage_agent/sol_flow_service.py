@@ -24,6 +24,7 @@ from .data_sources._clients import (
     sol_flows_query,
 )
 from .bridge_tracker import CrossChainExit, detect_bridge_exits
+from .constants import MIN_TRANSFER_LAMPORTS, SKIP_PROGRAMS
 from .models import SolFlowEdge, SolFlowReport
 from .wallet_labels import classify_address
 
@@ -33,39 +34,11 @@ logger = logging.getLogger(__name__)
 _WSOL_MINT = "So11111111111111111111111111111111111111112"
 
 # ── Skip lists ────────────────────────────────────────────────────────────────
-# Infrastructure, DEX programs, system accounts — not useful in a follow-the-money graph
-_SKIP_ADDRESSES: frozenset[str] = frozenset({
-    "11111111111111111111111111111111",                    # System Program
-    "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",      # Token Program
-    "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJe8bv",      # ATA Program
-    "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s",      # Metaplex
-    "TSLvdd1pWpHVjahSpsvCXUbgwsL3JAcvokwaKt1eokM",      # PumpFun authority
-    "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBymtzbm",    # PumpFun program
-    "96gYZGLnJYVFmbjzopPSU6QiEV5fGqZNyN9nmNhvrZU5",    # Jito tip account
-    "5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1",    # Raydium authority
-    "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8",    # Raydium AMM V4
-    "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4",    # Jupiter v6
-    "srmqPvymJeFKQ4zGQed1GFppgkRHL9kaELCbyksJtPX",     # Serum DEX
-    "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc",     # Orca Whirlpool
-    "So11111111111111111111111111111111111111112",        # Wrapped SOL mint
-    "Vote111111111111111111111111111111111111111",        # Vote Program
-    "Stake11111111111111111111111111111111111111",        # Stake Program
-    "SysvarC1ock11111111111111111111111111111111",        # Sysvar Clock
-    "SysvarRent111111111111111111111111111111111",        # Sysvar Rent
-    "ComputeBudget111111111111111111111111111111",        # Compute Budget
-    "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr",     # Memo Program
-})
+# Infrastructure, DEX programs, system accounts — not useful in a follow-the-money graph.
+# Now imported from constants.py (SKIP_PROGRAMS) as the single source of truth.
+_SKIP_ADDRESSES = SKIP_PROGRAMS
 
-# Known CEX hot wallets — reaching these means funds may be cashed out
-_CEX_ADDRESSES: frozenset[str] = frozenset({
-    "5tzFkiKscXHK5ZXCGbXZxdw7gTjjD1mBwuoFbhUvuAi",    # Binance hot
-    "AC5RDfQFmDS1deWZos921JfqscXdByf8BKHs5ACWjtW2",   # Coinbase
-    "H8sMJSCQxfKiFTCfDR3DUMLPwcRbM61LGFJ8N4dK3WjS",  # OKX
-    "2AQdpHJ2JpcEgPiATUXjQxA8QmafFegfQwSLWSprPicm",   # Bybit
-    "BmFdpraQhkiDQE6SnfG5omcA1VwzqfXrwtNYBwWTymy6",  # Kraken
-})
-
-_MIN_TRANSFER_LAMPORTS = 100_000_000   # 0.1 SOL minimum
+_MIN_TRANSFER_LAMPORTS = MIN_TRANSFER_LAMPORTS
 _MAX_HOPS = int(os.getenv("SOL_TRACE_MAX_HOPS", "3"))
 _MAX_TXN_PER_WALLET = 50
 _TRACE_TIMEOUT = 20.0
@@ -231,7 +204,13 @@ def _parse_sol_flows(
     hop: int,
     signature: str,
 ) -> list[dict]:
-    """Extract SOL transfer flows from a jsonParsed transaction dict."""
+    """Extract SOL transfer flows from a jsonParsed transaction dict.
+
+    Primary: parse ``meta.innerInstructions`` for system-program transfer
+    instructions to capture individual SOL movements precisely.
+    Fallback: use ``preBalances/postBalances`` delta when inner instructions
+    are unavailable or empty.
+    """
     flows: list[dict] = []
     try:
         meta = tx.get("meta") or {}
@@ -247,12 +226,28 @@ def _parse_sol_flows(
             elif isinstance(k, dict):
                 account_keys.append(k.get("pubkey", ""))
 
-        pre_balances: list[int] = meta.get("preBalances") or []
-        post_balances: list[int] = meta.get("postBalances") or []
         block_time = tx.get("blockTime")
         slot = tx.get("slot")
 
-        if not account_keys or len(pre_balances) != len(account_keys):
+        if not account_keys:
+            return []
+
+        # ── Primary: innerInstructions-based parsing ──────────────────
+        # Parse system-program transfer instructions for precise SOL flows.
+        # This solves the balance-delta Problem 1 from AUDIT_REPORT:
+        # a wallet that receives 10 SOL and sends 3 SOL in the same tx
+        # now shows BOTH movements instead of just the +7 SOL net delta.
+        inner_flows = _parse_inner_instructions(
+            meta, source_wallet, mint, hop, signature, block_time, slot,
+        )
+        if inner_flows:
+            return inner_flows
+
+        # ── Fallback: balance-delta attribution (pre/post balances) ──
+        pre_balances: list[int] = meta.get("preBalances") or []
+        post_balances: list[int] = meta.get("postBalances") or []
+
+        if len(pre_balances) != len(account_keys):
             return []
 
         try:
@@ -285,6 +280,73 @@ def _parse_sol_flows(
                     })
     except Exception as exc:
         logger.debug("_parse_sol_flows error: %s", exc)
+    return flows
+
+
+def _parse_inner_instructions(
+    meta: dict,
+    source_wallet: str,
+    mint: str,
+    hop: int,
+    signature: str,
+    block_time: object,
+    slot: object,
+) -> list[dict]:
+    """Extract SOL transfers from meta.innerInstructions.
+
+    Looks for system-program transfer instructions (``programId ==
+    11111111...``) in the jsonParsed inner instructions. Returns a
+    list of flow dicts where ``from_address`` matches *source_wallet*.
+
+    Returns an empty list when no system-program transfers are found
+    (caller should fall back to balance-delta).
+    """
+    inner_instructions = meta.get("innerInstructions") or []
+    if not inner_instructions:
+        return []
+
+    flows: list[dict] = []
+    system_program = "11111111111111111111111111111111"
+
+    for group in inner_instructions:
+        instructions = group.get("instructions") or []
+        for ix in instructions:
+            # Only system-program transfers
+            program_id = ix.get("programId") or ix.get("program", "")
+            if program_id != system_program:
+                continue
+
+            parsed = ix.get("parsed")
+            if not isinstance(parsed, dict):
+                continue
+
+            if parsed.get("type") != "transfer":
+                continue
+
+            info = parsed.get("info") or {}
+            src = info.get("source", "")
+            dst = info.get("destination", "")
+            lamports = info.get("lamports", 0)
+
+            # Only outflows from the source wallet we're tracking
+            if src != source_wallet:
+                continue
+
+            if lamports < _MIN_TRANSFER_LAMPORTS:
+                continue
+
+            if dst and dst not in _SKIP_ADDRESSES:
+                flows.append({
+                    "mint": mint,
+                    "from_address": source_wallet,
+                    "to_address": dst,
+                    "amount_lamports": lamports,
+                    "signature": signature,
+                    "slot": slot,
+                    "block_time": block_time,
+                    "hop": hop,
+                })
+
     return flows
 
 
@@ -330,7 +392,10 @@ def _flows_to_report(
     senders = {e.from_address for e in edges}
     terminal_wallets = list({e.to_address for e in edges if e.to_address not in senders})
 
-    known_cex = any(e.to_address in _CEX_ADDRESSES for e in edges)
+    known_cex = any(
+        classify_address(e.to_address).entity_type == "cex"
+        for e in edges
+    )
     max_hop = max((e.hop for e in edges), default=0)
 
     # Rug timestamp = earliest hop-0 extraction moment

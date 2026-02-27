@@ -10,6 +10,7 @@ from lineage_agent.similarity import (
     _clamp,
     compute_composite_score,
     compute_deployer_score,
+    compute_deployer_score_with_operator,
     compute_name_similarity,
     compute_symbol_similarity,
     compute_temporal_score,
@@ -88,6 +89,53 @@ class TestDeployerScore:
         assert compute_deployer_score("", "addr_b") == 0.0
         assert compute_deployer_score("addr_a", "") == 0.0
         assert compute_deployer_score("", "") == 0.0
+
+
+# ------------------------------------------------------------------
+# compute_deployer_score_with_operator (async)
+# ------------------------------------------------------------------
+
+class TestDeployerScoreWithOperator:
+    @pytest.mark.asyncio
+    async def test_same_deployer(self):
+        addr = "5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1"
+        assert await compute_deployer_score_with_operator(addr, addr) == 1.0
+
+    @pytest.mark.asyncio
+    async def test_empty_deployers(self):
+        assert await compute_deployer_score_with_operator("", "addr_b") == 0.0
+        assert await compute_deployer_score_with_operator("addr_a", "") == 0.0
+
+    @pytest.mark.asyncio
+    async def test_different_deployers_no_mapping(self, monkeypatch):
+        """Without operator mapping data, returns 0.0."""
+        from lineage_agent import similarity
+        from unittest.mock import AsyncMock
+
+        mock_query = AsyncMock(return_value=[])
+        monkeypatch.setattr(
+            "lineage_agent.similarity.compute_deployer_score_with_operator.__module__",
+            "lineage_agent.similarity",
+        )
+        # Patch the import inside the function
+        import lineage_agent.data_sources._clients as clients
+        monkeypatch.setattr(clients, "operator_mapping_query_by_wallet", mock_query)
+        result = await compute_deployer_score_with_operator("addr_a", "addr_b")
+        assert result == 0.0
+
+    @pytest.mark.asyncio
+    async def test_linked_wallets_partial_credit(self, monkeypatch):
+        """Shared fingerprint → 0.8 partial credit."""
+        from unittest.mock import AsyncMock
+
+        mock_query = AsyncMock(return_value=[
+            {"fingerprint": "abcd1234", "wallet": "addr_a"},
+            {"fingerprint": "abcd1234", "wallet": "addr_b"},
+        ])
+        import lineage_agent.data_sources._clients as clients
+        monkeypatch.setattr(clients, "operator_mapping_query_by_wallet", mock_query)
+        result = await compute_deployer_score_with_operator("addr_a", "addr_b")
+        assert result == 0.8
 
 
 # ------------------------------------------------------------------

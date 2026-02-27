@@ -19,6 +19,7 @@ from typing import Optional
 
 from .data_sources._clients import event_query
 from .models import DeathClockForecast
+from .utils import parse_datetime as _parse_dt
 
 logger = logging.getLogger(__name__)
 
@@ -156,15 +157,4 @@ def _elapsed_hours(created_at: datetime) -> float:
     return max(0.0, (now - created_at).total_seconds() / 3600.0)
 
 
-def _parse_dt(value: str | datetime | None) -> Optional[datetime]:
-    if value is None:
-        return None
-    if isinstance(value, datetime):
-        return value
-    try:
-        dt = datetime.fromisoformat(str(value))
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        return dt
-    except (ValueError, TypeError):
-        return None
+# _parse_dt is now imported from .utils (unified parse_datetime)

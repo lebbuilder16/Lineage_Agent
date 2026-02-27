@@ -71,6 +71,66 @@ SKIP_ADDRESSES: frozenset[str] = frozenset({
 })
 
 # ---------------------------------------------------------------------------
+# DEX / AMM / Infrastructure programs to skip in flow tracing & bundle detection
+# ---------------------------------------------------------------------------
+
+# Unified skip set — previously duplicated across sol_flow_service._SKIP_ADDRESSES
+# and bundle_tracker_service._SKIP_PROGRAMS. These are programs and system accounts
+# that should be excluded when identifying user wallets in transaction parsing.
+SKIP_PROGRAMS: frozenset[str] = frozenset({
+    SYSTEM_PROGRAM,
+    TOKEN_PROGRAM,
+    TOKEN_2022_PROGRAM,
+    ATA_PROGRAM,
+    BPF_LOADER,
+    SYSVAR_CLOCK,
+    SYSVAR_RENT,
+    VOTE_PROGRAM,
+    STAKE_PROGRAM,
+    COMPUTE_BUDGET,
+    MEMO_PROGRAM,
+    WSOL_MINT,
+    METAPLEX_METADATA,
+    # DEX / AMM programs
+    "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8",    # Raydium AMM V4
+    "5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1",    # Raydium Authority
+    "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc",     # Orca Whirlpool
+    "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4",     # Jupiter V6
+    "srmqPvymJeFKQ4zGQed1GFppgkRHL9kaELCbyksJtPX",      # Serum DEX
+    # Launchpad programs
+    "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBymtzbm",    # PumpFun Program
+    "TSLvdd1pWpHVjahSpsvCXUbgwsL3JAcvokwaKt1eokM",     # PumpFun Authority
+    # MEV / Infrastructure
+    "96gYZGLnJYVFmbjzopPSU6QiEV5fGqZNyN9nmNhvrZU5",    # Jito Tip Account
+    # Meteora
+    "LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo",    # Meteora DLMM
+    "Eo7WjKq67rjJQSZxS6z3YkapzY3eMj6Xy8X5EkAW7vAo",   # Meteora Pools
+})
+
+# ---------------------------------------------------------------------------
+# CEX hot wallet addresses — unified source of truth
+# ---------------------------------------------------------------------------
+
+# Previously duplicated as _CEX_ADDRESSES (5 entries) in sol_flow_service.py
+# and KNOWN_LABELS (8+ entries) in wallet_labels.py with divergent address sets.
+# This is the canonical list used for programmatic CEX detection across all services.
+CEX_ADDRESSES: frozenset[str] = frozenset({
+    # Binance
+    "5tzFkiKscXHK5ZXCGbXZxdw7gTjjD1mBwuoFbhUvuAi",    # Binance Hot (from sol_flow_service)
+    "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",   # Binance (from wallet_labels)
+    "GJRs4FwHtemZ5ZE9x3FNvJ8TMwitKTh21yxdRPqn7npE",   # Binance Deposit
+    # Coinbase
+    "AC5RDfQFmDS1deWZos921JfqscXdByf8BKHs5ACWjtW2",   # Coinbase
+    "H8sMJSCQxfKiFTCfDR3DUMLPwcRbM61LGFJ8N4dK3WjS",  # Coinbase Hot 2
+    # OKX
+    "H8sMJSCQxfKiFTCfDR3DUMLPwcRbM61LGFJ8N4dK3WjS",  # OKX (alias — may overlap with Coinbase Hot 2)
+    # Bybit
+    "2AQdpHJ2JpcEgPiATUXjQxA8QmafFegfQwSLWSprPicm",   # Bybit
+    # Kraken
+    "BmFdpraQhkiDQE6SnfG5omcA1VwzqfXrwtNYBwWTymy6",  # Kraken
+})
+
+# ---------------------------------------------------------------------------
 # Shared Business Logic Constants
 # ---------------------------------------------------------------------------
 
@@ -84,3 +144,10 @@ EXTRACTION_RATE: float = 0.15  # 15% of rugged mcap
 
 # SOL conversion
 LAMPORTS_PER_SOL: int = 1_000_000_000
+
+# Minimum SOL transfer in lamports (for flow tracing)
+# Configurable via env var MIN_TRANSFER_LAMPORTS (default 0.1 SOL)
+import os as _os
+MIN_TRANSFER_LAMPORTS: int = int(
+    _os.getenv("MIN_TRANSFER_LAMPORTS", str(100_000_000))
+)

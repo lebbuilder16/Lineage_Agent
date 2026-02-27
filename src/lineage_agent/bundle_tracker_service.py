@@ -18,12 +18,14 @@ The result is persisted so subsequent scans read from cache.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 from .data_sources.solana_rpc import SolanaRpcClient
-from .data_sources._clients import get_rpc_client
+from .data_sources._clients import get_rpc_client, bundle_report_insert, bundle_report_query
+from .constants import SKIP_PROGRAMS
 from .models import BundleWallet, BundleReport
 
 logger = logging.getLogger(__name__)
@@ -37,24 +39,9 @@ _SOL_DECIMALS         = 1_000_000_000  # lamports per SOL
 _MAX_BUNDLE_WALLETS   = 20     # cap to avoid DoS on very wide bundles
 _TRACE_SIGS_PER_WALLET = 100   # how many post-launch sigs to scan per wallet
 
-# Known program / system addresses we skip when identifying buyer wallets
-_SKIP_PROGRAMS: frozenset[str] = frozenset({
-    "11111111111111111111111111111111",
-    "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
-    "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJe8bv",
-    "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8",   # Raydium V4
-    "5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1",   # Raydium authority
-    "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc",    # Orca
-    "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4",   # Jupiter
-    "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBymtzbm",   # PumpFun
-    "TSLvdd1pWpHVjahSpsvCXUbgwsL3JAcvokwaKt1eokM",    # PumpFun authority
-    "LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo",   # Meteora DLMM
-    "Eo7WjKq67rjJQSZxS6z3YkapzY3eMj6Xy8X5EkAW7vAo",  # Meteora pools
-    "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s",    # Metaplex
-    "ComputeBudget111111111111111111111111111111",       # Compute budget
-    "SysvarRent111111111111111111111111111111111",
-    "SysvarC1ock11111111111111111111111111111111",
-})
+# Known program / system addresses we skip when identifying buyer wallets.
+# Now uses the unified SKIP_PROGRAMS from constants.py as the single source of truth.
+_SKIP_PROGRAMS = SKIP_PROGRAMS
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -68,11 +55,23 @@ async def analyze_bundle(
 ) -> Optional[BundleReport]:
     """Detect bundle wallets for *mint* and return a :class:`BundleReport`.
 
+    Results are persisted to the ``bundle_reports`` table so subsequent
+    calls read from DB instead of re-running RPC scans (24h TTL).
+
     Returns ``None`` on RPC failure or when no bundle activity is detected.
     """
+    # Check DB cache first
+    try:
+        cached_json = await bundle_report_query(mint)
+        if cached_json:
+            data = json.loads(cached_json)
+            return BundleReport(**data)
+    except Exception:
+        logger.debug("[bundle] cache read failed for %s", mint[:8])
+
     rpc = get_rpc_client()
     try:
-        return await asyncio.wait_for(
+        report = await asyncio.wait_for(
             _run(mint, deployer, sol_price_usd, rpc),
             timeout=25.0,
         )
@@ -82,6 +81,16 @@ async def analyze_bundle(
     except Exception as exc:
         logger.warning("[bundle] analysis failed for %s: %s", mint[:8], exc)
         return None
+
+    # Persist result for subsequent calls
+    if report is not None:
+        try:
+            report_data = report.model_dump(mode="json")
+            await bundle_report_insert(mint, deployer, json.dumps(report_data, default=str))
+        except Exception:
+            logger.debug("[bundle] cache write failed for %s", mint[:8])
+
+    return report
 
 
 # ─────────────────────────────────────────────────────────────────────────────

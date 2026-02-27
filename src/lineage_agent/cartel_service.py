@@ -36,12 +36,14 @@ from .data_sources._clients import (
     cartel_edge_upsert,
     cartel_edges_query,
     cartel_edges_query_all,
+    community_lookup_upsert,
     event_query,
     get_rpc_client,
     operator_mapping_query_all,
     sol_flows_query_by_from,
 )
 from .models import CartelCommunity, CartelEdge, CartelReport
+from .utils import parse_datetime
 
 logger = logging.getLogger(__name__)
 
@@ -129,10 +131,70 @@ async def run_cartel_sweep() -> int:
             total += sum(r for r in results if isinstance(r, int))
 
         logger.info("Cartel sweep complete: %d edges processed", total)
+
+        # Populate community_lookup table for O(1) API lookups
+        await _populate_community_lookup()
+
         return total
     except Exception:
         logger.exception("run_cartel_sweep failed")
         return 0
+
+
+async def _populate_community_lookup() -> None:
+    """Build community_id → sample_wallet index after sweep.
+
+    Runs Louvain community detection on the full edge graph and stores
+    one representative wallet per community for O(1) API lookups.
+    """
+    try:
+        all_edges = await cartel_edges_query_all()
+        if not all_edges:
+            return
+
+        try:
+            import networkx as nx
+            import community as community_louvain
+        except ImportError:
+            return
+
+        G: nx.Graph = nx.Graph()
+        for row in all_edges:
+            w_a = row["wallet_a"]
+            w_b = row["wallet_b"]
+            strength = float(row.get("signal_strength", 0.5))
+            if G.has_edge(w_a, w_b):
+                G[w_a][w_b]["weight"] = max(G[w_a][w_b]["weight"], strength)
+            else:
+                G.add_edge(w_a, w_b, weight=strength)
+
+        try:
+            partition = community_louvain.best_partition(G, weight="weight")
+        except Exception:
+            partition = {}
+            for component in nx.connected_components(G):
+                cid = abs(hash(frozenset(component))) % 100_000
+                for node in component:
+                    partition[node] = cid
+
+        # Group wallets by community
+        from collections import defaultdict
+        by_community: dict[int, list[str]] = defaultdict(list)
+        for wallet, cid in partition.items():
+            by_community[cid].append(wallet)
+
+        import hashlib
+        for _cid, wallets in by_community.items():
+            if len(wallets) < 2:
+                continue
+            community_id = hashlib.sha256(
+                ":".join(sorted(wallets)).encode()
+            ).hexdigest()[:12]
+            await community_lookup_upsert(community_id, wallets[0])
+
+        logger.info("community_lookup: indexed %d communities", len(by_community))
+    except Exception:
+        logger.exception("_populate_community_lookup failed")
 
 
 # ── Signal detectors ─────────────────────────────────────────────────────────
@@ -186,11 +248,8 @@ async def _signal_timing_sync(deployer: str) -> int:
             if not ts_raw:
                 continue
 
-            try:
-                my_ts = datetime.fromisoformat(str(ts_raw).replace("Z", "+00:00"))
-                if my_ts.tzinfo is None:
-                    my_ts = my_ts.replace(tzinfo=timezone.utc)
-            except Exception:
+            my_ts = parse_datetime(ts_raw)
+            if my_ts is None:
                 continue
 
             ts_min = datetime.fromtimestamp(
@@ -212,15 +271,11 @@ async def _signal_timing_sync(deployer: str) -> int:
                 other_deployer = other.get("deployer", "")
                 if not other_deployer:
                     continue
-                try:
-                    other_ts = datetime.fromisoformat(
-                        str(other.get("created_at", "")).replace("Z", "+00:00")
-                    )
-                    if other_ts.tzinfo is None:
-                        other_ts = other_ts.replace(tzinfo=timezone.utc)
+                other_ts = parse_datetime(other.get("created_at"))
+                if other_ts is not None:
                     delta_min = abs((my_ts - other_ts).total_seconds()) / 60.0
                     strength = max(0.1, 1.0 - delta_min / 30.0)
-                except Exception:
+                else:
                     strength = 0.5
 
                 await cartel_edge_upsert(
@@ -243,16 +298,15 @@ async def _signal_phash_cluster(deployer: str) -> int:
     count = 0
     try:
         my_rows = await event_query(
-            "event_type = 'token_created' AND deployer = ? AND extra_json IS NOT NULL",
+            "event_type = 'token_created' AND deployer = ? AND phash IS NOT NULL",
             params=(deployer,),
-            columns="mint, extra_json",
+            columns="mint, phash",
             limit=100,
         )
         my_phashes: list[tuple[str, int]] = []
         for row in my_rows:
             try:
-                ej = json.loads(row.get("extra_json") or "{}")
-                phash_hex = ej.get("phash", "")
+                phash_hex = row.get("phash", "")
                 if phash_hex:
                     my_phashes.append((row["mint"], int(phash_hex, 16)))
             except Exception:
@@ -261,17 +315,18 @@ async def _signal_phash_cluster(deployer: str) -> int:
         if not my_phashes:
             return 0
 
+        # Query optimized: use indexed phash column instead of scanning extra_json.
+        # Reduced limit from 5000 to 2000 to bound scan time.
         all_rows = await event_query(
-            "event_type = 'token_created' AND deployer != ? AND extra_json IS NOT NULL",
+            "event_type = 'token_created' AND deployer != ? AND phash IS NOT NULL",
             params=(deployer,),
-            columns="deployer, mint, extra_json",
-            limit=5000,
+            columns="deployer, mint, phash",
+            limit=2000,
         )
 
         for other_row in all_rows:
             try:
-                ej = json.loads(other_row.get("extra_json") or "{}")
-                other_phash_hex = ej.get("phash", "")
+                other_phash_hex = other_row.get("phash", "")
                 if not other_phash_hex:
                     continue
                 other_ph_int = int(other_phash_hex, 16)
@@ -463,13 +518,7 @@ async def _build_report(mint: str, deployer: str) -> Optional[CartelReport]:
     )
     active_since: Optional[datetime] = None
     if ts_rows and ts_rows[0].get("created_at"):
-        try:
-            ts_str = str(ts_rows[0]["created_at"]).replace("Z", "+00:00")
-            active_since = datetime.fromisoformat(ts_str)
-            if active_since.tzinfo is None:
-                active_since = active_since.replace(tzinfo=timezone.utc)
-        except Exception:
-            pass
+        active_since = parse_datetime(ts_rows[0]["created_at"])
 
     # Filter edges to only those within this community
     community_set = set(community_wallets)

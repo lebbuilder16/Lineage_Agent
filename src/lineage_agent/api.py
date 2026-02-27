@@ -274,6 +274,29 @@ async def health() -> dict:
     }
 
 
+@app.get("/config", tags=["system"])
+async def get_config() -> dict:
+    """Return scoring weights and app configuration.
+
+    Allows the frontend to stay in sync with backend weight configuration
+    instead of hardcoding weight percentages.
+    """
+    from config import (
+        WEIGHT_NAME, WEIGHT_SYMBOL, WEIGHT_IMAGE,
+        WEIGHT_DEPLOYER, WEIGHT_TEMPORAL,
+    )
+    return {
+        "weights": {
+            "name": WEIGHT_NAME,
+            "symbol": WEIGHT_SYMBOL,
+            "image": WEIGHT_IMAGE,
+            "deployer": WEIGHT_DEPLOYER,
+            "temporal": WEIGHT_TEMPORAL,
+        },
+        "version": "3.2.0",
+    }
+
+
 @app.get("/admin/health", tags=["system"])
 async def admin_health() -> dict:
     """Detailed health check including circuit breakers and cache stats."""
@@ -626,7 +649,16 @@ async def get_cartel_community(
     if len(community_id) != 12 or not all(c in "0123456789abcdef" for c in community_id):
         raise HTTPException(status_code=400, detail="Invalid community_id — expected 12-char hex")
     try:
-        # Scan all cartel edges to find a community matching this ID
+        # O(1) lookup via community_lookup table (populated during cartel sweep)
+        from .data_sources._clients import community_lookup_query
+        sample_wallet = await community_lookup_query(community_id)
+        if sample_wallet:
+            report = await compute_cartel_report(sample_wallet, sample_wallet)
+            if report and report.deployer_community:
+                if report.deployer_community.community_id == community_id:
+                    return report.deployer_community
+
+        # Fallback: scan all edges (slower, for communities not yet indexed)
         from .data_sources._clients import cartel_edges_query_all
         all_edges = await cartel_edges_query_all()
         if not all_edges:

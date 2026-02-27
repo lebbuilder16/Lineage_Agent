@@ -22,6 +22,7 @@ from .constants import EXTRACTION_RATE
 from .data_sources._clients import event_query
 from .deployer_service import compute_deployer_profile
 from .models import DeployerProfile, OperatorImpactReport
+from .utils import parse_datetime
 
 logger = logging.getLogger(__name__)
 
@@ -125,15 +126,9 @@ async def _build_impact(
     # ── 7. First / last activity timestamps ───────────────────────────────
     timestamps: list[datetime] = []
     for r in created_rows:
-        ts_raw = r.get("created_at")
-        if ts_raw:
-            try:
-                ts = datetime.fromisoformat(str(ts_raw).replace("Z", "+00:00"))
-                if ts.tzinfo is None:
-                    ts = ts.replace(tzinfo=timezone.utc)
-                timestamps.append(ts)
-            except Exception:
-                pass
+        ts = parse_datetime(r.get("created_at"))
+        if ts is not None:
+            timestamps.append(ts)
     first_activity = min(timestamps) if timestamps else None
     last_activity = max(timestamps) if timestamps else None
 

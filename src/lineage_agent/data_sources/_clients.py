@@ -230,6 +230,11 @@ async def operator_mapping_query(fingerprint: str) -> list[dict]:
     return await cache.operator_mapping_query(fingerprint)
 
 
+async def operator_mapping_query_by_wallet(wallet: str) -> list[dict]:
+    """Return all fingerprints + co-wallets linked to *wallet*."""
+    return await cache.operator_mapping_query_by_wallet(wallet)
+
+
 async def operator_mapping_query_all() -> list[dict]:
     """Return all (fingerprint, wallet) mappings."""
     return await cache.operator_mapping_query_all()
@@ -274,3 +279,31 @@ async def cartel_edges_query(wallet: str) -> list[dict]:
 async def cartel_edges_query_all() -> list[dict]:
     """Return all cartel edges (for sweep)."""
     return await cache.cartel_edges_query_all()
+
+
+# ---------------------------------------------------------------------------
+# Bundle report helpers
+# ---------------------------------------------------------------------------
+
+async def bundle_report_insert(mint: str, deployer: str, report_json: str) -> None:
+    """Persist a bundle analysis result."""
+    await cache.bundle_report_insert(mint, deployer, report_json)
+
+
+async def bundle_report_query(mint: str, max_age_seconds: float = 86400.0):
+    """Return cached bundle report JSON if fresh, else None."""
+    return await cache.bundle_report_query(mint, max_age_seconds)
+
+
+# ---------------------------------------------------------------------------
+# Community lookup helpers
+# ---------------------------------------------------------------------------
+
+async def community_lookup_upsert(community_id: str, sample_wallet: str) -> None:
+    """Upsert a community_id → sample_wallet mapping."""
+    await cache.community_lookup_upsert(community_id, sample_wallet)
+
+
+async def community_lookup_query(community_id: str):
+    """Return the sample wallet for a community_id, or None."""
+    return await cache.community_lookup_query(community_id)

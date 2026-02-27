@@ -23,45 +23,15 @@ from typing import Literal, Optional
 
 from .data_sources._clients import event_insert, event_query, get_img_client
 from .models import FactoryRhythmReport, TokenMetadata
+from .utils import classify_narrative, NARRATIVE_TAXONOMY
 
 logger = logging.getLogger(__name__)
 
 _MIN_TOKENS_FOR_DETECTION = 3
 _FACTORY_SCORE_THRESHOLD = 0.65
 
-# Narrative taxonomy used for classifying tokens (shared with narrative_service)
-NARRATIVE_TAXONOMY: dict[str, list[str]] = {
-    "pepe": ["pepe", "frog", "kek", "pepemoon"],
-    "doge": ["doge", "doggo", "shibe"],
-    "inu": ["inu", "shiba", "shib"],
-    "ai": ["ai", "gpt", "llm", "agent", "neural", "claude", "gemini", "deepseek"],
-    "trump": ["trump", "maga", "donald"],
-    "elon": ["elon", "musk"],
-    "cat": ["cat", "nyan", "kitty", "meow", "kitten", "popcat"],
-    "anime": ["anime", "waifu", "chan", "kun", "senpai"],
-    "wojak": ["wojak", "chad", "based", "cope", "gigachad", "sigma"],
-    "sol": ["solana", "sol"],
-    "moon": ["moon", "luna", "lunar"],
-    "baby": ["baby", "mini", "micro"],
-    "ape": ["ape", "monkey", "gorilla"],
-    "dragon": ["dragon", "drgn"],
-    "bear": ["bear"],
-    "hawk": ["hawk", "tuah", "hawktuah"],
-    "pomni": ["pomni", "circus", "jax"],
-    "brain": ["brain", "brainrot", "rot"],
-    "skibidi": ["skibidi", "toilet", "rizz"],
-    "goat": ["goat", "goated"],
-    "pnut": ["pnut", "peanut", "squirrel"],
-}
-
-
-def classify_narrative(name: str, symbol: str) -> str:
-    """Return the narrative category for a token name/symbol."""
-    text = f"{name} {symbol}".lower()
-    for category, keywords in NARRATIVE_TAXONOMY.items():
-        if any(kw in text for kw in keywords):
-            return category
-    return "other"
+# NARRATIVE_TAXONOMY and classify_narrative are now imported from .utils
+# (unified source of truth — resolves divergence with lineage_detector)
 
 
 async def record_token_creation(token: TokenMetadata) -> None:
@@ -219,17 +189,5 @@ def _longest_common_prefix(strings: list[str]) -> str:
     return prefix
 
 
-def _parse_dt(value: str | datetime | None) -> Optional[datetime]:
-    if value is None:
-        return None
-    if isinstance(value, datetime):
-        if value.tzinfo is None:
-            return value.replace(tzinfo=timezone.utc)
-        return value
-    try:
-        dt = datetime.fromisoformat(str(value))
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        return dt
-    except (ValueError, TypeError):
-        return None
+# _parse_dt is now imported from .utils (unified parse_datetime)
+from .utils import parse_datetime as _parse_dt

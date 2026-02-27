@@ -121,6 +121,9 @@ class TTLCache:
     async def operator_mapping_query(self, fingerprint: str) -> list[dict]:
         return []
 
+    async def operator_mapping_query_by_wallet(self, wallet: str) -> list[dict]:
+        return []
+
     async def operator_mapping_query_all(self) -> list[dict]:
         return []
 
@@ -146,6 +149,22 @@ class TTLCache:
 
     async def cartel_edges_query_all(self) -> list[dict]:
         return []
+
+    # Stubs for bundle_reports (no-ops without SQLite)
+    async def bundle_report_insert(
+        self, mint: str, deployer: str, report_json: str,
+    ) -> None:
+        pass
+
+    async def bundle_report_query(self, mint: str, max_age_seconds: float = 86400.0) -> Optional[str]:
+        return None
+
+    # Stubs for community_lookup (no-ops without SQLite)
+    async def community_lookup_upsert(self, community_id: str, sample_wallet: str) -> None:
+        pass
+
+    async def community_lookup_query(self, community_id: str) -> Optional[str]:
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -361,6 +380,39 @@ class SQLiteCache:
         )
         await db.execute(
             "CREATE INDEX IF NOT EXISTS idx_ce_wallet_b ON cartel_edges(wallet_b)"
+        )
+
+        # bundle_reports: cached results of bundle wallet analysis
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS bundle_reports (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                mint        TEXT NOT NULL UNIQUE,
+                deployer    TEXT NOT NULL,
+                report_json TEXT NOT NULL,
+                recorded_at REAL NOT NULL
+            )
+            """
+        )
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_br_deployer ON bundle_reports(deployer)"
+        )
+
+        # community_lookup: O(1) lookup from community_id to a sample wallet
+        # Populated during cartel_sweep; avoids O(n) iteration in the API endpoint.
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS community_lookup (
+                community_id TEXT PRIMARY KEY,
+                sample_wallet TEXT NOT NULL,
+                updated_at   REAL NOT NULL
+            )
+            """
+        )
+
+        # pHash index for faster cartel pHash cluster signal queries
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_ie_phash ON intelligence_events(phash)"
         )
 
         await db.commit()
@@ -669,6 +721,30 @@ class SQLiteCache:
             logger.warning("operator_mapping_query failed", exc_info=True)
             return []
 
+    async def operator_mapping_query_by_wallet(self, wallet: str) -> list[dict]:
+        """Return all fingerprints + co-wallets linked to *wallet*."""
+        try:
+            db = await self._get_conn()
+            # Two-step: find fingerprints for this wallet, then all wallets sharing them
+            cursor = await db.execute(
+                "SELECT DISTINCT fingerprint FROM operator_mappings WHERE wallet = ?",
+                (wallet,),
+            )
+            fps = [row[0] for row in await cursor.fetchall()]
+            if not fps:
+                return []
+            placeholders = ",".join("?" for _ in fps)
+            cursor2 = await db.execute(
+                f"SELECT fingerprint, wallet FROM operator_mappings WHERE fingerprint IN ({placeholders})",
+                tuple(fps),
+            )
+            rows = await cursor2.fetchall()
+            cols = [d[0] for d in cursor2.description]
+            return [dict(zip(cols, row)) for row in rows]
+        except Exception:
+            logger.warning("operator_mapping_query_by_wallet failed", exc_info=True)
+            return []
+
     async def operator_mapping_query_all(self) -> list[dict]:
         """Return all (fingerprint, wallet) mappings."""
         try:
@@ -820,3 +896,77 @@ class SQLiteCache:
         except Exception:
             logger.warning("cartel_edges_query_all failed", exc_info=True)
             return []
+
+    # ------------------------------------------------------------------
+    # Bundle reports
+    # ------------------------------------------------------------------
+
+    async def bundle_report_insert(
+        self, mint: str, deployer: str, report_json: str,
+    ) -> None:
+        """Persist a bundle analysis result. Replaces existing entry for the same mint."""
+        try:
+            db = await self._get_conn()
+            await db.execute(
+                "INSERT OR REPLACE INTO bundle_reports "
+                "(mint, deployer, report_json, recorded_at) VALUES (?, ?, ?, ?)",
+                (mint, deployer, report_json, time.time()),
+            )
+            await db.commit()
+        except Exception:
+            logger.warning("bundle_report_insert failed for %s", mint, exc_info=True)
+
+    async def bundle_report_query(self, mint: str, max_age_seconds: float = 86400.0) -> Optional[str]:
+        """Return the cached bundle report JSON for *mint*, or None if stale/missing.
+
+        Args:
+            mint: Token mint address.
+            max_age_seconds: Maximum age of cached report (default 24h).
+        """
+        try:
+            db = await self._get_conn()
+            cursor = await db.execute(
+                "SELECT report_json, recorded_at FROM bundle_reports WHERE mint = ?",
+                (mint,),
+            )
+            row = await cursor.fetchone()
+            if row is None:
+                return None
+            report_json, recorded_at = row
+            if time.time() - recorded_at > max_age_seconds:
+                return None  # stale
+            return report_json
+        except Exception:
+            logger.warning("bundle_report_query failed for %s", mint, exc_info=True)
+            return None
+
+    # ------------------------------------------------------------------
+    # Community lookup (cartel community_id → sample wallet)
+    # ------------------------------------------------------------------
+
+    async def community_lookup_upsert(self, community_id: str, sample_wallet: str) -> None:
+        """Insert or update a community_id → sample_wallet mapping."""
+        try:
+            db = await self._get_conn()
+            await db.execute(
+                "INSERT OR REPLACE INTO community_lookup "
+                "(community_id, sample_wallet, updated_at) VALUES (?, ?, ?)",
+                (community_id, sample_wallet, time.time()),
+            )
+            await db.commit()
+        except Exception:
+            logger.warning("community_lookup_upsert failed for %s", community_id, exc_info=True)
+
+    async def community_lookup_query(self, community_id: str) -> Optional[str]:
+        """Return the sample wallet for a community_id, or None."""
+        try:
+            db = await self._get_conn()
+            cursor = await db.execute(
+                "SELECT sample_wallet FROM community_lookup WHERE community_id = ?",
+                (community_id,),
+            )
+            row = await cursor.fetchone()
+            return row[0] if row else None
+        except Exception:
+            logger.warning("community_lookup_query failed for %s", community_id, exc_info=True)
+            return None

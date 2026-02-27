@@ -59,10 +59,10 @@ const DIMENSION_LABELS: Record<string, Record<"high" | "medium" | "low", string>
 /** Contribution weight of each dimension to the composite score */
 const WEIGHTS: Record<string, number> = {
   Name: 25,
-  Symbol: 20,
+  Symbol: 15,
   Image: 25,
   Deployer: 20,
-  Temporal: 10,
+  Temporal: 15,
 };
 
 export function EvidencePanel({ evidence, name }: Props) {

@@ -25,6 +25,7 @@ from typing import Optional
 
 from .data_sources._clients import event_query
 from .models import DeployerProfile, DeployerTokenSummary
+from .utils import parse_datetime as _parse_dt
 from config import CACHE_TTL_DEPLOYER_SECONDS as _CACHE_TTL_SECONDS
 
 logger = logging.getLogger(__name__)
@@ -44,18 +45,7 @@ def _get_lock() -> asyncio.Lock:
     return _cache_lock
 
 
-def _parse_dt(value: object) -> Optional[datetime]:
-    if value is None:
-        return None
-    if isinstance(value, datetime):
-        return value
-    if isinstance(value, str):
-        try:
-            dt = datetime.fromisoformat(value)
-            return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
-        except ValueError:
-            return None
-    return None
+# _parse_dt is now imported from .utils (unified parse_datetime)
 
 
 async def compute_deployer_profile(deployer: str) -> Optional[DeployerProfile]:
