@@ -565,6 +565,7 @@ async def get_operator_impact(
 async def get_sol_trace(
     request: Request,
     mint: str,
+    force_refresh: bool = Query(False, description="Bypass DB cache and re-trace"),
 ) -> SolFlowReport:
     """Return (or trigger) the SOL flow trace for a rugged token."""
     if not _BASE58_RE.match(mint):
@@ -574,7 +575,7 @@ async def get_sol_trace(
         from .data_sources._clients import sol_flows_query as _sfq
         db_rows = await _sfq(mint)
         from .sol_flow_service import _rows_to_report
-        if db_rows:
+        if db_rows and not force_refresh:
             return _rows_to_report(mint, db_rows)
         # Look up deployer for this mint from intelligence_events
         from .data_sources._clients import event_query as _eq
