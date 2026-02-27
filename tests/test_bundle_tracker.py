@@ -23,7 +23,9 @@ from lineage_agent.bundle_tracker_service import (
     _detect_common_sinks,
     _compute_wallet_verdict,
     _compute_overall_verdict,
+    _collect_window_sigs,
     _MAX_BUNDLE_WALLETS,
+    _BUNDLE_SLOT_WINDOW,
     _SOL_DECIMALS,
     _MIN_PREFUND_LAMPORTS,
 )
@@ -217,6 +219,16 @@ class TestIsFullSell:
             pre_token_balances=[self._token_bal(wallet, "MINT_A", 1_000_000.0)],
             post_token_balances=[self._token_bal(wallet, "MINT_A", 0.0)],
         )
+        assert _is_full_sell(tx, wallet, "MINT_A") is True
+
+    def test_full_sell_no_target_mint_legacy(self):
+        """Without target_mint, checks all positions (legacy)."""
+        wallet = "WALLET1"
+        tx = _make_tx(
+            [{"pubkey": wallet, "pre_bal": _SOL_DECIMALS, "post_bal": 2 * _SOL_DECIMALS}],
+            pre_token_balances=[self._token_bal(wallet, "MINT_A", 1_000_000.0)],
+            post_token_balances=[self._token_bal(wallet, "MINT_A", 0.0)],
+        )
         assert _is_full_sell(tx, wallet) is True
 
     def test_partial_sell_not_full(self):
@@ -226,7 +238,7 @@ class TestIsFullSell:
             pre_token_balances=[self._token_bal(wallet, "MINT_A", 1_000_000.0)],
             post_token_balances=[self._token_bal(wallet, "MINT_A", 500_000.0)],
         )
-        assert _is_full_sell(tx, wallet) is False
+        assert _is_full_sell(tx, wallet, "MINT_A") is False
 
     def test_no_pre_balance_not_sell(self):
         wallet = "WALLET1"
@@ -235,7 +247,7 @@ class TestIsFullSell:
             pre_token_balances=[],
             post_token_balances=[],
         )
-        assert _is_full_sell(tx, wallet) is False
+        assert _is_full_sell(tx, wallet, "MINT_A") is False
 
     def test_different_owner_not_sell(self):
         wallet = "WALLET1"
@@ -245,10 +257,61 @@ class TestIsFullSell:
             pre_token_balances=[self._token_bal(other, "MINT_A", 1_000_000.0)],
             post_token_balances=[self._token_bal(other, "MINT_A", 0.0)],
         )
-        assert _is_full_sell(tx, wallet) is False
+        assert _is_full_sell(tx, wallet, "MINT_A") is False
 
     def test_empty_tx_graceful(self):
-        assert _is_full_sell({}, "WALLET") is False
+        assert _is_full_sell({}, "WALLET", "MINT") is False
+
+    def test_multi_mint_target_sell_detected(self):
+        """Wallet holds MINT_A and MINT_B; sells only MINT_A.
+        With target_mint=MINT_A this should be True."""
+        wallet = "WALLET1"
+        tx = _make_tx(
+            [{"pubkey": wallet, "pre_bal": _SOL_DECIMALS, "post_bal": 2 * _SOL_DECIMALS}],
+            pre_token_balances=[
+                self._token_bal(wallet, "MINT_A", 1_000_000.0),
+                self._token_bal(wallet, "MINT_B", 500_000.0),
+            ],
+            post_token_balances=[
+                self._token_bal(wallet, "MINT_A", 0.0),
+                self._token_bal(wallet, "MINT_B", 500_000.0),
+            ],
+        )
+        assert _is_full_sell(tx, wallet, "MINT_A") is True
+
+    def test_multi_mint_without_target_fails(self):
+        """Without target_mint, wallet still holds MINT_B → False (legacy)."""
+        wallet = "WALLET1"
+        tx = _make_tx(
+            [{"pubkey": wallet, "pre_bal": _SOL_DECIMALS, "post_bal": 2 * _SOL_DECIMALS}],
+            pre_token_balances=[
+                self._token_bal(wallet, "MINT_A", 1_000_000.0),
+                self._token_bal(wallet, "MINT_B", 500_000.0),
+            ],
+            post_token_balances=[
+                self._token_bal(wallet, "MINT_A", 0.0),
+                self._token_bal(wallet, "MINT_B", 500_000.0),
+            ],
+        )
+        # Legacy (no target_mint): both positions checked, MINT_B still held → True
+        # because MINT_B went from 500k to 500k which is >1, so all(500k <= 1) is False
+        # Wait — actually MINT_B pre=500k, post=500k → wallet_post.get("MINT_B") = 500k
+        # → 500k <= 1.0 is False → returns False
+        assert _is_full_sell(tx, wallet) is False
+
+    def test_pumpfun_missing_owner(self):
+        """PumpFun token balances often lack 'owner'. Should still detect sell."""
+        wallet = "WALLET1"
+        target = "PUMP_MINT"
+        # Token balances without owner field (PumpFun bonding curve)
+        pre_tb = {"mint": target, "uiTokenAmount": {"uiAmount": 1_000_000.0}}
+        post_tb = {"mint": target, "uiTokenAmount": {"uiAmount": 0.0}}
+        tx = _make_tx(
+            [{"pubkey": wallet, "pre_bal": _SOL_DECIMALS, "post_bal": 2 * _SOL_DECIMALS}],
+            pre_token_balances=[pre_tb],
+            post_token_balances=[post_tb],
+        )
+        assert _is_full_sell(tx, wallet, target) is True
 
 
 # ===================================================================
@@ -594,5 +657,94 @@ class TestComputeOverallVerdict:
 
 def test_max_bundle_wallets_cap():
     assert _MAX_BUNDLE_WALLETS == 20
+
+
+def test_bundle_slot_window_is_20():
+    """Ensure the widened slot window is 20 (~8s)."""
+    assert _BUNDLE_SLOT_WINDOW == 20
+
+
+# ===================================================================
+# _collect_window_sigs (async, mock RPC)
+# ===================================================================
+
+class TestCollectWindowSigs:
+
+    @pytest.fixture
+    def mock_rpc(self):
+        """Minimal mock for SolanaRpcClient with programmable _call."""
+        class MockRPC:
+            def __init__(self):
+                self.call_log: list[tuple] = []
+                self._pages: list[list[dict]] = []
+                self._page_idx = 0
+
+            async def _call(self, method, params):
+                self.call_log.append((method, params))
+                if self._page_idx < len(self._pages):
+                    page = self._pages[self._page_idx]
+                    self._page_idx += 1
+                    return page
+                return []
+        return MockRPC()
+
+    @pytest.mark.asyncio
+    async def test_single_page_all_in_window(self, mock_rpc):
+        """All sigs in a single sub-1000 page within the window."""
+        creation_slot = 100
+        mock_rpc._pages = [
+            [  # < 1000 entries → last page
+                {"signature": "sig1", "slot": 102},
+                {"signature": "sig2", "slot": 101},
+                {"signature": "sig3", "slot": 100},
+            ]
+        ]
+        result = await _collect_window_sigs(mock_rpc, "ADDR", creation_slot)
+        assert set(result) == {"sig1", "sig2", "sig3"}
+
+    @pytest.mark.asyncio
+    async def test_cross_page_accumulation(self, mock_rpc):
+        """Window sigs spanning two pages are both collected."""
+        creation_slot = 100
+        window_end = creation_slot + _BUNDLE_SLOT_WINDOW  # 120
+        # Page 1: 1000 sigs, min_slot > creation_slot (need more pages)
+        page1 = [{"signature": f"new_{i}", "slot": 200 + i} for i in range(998)]
+        # Add 2 sigs in the window at the end of page 1
+        page1.append({"signature": "window_sig_A", "slot": 115})
+        page1.append({"signature": "window_sig_B", "slot": 110})
+        assert len(page1) == 1000
+
+        # Page 2: has creation_slot (will terminate)
+        page2 = [
+            {"signature": "window_sig_C", "slot": 105},
+            {"signature": "window_sig_D", "slot": 100},
+            {"signature": "pre_creation", "slot": 95},  # before window
+        ]
+
+        mock_rpc._pages = [page1, page2]
+        result = await _collect_window_sigs(mock_rpc, "ADDR", creation_slot)
+        # Should have all 4 window sigs from both pages
+        assert "window_sig_A" in result
+        assert "window_sig_B" in result
+        assert "window_sig_C" in result
+        assert "window_sig_D" in result
+        assert "pre_creation" not in result
+        # Sigs with slot > window_end should not be included
+        assert not any(s.startswith("new_") for s in result)
+
+    @pytest.mark.asyncio
+    async def test_empty_result_no_sigs(self, mock_rpc):
+        mock_rpc._pages = []
+        result = await _collect_window_sigs(mock_rpc, "ADDR", 100)
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_all_sigs_after_window(self, mock_rpc):
+        """All sigs are newer than the window → empty (can't reach creation)."""
+        mock_rpc._pages = [
+            [{"signature": f"s{i}", "slot": 500 + i} for i in range(5)]
+        ]
+        result = await _collect_window_sigs(mock_rpc, "ADDR", 100)
+        assert result == []
 
 

@@ -41,8 +41,9 @@ from .models import (
 logger = logging.getLogger(__name__)
 
 # ── Tuning constants ──────────────────────────────────────────────────────────
-_BUNDLE_SLOT_WINDOW           = 4      # slots after pool creation counted as "bundle"
-_MAX_LAUNCH_SIGS              = 50     # signatures to fetch around pool creation
+_BUNDLE_SLOT_WINDOW           = 20     # slots after pool creation counted as "bundle" (~8s)
+                                        # Jito bundles land in slot 0 but coordinated wallets
+                                        # without Jito may arrive in slots 5–15.
 _PRE_FUND_WINDOW_H            = 72     # hours before launch to look for funding
 _DORMANCY_THRESHOLD_DAYS      = 30     # wallet "dormant" if inactive for this many days
 _PRE_LAUNCH_ACTIVITY_WINDOW_H = 72    # hours before launch for activity scan
@@ -204,13 +205,22 @@ async def _run_forensic(
 ) -> Optional[BundleExtractionReport]:
 
     # ── Step 0: Anchor the true creation slot ────────────────────────────
-    # getSignaturesForAddress returns the MOST RECENT signatures by default.
-    # For tokens with >50 txs the naive approach gives a wrong creation_slot.
-    # We use Helius DAS (getAsset) to get slot_created_at instantly, then
-    # paginate to that slot.  Fallback: paginate all the way to the oldest sig.
-    creation_slot, creation_time = await _get_creation_anchor(rpc, mint)
-    if creation_slot is None:
+    # Uses SolanaRpcClient.get_oldest_signature() which correctly paginates
+    # getSignaturesForAddress backward (newest→oldest) to find the very first
+    # transaction for this mint.  This is the proven codepath also used by
+    # get_deployer_and_timestamp().
+    oldest_sig = await rpc.get_oldest_signature(mint)
+    if oldest_sig is None:
+        logger.debug("[bundle] no signatures found for %s", mint[:8])
         return None
+
+    creation_slot = oldest_sig.get("slot")
+    creation_time = oldest_sig.get("blockTime")
+    if creation_slot is None:
+        logger.debug("[bundle] oldest sig has no slot for %s", mint[:8])
+        return None
+
+    logger.debug("[bundle] creation anchor slot=%d for %s", creation_slot, mint[:8])
 
     launch_dt = (
         datetime.fromtimestamp(creation_time, tz=timezone.utc)
@@ -269,7 +279,7 @@ async def _run_forensic(
             deployer_linked.add(ps.prefund_source)
 
     post_sell_tasks = [
-        _analyze_post_sell(rpc, wallet, deployer, deployer_linked, launch_dt, creation_slot)
+        _analyze_post_sell(rpc, wallet, mint, deployer, deployer_linked, launch_dt, creation_slot)
         for wallet in wallets
     ]
     post_sell_results: list[PostSellBehavior] = [
@@ -356,95 +366,8 @@ async def _run_forensic(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Creation-slot anchoring helpers
+# Bundle-window signature collection
 # ─────────────────────────────────────────────────────────────────────────────
-
-async def _get_creation_anchor(
-    rpc: "SolanaRpcClient",
-    mint: str,
-) -> tuple[Optional[int], Optional[int]]:
-    """Return (creation_slot, creation_blocktime) for *mint*.
-
-    Strategy (in order):
-    1. Helius DAS ``getAsset`` → ``slot_created_at``  (1 RPC call, O(1))
-    2. Paginate ``getSignaturesForAddress`` backward to the oldest sig.
-
-    The slot from DAS is exact; the blocktime is obtained from the oldest
-    signature batch once we know roughly where to look.
-    """
-    # ── Strategy 1: Helius DAS ────────────────────────────────────────────
-    try:
-        asset = await rpc.get_asset(mint)
-        das_slot = asset.get("slot_created_at")
-        if das_slot and isinstance(das_slot, int):
-            logger.debug("[bundle] DAS anchor slot=%d for %s", das_slot, mint[:8])
-            # We have the slot; blocktime comes from the paginated batch below.
-            bt = await _blocktime_at_slot(rpc, mint, das_slot)
-            return das_slot, bt
-    except Exception as exc:
-        logger.debug("[bundle] DAS anchor failed for %s: %s", mint[:8], exc)
-
-    # ── Strategy 2: full backward pagination ─────────────────────────────
-    try:
-        sig, slot, bt = await _paginate_to_oldest(rpc, mint)
-        if slot is not None:
-            logger.debug("[bundle] pagination anchor slot=%d for %s", slot, mint[:8])
-            return slot, bt
-    except Exception as exc:
-        logger.debug("[bundle] pagination fallback failed for %s: %s", mint[:8], exc)
-
-    return None, None
-
-
-async def _blocktime_at_slot(
-    rpc: "SolanaRpcClient",
-    mint: str,
-    target_slot: int,
-) -> Optional[int]:
-    """Return blockTime of the creation-slot signature (best-effort)."""
-    # Fetch newest batch and check if target_slot is already in it
-    batch = await rpc._call(
-        "getSignaturesForAddress",
-        [mint, {"limit": 1000, "commitment": "finalized"}],
-    )
-    if batch and isinstance(batch, list):
-        for s in reversed(batch):  # oldest last → reversed = oldest first
-            if s.get("slot") == target_slot and not s.get("err"):
-                return s.get("blockTime")
-    return None
-
-
-async def _paginate_to_oldest(
-    rpc: "SolanaRpcClient",
-    address: str,
-) -> tuple[Optional[str], Optional[int], Optional[int]]:
-    """Paginate getSignaturesForAddress backward until the oldest page.
-
-    Returns (signature, slot, blocktime) of the very first transaction.
-    Safety cap: ``_MAX_PAGINATION_PAGES`` pages (30 000 sigs max).
-    """
-    before: Optional[str] = None
-    for _ in range(_MAX_PAGINATION_PAGES):
-        params: dict = {"limit": 1000, "commitment": "finalized"}
-        if before:
-            params["before"] = before
-        batch = await rpc._call("getSignaturesForAddress", [address, params])
-        if not batch or not isinstance(batch, list):
-            break
-        valid = [s for s in batch if not s.get("err") and s.get("signature")]
-        if len(batch) < 1000:
-            # Last page — oldest sig is the last valid one
-            if valid:
-                oldest = valid[-1]
-                return oldest["signature"], oldest.get("slot"), oldest.get("blockTime")
-            break
-        if valid:
-            before = valid[-1]["signature"]
-        else:
-            before = batch[-1].get("signature")
-            if not before:
-                break
-    return None, None, None
 
 
 async def _find_bundle_sigs_paginated(
@@ -482,9 +405,14 @@ async def _collect_window_sigs(
     address: str,
     creation_slot: int,
 ) -> list[str]:
-    """Paginate *address* (newest→oldest) and collect sigs in the bundle window."""
-    window_end   = creation_slot + _BUNDLE_SLOT_WINDOW
+    """Paginate *address* (newest→oldest) and collect sigs in the bundle window.
+
+    Accumulates matching sigs across page boundaries so that a window spanning
+    two batches is handled correctly.
+    """
+    window_end = creation_slot + _BUNDLE_SLOT_WINDOW
     before: Optional[str] = None
+    found: list[str] = []  # accumulate across pages
 
     for _ in range(_MAX_PAGINATION_PAGES):
         params: dict = {"limit": 1000, "commitment": "finalized"}
@@ -494,7 +422,10 @@ async def _collect_window_sigs(
         if not batch or not isinstance(batch, list):
             break
 
-        valid = [s for s in batch if not s.get("err") and s.get("signature") and s.get("slot") is not None]
+        valid = [
+            s for s in batch
+            if not s.get("err") and s.get("signature") and s.get("slot") is not None
+        ]
         if not valid:
             if len(batch) < 1000:
                 break
@@ -503,28 +434,24 @@ async def _collect_window_sigs(
                 break
             continue
 
+        # Collect any sigs in the window from this batch
+        for s in valid:
+            if creation_slot <= s["slot"] <= window_end:
+                found.append(s["signature"])
+
         min_slot = min(s["slot"] for s in valid)
 
-        # Once we've gone past (older than) the creation slot, extract the window
+        # We've reached or passed the creation slot — done
         if min_slot <= creation_slot:
-            return [
-                s["signature"]
-                for s in valid
-                if creation_slot <= s["slot"] <= window_end
-            ]
+            return found
 
         if len(batch) < 1000:
-            # Reached the beginning without finding the window
-            # (address pre-dates the range somehow — shouldn't happen)
-            return [
-                s["signature"]
-                for s in valid
-                if creation_slot <= s["slot"] <= window_end
-            ]
+            # Reached the beginning of history
+            return found
 
         before = valid[-1]["signature"]
 
-    return []
+    return found
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -643,6 +570,7 @@ def _find_incoming_sol_transfer(tx: dict, recipient: str) -> tuple[Optional[str]
 async def _analyze_post_sell(
     rpc: SolanaRpcClient,
     wallet: str,
+    target_mint: str,
     deployer: str,
     deployer_linked: set[str],
     launch_dt: datetime,
@@ -680,7 +608,7 @@ async def _analyze_post_sell(
         for s, tx in zip(post_launch[:30], txs):
             if not tx or isinstance(tx, Exception):
                 continue
-            if _is_full_sell(tx, wallet):
+            if _is_full_sell(tx, wallet, target_mint):
                 sell_tx      = tx
                 sell_slot    = s.get("slot")
                 sell_sig     = s.get("signature")
@@ -755,28 +683,54 @@ async def _analyze_post_sell(
     return post
 
 
-def _is_full_sell(tx: dict, wallet: str) -> bool:
-    """Return True if this tx is a full exit of all token positions for *wallet*."""
+def _is_full_sell(tx: dict, wallet: str, target_mint: str = "") -> bool:
+    """Return True if *wallet* fully exits the *target_mint* position in this tx.
+
+    When *target_mint* is provided (recommended), only that mint is checked.
+    When empty, falls back to checking ALL token positions (legacy behavior).
+
+    For PumpFun tokens the ``owner`` field is often missing from token balances
+    (the bonding curve is the owner).  In that case we fall back to checking
+    all entries that match the target mint regardless of owner.
+    """
     try:
         meta      = tx.get("meta") or {}
         pre_toks  = meta.get("preTokenBalances",  [])
         post_toks = meta.get("postTokenBalances", [])
 
-        wallet_pre: dict[str, float] = {
-            tb["mint"]: float((tb.get("uiTokenAmount") or {}).get("uiAmount") or 0)
-            for tb in pre_toks
-            if tb.get("owner") == wallet and tb.get("mint")
-            and float((tb.get("uiTokenAmount") or {}).get("uiAmount") or 0) > 0
-        }
+        # Build pre-balances for this wallet (optionally filtered to target_mint)
+        wallet_pre: dict[str, float] = {}
+        for tb in pre_toks:
+            mint = tb.get("mint", "")
+            if not mint:
+                continue
+            if target_mint and mint != target_mint:
+                continue
+            owner = tb.get("owner") or ""
+            # Accept if owner matches OR owner is missing (PumpFun edge case)
+            if owner and owner != wallet:
+                continue
+            amount = float((tb.get("uiTokenAmount") or {}).get("uiAmount") or 0)
+            if amount > 0:
+                wallet_pre[mint] = amount
+
         if not wallet_pre:
             return False
 
-        wallet_post: dict[str, float] = {
-            tb["mint"]: float((tb.get("uiTokenAmount") or {}).get("uiAmount") or 0)
-            for tb in post_toks
-            if tb.get("owner") == wallet and tb.get("mint")
-        }
-        return all(wallet_post.get(mint, 0.0) <= 1.0 for mint in wallet_pre)
+        wallet_post: dict[str, float] = {}
+        for tb in post_toks:
+            mint = tb.get("mint", "")
+            if not mint:
+                continue
+            if target_mint and mint != target_mint:
+                continue
+            owner = tb.get("owner") or ""
+            if owner and owner != wallet:
+                continue
+            amount = float((tb.get("uiTokenAmount") or {}).get("uiAmount") or 0)
+            wallet_post[mint] = amount
+
+        return all(wallet_post.get(m, 0.0) <= 1.0 for m in wallet_pre)
     except Exception:
         return False
 

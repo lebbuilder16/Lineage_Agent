@@ -603,10 +603,12 @@ async def get_sol_trace(
                 _bd = _json.loads(_cached_br)
                 if _bd.get("overall_verdict") in (
                     "confirmed_team_extraction", "suspected_team_extraction",
+                    "coordinated_dump_unknown_team",
                 ):
                     _bundle_seeds = (
                         [w for w in _bd.get("confirmed_team_wallets", []) if w != _deployer]
                         + [w for w in _bd.get("suspected_team_wallets", []) if w != _deployer]
+                        + [w for w in _bd.get("coordinated_dump_wallets", []) if w != _deployer]
                     )[:12]
         except Exception:
             pass
