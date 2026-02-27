@@ -14,6 +14,7 @@ import inspect
 import json
 import logging
 import os
+import statistics
 from datetime import datetime, timezone
 from typing import Any, Optional
 
@@ -142,7 +143,13 @@ async def analyze_token(
             except Exception:
                 pass  # history unavailable — continue without it
 
-    prompt = _build_prompt(mint, lineage_result, bundle_report, sol_flow_report, deployer_history)
+    # ── Behavioral fingerprint signals (phash cluster, narrative DNA, timing) ─
+    behavioral_signals: dict = {}
+    if cache:
+        behavioral_signals = await _gather_behavioral_signals(mint, lineage_result, cache)
+
+    prompt = _build_prompt(mint, lineage_result, bundle_report, sol_flow_report,
+                           deployer_history, behavioral_signals)
 
     try:
         client = _get_client()
@@ -206,6 +213,7 @@ def _build_prompt(
     bundle: Optional[Any],
     sol_flow: Optional[Any],
     deployer_history: Optional[list] = None,
+    behavioral_signals: Optional[dict] = None,
 ) -> str:
     parts: list[str] = [f"Token mint: {mint}\n"]
 
@@ -350,6 +358,51 @@ def _build_prompt(
             mcap_str  = f" mcap=${mcap:,.0f}" if mcap else ""
             parts.append(f"  {name_} ({mint_}...){mcap_str} rugged={rugged_at}")
 
+    # ── Behavioral fingerprint signals ────────────────────────────────────
+    if behavioral_signals:
+        sections: list[str] = []
+
+        phash = behavioral_signals.get("phash_cluster")
+        if phash:
+            reuses  = phash.get("total_reuses", 0)
+            rugged  = phash.get("rugged_reuses", 0)
+            lines   = [f"\n=== SIGNAL: IMAGE PHASH CLUSTER ==="]
+            lines.append(f"Same image reused across {reuses} other token(s); {rugged} of them rugged.")
+            for t in phash.get("tokens", []):
+                rug_tag = " [RUGGED]" if t.get("rugged") else ""
+                lines.append(f"  {t['name']} ({t['mint']}...) deployer={t['deployer']}...{rug_tag}")
+            sections.extend(lines)
+
+        dna = behavioral_signals.get("narrative_dna")
+        if dna:
+            sections.append(f"\n=== SIGNAL: NARRATIVE DNA (metadata fingerprint) ===")
+            sections.append(f"Upload service: {dna.get('upload_service')}")
+            sections.append(f"Description pattern: {dna.get('description_pattern')}")
+            sections.append(
+                f"Linked deployer wallets sharing same DNA: {dna.get('linked_deployer_wallets')} "
+                f"(confidence: {dna.get('confidence')}) — {dna.get('total_linked_tokens')} total tokens"
+            )
+
+        timing = behavioral_signals.get("timing_pattern")
+        if timing:
+            sections.append(f"\n=== SIGNAL: TIMING FINGERPRINT ===")
+            sections.append(f"Tokens observed for this deployer: {timing.get('tokens_observed')}")
+            sections.append(f"Average launch hour (UTC): {timing.get('avg_launch_hour_utc')}h")
+            if timing.get("consistent_schedule"):
+                sections.append(
+                    f"CONSISTENT SCHEDULE DETECTED (stdev={timing.get('launch_hour_stdev')}h) "
+                    "— operator launches at predictable time window."
+                )
+            if timing.get("rugged_count"):
+                sections.append(
+                    f"Time-to-rug stats: avg={timing.get('avg_lifespan_hours')}h "
+                    f"median={timing.get('median_lifespan_hours')}h "
+                    f"min={timing.get('min_lifespan_hours')}h "
+                    f"(over {timing.get('rugged_count')} confirmed rugs)"
+                )
+
+        parts.extend(sections)
+
     return "\n".join(parts)
 
 
@@ -419,6 +472,157 @@ def _extract_deployer(lineage: Optional[Any]) -> Optional[str]:
         return None
     deployer = getattr(qt, "deployer", None)
     return deployer if deployer else None
+
+
+# ── Behavioral fingerprint signals ──────────────────────────────────────────
+
+def _compute_timing_fingerprint(rows: list[dict]) -> Optional[dict]:
+    """Derive launch-hour and time-to-rug statistics from intelligence_events rows."""
+    if not rows:
+        return None
+
+    launch_hours: list[int] = []
+    lifespans_h: list[float] = []
+
+    for row in rows:
+        created_str = row.get("created_at")
+        rugged_str  = row.get("rugged_at")
+
+        if created_str:
+            try:
+                dt = datetime.fromisoformat(str(created_str))
+                if not dt.tzinfo:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                launch_hours.append(dt.hour)
+            except Exception:
+                pass
+
+        if created_str and rugged_str and str(rugged_str) not in ("", "None", "null"):
+            try:
+                dt_c = datetime.fromisoformat(str(created_str))
+                dt_r = datetime.fromisoformat(str(rugged_str))
+                if not dt_c.tzinfo:
+                    dt_c = dt_c.replace(tzinfo=timezone.utc)
+                if not dt_r.tzinfo:
+                    dt_r = dt_r.replace(tzinfo=timezone.utc)
+                diff_h = (dt_r - dt_c).total_seconds() / 3600
+                if 0 < diff_h < 8760:  # between 0 and 1 year
+                    lifespans_h.append(diff_h)
+            except Exception:
+                pass
+
+    if not launch_hours:
+        return None
+
+    result: dict = {
+        "tokens_observed": len(rows),
+        "avg_launch_hour_utc": round(sum(launch_hours) / len(launch_hours), 1),
+    }
+    if len(launch_hours) >= 3:
+        # Detect burst: stdev < 2h → operator launches at very consistent hour
+        try:
+            stdev = statistics.stdev(launch_hours)
+            result["launch_hour_stdev"] = round(stdev, 1)
+            result["consistent_schedule"] = stdev < 2.5
+        except statistics.StatisticsError:
+            pass
+
+    if lifespans_h:
+        result["avg_lifespan_hours"]    = round(statistics.mean(lifespans_h), 1)
+        result["median_lifespan_hours"] = round(statistics.median(lifespans_h), 1)
+        result["min_lifespan_hours"]    = round(min(lifespans_h), 2)
+        result["rugged_count"]          = len(lifespans_h)
+
+    return result
+
+
+async def _gather_behavioral_signals(
+    mint: str,
+    lineage: Optional[Any],
+    cache: Any,
+) -> dict:
+    """Collect the 3 behavioral fingerprint signals for AI context injection.
+
+    Signal 1 — phash cluster  : same image reused across multiple tokens
+    Signal 2 — narrative DNA  : same description fingerprint across deployers
+    Signal 3 — timing pattern : launch-hour consistency + time-to-rug stats
+    """
+    signals: dict = {}
+
+    # ── Signal 1: phash cluster ───────────────────────────────────────────
+    try:
+        phash_rows = await cache.query_events(
+            where="mint = ? AND phash IS NOT NULL",
+            params=(mint,),
+            columns="phash",
+            limit=1,
+        )
+        if phash_rows:
+            phash = phash_rows[0].get("phash")
+            if phash:
+                cluster = await cache.query_events(
+                    where="phash = ? AND mint != ?",
+                    params=(phash, mint),
+                    columns="mint, name, deployer, created_at, rugged_at",
+                    limit=10,
+                    order_by="recorded_at DESC",
+                )
+                if cluster:
+                    rugged = [r for r in cluster if r.get("rugged_at")]
+                    signals["phash_cluster"] = {
+                        "phash": phash,
+                        "total_reuses": len(cluster),
+                        "rugged_reuses": len(rugged),
+                        "tokens": [
+                            {
+                                "name": r.get("name") or "?",
+                                "mint": str(r.get("mint") or "")[:12],
+                                "deployer": str(r.get("deployer") or "")[:12],
+                                "rugged": bool(r.get("rugged_at")),
+                            }
+                            for r in cluster[:5]
+                        ],
+                    }
+    except Exception:
+        pass
+
+    # ── Signal 2: narrative DNA (operator fingerprint from lineage) ────────
+    try:
+        op_fp = getattr(lineage, "operator_fingerprint", None) if lineage else None
+        if op_fp:
+            linked_wallets = getattr(op_fp, "linked_wallets", []) or []
+            linked_tokens  = getattr(op_fp, "linked_wallet_tokens", {}) or {}
+            total_linked   = sum(len(v) for v in linked_tokens.values())
+            if linked_wallets or total_linked:
+                signals["narrative_dna"] = {
+                    "fingerprint_prefix": str(getattr(op_fp, "fingerprint", ""))[:16],
+                    "confidence":         getattr(op_fp, "confidence", "?"),
+                    "upload_service":     getattr(op_fp, "upload_service", "?"),
+                    "linked_deployer_wallets": len(linked_wallets),
+                    "total_linked_tokens": total_linked,
+                    "description_pattern": getattr(op_fp, "description_pattern", "?"),
+                }
+    except Exception:
+        pass
+
+    # ── Signal 3: timing fingerprint ──────────────────────────────────────
+    try:
+        deployer = _extract_deployer(lineage)
+        if deployer:
+            timing_rows = await cache.query_events(
+                where="deployer = ? AND created_at IS NOT NULL",
+                params=(deployer,),
+                columns="created_at, rugged_at",
+                limit=20,
+                order_by="recorded_at DESC",
+            )
+            timing = _compute_timing_fingerprint(timing_rows)
+            if timing:
+                signals["timing_pattern"] = timing
+    except Exception:
+        pass
+
+    return signals
 
 
 # ── P3-B: Rule-based fallback when Claude is unavailable ─────────────────────

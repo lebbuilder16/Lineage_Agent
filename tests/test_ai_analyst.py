@@ -16,7 +16,9 @@ import pytest
 
 from lineage_agent.ai_analyst import (
     _build_prompt,
+    _compute_timing_fingerprint,
     _extract_deployer,
+    _gather_behavioral_signals,
     _parse_response,
     _rule_based_fallback,
     _sanity_check,
@@ -562,3 +564,218 @@ class TestRuleBasedFallback:
             assert key in result, f"Missing key: {key}"
         assert result["mint"] == MINT
         assert result["confidence"] == "low"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# _compute_timing_fingerprint
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestComputeTimingFingerprint:
+    def test_empty_returns_none(self):
+        assert _compute_timing_fingerprint([]) is None
+
+    def test_no_created_at_returns_none(self):
+        assert _compute_timing_fingerprint([{"created_at": None, "rugged_at": None}]) is None
+
+    def test_basic_launch_hour(self):
+        rows = [
+            {"created_at": "2026-01-01T14:00:00+00:00", "rugged_at": None},
+            {"created_at": "2026-01-02T15:00:00+00:00", "rugged_at": None},
+        ]
+        result = _compute_timing_fingerprint(rows)
+        assert result is not None
+        assert result["tokens_observed"] == 2
+        assert result["avg_launch_hour_utc"] == 14.5
+
+    def test_lifespan_computed(self):
+        rows = [
+            {"created_at": "2026-01-01T10:00:00+00:00", "rugged_at": "2026-01-01T14:00:00+00:00"},  # 4h
+            {"created_at": "2026-01-02T10:00:00+00:00", "rugged_at": "2026-01-02T12:00:00+00:00"},  # 2h
+        ]
+        result = _compute_timing_fingerprint(rows)
+        assert result is not None
+        assert result["avg_lifespan_hours"] == 3.0
+        assert result["median_lifespan_hours"] == 3.0
+        assert result["min_lifespan_hours"] == 2.0
+        assert result["rugged_count"] == 2
+
+    def test_consistent_schedule_detected(self):
+        # All launching at 14h UTC
+        rows = [
+            {"created_at": f"2026-01-0{i}T14:00:00+00:00", "rugged_at": None}
+            for i in range(1, 6)
+        ]
+        result = _compute_timing_fingerprint(rows)
+        assert result is not None
+        assert result.get("consistent_schedule") is True
+        assert result.get("launch_hour_stdev", 99) < 2.5
+
+    def test_inconsistent_schedule_not_flagged(self):
+        rows = [
+            {"created_at": "2026-01-01T02:00:00+00:00", "rugged_at": None},
+            {"created_at": "2026-01-02T14:00:00+00:00", "rugged_at": None},
+            {"created_at": "2026-01-03T22:00:00+00:00", "rugged_at": None},
+        ]
+        result = _compute_timing_fingerprint(rows)
+        assert result is not None
+        assert result.get("consistent_schedule", False) is False
+
+    def test_invalid_dates_ignored(self):
+        rows = [
+            {"created_at": "not-a-date", "rugged_at": None},
+            {"created_at": "2026-01-01T10:00:00+00:00", "rugged_at": None},
+        ]
+        result = _compute_timing_fingerprint(rows)
+        assert result is not None
+        assert result["tokens_observed"] == 2
+        assert result["avg_launch_hour_utc"] == 10.0
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# _gather_behavioral_signals
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestGatherBehavioralSignals:
+    def _make_cache(self, phash_rows=None, cluster_rows=None, timing_rows=None):
+        """Build an AsyncMock cache that returns preset rows per query."""
+        cache = AsyncMock()
+
+        async def _query_events(where="", params=(), columns="", limit=10, order_by=""):
+            if "phash IS NOT NULL" in where:
+                return phash_rows or []
+            if "phash = ?" in where:
+                return cluster_rows or []
+            if "created_at IS NOT NULL" in where:
+                return timing_rows or []
+            return []
+
+        cache.query_events = _query_events
+        return cache
+
+    @pytest.mark.asyncio
+    async def test_no_data_returns_empty(self):
+        cache = self._make_cache()
+        result = await _gather_behavioral_signals(MINT, None, cache)
+        assert isinstance(result, dict)
+        assert "phash_cluster" not in result
+
+    @pytest.mark.asyncio
+    async def test_phash_cluster_populated(self):
+        cache = self._make_cache(
+            phash_rows=[{"phash": "abc123"}],
+            cluster_rows=[
+                {"mint": "OTHER111111", "name": "CloneToken", "deployer": "DEP111", "created_at": "2026-01-01", "rugged_at": "2026-01-02"},
+            ],
+        )
+        result = await _gather_behavioral_signals(MINT, None, cache)
+        assert "phash_cluster" in result
+        pc = result["phash_cluster"]
+        assert pc["total_reuses"] == 1
+        assert pc["rugged_reuses"] == 1
+        assert len(pc["tokens"]) == 1
+        assert pc["tokens"][0]["name"] == "CloneToken"
+
+    @pytest.mark.asyncio
+    async def test_narrative_dna_from_operator_fingerprint(self):
+        op_fp = _ns(
+            fingerprint="fp_abc123456789",
+            confidence="probable",
+            upload_service="arweave",
+            description_pattern="fp_abc1234...",
+            linked_wallets=["WAL1", "WAL2"],
+            linked_wallet_tokens={"WAL1": [_ns()], "WAL2": [_ns(), _ns()]},
+        )
+        lineage = _ns(operator_fingerprint=op_fp)
+        cache = self._make_cache()
+        result = await _gather_behavioral_signals(MINT, lineage, cache)
+        assert "narrative_dna" in result
+        dna = result["narrative_dna"]
+        assert dna["linked_deployer_wallets"] == 2
+        assert dna["total_linked_tokens"] == 3
+        assert dna["upload_service"] == "arweave"
+
+    @pytest.mark.asyncio
+    async def test_timing_pattern_from_deployer(self):
+        lineage = _ns(
+            root=_ns(deployer="DEPLOYER_ABC_123"),
+            query_token=None,
+        )
+        timing_rows = [
+            {"created_at": "2026-01-01T14:00:00+00:00", "rugged_at": "2026-01-01T16:00:00+00:00"},
+            {"created_at": "2026-01-02T14:00:00+00:00", "rugged_at": "2026-01-02T17:00:00+00:00"},
+        ]
+        cache = self._make_cache(timing_rows=timing_rows)
+        result = await _gather_behavioral_signals(MINT, lineage, cache)
+        assert "timing_pattern" in result
+        tp = result["timing_pattern"]
+        assert tp["avg_launch_hour_utc"] == 14.0
+        assert tp["rugged_count"] == 2
+
+    @pytest.mark.asyncio
+    async def test_cache_exception_graceful(self):
+        cache = AsyncMock()
+        cache.query_events = AsyncMock(side_effect=Exception("DB offline"))
+        # Should not raise — just return empty signals
+        result = await _gather_behavioral_signals(MINT, None, cache)
+        assert isinstance(result, dict)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# _build_prompt — behavioral_signals section
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestBuildPromptBehavioralSignals:
+    def test_no_signals_no_section(self):
+        prompt = _build_prompt(MINT, None, None, None, behavioral_signals={})
+        assert "SIGNAL" not in prompt
+
+    def test_phash_cluster_section(self):
+        signals = {
+            "phash_cluster": {
+                "phash": "abc",
+                "total_reuses": 3,
+                "rugged_reuses": 2,
+                "tokens": [
+                    {"name": "ScamToken", "mint": "SCAM1111", "deployer": "DEP1", "rugged": True},
+                ],
+            }
+        }
+        prompt = _build_prompt(MINT, None, None, None, behavioral_signals=signals)
+        assert "IMAGE PHASH CLUSTER" in prompt
+        assert "3 other token" in prompt
+        assert "ScamToken" in prompt
+        assert "[RUGGED]" in prompt
+
+    def test_narrative_dna_section(self):
+        signals = {
+            "narrative_dna": {
+                "fingerprint_prefix": "fp_abc123",
+                "confidence": "confirmed",
+                "upload_service": "arweave",
+                "linked_deployer_wallets": 4,
+                "total_linked_tokens": 12,
+                "description_pattern": "fp_abc123...",
+            }
+        }
+        prompt = _build_prompt(MINT, None, None, None, behavioral_signals=signals)
+        assert "NARRATIVE DNA" in prompt
+        assert "arweave" in prompt
+        assert "4" in prompt
+
+    def test_timing_pattern_section(self):
+        signals = {
+            "timing_pattern": {
+                "tokens_observed": 8,
+                "avg_launch_hour_utc": 14.0,
+                "consistent_schedule": True,
+                "launch_hour_stdev": 0.5,
+                "avg_lifespan_hours": 3.2,
+                "median_lifespan_hours": 3.0,
+                "min_lifespan_hours": 0.5,
+                "rugged_count": 6,
+            }
+        }
+        prompt = _build_prompt(MINT, None, None, None, behavioral_signals=signals)
+        assert "TIMING FINGERPRINT" in prompt
+        assert "CONSISTENT SCHEDULE DETECTED" in prompt
+        assert "avg=3.2h" in prompt
