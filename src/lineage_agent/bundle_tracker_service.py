@@ -63,8 +63,12 @@ _SKIP_PROGRAMS = SKIP_PROGRAMS
 
 # PumpFun program ID — used for bonding curve PDA derivation
 _PUMP_PROGRAM = "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBymtzbm"
-# Maximum pages to paginate when hunting for creation slot (1000 sigs/page)
-_MAX_PAGINATION_PAGES = 30
+# Maximum pages to paginate when hunting for creation slot (1000 sigs/page).
+# Reduced from 30 → 12 to cut worst-case bundle scan time.  Tokens older than
+# ~12 000 transactions are very unlikely to be active scam targets; coverage
+# can be extended via the dedicated /bundle/{mint} endpoint which has a higher
+# timeout budget.  (Optimization #6)
+_MAX_PAGINATION_PAGES = 12
 # Concurrency throttle — max parallel RPC calls from the bundle tracker.
 # Prevents Helius rate-limit storms that trip the shared circuit breaker.
 _RPC_CONCURRENCY = 8

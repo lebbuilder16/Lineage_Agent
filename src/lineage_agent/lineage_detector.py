@@ -186,48 +186,65 @@ async def detect_lineage(
     pairs = await dex.get_token_pairs(mint_address)
     query_meta = dex.pairs_to_metadata(mint_address, pairs)
 
-    # Enrich with on-chain deployer + creation time (cached per mint)
-    await _progress("Resolving deployer & timestamp", 25)
-    deployer, created_at = await _get_deployer_cached(rpc, mint_address)
-    query_meta.deployer = deployer
-    # Only overwrite DexScreener pairCreatedAt when RPC returned a real value
-    if created_at is not None:
-        query_meta.created_at = created_at
+    # Enrich with on-chain deployer + DAS metadata + Jupiter price — all concurrent.
+    # Previously three sequential awaits (~2-4 s each); running them together cuts
+    # wall-time to max(deployer, asset, price) ≈ 1-2 s.  (Optimization #1)
+    await _progress("Resolving deployer & on-chain metadata", 25)
+    _deployer_result, _q_asset_result, _jup_price_result = await asyncio.gather(
+        _get_deployer_cached(rpc, mint_address),
+        _get_asset_cached(rpc, mint_address),
+        jup.get_price(mint_address),
+        return_exceptions=True,
+    )
 
-    # Enrich with on-chain DAS (Helius getAsset) — fills name, symbol, metadata_uri, image, deployer
+    # Apply deployer result
+    if not isinstance(_deployer_result, Exception):
+        deployer, created_at = _deployer_result
+        query_meta.deployer = deployer
+        if created_at is not None:
+            query_meta.created_at = created_at
+    else:
+        deployer = ""
+        logger.debug("Deployer lookup failed for %s: %s", mint_address, _deployer_result)
+
+
+
+    # Apply DAS (Helius getAsset) result — fills name, symbol, metadata_uri, image, deployer
     # Fungible SPL tokens (Moonshot, LetsBonk, etc.) often have no DexScreener pairs
     # at scan time, so query_meta.name/symbol may be empty.  DAS always stores the
     # canonical name and symbol in content.metadata — read them here before the
     # early-exit guard below.
-    try:
-        _q_asset = await _get_asset_cached(rpc, mint_address)
-        _q_content = _q_asset.get("content") or {}
-        _q_content_meta = _q_content.get("metadata") or {}
-        # Name / symbol — only fill from DAS when DexScreener returned nothing
-        if not query_meta.name:
-            query_meta.name = _q_content_meta.get("name") or ""
-        if not query_meta.symbol:
-            query_meta.symbol = _q_content_meta.get("symbol") or ""
-        if not query_meta.metadata_uri:
-            query_meta.metadata_uri = _q_content.get("json_uri") or ""
-        if not query_meta.image_uri:
-            query_meta.image_uri = (_q_content.get("links") or {}).get("image") or ""
-        if not query_meta.deployer or query_meta.deployer in _NON_DEPLOYER_AUTHORITIES:
-            _q_creators = _q_asset.get("creators") or []
-            _resolved = next(
-                (c["address"] for c in _q_creators if c.get("verified")), ""
-            )
-            if _resolved and _resolved not in _NON_DEPLOYER_AUTHORITIES:
-                query_meta.deployer = _resolved
-    except Exception as _das_e:
-        logger.debug("DAS getAsset enrichment failed for %s: %s", mint_address, _das_e)
+    if not isinstance(_q_asset_result, Exception):
+        try:
+            _q_asset = _q_asset_result
+            _q_content = _q_asset.get("content") or {}
+            _q_content_meta = _q_content.get("metadata") or {}
+            # Name / symbol — only fill from DAS when DexScreener returned nothing
+            if not query_meta.name:
+                query_meta.name = _q_content_meta.get("name") or ""
+            if not query_meta.symbol:
+                query_meta.symbol = _q_content_meta.get("symbol") or ""
+            if not query_meta.metadata_uri:
+                query_meta.metadata_uri = _q_content.get("json_uri") or ""
+            if not query_meta.image_uri:
+                query_meta.image_uri = (_q_content.get("links") or {}).get("image") or ""
+            if not query_meta.deployer or query_meta.deployer in _NON_DEPLOYER_AUTHORITIES:
+                _q_creators = _q_asset.get("creators") or []
+                _resolved = next(
+                    (c["address"] for c in _q_creators if c.get("verified")), ""
+                )
+                if _resolved and _resolved not in _NON_DEPLOYER_AUTHORITIES:
+                    query_meta.deployer = _resolved
+        except Exception as _das_e:
+            logger.debug("DAS getAsset enrichment failed for %s: %s", mint_address, _das_e)
+    else:
+        logger.debug("DAS getAsset failed for %s: %s", mint_address, _q_asset_result)
 
-    # Enrich with Jupiter price (cross-validate DexScreener price)
-    try:
-        jup_price = await jup.get_price(mint_address)
-        if jup_price is not None and query_meta.price_usd is None:
-            query_meta.price_usd = jup_price
-    except Exception:
+    # Apply Jupiter price (cross-validate DexScreener price)
+    if not isinstance(_jup_price_result, Exception):
+        if _jup_price_result is not None and query_meta.price_usd is None:
+            query_meta.price_usd = _jup_price_result
+    else:
         logger.debug("Jupiter price enrichment failed for %s", mint_address)
 
     if not query_meta.name and not query_meta.symbol:
@@ -242,58 +259,80 @@ async def detect_lineage(
         await _cache_set(f"lineage:v4:{mint_address}", result, ttl=CACHE_TTL_LINEAGE_SECONDS)
         return result
 
-    # --- Step 2: Search for similar tokens (multi-strategy) ---
+    # --- Step 2: Search for similar tokens (multi-strategy, all concurrent) ---
+    # Previously strategies A→B→C were sequential (~4-6 s total);  running them
+    # in parallel reduces wall-time to max(A, B, C) ≈ 2 s.  (Optimization #2)
     await _progress("Searching for similar tokens", 40)
 
-    # Strategy A: DexScreener name search
     search_query = query_meta.name or query_meta.symbol
+    _sym_query = query_meta.symbol or ""
+    _sym_differs = bool(_sym_query and _sym_query.lower() != (search_query or "").lower())
+    _deployer_for_search = query_meta.deployer or ""
     logger.info("Searching for tokens similar to '%s' ...", search_query)
-    search_pairs = await dex.search_tokens(search_query)
-    candidates = dex.pairs_to_search_results(search_pairs)
 
-    # Strategy B: DexScreener symbol search (if different from name query)
-    if query_meta.symbol and query_meta.symbol.lower() != (search_query or "").lower():
+    async def _search_name() -> list:
         try:
-            sym_pairs = await dex.search_tokens(query_meta.symbol)
-            sym_results = dex.pairs_to_search_results(sym_pairs)
-            _seen = {c.mint for c in candidates}
-            for sr in sym_results:
-                if sr.mint not in _seen:
-                    candidates.append(sr)
-                    _seen.add(sr.mint)
+            return await dex.search_tokens(search_query)
+        except Exception as _e:
+            logger.debug("Name search failed: %s", _e)
+            return []
+
+    async def _search_sym() -> list:
+        if not _sym_differs:
+            return []
+        try:
+            return await dex.search_tokens(_sym_query)
         except Exception as _e:
             logger.debug("Symbol search failed: %s", _e)
+            return []
+
+    async def _search_deployer() -> list:
+        if not _deployer_for_search:
+            return []
+        try:
+            return await asyncio.wait_for(
+                rpc.search_assets_by_creator(_deployer_for_search),
+                timeout=5.0,
+            )
+        except Exception as _e:
+            logger.debug("Deployer searchAssets failed: %s", _e)
+            return []
+
+    _name_pairs, _sym_pairs, _dep_assets = await asyncio.gather(
+        _search_name(), _search_sym(), _search_deployer(),
+    )
+
+    # Strategy A: DexScreener name search
+    candidates = dex.pairs_to_search_results(_name_pairs)
+    _seen = {c.mint for c in candidates}
+
+    # Strategy B: DexScreener symbol search
+    for sr in dex.pairs_to_search_results(_sym_pairs):
+        if sr.mint not in _seen:
+            candidates.append(sr)
+            _seen.add(sr.mint)
 
     # Strategy C: Helius searchAssets by deployer (finds same-deployer clones
     # that DexScreener name/symbol search can miss entirely)
     deployer_mints: set[str] = set()  # mints that came from deployer search
-    if query_meta.deployer:
-        try:
-            deployer_assets = await asyncio.wait_for(
-                rpc.search_assets_by_creator(query_meta.deployer),
-                timeout=5.0,
+    for _da in _dep_assets:
+        _da_id = _da.get("id", "")
+        if _da_id and _da_id != mint_address and _da_id not in _seen:
+            _da_content = _da.get("content") or {}
+            _da_meta = (_da_content.get("metadata") or {})
+            candidates.append(
+                TokenSearchResult(
+                    mint=_da_id,
+                    name=_da_meta.get("name", ""),
+                    symbol=_da_meta.get("symbol", ""),
+                    image_uri=(
+                        (_da_content.get("links") or {}).get("image", "")
+                    ),
+                    metadata_uri=_da_content.get("json_uri", ""),
+                )
             )
-            _seen = {c.mint for c in candidates}
-            for _da in deployer_assets:
-                _da_id = _da.get("id", "")
-                if _da_id and _da_id != mint_address and _da_id not in _seen:
-                    _da_content = _da.get("content") or {}
-                    _da_meta = (_da_content.get("metadata") or {})
-                    candidates.append(
-                        TokenSearchResult(
-                            mint=_da_id,
-                            name=_da_meta.get("name", ""),
-                            symbol=_da_meta.get("symbol", ""),
-                            image_uri=(
-                                (_da_content.get("links") or {}).get("image", "")
-                            ),
-                            metadata_uri=_da_content.get("json_uri", ""),
-                        )
-                    )
-                    _seen.add(_da_id)
-                    deployer_mints.add(_da_id)
-        except Exception as _e:
-            logger.debug("Deployer searchAssets failed: %s", _e)
+            _seen.add(_da_id)
+            deployer_mints.add(_da_id)
 
     # Remove the query token itself from candidates
     candidates = [c for c in candidates if c.mint != mint_address]
@@ -555,20 +594,15 @@ async def detect_lineage(
             except Exception as _e:
                 logger.debug("record_token_creation (derivative) failed: %s", _e)
 
-    # ── DAS bootstrap: run INLINE (awaited) so enrichers see full history ─
-    # Bootstrap the SCANNED token's deployer (not root) so forensics profile
-    # the wallet that actually deployed the token the user is looking at.
-    # If the scan is a clone with a different deployer, also boot root async.
-    try:
-        await asyncio.wait_for(
-            _bootstrap_deployer_history(_scan_deployer),
-            timeout=8.0,
-        )
-    except asyncio.TimeoutError:
-        logger.warning("[bootstrap] DAS bootstrap timed out for %s", _scan_deployer[:8])
-    except Exception as _be:
-        logger.warning("[bootstrap] DAS bootstrap failed: %s", _be)
-    # If clone: also bootstrap root deployer in background (no blocking)
+    # ── DAS bootstrap: fire-and-forget — no longer blocks the forensics phase ─
+    # Previously awaited (up to 8 s) so enrichers would see full history on the
+    # first scan of a new deployer.  The trade-off: first-scan forensics (death
+    # clock, deployer profile, factory rhythm) may have partial data; all
+    # subsequent scans are fully accurate because the DB is already populated.
+    # 8 s × every cold scan > cost of slightly incomplete first-scan forensics.
+    # (Optimization #3)
+    asyncio.ensure_future(_bootstrap_deployer_history(_scan_deployer))
+    # Also bootstrap root deployer if this is a clone with a different deployer.
     if _scan_deployer != root_meta.deployer and root_meta.deployer:
         asyncio.ensure_future(_bootstrap_deployer_history(root_meta.deployer))
 
@@ -718,9 +752,29 @@ async def detect_lineage(
             return None
 
     async def _run_bundle() -> Optional[object]:
-        return await _safe(
-            analyze_bundle(_scan_mint, _scan_deployer, _sol_price), name="bundle"
-        )
+        # Hard cap at 20 s for the inline scan — the bundle tracker's own
+        # internal timeout is 55 s which dominates the parallel gather and
+        # pushes total scan time beyond 30 s.  If we hit the cap, the partial
+        # analysis is persisted to DB by the tracker; the next scan reads from
+        # cache instantly.  A background continuation runs to complete the full
+        # analysis so subsequent scans see the full result.  (Optimization #4)
+        try:
+            return await asyncio.wait_for(
+                analyze_bundle(_scan_mint, _scan_deployer, _sol_price),
+                timeout=20.0,
+            )
+        except asyncio.TimeoutError:
+            logger.warning(
+                "[bundle] inline analysis capped at 20 s for %s — "
+                "continuing full analysis in background", _scan_mint[:8],
+            )
+            asyncio.ensure_future(
+                analyze_bundle(_scan_mint, _scan_deployer, _sol_price)
+            )
+            return None
+        except Exception as _be:
+            logger.warning("[bundle] analysis failed: %s", _be)
+            return None
 
     (
         result.sol_flow,
@@ -762,35 +816,19 @@ async def detect_lineage(
         )[:12]  # cap at 12 wallets to bound RPC cost
 
     if _bundle_seeds:
-        if result.sol_flow is None:
-            # No deployer flows found — try synchronously with bundle seeds.
-            # This is the common PumpFun case.
-            try:
-                result.sol_flow = await asyncio.wait_for(
-                    trace_sol_flow(
-                        _scan_mint, _scan_deployer,
-                        extra_seed_wallets=_bundle_seeds,
-                    ),
-                    timeout=15.0,
-                )
-                logger.info(
-                    "[sol_flow] bundle-seed trace: %d seeds → %d flows for %s",
-                    len(_bundle_seeds),
-                    len(result.sol_flow.flows) if result.sol_flow else 0,
-                    _scan_mint[:8],
-                )
-            except asyncio.TimeoutError:
-                logger.warning("[sol_flow] bundle-seed trace timed out for %s", _scan_mint[:8])
-                asyncio.ensure_future(
-                    trace_sol_flow(_scan_mint, _scan_deployer, extra_seed_wallets=_bundle_seeds)
-                )
-            except Exception as _bse:
-                logger.warning("[sol_flow] bundle-seed trace failed: %s", _bse)
-        else:
-            # Deployer already has flows — enrich DB in background.
-            asyncio.ensure_future(
-                trace_sol_flow(_scan_mint, _scan_deployer, extra_seed_wallets=_bundle_seeds)
-            )
+        # Always fire-and-forget the bundle-seed SOL trace.  Previously, when
+        # sol_flow was None (common PumpFun case), this ran synchronously with a
+        # 15 s timeout — an extra post-gather sequential step that pushed scan
+        # time beyond 30 s.  The trace persists to DB; the next scan (or the
+        # /lineage/{mint}/sol-trace endpoint) returns the cached result.
+        # (Optimization #5)
+        asyncio.ensure_future(
+            trace_sol_flow(_scan_mint, _scan_deployer, extra_seed_wallets=_bundle_seeds)
+        )
+        logger.info(
+            "[sol_flow] queued bundle-seed trace in background: %d seeds for %s",
+            len(_bundle_seeds), _scan_mint[:8],
+        )
 
     await _progress("Analysis complete", 100)
     await _cache_set(f"lineage:v4:{mint_address}", result, ttl=CACHE_TTL_LINEAGE_SECONDS)
