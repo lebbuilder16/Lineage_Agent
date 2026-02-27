@@ -6,7 +6,6 @@ import {
   ReactFlow,
   Background,
   Controls,
-  MiniMap,
   useNodesState,
   useEdgesState,
   type Node,
@@ -14,13 +13,37 @@ import {
   Position,
   Handle,
   BackgroundVariant,
+  MarkerType,
 } from "@xyflow/react";
 import dagre from "@dagrejs/dagre";
 import { useRouter } from "next/navigation";
-import { Crown } from "lucide-react";
+import { Crown, ExternalLink } from "lucide-react";
 import { cn } from "@/lib/utils";
 
+/* ─── Score helpers ─────────────────────────────────────────────── */
+
+function scoreLevel(s: number): "high" | "medium" | "low" {
+  if (s >= 0.7) return "high";
+  if (s >= 0.4) return "medium";
+  return "low";
+}
+
+const LEVEL_STYLE = {
+  high:   { border: "#39ff14", bar: "bg-[#39ff14]",  text: "text-[#39ff14]",  glow: "0 0 14px rgba(57,255,20,.25)"  },
+  medium: { border: "#f59e0b", bar: "bg-amber-400",  text: "text-amber-400",  glow: "0 0 14px rgba(245,158,11,.2)"  },
+  low:    { border: "#ef4444", bar: "bg-red-500",    text: "text-red-400",    glow: "0 0 14px rgba(239,68,68,.18)"  },
+} as const;
+
+const GEN_PILL: Record<number, string> = {
+  0: "bg-[#39ff14]/15 text-[#39ff14] border border-[#39ff14]/30",
+  1: "bg-[#39ff14]/10 text-[#39ff14]/80 border border-[#39ff14]/20",
+  2: "bg-amber-400/10 text-amber-400 border border-amber-400/20",
+  3: "bg-orange-500/10 text-orange-400 border border-orange-500/20",
+  4: "bg-red-500/10 text-red-400 border border-red-500/20",
+};
+
 /* ─── Custom node ──────────────────────────────────────────────── */
+
 interface TokenNodeData {
   label: string;
   symbol: string;
@@ -28,182 +51,217 @@ interface TokenNodeData {
   isRoot: boolean;
   mint: string;
   generation: number;
+  isScanned: boolean;
   [key: string]: unknown;
 }
 
-function scoreLevel(s: number) {
-  if (s >= 0.7) return "high" as const;
-  if (s >= 0.4) return "medium" as const;
-  return "low" as const;
-}
-
-const levelRing = { high: "ring-neon/60", medium: "ring-warning/60", low: "ring-destructive/60" };
-const levelText = { high: "text-neon", medium: "text-warning", low: "text-destructive" };
-const genBadge: Record<number, string> = {
-  1: "bg-neon/15 text-neon/80",
-  2: "bg-warning/15 text-warning/80",
-  3: "bg-orange-500/15 text-orange-400",
-  4: "bg-destructive/15 text-destructive",
-  5: "bg-destructive/10 text-destructive/70",
-};
-
 function TokenNode({ data }: { data: TokenNodeData }) {
   const level = scoreLevel(data.score);
-  const pct = Math.round(data.score * 100);
-  const genColor = genBadge[data.generation] ?? genBadge[5];
+  const pct   = Math.round(data.score * 100);
+  const ls    = LEVEL_STYLE[level];
+  const genCls = GEN_PILL[data.generation] ?? GEN_PILL[4];
+
+  const borderColor = data.isRoot ? "#39ff14" : data.isScanned ? "#38bdf8" : ls.border;
+  const boxShadow   = data.isRoot
+    ? "0 0 20px rgba(57,255,20,.2), inset 0 0 20px rgba(57,255,20,.04)"
+    : data.isScanned
+    ? "0 0 16px rgba(56,189,248,.2)"
+    : ls.glow;
+
   return (
     <div
-      className={cn(
-        "relative flex flex-col items-center gap-1 rounded-xl border bg-card px-3 py-2.5 shadow-sm transition-shadow hover:shadow-md cursor-pointer select-none min-w-[88px]",
-        data.isRoot
-          ? "border-neon/60 bg-neon/5 ring-2 ring-neon/20"
-          : `border-border ring-1 ${levelRing[level]}`
-      )}
+      className="relative flex flex-col gap-1.5 rounded-xl bg-[#0e0e10] px-3 py-2.5 cursor-pointer select-none transition-all duration-150 hover:brightness-110"
+      style={{
+        minWidth: 128,
+        border: `1px solid ${borderColor}44`,
+        boxShadow,
+        outline: data.isScanned ? `1px solid ${borderColor}55` : undefined,
+        outlineOffset: data.isScanned ? "2px" : undefined,
+      }}
     >
-      <Handle type="target" position={Position.Top} className="!bg-neon/40 !border-0 !w-2 !h-2" />
-      {data.isRoot && (
-        <div className="absolute -top-2.5 left-1/2 -translate-x-1/2 flex h-5 w-5 items-center justify-center rounded-full bg-neon shadow">
-          <Crown className="h-3 w-3 text-black" />
+      <Handle
+        type="target"
+        position={Position.Top}
+        style={{ background: "transparent", border: "none", width: 1, height: 1, top: -1 }}
+      />
+
+      {/* Header: gen badge + score / crown */}
+      <div className="flex items-center justify-between gap-2">
+        <span className={cn("rounded-md px-1.5 py-px text-[9px] font-bold leading-none", genCls)}>
+          {data.isRoot ? "ROOT" : `G${data.generation}`}
+        </span>
+        {data.isRoot ? (
+          <span className="flex h-4 w-4 items-center justify-center rounded-full bg-[#39ff14] shrink-0">
+            <Crown className="h-2.5 w-2.5 text-black" />
+          </span>
+        ) : (
+          <span className={cn("text-[10px] font-bold tabular-nums leading-none", ls.text)}>
+            {pct}%
+          </span>
+        )}
+      </div>
+
+      {/* Name */}
+      <p className="text-[11px] font-semibold text-white leading-tight truncate" style={{ maxWidth: 112 }}>
+        {data.label}
+      </p>
+
+      {/* Symbol */}
+      {data.symbol && data.symbol !== data.label && (
+        <p className="text-[10px] text-zinc-500 leading-none">${data.symbol}</p>
+      )}
+
+      {/* Score bar — clones only */}
+      {!data.isRoot && (
+        <div className="h-[3px] w-full rounded-full bg-zinc-800 overflow-hidden">
+          <div className={cn("h-full rounded-full", ls.bar)} style={{ width: `${pct}%` }} />
         </div>
       )}
-      {!data.isRoot && (
-        <span className={cn("absolute -top-2 right-1 rounded-full px-1.5 py-px text-[9px] font-bold", genColor)}>
-          G{data.generation}
+
+      {/* SCANNING badge */}
+      {data.isScanned && !data.isRoot && (
+        <span className="absolute -top-[9px] left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full border border-sky-500/40 bg-sky-950/80 px-1.5 py-px text-[8px] font-bold uppercase tracking-wider text-sky-300">
+          scanning
         </span>
       )}
-      <span className={cn("text-[11px] font-bold tabular-nums", data.isRoot ? "text-neon" : levelText[level])}>
-        {data.isRoot ? "ROOT" : `${pct}%`}
-      </span>
-      <span className="text-xs font-semibold truncate max-w-[80px] text-center leading-tight">
-        {data.label}
-      </span>
-      {data.symbol && data.symbol !== data.label && (
-        <span className="text-[10px] text-muted-foreground">{data.symbol}</span>
-      )}
-      <Handle type="source" position={Position.Bottom} className="!bg-neon/40 !border-0 !w-2 !h-2" />
+
+      <Handle
+        type="source"
+        position={Position.Bottom}
+        style={{ background: "transparent", border: "none", width: 1, height: 1, bottom: -1 }}
+      />
     </div>
   );
 }
 
 const nodeTypes = { token: TokenNode };
 
-/* ─── Dagre layout ─────────────────────────────────────────────── */
+/* ─── Dagre auto-layout ─────────────────────────────────────────── */
+
+const NODE_W = 142;
+const NODE_H = 84;
+
 function layoutGraph(nodes: Node[], edges: Edge[]) {
   const g = new dagre.graphlib.Graph();
   g.setDefaultEdgeLabel(() => ({}));
-  g.setGraph({ rankdir: "TB", ranksep: 80, nodesep: 24 });
-  nodes.forEach((n) => g.setNode(n.id, { width: 104, height: 68 }));
+  g.setGraph({ rankdir: "TB", ranksep: 72, nodesep: 36, marginx: 24, marginy: 24 });
+  nodes.forEach((n) => g.setNode(n.id, { width: NODE_W, height: NODE_H }));
   edges.forEach((e) => g.setEdge(e.source, e.target));
   dagre.layout(g);
   return nodes.map((n) => {
-    const pos = g.node(n.id);
-    return { ...n, position: { x: pos.x - 52, y: pos.y - 34 } };
+    const p = g.node(n.id);
+    return { ...n, position: { x: p.x - NODE_W / 2, y: p.y - NODE_H / 2 } };
   });
+}
+
+/* ─── Edge color ────────────────────────────────────────────────── */
+
+function edgeStroke(score: number) {
+  if (score >= 0.7) return "#39ff14";
+  if (score >= 0.4) return "#f59e0b";
+  return "#ef4444";
 }
 
 /* ─── Main component ───────────────────────────────────────────── */
 
-interface Props { data: LineageResult; }
+interface Props {
+  data: LineageResult;
+  scannedMint?: string;
+}
 
-export function FamilyTree({ data }: Props) {
-  const router = useRouter();
+export function FamilyTree({ data, scannedMint }: Props) {
+  const router   = useRouter();
+  const resolved = scannedMint ?? data.mint;
 
   const { initialNodes, initialEdges } = useMemo(() => {
     if (!data.root) return { initialNodes: [], initialEdges: [] };
 
+    const visible = data.derivatives.slice(0, 24);
+    const nodeIds = new Set([data.root.mint, ...visible.map((d) => d.mint)]);
+
     const rawNodes: Node[] = [
       {
-        id: data.root.mint,
+        id:   data.root.mint,
         type: "token",
         position: { x: 0, y: 0 },
         data: {
-          label: data.root.name || data.root.symbol || data.root.mint.slice(0, 6),
-          symbol: data.root.symbol ?? "",
-          score: 1,
-          isRoot: true,
-          mint: data.root.mint,
+          label:      data.root.name || data.root.symbol || data.root.mint.slice(0, 8),
+          symbol:     data.root.symbol ?? "",
+          score:      1,
+          isRoot:     true,
+          mint:       data.root.mint,
           generation: 0,
+          isScanned:  data.root.mint === resolved,
         },
       },
-      ...data.derivatives.slice(0, 20).map((d) => ({
-        id: d.mint,
+      ...visible.map((d) => ({
+        id:   d.mint,
         type: "token",
         position: { x: 0, y: 0 },
         data: {
-          label: d.name || d.symbol || d.mint.slice(0, 6),
-          symbol: d.symbol ?? "",
-          score: d.evidence.composite_score,
-          isRoot: false,
-          mint: d.mint,
+          label:      d.name || d.symbol || d.mint.slice(0, 8),
+          symbol:     d.symbol ?? "",
+          score:      d.evidence.composite_score,
+          isRoot:     false,
+          mint:       d.mint,
           generation: d.generation ?? 1,
+          isScanned:  d.mint === resolved,
         },
       })),
     ];
 
-    // Collect all node IDs for safe edge building
-    const nodeIds = new Set(rawNodes.map((n) => n.id));
-
-    const rawEdges: Edge[] = data.derivatives.slice(0, 20).map((d) => {
-      // Use parent_mint if present + valid, else fall back to root
+    const rawEdges: Edge[] = visible.map((d) => {
       const parent = d.parent_mint && nodeIds.has(d.parent_mint)
         ? d.parent_mint
         : data.root!.mint;
+      const color = edgeStroke(d.evidence.composite_score);
+      const pct   = Math.round(d.evidence.composite_score * 100);
       return {
-        id: `${parent}->${d.mint}`,
-        source: parent,
-        target: d.mint,
+        id:       `${parent}->${d.mint}`,
+        source:   parent,
+        target:   d.mint,
         animated: d.evidence.composite_score >= 0.7,
-        label: `${Math.round(d.evidence.composite_score * 100)}%`,
-        labelStyle: { fontSize: 10, fill: "hsl(var(--muted-foreground))" },
-        labelBgStyle: { fill: "hsl(var(--background))", fillOpacity: 0.8 },
+        type:     "smoothstep",
+        label:    `${pct}%`,
+        labelStyle: {
+          fontSize:   10,
+          fill:       color,
+          fontWeight: 700,
+          fontFamily: "ui-monospace, monospace",
+        },
+        labelBgStyle:   { fill: "#0e0e10", fillOpacity: 0.9, rx: 3, ry: 3 },
+        labelBgPadding: [4, 6] as [number, number],
+        markerEnd: { type: MarkerType.ArrowClosed, color, width: 12, height: 12 },
         style: {
-          stroke:
-            d.evidence.composite_score >= 0.7
-              ? "hsl(var(--success))"
-              : d.evidence.composite_score >= 0.4
-                ? "hsl(var(--warning))"
-                : "hsl(var(--destructive))",
-          strokeWidth: 1 + d.evidence.composite_score * 2,
-          opacity: 0.5 + d.evidence.composite_score * 0.5,
+          stroke:      color,
+          strokeWidth: 1.5,
+          opacity:     0.45 + d.evidence.composite_score * 0.5,
         },
       };
     });
 
     return { initialNodes: layoutGraph(rawNodes, rawEdges), initialEdges: rawEdges };
-  }, [data]);
+  }, [data, resolved]);
 
   const [nodes, , onNodesChange] = useNodesState(initialNodes);
   const [edges, , onEdgesChange] = useEdgesState(initialEdges);
 
   const onNodeClick = useCallback(
     (_: React.MouseEvent, node: Node) => {
-      const d = node.data as TokenNodeData;
-      if (!d.isRoot) router.push(`/lineage/${d.mint}`);
+      router.push(`/lineage/${(node.data as TokenNodeData).mint}`);
     },
-    [router]
+    [router],
   );
 
   if (!data.root) return null;
 
-  const height = data.derivatives.length <= 3 ? 280 : data.derivatives.length <= 8 ? 380 : 480;
+  const maxGen = Math.max(0, ...data.derivatives.map((d) => d.generation ?? 1));
+  const height = Math.min(540, Math.max(268, (maxGen + 2) * 118));
 
   return (
-    <div className="rounded-2xl border border-border bg-card p-4 animate-fade-in">
-      <div className="flex items-center gap-2 mb-3">
-        <div className="flex h-6 w-6 items-center justify-center rounded-md bg-primary/10 text-primary text-xs">⎇</div>
-        <h3 className="font-semibold text-sm">Family Tree</h3>
-        <span className="text-xs text-muted-foreground ml-auto">
-          {data.derivatives.length > 20 && (
-            <span className="mr-1 px-1.5 py-0.5 rounded bg-warning/10 text-warning font-medium">
-              Showing 20 of {data.derivatives.length}
-            </span>
-          )}
-          {data.derivatives.length} derivative{data.derivatives.length !== 1 ? "s" : ""}
-          {" · "}click a node to analyse
-        </span>
-      </div>
-
-      <div style={{ height }} className="rounded-md overflow-hidden border border-border/50">
+    <div className="overflow-hidden rounded-xl border border-zinc-800/80 bg-[#09090b]">
+      {/* ReactFlow canvas */}
+      <div style={{ height }}>
         <ReactFlow
           nodes={nodes}
           edges={edges}
@@ -212,33 +270,52 @@ export function FamilyTree({ data }: Props) {
           onNodeClick={onNodeClick}
           nodeTypes={nodeTypes}
           fitView
-          fitViewOptions={{ padding: 0.2 }}
-          minZoom={0.3}
-          maxZoom={2}
+          fitViewOptions={{ padding: 0.22 }}
+          minZoom={0.25}
+          maxZoom={2.5}
           proOptions={{ hideAttribution: true }}
         >
-          <Background variant={BackgroundVariant.Dots} gap={16} size={1} className="opacity-30" />
-          <Controls showInteractive={false} position="bottom-right" />
-          <MiniMap
-            nodeColor={(n) => {
-              const d = n.data as TokenNodeData;
-              return d.isRoot ? "hsl(var(--primary))"
-                : d.score >= 0.7 ? "hsl(142, 76%, 36%)"
-                : d.score >= 0.4 ? "hsl(38, 92%, 50%)"
-                : "hsl(0, 84%, 60%)";
-            }}
-            maskColor="hsl(var(--background) / 0.7)"
-            position="top-right"
-            style={{ width: 100, height: 60 }}
+          <Background
+            variant={BackgroundVariant.Dots}
+            gap={22}
+            size={1}
+            color="#27272a"
+          />
+          <Controls
+            showInteractive={false}
+            position="bottom-right"
+            style={{ background: "transparent", border: "none" }}
           />
         </ReactFlow>
       </div>
 
-      <div className="mt-2 flex flex-wrap items-center justify-center gap-4 text-xs text-muted-foreground">
-        <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-primary" />Root</span>
-        <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-success" />High ≥70%</span>
-        <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-warning" />Medium ≥40%</span>
-        <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-destructive" />Low</span>
+      {/* Footer legend */}
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 border-t border-zinc-800/60 bg-zinc-950/60 px-4 py-2.5">
+        <span className="flex items-center gap-1.5 text-[10px] text-zinc-500">
+          <Crown className="h-3 w-3 text-[#39ff14]" />
+          Original
+        </span>
+        <span className="flex items-center gap-1.5 text-[10px] text-zinc-500">
+          <span className="h-[3px] w-4 rounded-full bg-[#39ff14]" />
+          High ≥70%
+        </span>
+        <span className="flex items-center gap-1.5 text-[10px] text-zinc-500">
+          <span className="h-[3px] w-4 rounded-full bg-amber-400" />
+          Medium ≥40%
+        </span>
+        <span className="flex items-center gap-1.5 text-[10px] text-zinc-500">
+          <span className="h-[3px] w-4 rounded-full bg-red-500" />
+          Low
+        </span>
+        {data.derivatives.length > 24 && (
+          <span className="rounded-md border border-amber-500/30 bg-amber-950/40 px-2 py-0.5 text-[10px] text-amber-400">
+            Showing 24 of {data.derivatives.length}
+          </span>
+        )}
+        <span className="ml-auto flex items-center gap-1 text-[10px] text-zinc-600">
+          <ExternalLink className="h-2.5 w-2.5" />
+          Click node to analyse
+        </span>
       </div>
     </div>
   );
