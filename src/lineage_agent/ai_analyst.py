@@ -18,8 +18,9 @@ from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
-# Model selection: claude-3-7-sonnet (latest, Feb 2025) — override via ANTHROPIC_MODEL env var
-_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-3-7-sonnet-20250219")
+# Model selection: haiku 4.5 for cost/speed — override via ANTHROPIC_MODEL env var
+# Available as of 2026: claude-haiku-4-5-20251001, claude-sonnet-4-5-20250929, claude-sonnet-4-6
+_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
 _MAX_TOKENS = 1200
 _TIMEOUT = 30.0  # seconds
 
