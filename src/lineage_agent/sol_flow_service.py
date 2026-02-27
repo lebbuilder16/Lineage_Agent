@@ -41,8 +41,8 @@ _SKIP_ADDRESSES = SKIP_PROGRAMS
 _MIN_TRANSFER_LAMPORTS = MIN_TRANSFER_LAMPORTS
 _MAX_HOPS = int(os.getenv("SOL_TRACE_MAX_HOPS", "3"))
 _MAX_TXN_PER_WALLET = 50
-_TRACE_TIMEOUT = 20.0
-_HOP_SEM_CONCURRENCY = 3
+_TRACE_TIMEOUT = 30.0
+_HOP_SEM_CONCURRENCY = 4
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -123,6 +123,10 @@ async def _run_trace(
     seed_set = {deployer} | {w for w in extra_seed_wallets if w and w != deployer}
     frontier: set[str] = set(seed_set)
     visited: set[str] = set(seed_set)
+    logger.info(
+        "[sol-trace] _run_trace start: mint=%s deployer=%s seeds=%d frontier=%s",
+        mint[:8], deployer[:8], len(seed_set), [s[:8] for s in seed_set],
+    )
 
     for hop in range(max_hops):
         if not frontier:
@@ -138,6 +142,7 @@ async def _run_trace(
         hop_flows: list[dict] = []
         for result in hop_results:
             if isinstance(result, Exception):
+                logger.debug("[sol-trace] hop %d exception: %s", hop, result)
                 continue
             for flow in result:
                 hop_flows.append(flow)
@@ -145,6 +150,10 @@ async def _run_trace(
                 if to_addr not in visited and to_addr not in _SKIP_ADDRESSES:
                     new_frontier.add(to_addr)
 
+        logger.info(
+            "[sol-trace] hop %d: %d wallets traced, %d flows found, %d new frontier",
+            hop, len(frontier), len(hop_flows), len(new_frontier),
+        )
         all_flows.extend(hop_flows)
 
         # Persist hop flows incrementally

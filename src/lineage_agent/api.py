@@ -622,10 +622,16 @@ async def get_sol_trace(
                         ][:12]
         except Exception:
             pass
-        # If not in DB: trigger synchronously with 20s timeout
+        logger.info(
+            "[sol-trace] mint=%s deployer=%s bundle_seeds=%d seeds=%s",
+            mint[:8], _deployer[:8] if _deployer else "?",
+            len(_bundle_seeds),
+            [s[:8] for s in _bundle_seeds[:4]],
+        )
+        # Trigger synchronously
         report = await asyncio.wait_for(
             trace_sol_flow(mint, _deployer, extra_seed_wallets=_bundle_seeds),
-            timeout=22.0,
+            timeout=35.0,
         )
     except (asyncio.TimeoutError, HTTPException):
         raise
