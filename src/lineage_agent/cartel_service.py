@@ -31,6 +31,7 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Literal, Optional
 
+from .constants import EXTRACTION_RATE
 from .data_sources._clients import (
     cartel_edge_upsert,
     cartel_edges_query,
@@ -448,7 +449,7 @@ async def _build_report(mint: str, deployer: str) -> Optional[CartelReport]:
         )
         total_rugs = len(rugged_rows)
         estimated_extracted = sum(
-            (r.get("mcap_usd") or 0.0) * 0.15
+            (r.get("mcap_usd") or 0.0) * EXTRACTION_RATE
             for r in rugged_rows
         )
 

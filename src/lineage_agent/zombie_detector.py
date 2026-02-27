@@ -19,11 +19,12 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
+from .constants import DEAD_LIQUIDITY_USD
 from .models import DerivativeInfo, LineageResult, TokenMetadata, ZombieAlert
 
 logger = logging.getLogger(__name__)
 
-_DEAD_LIQUIDITY_THRESHOLD = 100.0      # USD — below this we consider the token rugged
+_DEAD_LIQUIDITY_THRESHOLD = DEAD_LIQUIDITY_USD  # USD — below this we consider the token rugged
 _DEAD_MIN_AGE_HOURS = 24.0             # token must be at least 24h old to be "definitely dead"
 _ZOMBIE_SAME_DEPLOYER_IMAGE_MIN = 0.72 # same deployer + this image sim → confirmed
 _ZOMBIE_DIFF_DEPLOYER_IMAGE_MIN = 0.92 # different deployer needs very high image sim

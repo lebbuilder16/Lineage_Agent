@@ -91,12 +91,8 @@ KNOWN_LABELS: dict[str, tuple[str, str]] = {
     "mayanMigrator7fCzTFJqiByEsK1fJuvgmKL6V9A5YHyG":  ("Mayan Migrator",      "bridge"),
     # deBridge
     "DEbrdgQsVUG4vNW8fM5bX9kzZNFu2VZPsEBHvMYHovTF":  ("deBridge",             "bridge"),
-    # Celer cBridge
-    "CbridgeSolanaProgram1111111111111111111111111":   ("Celer cBridge",        "bridge"),
-    # Synapse
-    "SynapseSolanaProgram111111111111111111111111":    ("Synapse Bridge",       "bridge"),
-    # Stargate
-    "STARGATEsolanaprogram1111111111111111111111111":  ("Stargate",             "bridge"),
+    # NOTE: Celer cBridge, Synapse, Stargate are EVM-focused and have no native
+    #       Solana programs. Do NOT add placeholder addresses.
 
     # ── CEX Hot Wallets ───────────────────────────────────────────────────
     # Binance
@@ -127,8 +123,7 @@ KNOWN_LABELS: dict[str, tuple[str, str]] = {
     "EfGMuFXz1Tm9kWm7XLMXfPCZPvJPLvTJfD5T6PpzSYv9":  ("Bitget",               "cex"),
     # HTX (Huobi)
     "9hicpjmxC8rqGpXgdkMzMkXCVGRvQCEPXDMsHMDqz4Bq":  ("HTX / Huobi",          "cex"),
-    # Crypto.com
-    "CryptocomEXCHANGE111111111111111111111111111":   ("Crypto.com",           "cex"),
+    # NOTE: Crypto.com hot wallet not verified — do NOT add placeholder.
 }
 
 

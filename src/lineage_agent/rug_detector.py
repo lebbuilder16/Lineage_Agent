@@ -25,11 +25,12 @@ from .data_sources._clients import (
     event_query,
     get_dex_client,
 )
+from .constants import DEAD_LIQUIDITY_USD
 
 logger = logging.getLogger(__name__)
 
 _SWEEP_INTERVAL_SECONDS = 15 * 60  # 15 minutes
-_RUG_LIQ_THRESHOLD = 100.0        # USD — below this we consider it rugged
+_RUG_LIQ_THRESHOLD = DEAD_LIQUIDITY_USD  # USD — below this we consider it rugged
 _MIN_RECORDED_LIQ = 500.0         # only consider tokens that once had real liquidity
 _LOOKBACK_SECONDS = 48 * 3600     # scan tokens recorded in last 48 h
 _BATCH_CONCURRENCY = 3            # concurrent DexScreener lookups per sweep

@@ -18,13 +18,14 @@ import logging
 from datetime import datetime, timezone
 from typing import Literal, Optional
 
+from .constants import EXTRACTION_RATE
 from .data_sources._clients import event_query
 from .deployer_service import compute_deployer_profile
 from .models import DeployerProfile, OperatorImpactReport
 
 logger = logging.getLogger(__name__)
 
-_EXTRACTION_RATE = 0.15   # Conservative: 15% of rugged mcap
+_EXTRACTION_RATE = EXTRACTION_RATE  # 15% of rugged mcap
 _CAMPAIGN_ACTIVE_SECONDS = 21_600   # 6 hours
 _PROFILE_GATHER_TIMEOUT = 15.0
 

@@ -124,7 +124,7 @@ async def detect_lineage(
                 pass  # never let progress reporting break analysis
 
     # Check cache first
-    cached = await _cache_get(f"lineage:v3:{mint_address}")
+    cached = await _cache_get(f"lineage:v4:{mint_address}")
     if cached is not None:
         # SQLite cache returns dicts (JSON-deserialized); convert back to model
         if isinstance(cached, dict):
@@ -139,7 +139,7 @@ async def detect_lineage(
                         "Busting stale confidence=0/Unknown lineage cache for %s",
                         mint_address,
                     )
-                    await _cache_delete(f"lineage:v3:{mint_address}")
+                    await _cache_delete(f"lineage:v4:{mint_address}")
                 else:
                     return cached_result
             except Exception:
@@ -148,7 +148,7 @@ async def detect_lineage(
                     "Dropping stale/invalid cached lineage for %s (schema mismatch)",
                     mint_address,
                 )
-                await _cache_delete(f"lineage:v3:{mint_address}")
+                await _cache_delete(f"lineage:v4:{mint_address}")
         elif isinstance(cached, LineageResult):
             return cached
         else:
@@ -219,7 +219,7 @@ async def detect_lineage(
             derivatives=[],
             family_size=1,
         )
-        await _cache_set(f"lineage:v3:{mint_address}", result, ttl=CACHE_TTL_LINEAGE_SECONDS)
+        await _cache_set(f"lineage:v4:{mint_address}", result, ttl=CACHE_TTL_LINEAGE_SECONDS)
         return result
 
     # --- Step 2: Search for similar tokens (multi-strategy) ---
@@ -287,7 +287,7 @@ async def detect_lineage(
             derivatives=[],
             family_size=1,
         )
-        await _cache_set(f"lineage:v3:{mint_address}", result, ttl=CACHE_TTL_LINEAGE_SECONDS)
+        await _cache_set(f"lineage:v4:{mint_address}", result, ttl=CACHE_TTL_LINEAGE_SECONDS)
         return result
 
     # --- Step 3 & 4: Enrich candidates and score them ---
@@ -713,7 +713,7 @@ async def detect_lineage(
     )
 
     await _progress("Analysis complete", 100)
-    await _cache_set(f"lineage:v3:{mint_address}", result, ttl=CACHE_TTL_LINEAGE_SECONDS)
+    await _cache_set(f"lineage:v4:{mint_address}", result, ttl=CACHE_TTL_LINEAGE_SECONDS)
     return result
 
 
