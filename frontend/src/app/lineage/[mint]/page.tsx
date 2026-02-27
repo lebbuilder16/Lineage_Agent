@@ -42,13 +42,20 @@ export default function LineagePage() {
   }, [mint]);
 
   useEffect(() => {
-    const name = data?.root?.name || data?.query_token?.name;
+    // Use the SCANNED token's name for the page title, not the root
+    const name = data?.query_token?.name || data?.query_token?.symbol || data?.root?.name;
     document.title = name
       ? `${name} — Lineage Agent`
       : `Lineage: ${mint?.slice(0, 8)}... — Lineage Agent`;
 
-    if (data?.root && mint) {
-      addToHistory(mint, data.root.name || data.root.symbol || mint.slice(0, 8));
+    if (data && mint) {
+      const historyName =
+        data.query_token?.name ||
+        data.query_token?.symbol ||
+        data.root?.name ||
+        data.root?.symbol ||
+        mint.slice(0, 8);
+      addToHistory(mint, historyName);
     }
   }, [data, mint]);
 

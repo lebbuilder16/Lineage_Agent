@@ -14,6 +14,7 @@ import {
   Copy,
   Loader2,
   Users,
+  ArrowRight,
 } from "lucide-react";
 
 /* ── Price formatter ───────────────────────────────────────────────── */
@@ -38,11 +39,16 @@ interface Props {
 }
 
 export default function HeroCard({ data, analysis, analysisLoading }: Props) {
+  // Always show the SCANNED token as primary identity — the user scanned this
+  // token and wants to evaluate it.  root is only referenced as a "Clone of X"
+  // pointer when the scanned token is not the original.
+  const token = data.query_token ?? data.root;
   const root = data.root;
-  const token = root ?? data.query_token;
   const ai = analysis?.ai_analysis;
   const risk = riskLevel(ai?.risk_score ?? null);
   const isOriginal = data.query_is_root;
+  // Show "Clone of X" strip when scanned token is a clone and root is known
+  const showCloneOf = !isOriginal && root && root.mint !== token?.mint;
 
   return (
     <div className="rounded-2xl border border-white/5 bg-card p-5 animate-fade-in hover:border-neon/20 transition-all">
@@ -110,10 +116,31 @@ export default function HeroCard({ data, analysis, analysisLoading }: Props) {
             </span>
           </div>
 
-          {/* Mint address */}
-          <p className="font-mono text-xs text-muted-foreground truncate mb-2">
-            {token?.mint ?? data.mint}
+          {/* Mint address — always the scanned mint, never the root */}
+          <p className="font-mono text-xs text-muted-foreground truncate">
+            {data.mint}
           </p>
+
+          {/* Clone-of reference — shows the original token this copies */}
+          {showCloneOf && (
+            <p className="flex items-center gap-1 text-[11px] text-zinc-500 mt-0.5 mb-1.5">
+              <ArrowRight className="h-3 w-3 shrink-0 text-amber-500/70" />
+              <span>Clone of </span>
+              <a
+                href={`/lineage/${root!.mint}`}
+                className="font-medium text-amber-400/90 hover:text-amber-300 transition-colors truncate max-w-[180px]"
+                title={root!.mint}
+              >
+                {root!.name || root!.symbol || `${root!.mint.slice(0, 8)}…`}
+              </a>
+              <span className="font-mono text-zinc-600 shrink-0">
+                ({root!.mint.slice(0, 4)}…{root!.mint.slice(-4)})
+              </span>
+            </p>
+          )}
+
+          {/* Spacer when no clone-of strip */}
+          {!showCloneOf && <div className="mb-2" />}
 
           {/* ── Row 2: Stats pills ─────────────────────────────────── */}
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
