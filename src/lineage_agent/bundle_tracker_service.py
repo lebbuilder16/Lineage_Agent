@@ -201,6 +201,22 @@ async def analyze_bundle(
     return report
 
 
+async def get_cached_bundle_report(mint: str) -> Optional[BundleExtractionReport]:
+    """Return a cached ``BundleExtractionReport`` from the DB, or ``None``.
+
+    Pure DB read – never triggers RPC calls.  Suitable for fast endpoints that
+    only want to enrich existing results (e.g. the AI analyst).
+    """
+    try:
+        cached_json = await bundle_report_query(mint)
+        if cached_json:
+            data = json.loads(cached_json)
+            return BundleExtractionReport(**data)
+    except Exception:
+        logger.debug("[bundle] get_cached_bundle_report failed for %s", mint[:8])
+    return None
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Phase 1 — Detect bundle buyers
 # ─────────────────────────────────────────────────────────────────────────────

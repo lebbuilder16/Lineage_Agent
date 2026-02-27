@@ -958,6 +958,89 @@ async def get_lineage_graph(
 
 
 # ------------------------------------------------------------------
+# AI Forensic Analysis endpoint (Initiative 6)
+# ------------------------------------------------------------------
+
+@app.get(
+    "/analyze/{mint}",
+    tags=["lineage"],
+    summary="AI forensic analysis — risk score, narrative, wallet classifications",
+)
+@limiter.limit("6/minute")
+async def get_ai_analysis(
+    request: Request,
+    mint: str,
+    force_refresh: bool = Query(False, description="Re-run AI analysis even if cached"),
+) -> dict:
+    """Generate an AI-powered forensic narrative from bundle + SOL flow + lineage data.
+
+    Calls Anthropic Claude with all available on-chain evidence and returns:
+    - risk_score (0-100)
+    - confidence (low / medium / high)
+    - rug_pattern classification
+    - narrative (2-4 sentence explanation)
+    - key_findings (3-6 bullet points)
+    - wallet_classifications
+    - operator_hypothesis
+    """
+    if not _BASE58_RE.match(mint):
+        raise HTTPException(status_code=400, detail="Invalid Solana mint address")
+
+    from .ai_analyst import analyze_token
+    from .bundle_tracker_service import get_cached_bundle_report
+    from .sol_flow_service import get_sol_flow_report
+
+    # Gather existing reports from DB concurrently — no heavy RPC calls
+    lineage_task = asyncio.create_task(
+        asyncio.wait_for(detect_lineage(mint), timeout=55.0)
+    )
+    sol_flow_task = asyncio.create_task(get_sol_flow_report(mint))
+    bundle_task   = asyncio.create_task(get_cached_bundle_report(mint))
+
+    lineage_result, sol_flow_report, bundle_report = await asyncio.gather(
+        lineage_task, sol_flow_task, bundle_task,
+        return_exceptions=True,
+    )
+    # Treat exceptions as None (graceful degradation)
+    if isinstance(lineage_result, Exception):
+        logger.warning("[analyze] lineage failed for %s: %s", mint[:12], lineage_result)
+        lineage_result = None
+    if isinstance(sol_flow_report, Exception):
+        sol_flow_report = None
+    if isinstance(bundle_report, Exception):
+        bundle_report = None
+
+    if not lineage_result and not sol_flow_report and not bundle_report:
+        raise HTTPException(
+            status_code=404,
+            detail="No on-chain data found. Trigger /lineage?mint=... and /bundle/{mint} first.",
+        )
+
+    try:
+        result = await asyncio.wait_for(
+            analyze_token(
+                mint,
+                lineage_result=lineage_result,
+                bundle_report=bundle_report,
+                sol_flow_report=sol_flow_report,
+            ),
+            timeout=40.0,
+        )
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=504, detail="AI analysis timed out")
+    except Exception as exc:
+        logger.exception("AI analysis failed for %s", mint)
+        raise HTTPException(status_code=500, detail="Internal server error") from exc
+
+    if result is None:
+        raise HTTPException(
+            status_code=503,
+            detail="AI analysis unavailable — check ANTHROPIC_API_KEY configuration",
+        )
+    return result
+
+
+# ------------------------------------------------------------------
 # Run with: python -m lineage_agent.api
 # ------------------------------------------------------------------
 
