@@ -53,7 +53,7 @@ _COORDINATED_SELL_SLOT_WINDOW = 5      # slots: if ≥3 wallets sell within this
 _COMMON_SINK_MIN_COUNT        = 2      # ≥N bundle wallets → same destination = common sink
 _MAX_BUNDLE_WALLETS           = 20     # cap to avoid DoS on very wide bundles
 _MAX_POSTSELL_HOPS            = 2      # BFS hops for post-sell outflow tracing
-_ANALYSIS_TIMEOUT_S           = 45     # hard timeout for the full analysis
+_ANALYSIS_TIMEOUT_S           = 55     # hard timeout for the full analysis
 _TRACE_SIGS_PER_WALLET        = 100    # signatures to fetch per wallet for post-sell scan
 _SOL_DECIMALS                 = 1_000_000_000
 
