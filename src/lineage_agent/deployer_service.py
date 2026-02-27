@@ -25,10 +25,10 @@ from typing import Optional
 
 from .data_sources._clients import event_query
 from .models import DeployerProfile, DeployerTokenSummary
+from config import CACHE_TTL_DEPLOYER_SECONDS as _CACHE_TTL_SECONDS
 
 logger = logging.getLogger(__name__)
 
-_CACHE_TTL_SECONDS = 600  # 10 minutes
 _MIN_TOKENS_FOR_HIGH_CONFIDENCE = 5
 _MIN_TOKENS_FOR_MEDIUM_CONFIDENCE = 2
 

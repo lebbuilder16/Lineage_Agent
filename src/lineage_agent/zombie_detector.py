@@ -18,6 +18,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional
+from config import RUG_LIQUIDITY_THRESHOLD_USD as _DEAD_LIQUIDITY_THRESHOLD
 
 from .constants import DEAD_LIQUIDITY_USD
 from .models import DerivativeInfo, LineageResult, TokenMetadata, ZombieAlert

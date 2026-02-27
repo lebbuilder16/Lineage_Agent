@@ -49,9 +49,14 @@ def _parse_int(name: str, default: str, *, minimum: int = 1) -> int:
 # ---------------------------------------------------------------------------
 # Telegram
 # ---------------------------------------------------------------------------
-TELEGRAM_BOT_TOKEN: str = os.getenv(
-    "TELEGRAM_BOT_TOKEN", "<your-telegram-bot-token>"
-)
+_telegram_token = os.getenv("TELEGRAM_BOT_TOKEN", "")
+if not _telegram_token:
+    raise ValueError(
+        "TELEGRAM_BOT_TOKEN environment variable is not set. "
+        "Set it in fly.toml [env] or as a Fly secret: "
+        "fly secrets set TELEGRAM_BOT_TOKEN=<your-token>"
+    )
+TELEGRAM_BOT_TOKEN: str = _telegram_token
 
 # ---------------------------------------------------------------------------
 # Solana RPC
@@ -99,6 +104,18 @@ if abs(_weight_sum - 1.0) > 0.01:
 CACHE_TTL_SECONDS: int = _parse_int("CACHE_TTL_SECONDS", "300", minimum=1)
 CACHE_TTL_LINEAGE_SECONDS: int = _parse_int(
     "CACHE_TTL_LINEAGE_SECONDS", "180", minimum=1
+)
+CACHE_TTL_DEPLOYER_SECONDS: int = _parse_int(
+    "CACHE_TTL_DEPLOYER_SECONDS", "600", minimum=1
+)
+# Shared extraction rate used by operator_impact_service and cartel_service.
+# Represents the estimated fraction of rugged mcap extracted by the operator.
+EXTRACTION_RATE_MCAP: float = float(os.getenv("EXTRACTION_RATE_MCAP", "0.15"))
+
+# Liquidity threshold below which a token is considered rugged (USD).
+# Shared by rug_detector and zombie_detector to avoid divergence.
+RUG_LIQUIDITY_THRESHOLD_USD: float = float(
+    os.getenv("RUG_LIQUIDITY_THRESHOLD_USD", "100.0")
 )
 CACHE_BACKEND: str = os.getenv("CACHE_BACKEND", "sqlite")  # "memory" or "sqlite"
 CACHE_SQLITE_PATH: str = os.getenv("CACHE_SQLITE_PATH", "data/cache.db")
