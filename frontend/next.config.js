@@ -3,6 +3,7 @@ const { withSentryConfig } = require("@sentry/nextjs");
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  eslint: { ignoreDuringBuilds: false },
   output: "standalone",
   images: {
     remotePatterns: [
