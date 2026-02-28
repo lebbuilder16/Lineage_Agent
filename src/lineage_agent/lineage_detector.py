@@ -667,9 +667,12 @@ async def detect_lineage(
         logger.debug("uri_tuples history expansion failed: %s", _fp_err)
 
     # Phases 2, 3, 5, 6, 7, 8, 9 — async enrichers in parallel
-    async def _safe(coro, *, name: str = "enricher"):
+    async def _safe(coro, *, name: str = "enricher", timeout: float = 10.0):
         try:
-            return await coro
+            return await asyncio.wait_for(coro, timeout=timeout)
+        except asyncio.TimeoutError:
+            logger.warning("[%s] enricher timed out after %.0fs", name, timeout)
+            return None
         except Exception as exc:
             logger.warning("[%s] enricher failed: %s", name, exc)
             return None
@@ -688,36 +691,30 @@ async def detect_lineage(
         _safe(compute_deployer_profile(_scan_deployer), name="deployer_profile"),
     )
 
-    # Initiative 1: Operator Impact — requires operator_fingerprint result
+    # Initiative 1: Operator Impact — requires operator_fingerprint result.
+    # Launched as a concurrent task so it runs in parallel with the second
+    # gather (sol_flow, cartel, insider, bundle) — saves up to 10 s on critical path.
+    _oi_task: Optional[asyncio.Task] = None
     if result.operator_fingerprint is not None:
         # Bootstrap linked wallets in background — doesn't block this response.
-        # The Operator Dossier page triggers its own bootstrap on load.
         _linked_to_boot = [
             w for w in result.operator_fingerprint.linked_wallets
             if w and w != _scan_deployer
         ]
         for _w in _linked_to_boot[:4]:
             asyncio.ensure_future(_bootstrap_deployer_history(_w))
-        try:
-            result.operator_impact = await asyncio.wait_for(
+        _oi_task = asyncio.ensure_future(
+            asyncio.wait_for(
                 compute_operator_impact(
                     result.operator_fingerprint.fingerprint,
                     result.operator_fingerprint.linked_wallets,
                 ),
                 timeout=10.0,
             )
-        except Exception as _oi_exc:
-            logger.warning("[operator_impact] enricher failed: %s", _oi_exc)
+        )
 
-    # Fetch SOL price once (used by bundle tracker for USD conversion)
-    _sol_price: Optional[float] = None
-    try:
-        _wsol = "So11111111111111111111111111111111111111112"
-        _jup_sol = await jup.get_price(_wsol)
-        if _jup_sol and _jup_sol > 0:
-            _sol_price = _jup_sol
-    except Exception:
-        pass
+    # SOL price is now fetched inside _run_bundle() to avoid blocking here.
+    _sol_price: Optional[float] = None  # kept for compatibility (unused below)
 
     # Initiatives 2, 3, 4, 5 — all independent, run in parallel.
     # Wall-time = max(sol_flow≤20s, cartel≤8s, insider≤10s, bundle≤25s) = 25s
@@ -774,6 +771,15 @@ async def detect_lineage(
             return None
 
     async def _run_bundle() -> Optional[object]:
+        # Fetch SOL price here (was a pre-gather sequential call — now parallel).
+        _price: Optional[float] = None
+        try:
+            _wsol = "So11111111111111111111111111111111111111112"
+            _p = await asyncio.wait_for(jup.get_price(_wsol), timeout=3.0)
+            if _p and _p > 0:
+                _price = _p
+        except Exception:
+            pass
         # Hard cap at 20 s for the inline scan — the bundle tracker's own
         # internal timeout is 55 s which dominates the parallel gather and
         # pushes total scan time beyond 30 s.  If we hit the cap, the partial
@@ -782,7 +788,7 @@ async def detect_lineage(
         # analysis so subsequent scans see the full result.  (Optimization #4)
         try:
             return await asyncio.wait_for(
-                analyze_bundle(_scan_mint, _scan_deployer, _sol_price),
+                analyze_bundle(_scan_mint, _scan_deployer, _price),
                 timeout=20.0,
             )
         except asyncio.TimeoutError:
@@ -809,6 +815,13 @@ async def detect_lineage(
         _run_insider(),
         _run_bundle(),
     )
+
+    # Collect operator_impact result (was running concurrently with the gather above)
+    if _oi_task is not None:
+        try:
+            result.operator_impact = await _oi_task
+        except Exception as _oi_exc:
+            logger.warning("[operator_impact] enricher failed: %s", _oi_exc)
 
     # ── PumpFun / Jito bundle extraction fix ─────────────────────────────────
     # Modern token launches (PumpFun, Jito bundles) extract SOL via bundle
