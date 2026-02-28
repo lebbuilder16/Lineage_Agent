@@ -35,17 +35,22 @@ const nextConfig = {
           },
           {
             key: "Content-Security-Policy",
-            value: [
-              "default-src 'self'",
-              "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
-              "style-src 'self' 'unsafe-inline'",
-              `connect-src 'self' ${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'} https://*.sentry.io`,
-              "img-src 'self' data: blob: https:",
-              "font-src 'self'",
-              "frame-ancestors 'none'",
-              "base-uri 'self'",
-              "form-action 'self'",
-            ].join("; "),
+            value: (() => {
+              const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+              // WebSocket uses wss:// (https) or ws:// (http) — must be explicit in CSP
+              const wsUrl = apiUrl.replace(/^https/, 'wss').replace(/^http(?!s)/, 'ws');
+              return [
+                "default-src 'self'",
+                "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+                "style-src 'self' 'unsafe-inline'",
+                `connect-src 'self' ${apiUrl} ${wsUrl} https://*.sentry.io`,
+                "img-src 'self' data: blob: https:",
+                "font-src 'self' data:",
+                "frame-ancestors 'none'",
+                "base-uri 'self'",
+                "form-action 'self'",
+              ].join("; ");
+            })(),
           },
         ],
       },

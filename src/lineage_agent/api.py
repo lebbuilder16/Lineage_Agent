@@ -202,8 +202,10 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 # CORS (so the Next.js frontend can call from localhost:3000 and Vercel)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=CORS_ORIGINS,
-    allow_origin_regex=r"https://lineage-agent(-[a-z0-9]+)*\.vercel\.app",
+    # Public API — no credentials involved, wildcard is safe and avoids
+    # maintaining a regex that breaks every time a new Vercel preview URL is
+    # generated or a custom domain is added.
+    allow_origins=["*"],
     allow_credentials=False,
     allow_methods=["GET", "POST"],
     allow_headers=["Content-Type", "Accept"],
