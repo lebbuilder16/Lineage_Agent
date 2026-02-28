@@ -378,7 +378,7 @@ async def detect_lineage(
     # Candidates that came from the deployer search always pass — they share
     # the deployer by definition even if names differ.
     pre_filtered = []
-    _candidate_cap = min(MAX_DERIVATIVES * 2, 80)   # keep scoring fast
+    _candidate_cap = min(MAX_DERIVATIVES * 2, 20)   # 20 max — each needs a full RPC sig-walk
     for candidate in candidates[:_candidate_cap]:
         name_sim = compute_name_similarity(query_meta.name, candidate.name)
         sym_sim = compute_symbol_similarity(
@@ -405,9 +405,14 @@ async def detect_lineage(
         candidate: TokenSearchResult, name_sim: float, sym_sim: float
     ) -> Optional[_ScoredCandidate]:
         async with sem:
-            c_deployer, c_created = await _get_deployer_cached(
-                rpc, candidate.mint
-            )
+            # Hard cap per-candidate: RPC sig-walk can hang up to 12 s each.
+            # 5 s is sufficient — cached mints return instantly, new ones abort fast.
+            try:
+                c_deployer, c_created = await asyncio.wait_for(
+                    _get_deployer_cached(rpc, candidate.mint), timeout=5.0
+                )
+            except asyncio.TimeoutError:
+                c_deployer, c_created = "", candidate.pair_created_at
             c_asset = await _get_asset_cached(rpc, candidate.mint)
 
         # Anchor to on-market date for root-selection accuracy.
@@ -432,12 +437,21 @@ async def detect_lineage(
             ((c_asset.get("content") or {}).get("links") or {}).get("image") or ""
         )
 
-        # Image similarity — bounded concurrency for downloads
+        # Image similarity — skip download when name is near-identical (obvious clone)
+        # or when either image URL is missing (avoids pointless HTTP round-trips).
         async with img_sem:
-            img_sim = await compute_image_similarity(
-                query_meta.image_uri, c_image_uri,
-                client=img_client,
-            )
+            if name_sim >= 0.95 or not query_meta.image_uri or not c_image_uri:
+                img_sim = 1.0 if name_sim >= 0.95 else -1.0  # -1 = missing sentinel
+            else:
+                try:
+                    img_sim = await asyncio.wait_for(
+                        compute_image_similarity(
+                            query_meta.image_uri, c_image_uri, client=img_client
+                        ),
+                        timeout=4.0,
+                    )
+                except asyncio.TimeoutError:
+                    img_sim = -1.0  # treat as missing — won't filter out candidate
 
         # Track dimensions that are genuinely missing (vs. scored 0.0)
         _missing: set[str] = set()
@@ -496,7 +510,10 @@ async def detect_lineage(
             composite=composite,
         )
 
-    tasks = [_enrich(c, ns, ss) for c, ns, ss in pre_filtered]
+    tasks = [
+        asyncio.wait_for(_enrich(c, ns, ss), timeout=8.0)
+        for c, ns, ss in pre_filtered
+    ]
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
     for r in results:
@@ -1198,7 +1215,7 @@ async def _get_deployer_cached(
     # graduated PumpFun tokens).  Only the first-ever tx's blockTime is correct.
     try:
         _sw_deployer, _sw_ts = await asyncio.wait_for(
-            rpc.get_deployer_and_timestamp(mint), timeout=12.0
+            rpc.get_deployer_and_timestamp(mint), timeout=6.0
         )
     except (asyncio.TimeoutError, Exception) as _sw_exc:
         logger.warning("Signature-walk failed/timed out for %s: %s", mint, _sw_exc)
