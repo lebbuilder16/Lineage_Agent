@@ -125,23 +125,26 @@ async def probe_rpc_asset(mint, rpc) -> tuple[StepResult, str, str]:
         return StepResult("3. RPC getAsset (DAS)", ok=False,
                           error=traceback.format_exc(limit=2), duration_ms=_ms(t0)), deployer, uri
 
-async def probe_oldest_sig(deployer, rpc) -> StepResult:
-    if not deployer:
-        return StepResult("4. RPC oldest signature", ok=False, error="déployeur inconnu — ignoré")
+async def probe_oldest_sig(mint: str, rpc) -> tuple[StepResult, str]:
+    """Always run sig-walk directly on the mint, independent of DAS deployer."""
     t0 = time.perf_counter()
     try:
-        sig = await asyncio.wait_for(rpc.get_oldest_signature(deployer), timeout=15.0)
+        from lineage_agent.data_sources.solana_rpc import SolanaRpcClient
+        deployer_found, ts = await asyncio.wait_for(
+            rpc.get_deployer_and_timestamp(mint), timeout=20.0
+        )
         dur = _ms(t0)
         warns = []
-        if not sig: warns.append("aucune signature — wallet neuf ou non actif")
-        slot = (sig or {}).get("slot","?"); ts = (sig or {}).get("blockTime","?")
+        if not deployer_found:
+            warns.append("deployer non résolu via sig-walk — mint trop jeune, signatures purgées ou PumpFun tx-history trop longue")
         return StepResult("4. RPC oldest signature", ok=True, duration_ms=dur,
-            value=f"oldest_slot={slot}  blockTime={ts}  deployer={deployer[:16]}…", warnings=warns)
+            value=f"deployer={deployer_found[:16] + '…' if deployer_found else 'N/A'}  ts={ts}",
+            warnings=warns), deployer_found
     except asyncio.TimeoutError:
         return StepResult("4. RPC oldest signature", ok=False, duration_ms=_ms(t0),
-                          error="timeout 15s — historique trop long ou RPC lent")
+                          error="timeout 20s — historique trop long ou RPC lent"), ""
     except Exception as e:
-        return StepResult("4. RPC oldest signature", ok=False, error=str(e), duration_ms=_ms(t0))
+        return StepResult("4. RPC oldest signature", ok=False, error=str(e), duration_ms=_ms(t0)), ""
 
 async def probe_image_phash(image_url, img_client) -> tuple[StepResult, Optional[str]]:
     if not image_url:
@@ -283,9 +286,12 @@ async def scan_token(mint, label) -> tuple[TokenReport, Any]:
 
     step, dex_meta = await probe_dexscreener(mint, dex);             report.steps.append(step)
     step = await probe_dex_search(dex_meta.get("name",""), mint, dex); report.steps.append(step)
-    step, deployer, uri = await probe_rpc_asset(mint, rpc);          report.steps.append(step)
+    step, deployer_das, uri = await probe_rpc_asset(mint, rpc);      report.steps.append(step)
+    # Step 4: sig-walk always runs on the mint directly (not blocked by empty DAS deployer)
+    step, deployer_sigwalk = await probe_oldest_sig(mint, rpc);      report.steps.append(step)
+    # Best deployer = DAS first (more reliable when available), sig-walk as fallback
+    deployer = deployer_das or deployer_sigwalk
     report.deployer = deployer
-    step = await probe_oldest_sig(deployer, rpc);                    report.steps.append(step)
     step, phash = await probe_image_phash(dex_meta.get("image",""), img)
     step.extra["phash"] = phash; report.steps.append(step)
     step, fp = await probe_dna(mint, uri)
