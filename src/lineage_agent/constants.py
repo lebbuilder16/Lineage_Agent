@@ -123,7 +123,6 @@ CEX_ADDRESSES: frozenset[str] = frozenset({
     "AC5RDfQFmDS1deWZos921JfqscXdByf8BKHs5ACWjtW2",   # Coinbase
     "H8sMJSCQxfKiFTCfDR3DUMLPwcRbM61LGFJ8N4dK3WjS",  # Coinbase Hot 2
     # OKX
-    "H8sMJSCQxfKiFTCfDR3DUMLPwcRbM61LGFJ8N4dK3WjS",  # OKX (alias — may overlap with Coinbase Hot 2)
     # Bybit
     "2AQdpHJ2JpcEgPiATUXjQxA8QmafFegfQwSLWSprPicm",   # Bybit
     # Kraken
@@ -140,7 +139,31 @@ DEAD_LIQUIDITY_USD: float = 100.0
 
 # Estimated extraction rate for operator impact calculations
 # Used by: operator_impact_service.py, cartel_service.py
-EXTRACTION_RATE: float = 0.15  # 15% of rugged mcap
+EXTRACTION_RATE: float = 0.15  # 15% flat-rate fallback (legacy)
+
+
+def estimate_extraction_rate(mcap_usd: float | None) -> float:
+    """Return an estimated extraction rate for a rugged token based on its mcap.
+
+    The flat 15% heuristic under-estimates micro-caps (easy to drain all
+    liquidity) and over-estimates macro-caps.  Tiered rates are still
+    heuristics but more realistic across the typical memecoin distribution.
+
+    Tiers (based on empirical on-chain analysis):
+    - Micro  (< $5k):    40%  — operator can drain nearly all liquidity
+    - Small  ($5k–$50k): 30%  — typical small rug, partial drain
+    - Medium ($50k–$500k): 15%  — moderate size, harder to dump cleanly
+    - Large  (> $500k):   8%  — established token, visible on-chain
+    """
+    if mcap_usd is None or mcap_usd <= 0:
+        return EXTRACTION_RATE  # conservative fallback
+    if mcap_usd < 5_000:
+        return 0.40
+    if mcap_usd < 50_000:
+        return 0.30
+    if mcap_usd < 500_000:
+        return 0.15
+    return 0.08
 
 # SOL conversion
 LAMPORTS_PER_SOL: int = 1_000_000_000

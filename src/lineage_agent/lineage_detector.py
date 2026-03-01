@@ -814,7 +814,7 @@ async def detect_lineage(
                 "continuing full analysis in background", _scan_mint[:8],
             )
             asyncio.ensure_future(
-                analyze_bundle(_scan_mint, _scan_deployer, _sol_price)
+                analyze_bundle(_scan_mint, _scan_deployer, _price)
             )
             return None
         except Exception as _be:

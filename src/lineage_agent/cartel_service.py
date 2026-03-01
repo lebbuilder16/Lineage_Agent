@@ -31,7 +31,7 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Literal, Optional
 
-from .constants import EXTRACTION_RATE
+from .constants import EXTRACTION_RATE, estimate_extraction_rate
 from .data_sources._clients import (
     cartel_edge_upsert,
     cartel_edges_query,
@@ -48,6 +48,7 @@ from .utils import parse_datetime
 logger = logging.getLogger(__name__)
 
 _MIN_TOKENS_FOR_CARTEL_SCAN = 2
+_SWEEP_SEM = asyncio.Semaphore(8)  # bound concurrent RPC calls during sweep
 _TIMING_SYNC_WINDOW_SECONDS = 1800   # 30 minutes
 _PHASH_HAMMING_THRESHOLD = 8         # out of 64 bits → ≥ 87.5% similarity
 _MIN_TRANSFER_SOL = 0.1              # minimum SOL transfer to count as signal
@@ -121,11 +122,15 @@ async def run_cartel_sweep() -> int:
         dna_count = await _signal_dna_match_all()
         total += dna_count
 
-        # Other signals per deployer; batches of 10 to bound concurrency
+        # Other signals per deployer; semaphore limits to 8 concurrent RPC calls
+        async def _sem_build(deployer: str) -> int:
+            async with _SWEEP_SEM:
+                return await build_cartel_edges_for_deployer(deployer)
+
         for i in range(0, len(eligible), 10):
             batch = eligible[i:i + 10]
             results = await asyncio.gather(
-                *[build_cartel_edges_for_deployer(d) for d in batch],
+                *[_sem_build(d) for d in batch],
                 return_exceptions=True,
             )
             total += sum(r for r in results if isinstance(r, int))
@@ -504,7 +509,7 @@ async def _build_report(mint: str, deployer: str) -> Optional[CartelReport]:
         )
         total_rugs = len(rugged_rows)
         estimated_extracted = sum(
-            (r.get("mcap_usd") or 0.0) * EXTRACTION_RATE
+            (r.get("mcap_usd") or 0.0) * estimate_extraction_rate(r.get("mcap_usd"))
             for r in rugged_rows
         )
 

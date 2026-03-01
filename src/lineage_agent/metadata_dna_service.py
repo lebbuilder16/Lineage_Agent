@@ -92,12 +92,13 @@ async def build_operator_fingerprint(
     # Fetch + compute fingerprints concurrently
     sem = asyncio.Semaphore(3)
 
-    async def _fp(mint: str, deployer: str, uri: str) -> tuple[str, str, str] | None:
+    async def _fp(mint: str, deployer: str, uri: str) -> tuple[str, str, str, str] | None:
         async with sem:
-            fp = await _get_fingerprint(mint, uri)
-            if fp is None:
+            result = await _get_fingerprint(mint, uri)
+            if result is None:
                 return None
-            return (deployer, fp, _detect_service(uri))
+            fp, desc_norm = result
+            return (deployer, fp, _detect_service(uri), desc_norm)
 
     tasks = [_fp(m, d, u) for m, d, u in valid]
     results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -111,13 +112,15 @@ async def build_operator_fingerprint(
     for r in results:
         if not isinstance(r, tuple):
             continue
-        deployer, fp, service = r
+        deployer, fp, service, desc_norm = r
         if fp not in fp_to_deployers:
             fp_to_deployers[fp] = []
             fp_to_service[fp] = service
         if deployer not in fp_to_deployers[fp]:
             fp_to_deployers[fp].append(deployer)
-        fp_to_desc[fp] = fp  # placeholder; enrich below
+        # Store the human-readable normalised description (never the raw hash)
+        if fp not in fp_to_desc or not fp_to_desc[fp] or fp_to_desc[fp] == fp:
+            fp_to_desc[fp] = desc_norm if desc_norm else fp[:16] + "..."
         fp_token_count[fp] = fp_token_count.get(fp, 0) + 1
 
     # Accept fingerprints with either:
@@ -151,7 +154,7 @@ async def build_operator_fingerprint(
         fingerprint=best_fp,
         linked_wallets=linked,
         upload_service=service,
-        description_pattern=best_fp[:16] + "...",
+        description_pattern=fp_to_desc.get(best_fp, best_fp[:16] + "..."),
         confidence=(
             "confirmed" if is_cross_wallet and len(linked) >= 3
             else "probable" if is_cross_wallet
@@ -220,15 +223,21 @@ async def _fetch_linked_wallet_tokens(
     return result
 
 
-async def _get_fingerprint(mint: str, uri: str) -> Optional[str]:
-    """Fetch metadata JSON and compute fingerprint. Uses cache."""
+async def _get_fingerprint(mint: str, uri: str) -> tuple[str, str] | None:
+    """Fetch metadata JSON and compute (fingerprint, desc_norm). Uses cache."""
     if not uri:
         return None
 
     cache_key = f"dna:{mint}"
     cached = await cache_get(cache_key)
     if cached:
-        return str(cached)
+        # Cache value format: "fp|desc_norm" (pipe-separated)
+        cached_str = str(cached)
+        if "|" in cached_str:
+            fp, desc_norm = cached_str.split("|", 1)
+            return fp, desc_norm
+        # Legacy cache entries stored just the fp hash
+        return cached_str, cached_str[:16] + "..."
 
     try:
         client: httpx.AsyncClient = get_img_client()
@@ -255,8 +264,9 @@ async def _get_fingerprint(mint: str, uri: str) -> Optional[str]:
     raw = f"{service}:{desc_norm}"
     fp = hashlib.sha256(raw.encode()).hexdigest()[:32]
 
-    await cache_set(cache_key, fp, ttl=86400)
-    return fp
+    # Cache as "fp|desc_norm" so callers can recover the human-readable description
+    await cache_set(cache_key, f"{fp}|{desc_norm}", ttl=86400)
+    return fp, desc_norm
 
 
 def _detect_service(uri: str) -> str:

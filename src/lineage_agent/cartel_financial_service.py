@@ -28,6 +28,7 @@ from .data_sources._clients import (
     event_update,
     get_rpc_client,
 )
+from .constants import SKIP_PROGRAMS
 
 logger = logging.getLogger(__name__)
 
@@ -41,27 +42,8 @@ _SEM_CONCURRENCY = 3                 # concurrent getTransaction calls
 _SIGNAL_TIMEOUT = 45.0               # per-signal timeout (seconds)
 
 # ── Infrastructure addresses to skip ─────────────────────────────────────────
-_SKIP_ADDRESSES: frozenset[str] = frozenset({
-    "11111111111111111111111111111111",
-    "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
-    "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJe8bv",
-    "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s",
-    "TSLvdd1pWpHVjahSpsvCXUbgwsL3JAcvokwaKt1eokM",
-    "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBymtzbm",
-    "96gYZGLnJYVFmbjzopPSU6QiEV5fGqZNyN9nmNhvrZU5",
-    "5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1",
-    "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8",
-    "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4",
-    "srmqPvymJeFKQ4zGQed1GFppgkRHL9kaELCbyksJtPX",
-    "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc",
-    "So11111111111111111111111111111111111111112",
-    "Vote111111111111111111111111111111111111111",
-    "Stake11111111111111111111111111111111111111",
-    "SysvarC1ock11111111111111111111111111111111",
-    "SysvarRent111111111111111111111111111111111",
-    "ComputeBudget111111111111111111111111111111",
-    "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr",
-})
+# ── Infrastructure addresses to skip (single source of truth: constants.SKIP_PROGRAMS) ──────────
+_SKIP_ADDRESSES = SKIP_PROGRAMS
 
 # DEX / AMM programs whose presence signals LP activity
 _LP_PROGRAMS: frozenset[str] = frozenset({

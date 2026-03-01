@@ -51,12 +51,13 @@ def _parse_int(name: str, default: str, *, minimum: int = 1) -> int:
 # ---------------------------------------------------------------------------
 _telegram_token = os.getenv("TELEGRAM_BOT_TOKEN", "")
 if not _telegram_token:
-    raise ValueError(
-        "TELEGRAM_BOT_TOKEN environment variable is not set. "
-        "Set it in fly.toml [env] or as a Fly secret: "
-        "fly secrets set TELEGRAM_BOT_TOKEN=<your-token>"
+    # Non-fatal: the Telegram bot is optional. Validation is deferred to
+    # telegram_bot.py so the rest of the backend starts without the token.
+    logger.warning(
+        "TELEGRAM_BOT_TOKEN is not set — Telegram notifications will be disabled. "
+        "Set it via: fly secrets set TELEGRAM_BOT_TOKEN=<your-token>"
     )
-TELEGRAM_BOT_TOKEN: str = _telegram_token
+TELEGRAM_BOT_TOKEN: str = _telegram_token  # empty string disables the bot
 
 # ---------------------------------------------------------------------------
 # Solana RPC

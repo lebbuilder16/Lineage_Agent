@@ -18,7 +18,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Literal, Optional
 
-from .constants import EXTRACTION_RATE
+from .constants import EXTRACTION_RATE, estimate_extraction_rate
 from .data_sources._clients import event_query
 from .deployer_service import compute_deployer_profile
 from .models import DeployerProfile, OperatorImpactReport
@@ -101,9 +101,9 @@ async def _build_impact(
         if total_tokens_launched > 0 else 0.0
     )
 
-    # ── 4. Estimated extraction: 15% of rugged-time mcap ──────────────────
+    # ── 4. Estimated extraction: tiered rate based on rugged-time mcap ────────────
     estimated_extracted_usd = sum(
-        (r.get("mcap_usd") or 0.0) * _EXTRACTION_RATE
+        (r.get("mcap_usd") or 0.0) * estimate_extraction_rate(r.get("mcap_usd"))
         for r in rugged_rows
         if r.get("mcap_usd")
     )

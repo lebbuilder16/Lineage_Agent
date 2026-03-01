@@ -18,7 +18,6 @@ import asyncio
 import logging
 import time
 from datetime import datetime, timezone
-from config import RUG_LIQUIDITY_THRESHOLD_USD as _RUG_LIQ_THRESHOLD
 from typing import Optional
 
 from .data_sources._clients import (
