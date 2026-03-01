@@ -8,6 +8,7 @@ Uses ``httpx`` for async HTTP with retry + exponential backoff.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -18,6 +19,76 @@ from ._retry import async_http_post_json
 from ..circuit_breaker import CircuitBreaker, CircuitOpenError
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Pure-Python PumpFun bonding-curve PDA derivation
+# Used in get_deployer_and_timestamp to resolve deployer faster:
+# the curve PDA has O(10) transactions vs O(10 000+) on the mint itself.
+# ---------------------------------------------------------------------------
+_PUMP_PROGRAM_ID = "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBymtzbm"
+_ED25519_P = 2**255 - 19
+_ED25519_D = (-121665 * pow(121666, _ED25519_P - 2, _ED25519_P)) % _ED25519_P
+_B58_ALPHA = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+_B58_MAP   = {c: i for i, c in enumerate(_B58_ALPHA)}
+
+
+def _b58decode_32(s: str) -> bytes:
+    n = 0
+    for c in s:
+        n = n * 58 + _B58_MAP[c]
+    return n.to_bytes(32, "big")
+
+
+def _b58encode(b: bytes) -> str:
+    n = int.from_bytes(b, "big")
+    out: list[str] = []
+    while n:
+        n, r = divmod(n, 58)
+        out.append(_B58_ALPHA[r])
+    for byte in b:
+        if byte == 0:
+            out.append(_B58_ALPHA[0])
+        else:
+            break
+    return "".join(reversed(out))
+
+
+def _is_on_ed25519_curve(b: bytes) -> bool:
+    try:
+        y_int = int.from_bytes(b, "little")
+        sign = y_int >> 255
+        y = y_int & ((1 << 255) - 1)
+        y2 = (y * y) % _ED25519_P
+        u = (y2 - 1) % _ED25519_P
+        v = (_ED25519_D * y2 + 1) % _ED25519_P
+        x2 = (u * pow(v, _ED25519_P - 2, _ED25519_P)) % _ED25519_P
+        if x2 == 0:
+            return sign == 0
+        x = pow(x2, (_ED25519_P + 3) // 8, _ED25519_P)
+        if (x * x) % _ED25519_P != x2:
+            x = (x * pow(2, (_ED25519_P - 1) // 4, _ED25519_P)) % _ED25519_P
+        return (x * x) % _ED25519_P == x2
+    except Exception:
+        return False
+
+
+def _pump_bonding_curve_pda(mint: str) -> Optional[str]:
+    """Derive the PumpFun bonding curve PDA for *mint* in pure Python.
+    Returns None on any failure."""
+    try:
+        prog = _b58decode_32(_PUMP_PROGRAM_ID)
+        mint_b = _b58decode_32(mint)
+        for nonce in range(255, -1, -1):
+            candidate = hashlib.sha256(
+                b"bonding-curve" + mint_b + bytes([nonce]) + prog
+                + b"ProgramDerivedAddress"
+            ).digest()
+            if not _is_on_ed25519_curve(candidate):
+                return _b58encode(candidate)
+    except Exception:
+        pass
+    return None
+
 
 # Retry configuration
 _MAX_RETRIES = 3
@@ -106,8 +177,32 @@ class SolanaRpcClient:
     async def get_deployer_and_timestamp(
         self, mint: str
     ) -> tuple[str, Optional[datetime]]:
-        """Return ``(deployer_address, creation_datetime)`` for a mint."""
-        sig_info = await self.get_oldest_signature(mint)
+        """Return ``(deployer_address, creation_datetime)`` for a mint.
+
+        Resolution strategy for PumpFun tokens (mint ends with 'pump'):
+          1. Try the bonding-curve PDA first — it has O(10) transactions so
+             ``get_oldest_signature`` returns in milliseconds for both active
+             and Raydium-migrated tokens (migrated curves return None quickly).
+          2. Fall back to the mint address directly (required for migrated
+             tokens where the bonding-curve account is already closed).
+        For non-PumpFun tokens the mint address is always used directly.
+        """
+        sig_info: Optional[dict] = None
+
+        if mint.endswith("pump"):
+            curve_pda = _pump_bonding_curve_pda(mint)
+            if curve_pda:
+                sig_info = await self.get_oldest_signature(
+                    curve_pda, circuit_protect=False
+                )
+                if sig_info:
+                    logger.debug(
+                        "[deployer] resolved via bonding-curve PDA for %s", mint[:16]
+                    )
+
+        if sig_info is None:
+            sig_info = await self.get_oldest_signature(mint)
+
         if sig_info is None:
             return ("", None)
 
