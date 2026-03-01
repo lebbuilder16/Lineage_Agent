@@ -233,25 +233,17 @@ async def _run_forensic(
 ) -> Optional[BundleExtractionReport]:
 
     # ── Step 0: Anchor the true creation slot ────────────────────────────
-    # Uses SolanaRpcClient.get_oldest_signature() which correctly paginates
-    # getSignaturesForAddress backward (newest→oldest) to find the very first
-    # transaction for this mint.
-    #
-    # For PumpFun tokens, use the bonding curve PDA first — it has far fewer
-    # transactions than the mint itself (which accumulates trades), so
-    # pagination is dramatically faster (often 1 page vs 10+).
+    # Delegates to SolanaRpcClient.get_creation_anchor() which tries:
+    #   1. Helius Enhanced Transactions API (Starter plan, 1 call, instant)
+    #   2. Bonding-curve PDA signature walk (PumpFun active tokens)
+    #   3. Direct mint signature walk (fallback, 20-page cap)
     #
     # circuit_protect=False — the bundle tracker is an intensive analysis tool;
     # its RPC failures must NOT trip the shared circuit breaker that guards the
     # main API endpoints.
-    curve = _pump_bonding_curve(mint)
-    oldest_sig = None
-    if curve:
-        oldest_sig = await rpc.get_oldest_signature(curve, circuit_protect=False)
+    oldest_sig = await rpc.get_creation_anchor(mint, circuit_protect=False)
     if oldest_sig is None:
-        oldest_sig = await rpc.get_oldest_signature(mint, circuit_protect=False)
-    if oldest_sig is None:
-        logger.debug("[bundle] no signatures found for %s", mint[:8])
+        logger.debug("[bundle] no creation anchor found for %s", mint[:8])
         return None
 
     creation_slot = oldest_sig.get("slot")

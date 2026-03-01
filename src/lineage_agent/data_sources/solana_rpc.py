@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Any, Optional
 
@@ -90,6 +91,19 @@ def _pump_bonding_curve_pda(mint: str) -> Optional[str]:
     return None
 
 
+# Helius Enhanced Transactions API base URL (requires Starter plan or above)
+_HELIUS_ENHANCED_BASE = "https://api.helius.xyz"
+
+
+def _extract_helius_api_key(endpoint: str) -> Optional[str]:
+    """Extract the Helius API key from an RPC endpoint URL such as
+    ``https://beta.helius-rpc.com/?api-key=<key>``.
+    Returns None when the endpoint is not a Helius URL.
+    """
+    m = re.search(r"[?&]api-key=([A-Za-z0-9_\-]+)", endpoint)
+    return m.group(1) if m else None
+
+
 # Retry configuration
 _MAX_RETRIES = 3
 _BACKOFF_BASE = 1.5  # seconds
@@ -128,6 +142,7 @@ class SolanaRpcClient:
         self._client: httpx.AsyncClient | None = None
         self._id_counter = 0
         self._cb = circuit_breaker
+        self._helius_api_key: Optional[str] = _extract_helius_api_key(endpoint)
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
@@ -174,47 +189,118 @@ class SolanaRpcClient:
 
         return oldest
 
+    async def _get_helius_creation(
+        self, mint: str
+    ) -> Optional[dict[str, Any]]:
+        """Call the Helius Enhanced Transactions API to retrieve the creation TX.
+
+        Requires a Helius **Starter plan or above** ($49/month).  Returns None
+        when the API key is absent (free tier) or the call fails.
+
+        On success returns a dict compatible with ``get_oldest_signature``
+        callers, extended with a ``feePayer`` field::
+
+            {"signature": str, "slot": int, "blockTime": int, "feePayer": str}
+        """
+        if not self._helius_api_key:
+            return None
+        url = (
+            f"{_HELIUS_ENHANCED_BASE}/v0/addresses/{mint}/transactions"
+            f"?api-key={self._helius_api_key}&limit=1&type=CREATE"
+        )
+        client = await self._get_client()
+        try:
+            resp = await client.get(url, timeout=10.0)
+            if resp.status_code != 200:
+                logger.debug(
+                    "[helius_enhanced] HTTP %d for %s", resp.status_code, mint[:16]
+                )
+                return None
+            data = resp.json()
+            if not data or not isinstance(data, list):
+                return None
+            tx = data[0]
+            slot = tx.get("slot")
+            ts = tx.get("timestamp")
+            fee_payer = tx.get("feePayer", "")
+            sig = tx.get("signature", "")
+            if not slot or not fee_payer or fee_payer in _PROGRAM_ADDRESSES:
+                return None
+            logger.debug(
+                "[helius_enhanced] creation TX resolved for %s: deployer=%s slot=%d",
+                mint[:16], fee_payer[:12], slot,
+            )
+            return {"signature": sig, "slot": slot, "blockTime": ts, "feePayer": fee_payer}
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("[helius_enhanced] fetch failed for %s: %s", mint[:16], exc)
+            return None
+
+    async def get_creation_anchor(
+        self, mint: str, *, circuit_protect: bool = True
+    ) -> Optional[dict[str, Any]]:
+        """Return an anchor dict ``{signature, slot, blockTime}`` for *mint*.
+
+        When the Helius Enhanced API is available (Starter plan or above) the
+        result also contains a ``feePayer`` key with the deployer address — this
+        avoids the need for a separate ``getTransaction`` call.
+
+        Resolution order
+        ----------------
+        1. **Helius Enhanced Transactions API** (``type=CREATE``) — 1 HTTP call,
+           instant even for tokens with 500 000+ transactions (Starter+ plan).
+        2. **Bonding-curve PDA** signature walk — PumpFun only; the PDA has very
+           few transactions and resolves in milliseconds for active tokens.
+        3. **Direct mint** signature walk — fallback, capped at 20 pages.
+        """
+        # ── 1. Helius Enhanced (fastest) ─────────────────────────────────────
+        helius = await self._get_helius_creation(mint)
+        if helius and helius.get("slot"):
+            return helius
+
+        # ── 2. Bonding-curve PDA (PumpFun only) ──────────────────────────────
+        if mint.endswith("pump"):
+            curve_pda = _pump_bonding_curve_pda(mint)
+            if curve_pda:
+                sig = await self.get_oldest_signature(
+                    curve_pda, circuit_protect=circuit_protect
+                )
+                if sig:
+                    logger.debug(
+                        "[creation_anchor] resolved via curve PDA for %s", mint[:16]
+                    )
+                    return sig
+
+        # ── 3. Direct mint walk ───────────────────────────────────────────────
+        return await self.get_oldest_signature(mint, circuit_protect=circuit_protect)
+
     async def get_deployer_and_timestamp(
         self, mint: str
     ) -> tuple[str, Optional[datetime]]:
         """Return ``(deployer_address, creation_datetime)`` for a mint.
 
-        Resolution strategy for PumpFun tokens (mint ends with 'pump'):
-          1. Try the bonding-curve PDA first — it has O(10) transactions so
-             ``get_oldest_signature`` returns in milliseconds for both active
-             and Raydium-migrated tokens (migrated curves return None quickly).
-          2. Fall back to the mint address directly (required for migrated
-             tokens where the bonding-curve account is already closed).
-        For non-PumpFun tokens the mint address is always used directly.
+        Resolution order (delegated to ``get_creation_anchor``):
+          1. Helius Enhanced Transactions API — 1 call, returns ``feePayer``
+             directly (Starter plan required; skipped on free tier).
+          2. Bonding-curve PDA signature walk (PumpFun tokens only).
+          3. Direct mint signature walk (capped at 20 pages, fallback).
         """
-        sig_info: Optional[dict] = None
-
-        if mint.endswith("pump"):
-            curve_pda = _pump_bonding_curve_pda(mint)
-            if curve_pda:
-                sig_info = await self.get_oldest_signature(
-                    curve_pda, circuit_protect=False
-                )
-                if sig_info:
-                    logger.debug(
-                        "[deployer] resolved via bonding-curve PDA for %s", mint[:16]
-                    )
-
-        if sig_info is None:
-            sig_info = await self.get_oldest_signature(mint)
-
-        if sig_info is None:
+        anchor = await self.get_creation_anchor(mint)
+        if anchor is None:
             return ("", None)
 
-        signature = sig_info.get("signature", "")
-        block_time = sig_info.get("blockTime")
+        block_time = anchor.get("blockTime")
         created_at = (
             datetime.fromtimestamp(block_time, tz=timezone.utc)
             if block_time
             else None
         )
 
-        # Fetch full transaction to extract the fee payer
+        # Helius Enhanced provides feePayer directly — no extra TX fetch needed.
+        if anchor.get("feePayer"):
+            return (anchor["feePayer"], created_at)
+
+        # Fallback: fetch the full transaction to extract the signer.
+        signature = anchor.get("signature", "")
         tx = await self._call(
             "getTransaction",
             [
