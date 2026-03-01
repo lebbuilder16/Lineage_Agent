@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import re
 from datetime import datetime, timezone
 from typing import Any, Optional
 
@@ -91,18 +90,6 @@ def _pump_bonding_curve_pda(mint: str) -> Optional[str]:
     return None
 
 
-# Helius Enhanced Transactions API base URL (requires Starter plan or above)
-_HELIUS_ENHANCED_BASE = "https://api.helius.xyz"
-
-
-def _extract_helius_api_key(endpoint: str) -> Optional[str]:
-    """Extract the Helius API key from an RPC endpoint URL such as
-    ``https://beta.helius-rpc.com/?api-key=<key>``.
-    Returns None when the endpoint is not a Helius URL.
-    """
-    m = re.search(r"[?&]api-key=([A-Za-z0-9_\-]+)", endpoint)
-    return m.group(1) if m else None
-
 
 # Retry configuration
 _MAX_RETRIES = 3
@@ -142,7 +129,6 @@ class SolanaRpcClient:
         self._client: httpx.AsyncClient | None = None
         self._id_counter = 0
         self._cb = circuit_breaker
-        self._helius_api_key: Optional[str] = _extract_helius_api_key(endpoint)
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
@@ -189,73 +175,222 @@ class SolanaRpcClient:
 
         return oldest
 
-    async def _get_helius_creation(
+    async def _fetch_dexscreener_pair(
         self, mint: str
-    ) -> Optional[dict[str, Any]]:
-        """Call the Helius Enhanced Transactions API to retrieve the creation TX.
+    ) -> tuple[int, str] | tuple[None, None]:
+        """Fetch the oldest DexScreener pair for *mint*.
 
-        Requires a Helius **Starter plan or above** ($49/month).  Returns None
-        when the API key is absent (free tier) or the call fails.
-
-        On success returns a dict compatible with ``get_oldest_signature``
-        callers, extended with a ``feePayer`` field::
-
-            {"signature": str, "slot": int, "blockTime": int, "feePayer": str}
+        Returns ``(pair_created_at_unix_s, pair_address)`` on success, or
+        ``(None, None)`` when DexScreener doesn't know the token yet.
         """
-        if not self._helius_api_key:
-            return None
-        url = (
-            f"{_HELIUS_ENHANCED_BASE}/v0/addresses/{mint}/transactions"
-            f"?api-key={self._helius_api_key}&limit=1&type=CREATE"
-        )
         client = await self._get_client()
         try:
-            resp = await client.get(url, timeout=10.0)
-            if resp.status_code != 200:
-                logger.debug(
-                    "[helius_enhanced] HTTP %d for %s", resp.status_code, mint[:16]
-                )
-                return None
-            data = resp.json()
-            if not data or not isinstance(data, list):
-                return None
-            tx = data[0]
-            slot = tx.get("slot")
-            ts = tx.get("timestamp")
-            fee_payer = tx.get("feePayer", "")
-            sig = tx.get("signature", "")
-            if not slot or not fee_payer or fee_payer in _PROGRAM_ADDRESSES:
-                return None
-            logger.debug(
-                "[helius_enhanced] creation TX resolved for %s: deployer=%s slot=%d",
-                mint[:16], fee_payer[:12], slot,
+            resp = await client.get(
+                f"https://api.dexscreener.com/latest/dex/tokens/{mint}",
+                timeout=8.0,
             )
-            return {"signature": sig, "slot": slot, "blockTime": ts, "feePayer": fee_payer}
+            if resp.status_code != 200:
+                return None, None
+            pairs = resp.json().get("pairs") or []
+            if not pairs:
+                return None, None
+            oldest = min(
+                pairs,
+                key=lambda p: p.get("pairCreatedAt") or 9_999_999_999_999,
+            )
+            pair_ts_ms: int = oldest.get("pairCreatedAt") or 0
+            pair_address: str = oldest.get("pairAddress", "")
+            if not pair_ts_ms or not pair_address:
+                return None, None
+            return pair_ts_ms // 1000, pair_address
         except Exception as exc:  # noqa: BLE001
-            logger.debug("[helius_enhanced] fetch failed for %s: %s", mint[:16], exc)
+            logger.debug(
+                "[dexscreener_pair] fetch failed for %s: %s", mint[:16], exc
+            )
+            return None, None
+
+    async def _get_deployer_via_pair_pivot(
+        self,
+        mint: str,
+        pair_ts: int,
+        pair_address: str,
+    ) -> Optional[dict[str, Any]]:
+        """Binary-search slot → getBlock scan → before-param walk → deployer.
+
+        Algorithm (deterministic, ~1–3 s for migrated PumpFun tokens):
+
+        1. Binary-search ``getBlockTime`` to locate the Solana slot whose
+           timestamp is closest to *pair_ts* (the Raydium migration time from
+           DexScreener ``pairCreatedAt``).
+        2. Scan a ±65-slot window for the migration TX that includes
+           *pair_address* in its ``accountKeys``.
+        3. Call ``getSignaturesForAddress(mint, before=migration_sig)`` and
+           paginate until the page is shorter than 1 000 (creation is last).
+        4. Fetch the creation TX and return the first signer that is not a
+           known program/launchpad address as ``feePayer`` / deployer.
+
+        Returns ``{signature, slot, blockTime, feePayer}`` or ``None``.
+        """
+        # ── 1. Binary search ─────────────────────────────────────────────────
+        current_slot = await self._call("getSlot", [{"commitment": "finalized"}])
+        if not current_slot:
+            return None
+        low: int = current_slot - 50_000_000
+        high: int = current_slot
+        for _ in range(28):
+            if high - low <= 100:
+                break
+            mid = (low + high) // 2
+            bt = await self._call("getBlockTime", [mid])
+            if bt is None:
+                # Skipped slot — advance until we find a valid one
+                for d in range(1, 50):
+                    bt = await self._call("getBlockTime", [mid + d])
+                    if bt:
+                        mid += d
+                        break
+            if bt is None:
+                high = mid - 50
+                continue
+            if bt > pair_ts:
+                high = mid
+            else:
+                low = mid
+        target_slot = (low + high) // 2
+        logger.debug(
+            "[pair_pivot] binary search done: target_slot=%d for %s",
+            target_slot, mint[:16],
+        )
+
+        # ── 2. Scan blocks for migration TX ──────────────────────────────────
+        migration_sig: Optional[str] = None
+        for delta in range(-5, 65):
+            blk = await self._call(
+                "getBlock",
+                [
+                    target_slot + delta,
+                    {
+                        "encoding": "jsonParsed",
+                        "transactionDetails": "accounts",
+                        "rewards": False,
+                        "maxSupportedTransactionVersion": 0,
+                    },
+                ],
+            )
+            if not blk or not isinstance(blk, dict):
+                continue
+            for tx in blk.get("transactions") or []:
+                keys = tx.get("transaction", {}).get("accountKeys", [])
+                if any(
+                    (k.get("pubkey", "") if isinstance(k, dict) else k) == pair_address
+                    for k in keys
+                ):
+                    sigs = tx.get("transaction", {}).get("signatures", [])
+                    migration_sig = sigs[0] if sigs else None
+                    logger.debug(
+                        "[pair_pivot] migration TX at slot+%d for %s",
+                        delta, mint[:16],
+                    )
+                    break
+            if migration_sig:
+                break
+
+        if not migration_sig:
+            logger.debug(
+                "[pair_pivot] migration TX not found (window ±65) for %s", mint[:16],
+            )
             return None
 
-    async def get_creation_anchor(
-        self, mint: str, *, circuit_protect: bool = True
-    ) -> Optional[dict[str, Any]]:
-        """Return an anchor dict ``{signature, slot, blockTime}`` for *mint*.
+        # ── 3. Paginate mint sigs before migration ────────────────────────────
+        cursor: str = migration_sig
+        for _page in range(10):  # safety cap: 10k sigs max
+            page_sigs = await self._call(
+                "getSignaturesForAddress",
+                [mint, {"limit": 1000, "before": cursor, "commitment": "finalized"}],
+            )
+            if not page_sigs:
+                break
+            cursor = page_sigs[-1]["signature"]
+            if len(page_sigs) < 1000:
+                # Last page — oldest entry is the true creation TX
+                creation = page_sigs[-1]
+                creation_slot = creation.get("slot")
+                creation_time = creation.get("blockTime")
+                sig = creation["signature"]
 
-        When the Helius Enhanced API is available (Starter plan or above) the
-        result also contains a ``feePayer`` key with the deployer address — this
-        avoids the need for a separate ``getTransaction`` call.
+                # ── 4. Fetch creation TX → extract deployer ───────────────────
+                tx = await self._call(
+                    "getTransaction",
+                    [
+                        sig,
+                        {
+                            "encoding": "jsonParsed",
+                            "maxSupportedTransactionVersion": 0,
+                        },
+                    ],
+                )
+                deployer = ""
+                if tx and isinstance(tx, dict):
+                    for key in (
+                        tx.get("transaction", {})
+                        .get("message", {})
+                        .get("accountKeys", [])
+                    ):
+                        addr = key.get("pubkey", "") if isinstance(key, dict) else key
+                        is_signer = (
+                            key.get("signer", False) if isinstance(key, dict) else True
+                        )
+                        if addr and is_signer and addr not in _PROGRAM_ADDRESSES:
+                            deployer = addr
+                            break
+                if deployer:
+                    logger.debug(
+                        "[pair_pivot] deployer=%s slot=%d for %s",
+                        deployer[:12], creation_slot or 0, mint[:16],
+                    )
+                    return {
+                        "signature": sig,
+                        "slot": creation_slot,
+                        "blockTime": creation_time,
+                        "feePayer": deployer,
+                    }
+                break  # TX parse failed — fall through to next strategy
+
+        return None
+
+    async def get_creation_anchor(
+        self, mint: str, *, circuit_protect: bool = True,
+        pair_ts_ms: Optional[int] = None,
+        pair_address: Optional[str] = None,
+    ) -> Optional[dict[str, Any]]:
+        """Return an anchor dict ``{signature, slot, blockTime, feePayer}`` for *mint*.
 
         Resolution order
         ----------------
-        1. **Helius Enhanced Transactions API** (``type=CREATE``) — 1 HTTP call,
-           instant even for tokens with 500 000+ transactions (Starter+ plan).
+        1. **DexScreener pair-pivot** (fastest, ≈1–3 s) — uses ``pairCreatedAt``
+           as the Raydium migration anchor, binary-searches the slot chain, walks
+           backwards from the migration TX to the true creation TX.
+           Works for any token listed on DexScreener (i.e. that has migrated).
+           The caller may supply *pair_ts_ms* and *pair_address* to skip the
+           DexScreener HTTP call.
         2. **Bonding-curve PDA** signature walk — PumpFun only; the PDA has very
-           few transactions and resolves in milliseconds for active tokens.
-        3. **Direct mint** signature walk — fallback, capped at 20 pages.
+           few transactions and resolves quickly for active tokens.
+        3. **Direct mint** signature walk — last-resort fallback, capped at
+           20 pages.
         """
-        # ── 1. Helius Enhanced (fastest) ─────────────────────────────────────
-        helius = await self._get_helius_creation(mint)
-        if helius and helius.get("slot"):
-            return helius
+        # ── 1. DexScreener pair-pivot (fastest) ──────────────────────────────
+        if pair_ts_ms and pair_address:
+            pivot = await self._get_deployer_via_pair_pivot(
+                mint, pair_ts_ms // 1000, pair_address
+            )
+            if pivot:
+                return pivot
+        else:
+            dex_ts, dex_pair = await self._fetch_dexscreener_pair(mint)
+            if dex_ts and dex_pair:
+                pivot = await self._get_deployer_via_pair_pivot(mint, dex_ts, dex_pair)
+                if pivot:
+                    return pivot
 
         # ── 2. Bonding-curve PDA (PumpFun only) ──────────────────────────────
         if mint.endswith("pump"):
