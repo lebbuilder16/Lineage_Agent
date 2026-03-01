@@ -27,7 +27,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from .data_sources.solana_rpc import SolanaRpcClient
-from .data_sources._clients import get_rpc_client, bundle_report_insert, bundle_report_query
+from .data_sources._clients import get_rpc_client, bundle_report_insert, bundle_report_query, cartel_edge_upsert
 from .constants import SKIP_PROGRAMS
 from .models import (
     BundleWalletVerdict,
@@ -202,6 +202,13 @@ async def analyze_bundle(
         except Exception:
             logger.debug("[bundle] cache write failed for %s", mint[:8])
 
+        # Persist factory cartel graph edges immediately (non-blocking)
+        if report.factory_address:
+            try:
+                await _persist_factory_edges(report)
+            except Exception:
+                logger.debug("[bundle] factory edge persist failed for %s", mint[:8])
+
     return report
 
 
@@ -347,6 +354,16 @@ async def _run_forensic(
             if pre.prefund_source == common_prefund_source:
                 pre.prefund_source_is_known_funder = True
 
+    # ─── Phase 4b: Factory wallet resolution ─────────────────────────────
+    # Determine if common_prefund_source is a genuine factory (also funded
+    # the deployer).  This is > 1 RPC call but only runs when a shared
+    # funder was already found — not on every token.
+    factory_address, factory_funded_deployer, factory_sniper_wallets = (
+        await _resolve_factory_wallet(
+            rpc, deployer, wallets, pre_sell_results, common_prefund_source, launch_dt
+        )
+    )
+
     # ─────────────────────────────────────────────────────────────────────
     # Phase 5 — Per-wallet verdict + aggregation
     # ─────────────────────────────────────────────────────────────────────
@@ -384,6 +401,24 @@ async def _run_forensic(
         wallet_analyses, confirmed, suspected, dumps, common_sinks, coordinated_sell
     )
 
+    # Augment verdict + evidence chain with factory findings
+    if factory_address:
+        if factory_funded_deployer:
+            evidence_chain.append(
+                f"Factory {factory_address[:8]}\u2026 funded deployer + "
+                f"{len(factory_sniper_wallets)} sniper(s) \u2014 orchestrated extraction confirmed"
+            )
+            if overall_verdict in (
+                "coordinated_dump_unknown_team",
+                "early_buyers_no_link_proven",
+            ):
+                overall_verdict = "suspected_team_extraction"
+        else:
+            evidence_chain.append(
+                f"Factory {factory_address[:8]}\u2026 funded "
+                f"{len(factory_sniper_wallets)} bundle wallet(s)"
+            )
+
     total_sol_spent = sum(a.sol_spent for a in wallet_analyses)
     # Only count SOL flows confirmed returning to deployer-linked addresses
     total_extracted = sum(
@@ -413,6 +448,9 @@ async def _run_forensic(
         common_prefund_source=common_prefund_source,
         common_sink_wallets=list(common_sinks),
         coordinated_sell_detected=coordinated_sell,
+        factory_address=factory_address,
+        factory_funded_deployer=factory_funded_deployer,
+        factory_sniper_wallets=factory_sniper_wallets,
         overall_verdict=overall_verdict,
         evidence_chain=evidence_chain,
     )
@@ -940,6 +978,88 @@ def _detect_common_sinks(post_sell_results: list[PostSellBehavior]) -> set[str]:
     }
 
 
+def _factory_sniper_wallets(
+    wallets: list[str],
+    pre_sell_results: list[PreSellBehavior],
+    factory: str,
+) -> list[str]:
+    """Return the subset of *wallets* whose prefund source is *factory*.
+
+    Pure sync helper — called from ``_resolve_factory_wallet`` and exported
+    for unit testing.
+    """
+    return [
+        w for w, pre in zip(wallets, pre_sell_results)
+        if pre.prefund_source == factory
+    ]
+
+
+async def _resolve_factory_wallet(
+    rpc: SolanaRpcClient,
+    deployer: str,
+    wallets: list[str],
+    pre_sell_results: list[PreSellBehavior],
+    common_prefund_source: Optional[str],
+    launch_dt: datetime,
+) -> tuple[Optional[str], bool, list[str]]:
+    """Identify the factory wallet that orchestrated the bundle.
+
+    A *factory wallet* is an address that:
+    - Funded ≥2 bundle wallets before launch (``common_prefund_source``)
+    - Optionally also funded the deployer wallet itself (strongest signal)
+
+    Returns a 3-tuple ``(factory_address, factory_funded_deployer,
+    factory_sniper_wallets)``.
+
+    ``factory_address`` is ``None`` when:
+    - ``common_prefund_source`` is absent (no shared funder)
+    - The deployer funded its own snipers (already captured by
+      ``prefund_source_is_deployer``; no separate factory edge needed)
+    """
+    if not common_prefund_source or common_prefund_source == deployer:
+        return None, False, []
+
+    factory = common_prefund_source
+    sniper_wallets = _factory_sniper_wallets(wallets, pre_sell_results, factory)
+
+    # ── Optional: confirm factory also funded the deployer ────────────────
+    # One pass over ≤15 pre-launch deployer TXs — only executed when a
+    # shared funder already exists, so extra RPC cost is rare.
+    funded_deployer = False
+    try:
+        window_ts = (launch_dt - timedelta(hours=_PRE_FUND_WINDOW_H)).timestamp()
+        launch_ts = launch_dt.timestamp()
+
+        sigs = await rpc._call(
+            "getSignaturesForAddress",
+            [deployer, {"limit": 100, "commitment": "finalized"}],
+            circuit_protect=False,
+        )
+        if sigs and isinstance(sigs, list):
+            pre_launch = [
+                s for s in sigs
+                if window_ts <= s.get("blockTime", 0) < launch_ts
+                and not s.get("err")
+            ]
+            txs = await asyncio.gather(
+                *[_fetch_tx(rpc, s["signature"]) for s in pre_launch[:15]],
+                return_exceptions=True,
+            )
+            for tx in txs:
+                if not tx or isinstance(tx, Exception):
+                    continue
+                funder, sol = _find_incoming_sol_transfer(tx, deployer)
+                if funder == factory and sol * _SOL_DECIMALS >= _MIN_PREFUND_LAMPORTS:
+                    funded_deployer = True
+                    break
+    except Exception as exc:
+        logger.debug(
+            "[bundle] factory\u2192deployer check failed for %s: %s", deployer[:8], exc
+        )
+
+    return factory, funded_deployer, sniper_wallets
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Phase 5 helpers — Verdict computation
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1056,6 +1176,43 @@ def _compute_overall_verdict(
         return "coordinated_dump_unknown_team", evidence
 
     return "early_buyers_no_link_proven", evidence
+
+
+async def _persist_factory_edges(report: BundleExtractionReport) -> None:
+    """Write factory\u2192deployer and factory\u2192sniper cartel graph edges.
+
+    Edge types:
+    - ``factory_deploy`` : factory wallet \u2192 deployer (strength 0.90 when factory
+      is confirmed to have funded the deployer, 0.75 otherwise)
+    - ``factory_sniper`` : factory wallet \u2192 each bundle sniper wallet (0.80)
+    """
+    factory = report.factory_address
+    if not factory:
+        return
+
+    strength_deploy = 0.90 if report.factory_funded_deployer else 0.75
+    await cartel_edge_upsert(
+        factory,
+        report.deployer,
+        "factory_deploy",
+        strength_deploy,
+        {
+            "mint": report.mint,
+            "sniper_count": len(report.factory_sniper_wallets),
+            "funded_deployer": report.factory_funded_deployer,
+        },
+    )
+    for wallet in report.factory_sniper_wallets:
+        await cartel_edge_upsert(
+            factory,
+            wallet,
+            "factory_sniper",
+            0.80,
+            {
+                "mint": report.mint,
+                "deployer": report.deployer,
+            },
+        )
 
 
 # ─────────────────────────────────────────────────────────────────────────────

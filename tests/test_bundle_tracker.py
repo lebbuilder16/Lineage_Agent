@@ -22,6 +22,7 @@ from lineage_agent.bundle_tracker_service import (
     _detect_coordinated_sell,
     _coordinated_sell_slots,
     _detect_common_sinks,
+    _factory_sniper_wallets,
     _compute_wallet_verdict,
     _compute_overall_verdict,
     _collect_window_sigs,
@@ -848,3 +849,58 @@ class TestCollectWindowSigs:
         assert result == []
 
 
+# ===================================================================
+# _factory_sniper_wallets
+# ===================================================================
+
+class TestFactorySniperWallets:
+    """Verify that _factory_sniper_wallets correctly filters wallets
+    funded by the factory, using only existing PreSellBehavior data."""
+
+    def test_identifies_funded_wallets(self):
+        wallets = ["W1", "W2", "W3"]
+        pres = [
+            _make_pre_sell(prefund_source="FACTORY"),
+            _make_pre_sell(prefund_source="FACTORY"),
+            _make_pre_sell(prefund_source="OTHER"),
+        ]
+        result = _factory_sniper_wallets(wallets, pres, "FACTORY")
+        assert result == ["W1", "W2"]
+
+    def test_all_funded_by_factory(self):
+        wallets = ["A", "B", "C"]
+        pres = [_make_pre_sell(prefund_source="FACTORY")] * 3
+        result = _factory_sniper_wallets(wallets, pres, "FACTORY")
+        assert result == ["A", "B", "C"]
+
+    def test_none_funded_by_factory(self):
+        wallets = ["X", "Y"]
+        pres = [
+            _make_pre_sell(prefund_source="OTHER"),
+            _make_pre_sell(prefund_source=None),
+        ]
+        result = _factory_sniper_wallets(wallets, pres, "FACTORY")
+        assert result == []
+
+    def test_empty_inputs(self):
+        assert _factory_sniper_wallets([], [], "FACTORY") == []
+
+    def test_single_wallet_funded(self):
+        wallets = ["W1"]
+        pres = [_make_pre_sell(prefund_source="FACTORY")]
+        result = _factory_sniper_wallets(wallets, pres, "FACTORY")
+        assert result == ["W1"]
+
+    def test_deployer_self_funded_not_misidentified(self):
+        """When deployer IS the funder, factory detection should be skipped
+        upstream (_resolve_factory_wallet guards it); this helper returns
+        wallets regardless of who the factory is - it's the caller's
+        responsibility to exclude deployer==factory."""
+        wallets = ["W1", "W2"]
+        pres = [
+            _make_pre_sell(prefund_source="DEPLOYER", prefund_source_is_deployer=True),
+            _make_pre_sell(prefund_source="DEPLOYER", prefund_source_is_deployer=True),
+        ]
+        result = _factory_sniper_wallets(wallets, pres, "DEPLOYER")
+        # The guard is in _resolve_factory_wallet, not here — both returned
+        assert result == ["W1", "W2"]

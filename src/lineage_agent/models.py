@@ -306,6 +306,21 @@ class BundleExtractionReport(BaseModel):
     common_prefund_source: Optional[str] = Field(
         None, description="Address that funded multiple bundle wallets before launch"
     )
+    factory_address: Optional[str] = Field(
+        None,
+        description=(
+            "Wallet that funded ≥2 bundle wallets and/or the deployer — "
+            "the orchestrating entity behind the launch"
+        ),
+    )
+    factory_funded_deployer: bool = Field(
+        False,
+        description="factory_address also sent SOL to the deployer wallet before launch",
+    )
+    factory_sniper_wallets: list[str] = Field(
+        default_factory=list,
+        description="Bundle wallets confirmed funded by factory_address",
+    )
     common_sink_wallets: list[str] = Field(
         default_factory=list,
         description="Destination wallets that received funds from ≥2 bundle wallets",

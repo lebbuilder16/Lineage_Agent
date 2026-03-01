@@ -23,6 +23,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 from .data_sources._clients import (
+    bundle_report_query,
     cartel_edge_upsert,
     event_query,
     event_update,
@@ -691,16 +692,123 @@ async def signal_sniper_ring(deployer: str) -> int:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+#  Signal 9 — Factory Cluster
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def signal_factory_cluster(deployer: str) -> int:
+    """Detect when the same factory wallet orchestrated tokens across deployers.
+
+    A factory wallet funds both the deployer address and the sniper/bundle
+    wallets that buy at launch.  This signal reads cached bundle reports for
+    every token launched by *deployer*, extracts ``factory_address`` (or
+    ``common_prefund_source`` as a fallback), then cross-references with
+    cached bundle reports from other deployers.
+
+    Creates ``factory_cluster`` edges between deployers that share a factory
+    wallet, indicating they are operated by the same ring.
+    """
+    count = 0
+    try:
+        # ── All mints by this deployer ─────────────────────────────────
+        my_events = await event_query(
+            "event_type = 'token_created' AND deployer = ?",
+            params=(deployer,),
+            columns="mint",
+            limit=50,
+        )
+        if not my_events:
+            return 0
+
+        # ── Collect factory wallets from cached bundle reports ───────────
+        my_factories: set[str] = set()
+        for ev in my_events:
+            mint = ev.get("mint", "")
+            if not mint:
+                continue
+            try:
+                report_json = await bundle_report_query(mint, max_age_seconds=0)
+                if not report_json:
+                    continue
+                data = json.loads(report_json)
+                factory = data.get("factory_address") or data.get("common_prefund_source")
+                if factory and factory != deployer:
+                    my_factories.add(factory)
+            except Exception:
+                continue
+
+        if not my_factories:
+            return 0
+
+        # ── Other deployers → mints map ──────────────────────────────
+        other_events = await event_query(
+            "event_type = 'token_created' AND deployer != ?",
+            params=(deployer,),
+            columns="mint, deployer",
+            limit=5000,
+        )
+        other_deployer_mints: dict[str, list[str]] = defaultdict(list)
+        for ev in other_events:
+            od = ev.get("deployer", "")
+            om = ev.get("mint", "")
+            if od and om:
+                other_deployer_mints[od].append(om)
+
+        seen_edges: set[str] = set()
+
+        for other_deployer, mints in other_deployer_mints.items():
+            other_factories: set[str] = set()
+            for mint in mints[:20]:  # cap per deployer to avoid excessive DB reads
+                try:
+                    report_json = await bundle_report_query(mint, max_age_seconds=0)
+                    if not report_json:
+                        continue
+                    data = json.loads(report_json)
+                    factory = data.get("factory_address") or data.get("common_prefund_source")
+                    if factory and factory != other_deployer:
+                        other_factories.add(factory)
+                except Exception:
+                    continue
+
+            shared = my_factories & other_factories
+            if not shared:
+                continue
+
+            edge_key = f"{deployer}:{other_deployer}"
+            if edge_key in seen_edges:
+                continue
+            seen_edges.add(edge_key)
+
+            for factory_wallet in sorted(shared):
+                strength = round(min(1.0, 0.80 + 0.05 * (len(shared) - 1)), 4)
+                await cartel_edge_upsert(
+                    deployer,
+                    other_deployer,
+                    "factory_cluster",
+                    strength,
+                    {
+                        "factory_wallet": factory_wallet,
+                        "shared_factory_count": len(shared),
+                    },
+                )
+                count += 1
+
+    except Exception:
+        logger.exception("signal_factory_cluster failed for %s", deployer)
+    return count
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 #  Aggregate runner
 # ═══════════════════════════════════════════════════════════════════════════════
 
 async def build_financial_edges(deployer: str) -> int:
-    """Run all 3 financial signals for a deployer.  Returns total edge count."""
-    signal_names = ("funding_link", "shared_lp", "sniper_ring")
+    """Run all financial signals for a deployer.  Returns total edge count."""
+    signal_names = ("funding_link", "shared_lp", "sniper_ring", "factory_cluster")
     results = await asyncio.gather(
         asyncio.wait_for(signal_funding_link(deployer), timeout=_SIGNAL_TIMEOUT),
         asyncio.wait_for(signal_shared_lp(deployer), timeout=_SIGNAL_TIMEOUT),
         asyncio.wait_for(signal_sniper_ring(deployer), timeout=_SIGNAL_TIMEOUT),
+        asyncio.wait_for(signal_factory_cluster(deployer), timeout=_SIGNAL_TIMEOUT),
         return_exceptions=True,
     )
     total = 0
