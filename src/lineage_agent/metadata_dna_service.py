@@ -49,6 +49,18 @@ _SYSTEM_ADDRESSES: frozenset[str] = frozenset({
     "Ce6TQqeHC9p8KetsN6JsjHK7UTZk7nasjjnr7XxXp9F1",   # Moonshot
 })
 
+# Social/campaign handle patterns extracted from off-chain metadata descriptions.
+# These are the STRONGEST cross-wallet signal: operators reuse the same Discord
+# slug, Twitter handle or Telegram channel across all their token launches even
+# when they use different deployer wallets and different description texts.
+_CAMPAIGN_PATTERNS: list[tuple[str, str]] = [
+    (r"discord\.gg/([a-zA-Z0-9_-]{2,32})", "discord"),
+    (r"discord\.com/invite/([a-zA-Z0-9_-]{2,32})", "discord"),
+    (r"(?:twitter\.com|x\.com)/([a-zA-Z0-9_]{1,15})(?:/|\s|$)", "twitter"),
+    (r"t\.me/([a-zA-Z0-9_]{5,32})(?:/|\s|$)", "telegram"),
+    (r"instagram\.com/([a-zA-Z0-9_.]{1,30})(?:/|\s|$)", "instagram"),
+]
+
 # Known IPFS/Arweave gateway patterns
 _SERVICE_PATTERNS: list[tuple[str, str]] = [
     (r"arweave\.net/", "arweave"),
@@ -228,16 +240,15 @@ async def _get_fingerprint(mint: str, uri: str) -> tuple[str, str] | None:
     if not uri:
         return None
 
-    cache_key = f"dna:{mint}"
+    # v2: version bump invalidates old 60-char entries and adds campaign tags
+    cache_key = f"dna:v2:{mint}"
     cached = await cache_get(cache_key)
     if cached:
-        # Cache value format: "fp|desc_norm" (pipe-separated)
+        # Cache value format: "fp|desc_norm|tags_str" (3-part, pipe-separated)
         cached_str = str(cached)
-        if "|" in cached_str:
-            fp, desc_norm = cached_str.split("|", 1)
-            return fp, desc_norm
-        # Legacy cache entries stored just the fp hash
-        return cached_str, cached_str[:16] + "..."
+        parts = cached_str.split("|", 2)
+        if len(parts) >= 2:
+            return parts[0], parts[1]
 
     try:
         client: httpx.AsyncClient = get_img_client()
@@ -253,19 +264,38 @@ async def _get_fingerprint(mint: str, uri: str) -> tuple[str, str] | None:
         logger.debug("metadata fetch failed for %s (%s): %s", mint, uri, exc)
         return None
 
-    desc = str(data.get("description") or "").strip().lower()
-    # Normalise: keep only alphanumeric + spaces, truncate to 60
-    desc_norm = re.sub(r"[^a-z0-9 ]", "", desc)[:60].strip()
+    desc = str(data.get("description") or "").strip()
+    desc_lower = desc.lower()
+
+    # Extract campaign social handles from the RAW description (before normalisation).
+    # These are the strongest cross-wallet identity signal: operators reuse the
+    # same Discord/Twitter/Telegram across launches even when description text differs.
+    campaign_tags: list[str] = []
+    for pattern, platform in _CAMPAIGN_PATTERNS:
+        for m in re.finditer(pattern, desc, re.IGNORECASE):
+            tag = f"{platform}:{m.group(1).lower()}"
+            if tag not in campaign_tags:
+                campaign_tags.append(tag)
+    tags_str = ";".join(sorted(campaign_tags))
+
+    # Normalise: keep only alphanumeric + spaces, truncate to 200
+    # (was 60 — truncation hid campaign tags embedded later in long descriptions)
+    desc_norm = re.sub(r"[^a-z0-9 ]", "", desc_lower)[:200].strip()
     # Empty description is too weak a signal — would cause false positives across
     # all tokens that have no description (they'd all share the same fingerprint)
-    if not desc_norm:
+    if not desc_norm and not tags_str:
         return None
     service = _detect_service(uri)
-    raw = f"{service}:{desc_norm}"
+    # Campaign-tag fingerprint is STRONGER than description content because operators
+    # reuse the same social handles across wallets even when description text differs.
+    if tags_str:
+        raw = f"campaign:{tags_str}"
+    else:
+        raw = f"{service}:{desc_norm}"
     fp = hashlib.sha256(raw.encode()).hexdigest()[:32]
 
-    # Cache as "fp|desc_norm" so callers can recover the human-readable description
-    await cache_set(cache_key, f"{fp}|{desc_norm}", ttl=86400)
+    # Cache as "fp|desc_norm|tags_str" so callers can recover human-readable info
+    await cache_set(cache_key, f"{fp}|{desc_norm}|{tags_str}", ttl=86400)
     return fp, desc_norm
 
 

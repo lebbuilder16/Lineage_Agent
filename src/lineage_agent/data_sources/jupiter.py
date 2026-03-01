@@ -7,7 +7,8 @@ Jupiter provides:
 - Token price data aggregated from multiple DEXes
 - Token list with metadata
 
-All public endpoints – no API key required.
+Public tier: use ``lite-api.jup.ag`` (no API key required).
+Paid tier:   use ``api.jup.ag``  (requires Bearer token).
 """
 
 from __future__ import annotations
@@ -28,7 +29,9 @@ _MAX_RETRIES = 3
 _BACKOFF_BASE = 1.0
 
 _JUPITER_API_BASE = "https://api.jup.ag"
-_JUPITER_PRICE_BASE = "https://api.jup.ag/price/v2"
+# Public (no-auth) price endpoint — api.jup.ag/price/v2 requires a Bearer
+# token since March 2025; lite-api.jup.ag is the free public alternative.
+_JUPITER_PRICE_BASE = "https://lite-api.jup.ag/price/v2"
 _JUPITER_TOKEN_LIST = "https://tokens.jup.ag/tokens?tags=verified"
 
 # TTL for the cached verified token list (seconds)

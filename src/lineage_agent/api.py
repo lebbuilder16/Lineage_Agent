@@ -648,6 +648,47 @@ async def get_sol_trace(
 
 
 # ------------------------------------------------------------------
+# Bundle result polling endpoint  (Gap 6)
+# ------------------------------------------------------------------
+
+@app.get(
+    "/lineage/{mint}/bundle",
+    response_model=BundleExtractionReport,
+    tags=["intelligence"],
+    summary="Poll cached bundle extraction report for a token",
+)
+@limiter.limit(RATE_LIMIT_LINEAGE)
+async def get_lineage_bundle(
+    request: Request,
+    mint: str,
+) -> BundleExtractionReport:
+    """Return the cached bundle extraction report without triggering new RPC calls.
+
+    The bundle report is computed during the main ``/lineage`` scan and
+    persisted to the DB.  If the inline 30-second cap was hit, the full
+    analysis completes in the background and this endpoint exposes the
+    result once available.  Returns 404 if analysis has not yet run.
+    """
+    if not _BASE58_RE.match(mint):
+        raise HTTPException(status_code=400, detail="Invalid Solana mint address")
+    try:
+        from .bundle_tracker_service import get_cached_bundle_report as _gcbr
+        report = await _gcbr(mint)
+    except Exception as exc:
+        logger.exception("Bundle cache read failed for %s", mint)
+        raise HTTPException(status_code=500, detail="Internal server error") from exc
+    if report is None:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "Bundle report not yet available for this token. "
+                "Run /lineage first, then poll this endpoint."
+            ),
+        )
+    return report
+
+
+# ------------------------------------------------------------------
 # Cartel Graph endpoints (Initiative 3)
 # ------------------------------------------------------------------
 

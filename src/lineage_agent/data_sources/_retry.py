@@ -78,8 +78,8 @@ async def async_http_post_json(
     url: str,
     *,
     json_payload: Any,
-    max_retries: int = 3,
-    backoff_base: float = 1.5,
+    max_retries: int = 5,
+    backoff_base: float = 2.0,
     label: str = "RPC",
 ) -> Optional[Any]:
     """POST JSON *payload* with retry + exponential backoff.

@@ -242,19 +242,20 @@ class SQLiteCache:
         await db.execute(
             """
             CREATE TABLE IF NOT EXISTS intelligence_events (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                event_type  TEXT NOT NULL,
-                mint        TEXT,
-                deployer    TEXT,
-                name        TEXT,
-                symbol      TEXT,
-                narrative   TEXT,
-                mcap_usd    REAL,
-                liq_usd     REAL,
-                created_at  TEXT,
-                rugged_at   TEXT,
-                extra_json  TEXT,
-                recorded_at REAL NOT NULL
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_type   TEXT NOT NULL,
+                mint         TEXT,
+                deployer     TEXT,
+                name         TEXT,
+                symbol       TEXT,
+                narrative    TEXT,
+                mcap_usd     REAL,
+                liq_usd      REAL,
+                created_at   TEXT,
+                rugged_at    TEXT,
+                extra_json   TEXT,
+                metadata_uri TEXT DEFAULT '',
+                recorded_at  REAL NOT NULL
             )
             """
         )
@@ -289,6 +290,13 @@ class SQLiteCache:
         # Migrate: add phash column for pHash cluster signal (safe, ignored if exists)
         try:
             await db.execute("ALTER TABLE intelligence_events ADD COLUMN phash TEXT")
+        except Exception:
+            pass  # Column already exists — safe to ignore
+        # Migrate: add metadata_uri column for Operator Fingerprint enrichment
+        try:
+            await db.execute(
+                "ALTER TABLE intelligence_events ADD COLUMN metadata_uri TEXT DEFAULT ''"
+            )
         except Exception:
             pass  # Column already exists — safe to ignore
 
@@ -625,7 +633,7 @@ class SQLiteCache:
     _IE_ALLOWED_COLS: frozenset[str] = frozenset({
         "event_type", "mint", "deployer", "name", "symbol",
         "narrative", "mcap_usd", "liq_usd", "created_at",
-        "rugged_at", "extra_json", "phash",
+        "rugged_at", "extra_json", "phash", "metadata_uri",
     })
 
     async def insert_event(self, **kwargs: Any) -> None:

@@ -396,9 +396,9 @@ async def detect_lineage(
     await _progress(f"Scoring {len(pre_filtered)} candidates", 60)
 
     # Enrich all pre-filtered candidates concurrently (bounded)
-    # Use a higher concurrency than the global config to maximise throughput
-    # for the candidate-scoring phase (pure reads, no write contention).
-    sem = asyncio.Semaphore(max(MAX_CONCURRENT_RPC, 15))
+    # Use the configured concurrency limit to respect public RPC rate limits.
+    # Previously overrode config with max(..., 15), causing 20+ 429s per scan.
+    sem = asyncio.Semaphore(MAX_CONCURRENT_RPC)
     img_sem = asyncio.Semaphore(10)  # parallel image downloads
 
     async def _enrich(
@@ -797,7 +797,7 @@ async def detect_lineage(
                 _price = _p
         except Exception:
             pass
-        # Hard cap at 20 s for the inline scan — the bundle tracker's own
+        # Hard cap at 30 s for the inline scan — the bundle tracker's own
         # internal timeout is 55 s which dominates the parallel gather and
         # pushes total scan time beyond 30 s.  If we hit the cap, the partial
         # analysis is persisted to DB by the tracker; the next scan reads from
@@ -806,11 +806,11 @@ async def detect_lineage(
         try:
             return await asyncio.wait_for(
                 analyze_bundle(_scan_mint, _scan_deployer, _price),
-                timeout=20.0,
+                timeout=30.0,
             )
         except asyncio.TimeoutError:
             logger.warning(
-                "[bundle] inline analysis capped at 20 s for %s — "
+                "[bundle] inline analysis capped at 30 s for %s — "
                 "continuing full analysis in background", _scan_mint[:8],
             )
             asyncio.ensure_future(
@@ -1215,7 +1215,7 @@ async def _get_deployer_cached(
     # graduated PumpFun tokens).  Only the first-ever tx's blockTime is correct.
     try:
         _sw_deployer, _sw_ts = await asyncio.wait_for(
-            rpc.get_deployer_and_timestamp(mint), timeout=6.0
+            rpc.get_deployer_and_timestamp(mint), timeout=10.0
         )
     except (asyncio.TimeoutError, Exception) as _sw_exc:
         logger.warning("Signature-walk failed/timed out for %s: %s", mint, _sw_exc)
