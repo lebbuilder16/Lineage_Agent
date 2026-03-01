@@ -112,7 +112,7 @@ export default function HomePage() {
             viewport={{ once: true, margin: "-100px" }}
             transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
           >
-            <p className="display-heading text-[8rem] sm:text-[11rem] leading-none neon-glow select-none">
+            <p className="display-heading text-[5rem] sm:text-[8rem] md:text-[11rem] leading-none neon-glow select-none">
               LFG!
             </p>
           </motion.div>

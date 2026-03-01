@@ -90,7 +90,7 @@ function NarrativeRow({
   accent: string;
 }) {
   return (
-    <div className="grid grid-cols-[84px_1fr] gap-x-3 items-start py-1.5 border-b border-zinc-800/60 last:border-0">
+    <div className="grid grid-cols-1 sm:grid-cols-[84px_1fr] gap-x-3 gap-y-0.5 items-start py-1.5 border-b border-zinc-800/60 last:border-0">
       <span
         className={cn(
           "text-[10px] font-bold uppercase tracking-widest mt-0.5",

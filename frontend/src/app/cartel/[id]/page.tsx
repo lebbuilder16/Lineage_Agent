@@ -139,19 +139,19 @@ export default function CartelPage({ params }: Props) {
 
   if (loading) {
     return (
-      <main className="mx-auto max-w-5xl px-4 py-10 space-y-4">
+      <div className="space-y-4">
         <div className="h-8 w-64 rounded bg-muted animate-pulse" />
-        <div className="h-[520px] rounded-xl bg-muted animate-pulse" />
-      </main>
+        <div className="h-[300px] sm:h-[420px] md:h-[520px] rounded-xl bg-muted animate-pulse" />
+      </div>
     );
   }
 
   if (error || !community || !graph) {
     return (
-      <main className="mx-auto max-w-5xl px-4 py-10">
+      <div className="space-y-2">
         <p className="text-destructive">{error ?? "Community not found"}</p>
         <Link href="/" className="mt-4 inline-block text-sm text-primary hover:underline">← Back</Link>
-      </main>
+      </div>
     );
   }
 
@@ -159,7 +159,7 @@ export default function CartelPage({ params }: Props) {
   const signalColor = SIGNAL_COLORS[community.strongest_signal];
 
   return (
-    <main className="mx-auto max-w-6xl px-4 py-10 space-y-8">
+    <div className="space-y-8">
       {/* Header */}
       <div className="space-y-1">
         <div className="flex flex-wrap items-center gap-3">
@@ -233,7 +233,7 @@ export default function CartelPage({ params }: Props) {
                 </span>
               ))}
             </div>
-            <div className="rounded-xl border border-border overflow-hidden" style={{ height: "520px" }}>
+            <div className="rounded-xl border border-border overflow-hidden h-[300px] sm:h-[420px] md:h-[520px]">
               <ReactFlow
                 nodes={graph.nodes}
                 edges={graph.edges}
@@ -281,7 +281,8 @@ export default function CartelPage({ params }: Props) {
       {community.edges.length > 0 && (
         <section className="space-y-3">
           <h2 className="text-lg font-semibold">Signal Edges ({community.edges.length})</h2>
-          <div className="overflow-x-auto">
+          {/* Desktop table */}
+          <div className="hidden md:block overflow-x-auto">
             <table className="w-full text-xs border-collapse">
               <thead>
                 <tr className="border-b border-border text-muted-foreground">
@@ -323,8 +324,42 @@ export default function CartelPage({ params }: Props) {
               </tbody>
             </table>
           </div>
+
+          {/* Mobile cards */}
+          <div className="md:hidden space-y-2">
+            {community.edges
+              .slice()
+              .sort((a, b) => b.signal_strength - a.signal_strength)
+              .slice(0, 20)
+              .map((e, i) => {
+                const sc = SIGNAL_COLORS[e.signal_type];
+                return (
+                  <div
+                    key={i}
+                    className="rounded-lg border border-border bg-card px-3 py-2.5 space-y-1.5"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span
+                        className="rounded-full border px-2 py-0.5 text-[10px] font-medium shrink-0"
+                        style={{ borderColor: sc?.stroke, color: sc?.stroke, backgroundColor: `${sc?.stroke}18` }}
+                      >
+                        {sc?.label ?? e.signal_type}
+                      </span>
+                      <span className="tabular-nums text-xs font-bold">
+                        {(e.signal_strength * 100).toFixed(0)}%
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap gap-x-2 gap-y-0.5 text-[10px] font-mono text-muted-foreground">
+                      <span>{e.wallet_a.slice(0, 6)}…{e.wallet_a.slice(-4)}</span>
+                      <span className="text-muted-foreground/40">↔</span>
+                      <span>{e.wallet_b.slice(0, 6)}…{e.wallet_b.slice(-4)}</span>
+                    </div>
+                  </div>
+                );
+              })}
+          </div>
         </section>
       )}
-    </main>
+    </div>
   );
 }

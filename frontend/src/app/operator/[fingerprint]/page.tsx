@@ -52,30 +52,30 @@ export default function OperatorPage({ params }: Props) {
 
   if (loading) {
     return (
-      <main className="mx-auto max-w-5xl px-4 py-10 space-y-4">
+      <div className="space-y-4">
         <div className="h-8 w-64 rounded bg-muted animate-pulse" />
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {[...Array(4)].map((_, i) => (
             <div key={i} className="h-20 rounded-xl bg-muted animate-pulse" />
           ))}
         </div>
-      </main>
+      </div>
     );
   }
 
   if (error || !report) {
     return (
-      <main className="mx-auto max-w-5xl px-4 py-10">
+      <div className="space-y-2">
         <p className="text-destructive">{error ?? "Not found"}</p>
         <Link href="/" className="mt-4 inline-block text-sm text-primary hover:underline">← Back</Link>
-      </main>
+      </div>
     );
   }
 
   const cfg = CONFIDENCE_CONFIG[report.confidence];
 
   return (
-    <main className="mx-auto max-w-5xl px-4 py-10 space-y-8">
+    <div className="space-y-8">
       {/* Title */}
       <div className="space-y-1">
         <div className="flex flex-wrap items-center gap-3">
@@ -145,11 +145,17 @@ export default function OperatorPage({ params }: Props) {
         <section className="space-y-3">
           <h2 className="text-lg font-semibold">Activity Timeline</h2>
           <div className="rounded-xl border border-border bg-card px-4 py-3 text-sm text-muted-foreground">
-            <span className="font-medium text-foreground">First seen:</span>{" "}
-            {report.first_activity ? new Date(report.first_activity).toLocaleString() : "unknown"}
-            <span className="mx-4">→</span>
-            <span className="font-medium text-foreground">Last activity:</span>{" "}
-            {report.last_activity ? new Date(report.last_activity).toLocaleString() : "ongoing"}
+            <div className="flex flex-wrap gap-x-3 gap-y-1">
+              <span>
+                <span className="font-medium text-foreground">First seen:</span>{" "}
+                {report.first_activity ? new Date(report.first_activity).toLocaleString() : "unknown"}
+              </span>
+              <span className="text-muted-foreground/40">→</span>
+              <span>
+                <span className="font-medium text-foreground">Last activity:</span>{" "}
+                {report.last_activity ? new Date(report.last_activity).toLocaleString() : "ongoing"}
+              </span>
+            </div>
           </div>
         </section>
       )}
@@ -204,6 +210,6 @@ export default function OperatorPage({ params }: Props) {
           </div>
         </section>
       )}
-    </main>
+    </div>
   );
 }

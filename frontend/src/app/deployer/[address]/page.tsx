@@ -124,7 +124,7 @@ export default function DeployerPage({ params }: Props) {
 
   if (loading) {
     return (
-      <main className="mx-auto max-w-4xl px-4 py-10 space-y-4">
+      <div className="space-y-4">
         <div className="h-8 w-72 rounded bg-muted animate-pulse" />
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {[...Array(4)].map((_, i) => (
@@ -136,20 +136,20 @@ export default function DeployerPage({ params }: Props) {
             <div key={i} className="h-12 rounded-lg bg-muted animate-pulse" />
           ))}
         </div>
-      </main>
+      </div>
     );
   }
 
   if (error || !profile) {
     return (
-      <main className="mx-auto max-w-4xl px-4 py-10 space-y-4">
+      <div className="space-y-4">
         <p className="text-destructive text-sm">
           {error ?? "No profile found for this deployer. Analyse one of their tokens first."}
         </p>
         <Link href="/" className="inline-block text-sm text-primary hover:underline">
           ← Back to Home
         </Link>
-      </main>
+      </div>
     );
   }
 
@@ -171,7 +171,7 @@ export default function DeployerPage({ params }: Props) {
   });
 
   return (
-    <main className="mx-auto max-w-4xl px-4 py-10 space-y-8">
+    <div className="space-y-8">
       {/* Header */}
       <div className="space-y-2">
         <div className="flex flex-wrap items-center gap-3">
@@ -259,6 +259,6 @@ export default function DeployerPage({ params }: Props) {
       <Link href="/" className="inline-block text-sm text-primary hover:underline">
         ← Back to Home
       </Link>
-    </main>
+    </div>
   );
 }

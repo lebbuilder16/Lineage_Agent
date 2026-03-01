@@ -51,6 +51,8 @@ function nodeColor(addr: string, report: SolFlowReport): string {
 function buildGraph(
   report: SolFlowReport,
   activeFlows: SolFlowEdge[],
+  nodeSpacing: number = 280,
+  nodeWidth: number = 126,
 ): { nodes: Node[]; edges: Edge[] } {
   const addrSet = new Set<string>([report.deployer]);
   activeFlows.forEach((f) => {
@@ -103,7 +105,7 @@ function buildGraph(
 
     return {
       id: addr,
-      position: { x: hop * 280, y: nodeY[addr] ?? 0 },
+      position: { x: hop * nodeSpacing, y: nodeY[addr] ?? 0 },
       data: {
         label: (
           <div className="text-center px-1">
@@ -124,7 +126,7 @@ function buildGraph(
         border: "none",
         borderRadius: "8px",
         fontSize: "11px",
-        width: 126,
+        width: nodeWidth,
         padding: "6px 4px",
       },
     };
@@ -316,24 +318,25 @@ export default function SolTracePage({ params }: Props) {
     });
   }, [report, cutoffDate, sliderVal]);
 
-  const graph = useMemo(
-    () => (report ? buildGraph(report, activeFlows) : null),
-    [report, activeFlows],
-  );
+  const graph = useMemo(() => {
+    if (!report) return null;
+    const isSm = typeof window !== "undefined" && window.innerWidth < 640;
+    return buildGraph(report, activeFlows, isSm ? 160 : 280, isSm ? 90 : 126);
+  }, [report, activeFlows]);
 
   if (loading) {
     return (
-      <main className="mx-auto max-w-5xl px-4 py-10 space-y-4">
+      <div className="space-y-4">
         <div className="h-8 w-64 rounded bg-muted animate-pulse" />
         <div className="h-96 rounded-xl bg-muted animate-pulse" />
-      </main>
+      </div>
     );
   }
 
   if (error || !report || !graph) {
     const is404 = error?.includes("404") || error?.includes("No deployer") || error?.includes("analyse it first") || error?.includes("No SOL flows");
     return (
-      <main className="mx-auto max-w-5xl px-4 py-10">
+      <div className="space-y-4">
         <div className="rounded-xl border border-border bg-card p-8 text-center space-y-4">
           {is404 ? (
             <>
@@ -364,14 +367,14 @@ export default function SolTracePage({ params }: Props) {
             </>
           )}
         </div>
-      </main>
+      </div>
     );
   }
 
   const hasBridge = report.cross_chain_exits.length > 0;
 
   return (
-    <main className="mx-auto max-w-6xl px-4 py-10 space-y-8">
+    <div className="space-y-8">
 
       {/* Header */}
       <div className="space-y-1">
@@ -446,7 +449,7 @@ export default function SolTracePage({ params }: Props) {
             </span>
           ))}
         </div>
-        <div className="rounded-xl border border-border overflow-hidden" style={{ height: "520px" }}>
+        <div className="rounded-xl border border-border overflow-hidden h-[300px] sm:h-[420px] md:h-[520px]">
           <ReactFlow
             nodes={graph.nodes}
             edges={graph.edges}
@@ -538,7 +541,7 @@ export default function SolTracePage({ params }: Props) {
           </div>
         </section>
       )}
-    </main>
+    </div>
   );
 }
 

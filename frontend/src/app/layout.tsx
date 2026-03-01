@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { Providers } from "./providers";
 import Link from "next/link";
@@ -27,7 +27,12 @@ export const metadata: Metadata = {
     type: "website",
   },
 };
-
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: "#0a0a0a",
+};
 export default function RootLayout({
   children,
 }: {
@@ -47,7 +52,10 @@ export default function RootLayout({
           </a>
 
           {/* Pill nav — fixed, glassmorphism */}
-          <header className="fixed top-5 left-0 right-0 z-50 flex justify-center px-4">
+          <header
+            className="fixed top-0 left-0 right-0 z-50 flex justify-center px-4"
+            style={{ paddingTop: "max(1.25rem, env(safe-area-inset-top))" }}
+          >
             <nav className="pill-nav flex items-center gap-1 px-2 py-2">
               {/* Logo */}
               <Link

@@ -314,7 +314,8 @@ export function FamilyTree({ data, scannedMint }: Props) {
         )}
         <span className="ml-auto flex items-center gap-1 text-[10px] text-zinc-600">
           <ExternalLink className="h-2.5 w-2.5" />
-          Click node to analyse
+          <span className="hidden sm:inline">Click node to analyse</span>
+          <span className="sm:hidden">Tap to analyse • Pinch to zoom</span>
         </span>
       </div>
     </div>

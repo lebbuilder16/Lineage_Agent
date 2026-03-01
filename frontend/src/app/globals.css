@@ -47,6 +47,15 @@
     @apply bg-background text-foreground antialiased;
     font-family: var(--font-geist-sans, ui-sans-serif, system-ui, sans-serif);
     font-feature-settings: "rlig" 1, "calt" 1;
+    /* Prevent bounce scrolling on iOS */
+    overscroll-behavior: none;
+    /* iPhone home indicator clearance */
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  /* Eliminate 300ms tap delay on all interactive elements */
+  button, a, [role="button"], input, select, textarea {
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
   }
   code, kbd, pre, .font-mono {
     font-family: var(--font-geist-mono, ui-monospace, monospace);
