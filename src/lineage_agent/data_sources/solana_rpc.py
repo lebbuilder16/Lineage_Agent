@@ -353,6 +353,10 @@ class SolanaRpcClient:
                         "slot": creation_slot,
                         "blockTime": creation_time,
                         "feePayer": deployer,
+                        # migration_sig is stored so callers (e.g. the bundle
+                        # tracker) can use it as a cursor to reach the pre-
+                        # migration window without paginating 100+ pages.
+                        "migration_sig": migration_sig,
                     }
                 break  # TX parse failed — fall through to next strategy
 

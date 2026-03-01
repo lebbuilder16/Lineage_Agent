@@ -267,10 +267,17 @@ async def _run_forensic(
         else datetime.now(tz=timezone.utc)
     )
 
+    # migration_sig is set when the pair-pivot strategy was used (DexScreener).
+    # It marks the Raydium migration TX — all pre-migration sigs are reachable
+    # via before=migration_sig without paginating through post-migration history.
+    migration_sig: Optional[str] = oldest_sig.get("migration_sig")
+
     # ── Step 1: Collect bundle-window signatures ──────────────────────────
     # Paginate from newest → oldest, stopping once we've covered the window.
     # For PumpFun we paginate the bonding curve (fewer txs than the mint).
-    bundle_sigs = await _find_bundle_sigs_paginated(rpc, mint, creation_slot)
+    bundle_sigs = await _find_bundle_sigs_paginated(
+        rpc, mint, creation_slot, migration_sig=migration_sig
+    )
     if not bundle_sigs:
         return None
 
@@ -465,15 +472,32 @@ async def _find_bundle_sigs_paginated(
     rpc: "SolanaRpcClient",
     mint: str,
     creation_slot: int,
+    *,
+    migration_sig: Optional[str] = None,
 ) -> list[str]:
     """Return signatures inside [creation_slot, creation_slot+WINDOW].
 
-    For PumpFun tokens we paginate the bonding curve (much fewer txs than
-    the mint itself once trading begins).  Falls back to the mint address.
-    For both addresses we paginate newest→oldest and stop as soon as the
-    current batch spans past ``creation_slot``.
+    When *migration_sig* is supplied (from the DexScreener pair-pivot anchor)
+    we use ``before=migration_sig`` as the starting cursor directly on the
+    mint, which skips all post-migration Raydium history and reaches the
+    pre-migration bonding-curve window in ≤4 pages instead of 100+.
+
+    Without *migration_sig* we fall back to the bonding-curve PDA (which is
+    empty for migrated tokens) and then the mint from newest → oldest.
     """
-    # Try bonding curve first (PumpFun optimisation)
+    # ── Fast path: migration_sig anchor ──────────────────────────────────
+    if migration_sig:
+        result = await _collect_window_sigs(
+            rpc, mint, creation_slot, before=migration_sig
+        )
+        if result:
+            logger.debug(
+                "[bundle] found %d window sigs via migration_sig for %s",
+                len(result), mint[:8],
+            )
+            return result
+
+    # ── Fallback: bonding curve PDA then mint from newest ─────────────────
     curve = _pump_bonding_curve(mint)
     addresses = [curve, mint] if curve else [mint]
 
@@ -495,14 +519,18 @@ async def _collect_window_sigs(
     rpc: "SolanaRpcClient",
     address: str,
     creation_slot: int,
+    *,
+    before: Optional[str] = None,
 ) -> list[str]:
     """Paginate *address* (newest→oldest) and collect sigs in the bundle window.
+
+    When *before* is set (e.g. from a migration_sig anchor) pagination starts
+    immediately at that cursor, skipping all newer transactions.
 
     Accumulates matching sigs across page boundaries so that a window spanning
     two batches is handled correctly.
     """
     window_end = creation_slot + _BUNDLE_SLOT_WINDOW
-    before: Optional[str] = None
     found: list[str] = []  # accumulate across pages
 
     for _ in range(_MAX_PAGINATION_PAGES):
