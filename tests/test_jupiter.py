@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, patch, MagicMock
 
 import pytest
 
-from lineage_agent.data_sources.jupiter import JupiterClient
+from lineage_agent.data_sources.jupiter import JupiterClient, _WSOL_MINT
 
 
 @pytest.fixture
@@ -21,18 +21,21 @@ class TestGetPrices:
 
     @pytest.mark.asyncio
     async def test_single_price(self, client):
-        mock_resp = MagicMock()
-        mock_resp.status_code = 200
-        mock_resp.json.return_value = {
-            "data": {
-                "MINT_A": {"price": "1.23"},
-            }
-        }
-        mock_resp.raise_for_status = MagicMock()
+        """SOL price is fetched via CoinGecko (free, no auth)."""
+        cg_response = {"solana": {"usd": 85.5}}
+        with patch(
+            "lineage_agent.data_sources.jupiter.async_http_get",
+            new_callable=AsyncMock,
+            return_value=cg_response,
+        ):
+            result = await client.get_prices([_WSOL_MINT])
+        assert result[_WSOL_MINT] == 85.5
 
-        with patch.object(client, "_get", new_callable=AsyncMock, return_value={"data": {"MINT_A": {"price": "1.23"}}}):
-            result = await client.get_prices(["MINT_A"])
-        assert result["MINT_A"] == 1.23
+    @pytest.mark.asyncio
+    async def test_non_sol_without_api_key(self, client):
+        """Non-SOL tokens without JUPITER_API_KEY return None."""
+        result = await client.get_prices(["SOME_NON_SOL_MINT"])
+        assert result["SOME_NON_SOL_MINT"] is None
 
     @pytest.mark.asyncio
     async def test_empty_mints(self, client):
@@ -40,16 +43,15 @@ class TestGetPrices:
         assert result == {}
 
     @pytest.mark.asyncio
-    async def test_missing_price(self, client):
-        with patch.object(client, "_get", new_callable=AsyncMock, return_value={"data": {}}):
-            result = await client.get_prices(["UNKNOWN"])
-        assert result["UNKNOWN"] is None
-
-    @pytest.mark.asyncio
-    async def test_api_failure(self, client):
-        with patch.object(client, "_get", new_callable=AsyncMock, return_value=None):
-            result = await client.get_prices(["MINT_A"])
-        assert result["MINT_A"] is None
+    async def test_coingecko_failure_returns_none(self, client):
+        """If CoinGecko fails, SOL price is None (graceful degradation)."""
+        with patch(
+            "lineage_agent.data_sources.jupiter.async_http_get",
+            new_callable=AsyncMock,
+            return_value=None,
+        ):
+            result = await client.get_prices([_WSOL_MINT])
+        assert result[_WSOL_MINT] is None
 
 
 class TestGetPrice:

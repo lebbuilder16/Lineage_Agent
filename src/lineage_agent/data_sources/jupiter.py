@@ -7,8 +7,10 @@ Jupiter provides:
 - Token price data aggregated from multiple DEXes
 - Token list with metadata
 
-Public tier: use ``lite-api.jup.ag`` (no API key required).
-Paid tier:   use ``api.jup.ag``  (requires Bearer token).
+Price strategy (as of March 2025 that api.jup.ag requires auth):
+  - SOL price  → CoinGecko public API (no key, reliable)
+  - Other tokens → DexScreener pairs data (already fetched upstream)
+  - Jupiter API  → kept as optional paid-tier upgrade via JUPITER_API_KEY env
 """
 
 from __future__ import annotations
@@ -29,10 +31,14 @@ _MAX_RETRIES = 3
 _BACKOFF_BASE = 1.0
 
 _JUPITER_API_BASE = "https://api.jup.ag"
-# Public (no-auth) price endpoint — api.jup.ag/price/v2 requires a Bearer
-# token since March 2025; lite-api.jup.ag is the free public alternative.
-_JUPITER_PRICE_BASE = "https://lite-api.jup.ag/price/v2"
+# Paid Jupiter price endpoint (requires Bearer token via JUPITER_API_KEY env var)
+_JUPITER_PRICE_BASE = "https://api.jup.ag/price/v2"
 _JUPITER_TOKEN_LIST = "https://tokens.jup.ag/tokens?tags=verified"
+
+# CoinGecko public price endpoint — used as free fallback for SOL price
+_COINGECKO_SIMPLE = "https://api.coingecko.com/api/v3/simple/price"
+# Wrapped SOL mint address
+_WSOL_MINT = "So11111111111111111111111111111111111111112"
 
 # TTL for the cached verified token list (seconds)
 _TOKEN_LIST_TTL = 300  # 5 minutes
@@ -100,26 +106,63 @@ class JupiterClient:
         """Fetch current USD prices for one or more token mints.
 
         Returns a dict mapping mint → price (or None if unavailable).
+
+        Strategy:
+          1. SOL (WSOL) → CoinGecko public API (free, reliable)
+          2. Other tokens → Jupiter API (requires JUPITER_API_KEY for paid tier)
         """
         if not mints:
             return {}
 
-        # Jupiter price API accepts comma-separated IDs
-        ids = ",".join(mints[:100])  # API limit
-        data = await self._get(_JUPITER_PRICE_BASE, params={"ids": ids})
-        if not data or "data" not in data:
-            return {m: None for m in mints}
+        result: dict[str, Optional[float]] = {m: None for m in mints}
 
-        result: dict[str, Optional[float]] = {}
-        for mint in mints:
-            entry = data["data"].get(mint)
-            if entry and entry.get("price") is not None:
-                try:
-                    result[mint] = float(entry["price"])
-                except (TypeError, ValueError):
-                    result[mint] = None
-            else:
-                result[mint] = None
+        # --- SOL price via CoinGecko (always free, no auth needed) ---
+        sol_mints = [m for m in mints if m == _WSOL_MINT]
+        if sol_mints:
+            try:
+                client = await self._get_client()
+                cg_data = await async_http_get(
+                    client,
+                    _COINGECKO_SIMPLE,
+                    params={"ids": "solana", "vs_currencies": "usd"},
+                    max_retries=2,
+                    backoff_base=1.0,
+                    label="CoinGecko",
+                )
+                if cg_data and isinstance(cg_data, dict):
+                    sol_usd = cg_data.get("solana", {}).get("usd")
+                    if sol_usd is not None:
+                        for m in sol_mints:
+                            result[m] = float(sol_usd)
+            except Exception as exc:
+                logger.debug("CoinGecko SOL price failed: %s", exc)
+
+        # --- Other tokens via Jupiter (paid tier — only if API key configured) ---
+        import os
+        other_mints = [m for m in mints if m != _WSOL_MINT]
+        jup_key = os.getenv("JUPITER_API_KEY", "")
+        if other_mints and jup_key:
+            ids = ",".join(other_mints[:100])
+            client = await self._get_client()
+            # Set auth header dynamically for paid requests
+            try:
+                resp = await client.get(
+                    _JUPITER_PRICE_BASE,
+                    params={"ids": ids},
+                    headers={"Authorization": f"Bearer {jup_key}"},
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    for mint in other_mints:
+                        entry = (data.get("data") or {}).get(mint)
+                        if entry and entry.get("price") is not None:
+                            try:
+                                result[mint] = float(entry["price"])
+                            except (TypeError, ValueError):
+                                pass
+            except Exception as exc:
+                logger.debug("Jupiter paid price failed: %s", exc)
+
         return result
 
     async def get_price(self, mint: str) -> Optional[float]:
