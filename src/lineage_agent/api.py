@@ -912,7 +912,7 @@ async def get_bundle_report(
     try:
         report = await asyncio.wait_for(
             analyze_bundle(mint, _deployer, _sol_price, force_refresh=force_refresh),
-            timeout=60.0,
+            timeout=150.0,
         )
     except asyncio.TimeoutError:
         raise HTTPException(status_code=504, detail="Bundle analysis timed out")

@@ -55,7 +55,9 @@ _COORDINATED_SELL_SLOT_WINDOW = 200     # slots: if ≥2 wallets sell within thi
 _COMMON_SINK_MIN_COUNT        = 2      # ≥N bundle wallets → same destination = common sink
 _MAX_BUNDLE_WALLETS           = 10     # cap to avoid timeouts on very wide bundles
 _MAX_POSTSELL_HOPS            = 2      # BFS hops for post-sell outflow tracing
-_ANALYSIS_TIMEOUT_S           = 55     # hard timeout for the full analysis
+_ANALYSIS_TIMEOUT_S           = 120    # hard timeout for the full analysis
+                                        # generous budget: up to 6 Helius retries
+                                        # × 10 s Retry-After = 60 s for phase-1 alone
 _TRACE_SIGS_PER_WALLET        = 100    # signatures to fetch per wallet for post-sell scan
 _SOL_DECIMALS                 = 1_000_000_000
 
@@ -70,8 +72,13 @@ _PUMP_PROGRAM = "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBymtzbm"
 # timeout budget.  (Optimization #6)
 _MAX_PAGINATION_PAGES = 12
 # Concurrency throttle — max parallel RPC calls from the bundle tracker.
-# Prevents Helius rate-limit storms that trip the shared circuit breaker.
-_RPC_CONCURRENCY = 8
+# 3 keeps us well under Helius Starter (10 req/s) even when pre/post-sell
+# analyses fire simultaneously with Phase-1 TX decoding.
+_RPC_CONCURRENCY = 3
+# Max bundle-window TXs to decode in Phase 1.  The actual Jito bundle lands
+# in the first 2–4 slots; we decode the _MAX_BUNDLE_WALLETS*4 OLDEST TXs
+# in the window (true bundle buys) and skip later regular traders.
+_BUNDLE_DECODE_CAP = _MAX_BUNDLE_WALLETS * 4  # 40 TXs
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -271,6 +278,10 @@ async def _run_forensic(
     # It marks the Raydium migration TX — all pre-migration sigs are reachable
     # via before=migration_sig without paginating through post-migration history.
     migration_sig: Optional[str] = oldest_sig.get("migration_sig")
+    # creation_sig is the signature of the pool-creation TX itself.  Used as
+    # a cursor so pre-sell queries use `before=creation_sig` and post-sell
+    # queries use `until=creation_sig`, avoiding irrelevant TX decoding.
+    creation_sig: Optional[str] = oldest_sig.get("signature")
 
     # ── Step 1: Collect bundle-window signatures ──────────────────────────
     # Paginate from newest → oldest, stopping once we've covered the window.
@@ -287,17 +298,29 @@ async def _run_forensic(
         async with sem:
             return await _fetch_tx(rpc, sig)
 
-    tx_results = await asyncio.gather(
-        *[_throttled_fetch(sig) for sig in bundle_sigs],
-        return_exceptions=True,
+    # bundle_sigs is newest→oldest; the actual Jito/coordinated bundle lands
+    # in the OLDEST slots (creation_slot + 0..4).  Decode only the oldest
+    # _BUNDLE_DECODE_CAP transactions (reversed to oldest-first) and stop
+    # early once we have _MAX_BUNDLE_WALLETS distinct buyers.
+    sigs_to_decode = (
+        bundle_sigs[-_BUNDLE_DECODE_CAP:][::-1]   # oldest first
+        if len(bundle_sigs) > _BUNDLE_DECODE_CAP
+        else bundle_sigs[::-1]
     )
 
-    # ── Step 1c: Extract buyer wallets ───────────────────────────────────
+    # ── Step 1c: Extract buyer wallets (batched with early exit) ─────────
     buyer_wallets: dict[str, float] = {}  # wallet → SOL spent
-    for tx in tx_results:
-        if not tx or isinstance(tx, Exception):
-            continue
-        _extract_buyers(tx, deployer, buyer_wallets)
+    for _i in range(0, len(sigs_to_decode), _RPC_CONCURRENCY):
+        if len(buyer_wallets) >= _MAX_BUNDLE_WALLETS:
+            break                      # enough buyers — skip remaining TXs
+        _chunk_results = await asyncio.gather(
+            *[_throttled_fetch(s) for s in sigs_to_decode[_i : _i + _RPC_CONCURRENCY]],
+            return_exceptions=True,
+        )
+        for tx in _chunk_results:
+            if not tx or isinstance(tx, Exception):
+                continue
+            _extract_buyers(tx, deployer, buyer_wallets)
 
     if not buyer_wallets:
         return None
@@ -314,7 +337,9 @@ async def _run_forensic(
     # ─────────────────────────────────────────────────────────────────────
     async def _throttled_pre_sell(w: str) -> PreSellBehavior:
         async with sem:
-            return await _analyze_pre_sell(rpc, w, deployer, launch_dt)
+            return await _analyze_pre_sell(
+                rpc, w, deployer, launch_dt, creation_sig=creation_sig
+            )
 
     pre_sell_tasks = [_throttled_pre_sell(w) for w in wallets]
     pre_sell_results: list[PreSellBehavior] = [
@@ -333,7 +358,10 @@ async def _run_forensic(
 
     async def _throttled_post_sell(w: str) -> PostSellBehavior:
         async with sem:
-            return await _analyze_post_sell(rpc, w, mint, deployer, deployer_linked, launch_dt, creation_slot)
+            return await _analyze_post_sell(
+                rpc, w, mint, deployer, deployer_linked, launch_dt, creation_slot,
+                creation_sig=creation_sig,
+            )
 
     post_sell_tasks = [_throttled_post_sell(w) for w in wallets]
     post_sell_results: list[PostSellBehavior] = [
@@ -695,19 +723,37 @@ async def _analyze_post_sell(
     deployer_linked: set[str],
     launch_dt: datetime,
     launch_slot: int,
+    *,
+    creation_sig: Optional[str] = None,
 ) -> PostSellBehavior:
-    """Trace SOL flows from a bundle wallet AFTER it sells its token position."""
+    """Trace SOL flows from a bundle wallet AFTER it sells its token position.
+
+    When *creation_sig* is supplied the query uses ``until=creation_sig`` so
+    the RPC stops paginating at the pool-creation TX and only returns the
+    wallet's post-launch activity.  This avoids fetching thousands of
+    pre-creation TXs and greatly reduces getTransaction call count.
+    """
     post = PostSellBehavior()
     try:
         launch_ts = launch_dt.timestamp()
+        sig_params: dict = {"commitment": "finalized"}
+        if creation_sig:
+            # `until` is exclusive: we get sigs NEWER than creation_sig.
+            # Limit to _TRACE_SIGS_PER_WALLET most-recent post-launch TXs.
+            sig_params.update({"until": creation_sig, "limit": _TRACE_SIGS_PER_WALLET})
+        else:
+            sig_params["limit"] = _TRACE_SIGS_PER_WALLET
+
         sigs = await rpc._call(
             "getSignaturesForAddress",
-            [wallet, {"limit": _TRACE_SIGS_PER_WALLET, "commitment": "finalized"}],
+            [wallet, sig_params],
             circuit_protect=False,
         )
         if not sigs or not isinstance(sigs, list):
             return post
 
+        # When using until=creation_sig every sig is post-launch by definition;
+        # the timestamp filter still applies as a safety net.
         post_launch = [
             s for s in sigs
             if s.get("blockTime", 0) >= launch_ts and not s.get("err")
