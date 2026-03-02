@@ -355,7 +355,7 @@ def _build_prompt(
 
         # Per-wallet table — ALL wallets (budget: short rows)
         parts.append("Per-wallet breakdown:")
-        for w in wallets_list[:10]:
+        for w in wallets_list[:15]:  # cover up to _MAX_BUNDLE_WALLETS (15)
             # handle both full objects and plain-string wallet addresses (mock/legacy)
             if not hasattr(w, "wallet"):
                 parts.append(f"  {str(w)[:14]}...")

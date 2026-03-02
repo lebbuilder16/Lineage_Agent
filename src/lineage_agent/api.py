@@ -1085,7 +1085,7 @@ async def get_ai_analysis(
                 cache=_cache,
                 force_refresh=force_refresh,
             ),
-            timeout=40.0,
+            timeout=50.0,  # raised from 40s — 2000-token responses need more headroom
         )
     except asyncio.TimeoutError:
         raise HTTPException(status_code=504, detail="AI analysis timed out")
