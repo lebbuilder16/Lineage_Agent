@@ -23,8 +23,8 @@ logger = logging.getLogger(__name__)
 # Model selection: haiku 4.5 for cost/speed — override via ANTHROPIC_MODEL env var
 # Available as of 2026: claude-haiku-4-5-20251001, claude-sonnet-4-5-20250929, claude-sonnet-4-6
 _MODEL = os.getenv("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
-_MAX_TOKENS = 1200
-_TIMEOUT = 30.0  # seconds
+_MAX_TOKENS = 2000
+_TIMEOUT = 45.0  # seconds
 
 
 # ── Lazy client (avoids import error when API key not set) ────────────────────
@@ -153,12 +153,23 @@ async def analyze_token(
 
     try:
         client = _get_client()
-        message = await client.messages.create(
-            model=_MODEL,
-            max_tokens=_MAX_TOKENS,
-            system=_SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": prompt}],
-        )
+        for _attempt in range(2):  # 1 retry on timeout or rate-limit
+            try:
+                message = await client.messages.create(
+                    model=_MODEL,
+                    max_tokens=_MAX_TOKENS,
+                    system=_SYSTEM_PROMPT,
+                    messages=[{"role": "user", "content": prompt}],
+                )
+                break
+            except Exception as _retry_exc:
+                _ename = type(_retry_exc).__name__
+                if _attempt == 0 and ("RateLimit" in _ename or "Timeout" in _ename or "APIConnection" in _ename):
+                    import asyncio as _asyncio
+                    logger.warning("[ai_analyst] retry attempt after %s for %s", _ename, mint[:12])
+                    await _asyncio.sleep(3)
+                    continue
+                raise
         raw = message.content[0].text
         logger.info(
             "[ai_analyst] %s | model=%s input_tokens=%d output_tokens=%d",
@@ -357,13 +368,16 @@ def _build_prompt(
             funder_str = funder[:10] + "..." if funder else "none"
             is_dep = getattr(pre, "prefund_source_is_deployer", False)
             hrs    = getattr(pre, "prefund_hours_before_launch", None)
+            prefund_sol = getattr(pre, "prefund_sol", 0.0) or 0.0
             sold   = getattr(post, "sell_detected", False)
+            sol_recv = getattr(post, "sol_received_from_sell", 0.0) or 0.0
             dests  = getattr(post, "fund_destinations", []) or []
             n_dests = len(dests)
             flags  = getattr(w, "red_flags", [])
             parts.append(
                 f"  {w.wallet[:14]}... age={age_str} funder={'deployer' if is_dep else funder_str}"
-                f" hrs_before={hrs} sold={sold} n_out_dests={n_dests}"
+                f"({prefund_sol:.3f}SOL) hrs_before={hrs} sold={sold}"
+                f" sol_recv={sol_recv:.3f}SOL n_out_dests={n_dests}"
                 f" flags={flags[:3]} verdict={getattr(w,'verdict','?')}"
             )
 
@@ -453,6 +467,65 @@ def _build_prompt(
 
         parts.extend(sections)
 
+    # ── Insider sell / silent drain ─────────────────────────────────────────
+    ins = getattr(lineage, "insider_sell", None) if lineage else None
+    if ins:
+        parts.append("\n=== INSIDER SELL ANALYSIS ===")
+        parts.append(f"Verdict: {getattr(ins,'verdict','?')} | risk_score={getattr(ins,'risk_score',0):.2f}")
+        parts.append(f"Flags: {getattr(ins,'flags',[])}")
+        parts.append(f"Deployer exited position: {getattr(ins,'deployer_exited',None)}")
+        sp1  = getattr(ins, "sell_pressure_1h",  None)
+        sp6  = getattr(ins, "sell_pressure_6h",  None)
+        sp24 = getattr(ins, "sell_pressure_24h", None)
+        pc1  = getattr(ins, "price_change_1h",   None)
+        vsr  = getattr(ins, "volume_spike_ratio", None)
+        if sp1  is not None: parts.append(f"Sell pressure  1h={sp1:.0%}  6h={sp6:.0%}  24h={sp24:.0%}")
+        if pc1  is not None: parts.append(f"Price change   1h={pc1:+.1f}%")
+        if vsr  is not None: parts.append(f"Volume spike ratio: {vsr:.1f}x  (>3 = burst selling)")
+        for we in (getattr(ins, "wallet_events", []) or [])[:4]:
+            parts.append(f"  {getattr(we,'wallet','?')[:14]} role={getattr(we,'role','?')} exited={getattr(we,'exited',False)}")
+
+    # ── Factory rhythm (scripted deployment bot) ─────────────────────────
+    fr = getattr(lineage, "factory_rhythm", None) if lineage else None
+    if fr and getattr(fr, "is_factory", False):
+        parts.append("\n=== FACTORY RHYTHM (scripted bot deployer) ===")
+        parts.append(f"Tokens launched: {getattr(fr,'tokens_launched',0)}")
+        parts.append(f"Median deploy interval: {getattr(fr,'median_interval_hours',0):.1f}h")
+        parts.append(f"Regularity score: {getattr(fr,'regularity_score',0):.2f}  factory_score={getattr(fr,'factory_score',0):.2f}")
+        parts.append(f"Naming pattern: {getattr(fr,'naming_pattern','?')}")
+
+    # ── Cartel graph (operator ring coordination) ───────────────────────
+    cr = getattr(lineage, "cartel_report", None) if lineage else None
+    if cr:
+        community = getattr(cr, "deployer_community", None)
+        if community:
+            parts.append("\n=== CARTEL DETECTION ===")
+            parts.append(f"Community ID: {getattr(community,'community_id','?')}")
+            parts.append(f"Wallets in ring: {len(getattr(community,'wallets',[]))} | confidence={getattr(community,'confidence','?')}")
+            parts.append(f"Ring stats: {getattr(community,'total_tokens_launched',0)} tokens  {getattr(community,'total_rugs',0)} rugs  ~${getattr(community,'estimated_extracted_usd',0):,.0f} extracted")
+            parts.append(f"Strongest signal: {getattr(community,'strongest_signal','?')}")
+            for edge in (getattr(community, "edges", []) or [])[:3]:
+                parts.append(f"  {getattr(edge,'wallet_a','?')[:12]}↔{getattr(edge,'wallet_b','?')[:12]} [{getattr(edge,'signal_type','?')}] strength={getattr(edge,'signal_strength',0):.2f}")
+
+    # ── Operator impact (cross-wallet cumulative damage) ────────────────
+    oi = getattr(lineage, "operator_impact", None) if lineage else None
+    if oi:
+        parts.append("\n=== OPERATOR IMPACT (cross-wallet damage ledger) ===")
+        parts.append(f"Fingerprint: {getattr(oi,'fingerprint','?')[:16]}...")
+        parts.append(f"Linked deployer wallets: {len(getattr(oi,'linked_wallets',[]))}")
+        parts.append(f"Total tokens / rugs: {getattr(oi,'total_tokens_launched',0)} / {getattr(oi,'total_rug_count',0)} ({getattr(oi,'rug_rate_pct',0):.0f}% rug rate)")
+        parts.append(f"Estimated extracted: ~${getattr(oi,'estimated_extracted_usd',0):,.0f} USD (is_estimated={getattr(oi,'is_estimated',True)})")
+        parts.append(f"Campaign active now: {getattr(oi,'is_campaign_active',False)} | peak concurrent tokens: {getattr(oi,'peak_concurrent_tokens',0)}")
+        parts.append(f"Narratives used: {getattr(oi,'narrative_sequence',[])[:6]}")
+
+    # ── Liquidity architecture ───────────────────────────────────────────
+    la = getattr(lineage, "liquidity_arch", None) if lineage else None
+    if la:
+        parts.append("\n=== LIQUIDITY ARCHITECTURE ===")
+        parts.append(f"Total liquidity: ${getattr(la,'total_liquidity_usd',0):,.0f} across {getattr(la,'pool_count',0)} pool(s)")
+        parts.append(f"Concentration HHI: {getattr(la,'concentration_hhi',0):.2f}  (1.0 = single pool)")
+        parts.append(f"Authenticity score: {getattr(la,'authenticity_score',0):.2f}  flags={getattr(la,'flags',[])}")
+
     return "\n".join(parts)
 
 
@@ -487,13 +560,29 @@ def _sanity_check(
 
     caveats: list[str] = []
 
-    # Rule 1: inflated score with no forensic backing
+    # Rule 1: inflated score with no forensic backing — but only if no strong lineage signals
     if score > 70 and not has_bundle and not has_flow:
-        result["risk_score"] = min(score, 55)
-        result["confidence"] = "low"
-        caveats.append(
-            "[CAVEAT] Score capped — bundle/flow data unavailable; cannot confirm on-chain extraction."
-        )
+        derivatives_count = len(getattr(lineage, "derivatives", []) or []) if lineage else 0
+        insider_dump = False
+        if lineage:
+            ins = getattr(lineage, "insider_sell", None)
+            insider_dump = ins is not None and getattr(ins, "verdict", "clean") == "insider_dump"
+        # Permit score >70 when there's hard lineage evidence even without bundle/flow
+        strong_lineage = deployer_rug_rate > 0.60 or derivatives_count > 3 or insider_dump
+        if not strong_lineage:
+            result["risk_score"] = min(score, 65)
+            result["confidence"] = "low"
+            caveats.append(
+                "[CAVEAT] Score capped at 65 — bundle/flow data unavailable; cannot confirm on-chain extraction."
+            )
+        else:
+            result["risk_score"] = min(score, 80)  # cap at 80 without direct on-chain proof
+            result["confidence"] = max(result.get("confidence", "medium"),
+                                       "medium",
+                                       key=lambda c: {"low":0,"medium":1,"high":2}.get(c, 0))
+            caveats.append(
+                "[CAVEAT] Score partially supported by lineage signals but no bundle/flow proof yet."
+            )
 
     # Rule 2: suppressed score despite proven serial rugger deployer
     if score < 35 and deployer_rug_rate > 0.60:

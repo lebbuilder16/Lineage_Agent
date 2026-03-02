@@ -448,7 +448,7 @@ class TestSanityCheck:
 
     def test_high_score_no_evidence_capped(self):
         result = _sanity_check(self._result(score=87), lineage=None, bundle=None, sol_flow=None)
-        assert result["risk_score"] == 55
+        assert result["risk_score"] == 65  # new cap: 65 (was 55)
         assert result["confidence"] == "low"
         assert any("CAVEAT" in f for f in result["key_findings"])
 

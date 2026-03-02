@@ -53,7 +53,7 @@ _COORDINATED_SELL_SLOT_WINDOW = 200     # slots: if ≥2 wallets sell within thi
                                         # PumpFun bundle sellers typically dump within minutes,
                                         # not in the same slot.  200 slots ≈ 80 seconds.
 _COMMON_SINK_MIN_COUNT        = 2      # ≥N bundle wallets → same destination = common sink
-_MAX_BUNDLE_WALLETS           = 10     # cap to avoid timeouts on very wide bundles
+_MAX_BUNDLE_WALLETS           = 15     # cap to avoid timeouts on very wide bundles
 _MAX_POSTSELL_HOPS            = 3      # BFS hops for post-sell outflow tracing
 _ANALYSIS_TIMEOUT_S           = 120    # hard timeout for the full analysis
                                         # generous budget: up to 6 Helius retries
@@ -634,9 +634,9 @@ async def _analyze_pre_sell(
     try:
         sig_params: dict = {"commitment": "finalized"}
         if creation_sig:
-            sig_params.update({"before": creation_sig, "limit": 50})
+            sig_params.update({"before": creation_sig, "limit": 200})
         else:
-            sig_params["limit"] = 100
+            sig_params["limit"] = 200
 
         sigs = await rpc._call(
             "getSignaturesForAddress",
@@ -675,7 +675,7 @@ async def _analyze_pre_sell(
 
         if pre_launch_sigs:
             txs = await asyncio.gather(
-                *[_fetch_tx(rpc, s["signature"]) for s in pre_launch_sigs[:15]],
+                *[_fetch_tx(rpc, s["signature"]) for s in pre_launch_sigs[:25]],
                 return_exceptions=True,
             )
             unique_tokens: set[str] = set()
@@ -719,7 +719,7 @@ async def _analyze_pre_sell(
                     break
 
     except Exception as exc:
-        logger.debug("[bundle] pre-sell analysis failed for %s: %s", wallet[:8], exc)
+        logger.warning("[bundle] pre-sell analysis failed for %s: %s", wallet[:8], exc)
 
     return pre
 
@@ -803,7 +803,7 @@ async def _analyze_post_sell(
             return post
 
         txs = await asyncio.gather(
-            *[_fetch_tx(rpc, s["signature"]) for s in post_launch[:30]],
+            *[_fetch_tx(rpc, s["signature"]) for s in post_launch[:50]],
             return_exceptions=True,
         )
 
@@ -813,7 +813,7 @@ async def _analyze_post_sell(
         sell_sig:  Optional[str] = None
         sol_received = 0.0
 
-        for s, tx in zip(post_launch[:30], txs):
+        for s, tx in zip(post_launch[:50], txs):
             if not tx or isinstance(tx, Exception):
                 continue
             if _is_full_sell(tx, wallet, target_mint):
@@ -904,7 +904,7 @@ async def _analyze_post_sell(
         post.fund_destinations = fund_dests
 
     except Exception as exc:
-        logger.debug("[bundle] post-sell analysis failed for %s: %s", wallet[:8], exc)
+        logger.warning("[bundle] post-sell analysis failed for %s: %s", wallet[:8], exc)
 
     return post
 

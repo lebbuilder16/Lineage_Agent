@@ -1051,6 +1051,23 @@ async def get_ai_analysis(
     if isinstance(bundle_res, Exception):
         bundle_res = None
 
+    # Fire-and-forget bundle analysis if not yet cached — next /analyze call will have it
+    if bundle_res is None and lineage_res is not None:
+        try:
+            from .bundle_tracker_service import analyze_bundle as _ab
+            _deployer_for_bundle = ""
+            _qt = getattr(lineage_res, "query_token", None) or getattr(lineage_res, "root", None)
+            if _qt:
+                _deployer_for_bundle = getattr(_qt, "deployer", "") or ""
+            if _deployer_for_bundle:
+                asyncio.create_task(
+                    _ab(mint, _deployer_for_bundle),
+                    name=f"bundle_bg:{mint[:8]}",
+                )
+                logger.info("[analyze] bundle not cached — background task started for %s", mint[:8])
+        except Exception:
+            pass  # non-blocking — never fail /analyze because of this
+
     if not lineage_res and not sol_flow_res and not bundle_res:
         raise HTTPException(
             status_code=404,
