@@ -54,7 +54,7 @@ _COORDINATED_SELL_SLOT_WINDOW = 200     # slots: if ≥2 wallets sell within thi
                                         # not in the same slot.  200 slots ≈ 80 seconds.
 _COMMON_SINK_MIN_COUNT        = 2      # ≥N bundle wallets → same destination = common sink
 _MAX_BUNDLE_WALLETS           = 10     # cap to avoid timeouts on very wide bundles
-_MAX_POSTSELL_HOPS            = 2      # BFS hops for post-sell outflow tracing
+_MAX_POSTSELL_HOPS            = 3      # BFS hops for post-sell outflow tracing
 _ANALYSIS_TIMEOUT_S           = 120    # hard timeout for the full analysis
                                         # generous budget: up to 6 Helius retries
                                         # × 10 s Retry-After = 60 s for phase-1 alone
@@ -868,6 +868,7 @@ async def _analyze_post_sell(
                     post.transfer_to_deployer_linked_wallet = True
 
         # Hop-1 trace for non-direct destinations
+        hop1_dests: list[FundDestination] = []
         if _MAX_POSTSELL_HOPS >= 2:
             non_direct = [fd for fd in fund_dests if not fd.link_to_deployer][:5]
             if non_direct:
@@ -880,7 +881,24 @@ async def _analyze_post_sell(
                         continue
                     for fd1 in hop1_list:
                         fund_dests.append(fd1)
+                        hop1_dests.append(fd1)
                         if fd1.link_to_deployer:
+                            post.indirect_via_intermediary = True
+
+        # Hop-2 trace for hop-1 destinations not yet linked to deployer
+        if _MAX_POSTSELL_HOPS >= 3 and hop1_dests:
+            non_direct_h1 = [fd for fd in hop1_dests if not fd.link_to_deployer][:5]
+            if non_direct_h1:
+                hop2_tasks = [
+                    _trace_hop2(rpc, fd.destination, deployer_linked, launch_ts)
+                    for fd in non_direct_h1
+                ]
+                for hop2_list in await asyncio.gather(*hop2_tasks, return_exceptions=True):
+                    if isinstance(hop2_list, Exception):
+                        continue
+                    for fd2 in hop2_list:
+                        fund_dests.append(fd2)
+                        if fd2.link_to_deployer:
                             post.indirect_via_intermediary = True
 
         post.fund_destinations = fund_dests
@@ -1025,6 +1043,44 @@ async def _trace_hop1(
                 ))
     except Exception as exc:
         logger.debug("[bundle] hop1 trace failed for %s: %s", wallet[:8], exc)
+    return out
+
+
+async def _trace_hop2(
+    rpc: SolanaRpcClient,
+    wallet: str,
+    deployer_linked: set[str],
+    since_ts: float,
+) -> list[FundDestination]:
+    """Trace hop-2 outflows from a wallet (second intermediate hop)."""
+    out: list[FundDestination] = []
+    try:
+        sigs = await rpc._call(
+            "getSignaturesForAddress",
+            [wallet, {"limit": 20, "commitment": "finalized"}],
+            circuit_protect=False,
+        )
+        if not sigs or not isinstance(sigs, list):
+            return out
+        recent = [s for s in sigs if s.get("blockTime", 0) >= since_ts and not s.get("err")]
+        if not recent:
+            return out
+        txs = await asyncio.gather(
+            *[_fetch_tx(rpc, s["signature"]) for s in recent[:8]],
+            return_exceptions=True,
+        )
+        for tx in txs:
+            if not tx or isinstance(tx, Exception):
+                continue
+            for dest, lamps in _extract_sol_outflows(tx, wallet, _MIN_POSTSELL_LAMPORTS).items():
+                out.append(FundDestination(
+                    destination=dest,
+                    lamports=lamps,
+                    hop=2,
+                    link_to_deployer=(dest in deployer_linked),
+                ))
+    except Exception as exc:
+        logger.debug("[bundle] hop2 trace failed for %s: %s", wallet[:8], exc)
     return out
 
 
