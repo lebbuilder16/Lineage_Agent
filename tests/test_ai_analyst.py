@@ -46,10 +46,15 @@ class TestBuildPrompt:
     def test_no_data_returns_just_mint(self):
         prompt = _build_prompt(MINT, None, None, None)
         assert MINT in prompt
-        # No sections generated
-        assert "LINEAGE" not in prompt
-        assert "BUNDLE" not in prompt
-        assert "SOL FLOW" not in prompt
+        # DATA AVAILABILITY header is always present but no content sections generated
+        assert "DATA AVAILABLE:" in prompt
+        assert "LINEAGE=✗" in prompt
+        assert "BUNDLE=✗" in prompt
+        assert "SOL_FLOW=✗" in prompt
+        # No actual data sections rendered
+        assert "=== LINEAGE ANALYSIS ===" not in prompt
+        assert "=== BUNDLE FORENSICS ===" not in prompt
+        assert "=== SOL FLOW TRACE ===" not in prompt
 
     def test_lineage_section_rendered(self):
         root = _ns(name="TestToken", symbol="TST", deployer="ABC123deployer1234", created_at="2025-01-01T00:00:00")

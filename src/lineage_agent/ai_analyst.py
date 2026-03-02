@@ -61,13 +61,16 @@ Analyse the provided on-chain data and respond with a single JSON object \
 {
   "risk_score": <integer 0-100>,
   "confidence": <"low" | "medium" | "high">,
-  "rug_pattern": <"classic_rug" | "slow_rug" | "pump_dump" | "coordinated_bundle" | "serial_clone" | "insider_drain" | "unknown">,
+  "rug_pattern": <"classic_rug" | "slow_rug" | "pump_dump" | "coordinated_bundle" | "factory_jito_bundle" | "serial_clone" | "insider_drain" | "unknown">,
   "verdict_summary": <string — ONE sentence max 20 words, the headline conclusion e.g. \
 "Serial clone operation: 4 copies in 4 hours by 4 fresh deployers with zombie relaunch.">,
   "narrative": {
-    "observation": <string — 1-2 sentences: what the raw data shows (facts, numbers, timestamps)>,
-    "pattern": <string — 1-2 sentences: the manipulation scheme identified and how it works>,
-    "risk": <string — 1 sentence: concrete risk to token holders / why this matters>
+    "observation": <string — 1-2 sentences: raw facts with specifics — wallet addresses (first 12 chars), \
+SOL amounts, timestamps, clone counts, sell pressure %. Be precise and data-driven.>,
+    "pattern": <string — 1-2 sentences: name the exact playbook (e.g. Jito atomic factory + serial clone farm, \
+cartel coordinated dump, silent LP drain) and mechanically how it operates>,
+    "risk": <string — 1 sentence: quantify — how much SOL already extracted or at risk, \
+what % of supply the operator controls, estimated total damage>
   },
   "key_findings": [
     <Each finding MUST start with a category tag in brackets: [DEPLOYMENT], [FINANCIAL], \
@@ -90,7 +93,11 @@ Rules:
 - Be strictly factual — only reference data explicitly provided.
 - Do not repeat the same information across narrative and key_findings.
 - narrative.observation = raw facts. narrative.pattern = interpretation. narrative.risk = consequence.
-- key_findings must add NEW information not already stated in verdict_summary.\
+- key_findings must add NEW information not already stated in verdict_summary.
+- Pre-computed subsystem labels (bundle verdict, insider_sell verdict, etc.) are WEAK HINTS only. \
+Cross-reference ALL sections before scoring — a low bundle verdict combined with strong lineage + \
+insider sell + cartel signals may warrant a higher score than any single section suggests. \
+Reason from the raw numbers first, then validate against the labels.\
 """
 
 
@@ -238,6 +245,41 @@ def _build_prompt(
 ) -> str:
     parts: list[str] = [f"Token mint: {mint}\n"]
 
+    # ── Data availability header ──────────────────────────────────────────
+    _has_lin = "✓" if lineage else "✗"
+    _has_bun = "✓" if bundle else "✗"
+    _has_sol = "✓" if sol_flow else "✗"
+    parts.append(f"DATA AVAILABLE: LINEAGE={_has_lin}  BUNDLE={_has_bun}  SOL_FLOW={_has_sol}")
+    parts.append("(Absent sections = data not collected yet, NOT necessarily clean)\n")
+
+    # ── Query token identity (the specific token being analyzed) ─────────
+    if lineage:
+        _qt = getattr(lineage, "query_token", None) or getattr(lineage, "root", None)
+        if _qt:
+            parts.append("=== QUERY TOKEN (token under analysis) ===")
+            _qt_name    = getattr(_qt, "name", "") or "?"
+            _qt_symbol  = getattr(_qt, "symbol", "") or "?"
+            _qt_created = getattr(_qt, "created_at", None)
+            _qt_mcap    = getattr(_qt, "market_cap_usd", None)
+            _qt_liq     = getattr(_qt, "liquidity_usd", None)
+            _qt_deployer = str(getattr(_qt, "deployer", "") or "?")
+            parts.append(f"Name: {_qt_name} ({_qt_symbol})")
+            parts.append(f"Deployer: {_qt_deployer[:16]}...")
+            if _qt_created:
+                try:
+                    from datetime import datetime as _dt_cls, timezone as _tz
+                    _now_utc = _dt_cls.now(tz=_tz.utc)
+                    _created_dt = (_qt_created if getattr(_qt_created, "tzinfo", None)
+                                   else _dt_cls.fromisoformat(str(_qt_created)).replace(tzinfo=_tz.utc))
+                    _age_h = (_now_utc - _created_dt).total_seconds() / 3600
+                    parts.append(f"Token age: {_age_h:.1f}h ({_age_h/24:.1f}d)")
+                except Exception:
+                    parts.append(f"Created: {_qt_created}")
+            if _qt_mcap is not None:
+                parts.append(f"Market cap: ${_qt_mcap:,.0f} USD")
+            if _qt_liq is not None:
+                parts.append(f"Liquidity: ${_qt_liq:,.0f} USD")
+
     # ── Lineage / clone intelligence ──────────────────────────────────────
     if lineage:
         parts.append("=== LINEAGE ANALYSIS ===")
@@ -253,6 +295,28 @@ def _build_prompt(
 
         derivatives = getattr(lineage, "derivatives", []) or []
         parts.append(f"Clones detected: {len(derivatives)}")
+        if len(derivatives) >= 2:
+            # Pre-calculate clone window so Claude doesn't have to parse raw ISO timestamps
+            _dtimes: list[float] = []
+            for _d in derivatives:
+                _dts = getattr(_d, "created_at", None)
+                if _dts:
+                    try:
+                        from datetime import datetime as _ddt, timezone as _dtz
+                        _dobj = (_dts if getattr(_dts, "tzinfo", None)
+                                 else _ddt.fromisoformat(str(_dts)).replace(tzinfo=_dtz.utc))
+                        _dtimes.append(_dobj.timestamp())
+                    except Exception:
+                        pass
+            if len(_dtimes) >= 2:
+                _dtimes.sort()
+                _win_min = (_dtimes[-1] - _dtimes[0]) / 60
+                _gaps = [(_dtimes[i+1] - _dtimes[i]) / 60 for i in range(len(_dtimes)-1)]
+                _med_gap = sorted(_gaps)[len(_gaps)//2]
+                parts.append(
+                    f"Clone deployment window: {_win_min:.0f} min total  "
+                    f"| median gap between deploys: {_med_gap:.0f} min"
+                )
         for der in derivatives[:6]:
             parts.append(
                 f"  Gen{getattr(der,'generation','?')}: {getattr(der,'name','?')} "
@@ -297,7 +361,15 @@ def _build_prompt(
         wallets_list = getattr(bundle, "bundle_wallets", []) or []
         n_wallets = len(wallets_list)
         parts.append(f"Bundle wallets: {n_wallets}")
-        parts.append(f"Total SOL spent by bundle: {getattr(bundle,'total_sol_spent_by_bundle',0):.4f} SOL")
+        _sol_spent = getattr(bundle, "total_sol_spent_by_bundle", 0) or 0.0
+        _sol_extracted_bun = getattr(bundle, "total_sol_extracted_confirmed", 0) or 0.0
+        parts.append(f"Total SOL spent by bundle: {_sol_spent:.4f} SOL")
+        if _sol_extracted_bun > 0:
+            _rec_pct = (_sol_extracted_bun / _sol_spent * 100) if _sol_spent > 0 else 0.0
+            parts.append(
+                f"Total SOL extracted (confirmed): {_sol_extracted_bun:.4f} SOL  "
+                f"(recovery={_rec_pct:.0f}% of spend — >80% = near-total extraction)"
+            )
         parts.append(f"Coordinated sell detected: {getattr(bundle,'coordinated_sell_detected',False)}")
 
         confirmed = getattr(bundle, "confirmed_team_wallets", [])
@@ -514,7 +586,10 @@ def _build_prompt(
             parts.append(f"Wallets in ring: {len(getattr(community,'wallets',[]))} | confidence={getattr(community,'confidence','?')}")
             parts.append(f"Ring stats: {getattr(community,'total_tokens_launched',0)} tokens  {getattr(community,'total_rugs',0)} rugs  ~${getattr(community,'estimated_extracted_usd',0):,.0f} extracted")
             parts.append(f"Strongest signal: {getattr(community,'strongest_signal','?')}")
-            for edge in (getattr(community, "edges", []) or [])[:3]:
+            _cartel_members = getattr(community, "wallets", []) or []
+            if _cartel_members:
+                parts.append(f"Ring members: {[str(w)[:12] for w in _cartel_members]}")
+            for edge in (getattr(community, "edges", []) or [])[:5]:
                 parts.append(f"  {getattr(edge,'wallet_a','?')[:12]}↔{getattr(edge,'wallet_b','?')[:12]} [{getattr(edge,'signal_type','?')}] strength={getattr(edge,'signal_strength',0):.2f}")
 
     # ── Operator impact (cross-wallet cumulative damage) ────────────────
