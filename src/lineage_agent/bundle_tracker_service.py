@@ -310,6 +310,9 @@ async def _run_forensic(
 
     # ── Step 1c: Extract buyer wallets (batched with early exit) ─────────
     buyer_wallets: dict[str, float] = {}  # wallet → SOL spent
+    # Also keep decoded TXs to mine intra-bundle SOL funding (Jito bundles
+    # fund wallets atomically in the same block — no pre-creation TX exists).
+    bundle_decoded_txs: list[dict] = []
     for _i in range(0, len(sigs_to_decode), _RPC_CONCURRENCY):
         if len(buyer_wallets) >= _MAX_BUNDLE_WALLETS:
             break                      # enough buyers — skip remaining TXs
@@ -321,6 +324,7 @@ async def _run_forensic(
             if not tx or isinstance(tx, Exception):
                 continue
             _extract_buyers(tx, deployer, buyer_wallets)
+            bundle_decoded_txs.append(tx)  # keep for intra-bundle funding scan
 
     if not buyer_wallets:
         return None
@@ -338,7 +342,9 @@ async def _run_forensic(
     async def _throttled_pre_sell(w: str) -> PreSellBehavior:
         async with sem:
             return await _analyze_pre_sell(
-                rpc, w, deployer, launch_dt, creation_sig=creation_sig
+                rpc, w, deployer, launch_dt,
+                creation_sig=creation_sig,
+                bundle_txs=bundle_decoded_txs,
             )
 
     pre_sell_tasks = [_throttled_pre_sell(w) for w in wallets]
@@ -610,19 +616,37 @@ async def _analyze_pre_sell(
     wallet: str,
     deployer: str,
     launch_dt: datetime,
+    *,
+    creation_sig: Optional[str] = None,
+    bundle_txs: Optional[list[dict]] = None,
 ) -> PreSellBehavior:
-    """Analyse a bundle wallet's history BEFORE the token launch."""
+    """Analyse a bundle wallet's history BEFORE the token launch.
+
+    *creation_sig* is used as a ``before=`` cursor so the RPC returns only
+    pre-creation TXs, saving pages of post-launch scrolling.
+
+    *bundle_txs* are the decoded TXs from Phase-1 (pool-creation block).
+    For Jito-style attacks the factory wallet funds the sniper wallets
+    atomically in the SAME block as pool creation — there is no prior TX.
+    We scan those decoded TXs for incoming SOL to the wallet as a fallback.
+    """
     pre = PreSellBehavior()
     try:
+        sig_params: dict = {"commitment": "finalized"}
+        if creation_sig:
+            sig_params.update({"before": creation_sig, "limit": 50})
+        else:
+            sig_params["limit"] = 100
+
         sigs = await rpc._call(
             "getSignaturesForAddress",
-            [wallet, {"limit": 100, "commitment": "finalized"}],
+            [wallet, sig_params],
             circuit_protect=False,
         )
         if not sigs or not isinstance(sigs, list):
-            return pre
+            sigs = []
 
-        # Wallet age
+        # Wallet age: if no pre-creation TXs, the wallet is brand-new
         all_times = [s.get("blockTime") for s in sigs if s.get("blockTime")]
         if all_times:
             first_ts = min(all_times)
@@ -637,12 +661,12 @@ async def _analyze_pre_sell(
             if last_pre_launch:
                 days_since_last = (launch_dt.timestamp() - last_pre_launch) / 86_400
                 pre.is_dormant = days_since_last > _DORMANCY_THRESHOLD_DAYS
+        # else: wallet_age_days stays 0.0 — flagged as BRAND_NEW below
 
         launch_ts    = launch_dt.timestamp()
         window_start = launch_dt - timedelta(hours=_PRE_FUND_WINDOW_H)
         window_ts    = window_start.timestamp()
 
-        # Pre-launch signatures
         pre_launch_sigs = [
             s for s in sigs
             if window_ts <= s.get("blockTime", 0) < launch_ts and not s.get("err")
@@ -658,7 +682,6 @@ async def _analyze_pre_sell(
             for tx in txs:
                 if not tx or isinstance(tx, Exception):
                     continue
-                # Funding detection: incoming SOL
                 if not pre.prefund_source:
                     funder, sol = _find_incoming_sol_transfer(tx, wallet)
                     if funder and sol * _SOL_DECIMALS >= _MIN_PREFUND_LAMPORTS:
@@ -670,12 +693,30 @@ async def _analyze_pre_sell(
                                 (launch_ts - bt) / 3600, 2
                             )
                         pre.prefund_source_is_deployer = (funder == deployer)
-                # Count unique token interactions
                 for tb in (tx.get("meta") or {}).get("preTokenBalances", []):
                     m = tb.get("mint", "")
                     if m:
                         unique_tokens.add(m)
             pre.pre_launch_unique_tokens = len(unique_tokens)
+
+        # ── Intra-bundle funding scan ───────────────────────────────────────
+        # Jito-style attacks fund wallets atomically IN the same block as
+        # pool creation — no prior TX exists.  Scan the already-decoded
+        # bundle TXs (zero extra RPC calls) for SOL sent TO this wallet.
+        if not pre.prefund_source and bundle_txs:
+            for tx in bundle_txs:
+                funder, sol = _find_incoming_sol_transfer(tx, wallet)
+                if funder and sol * _SOL_DECIMALS >= _MIN_PREFUND_LAMPORTS:
+                    pre.prefund_source    = funder
+                    pre.prefund_sol       = round(sol, 4)
+                    # blockTime == launch_ts → 0 hours before
+                    pre.prefund_hours_before_launch = 0.0
+                    pre.prefund_source_is_deployer  = (funder == deployer)
+                    logger.debug(
+                        "[bundle] intra-bundle funder=%s→%s %.4f SOL",
+                        funder[:8], wallet[:8], sol,
+                    )
+                    break
 
     except Exception as exc:
         logger.debug("[bundle] pre-sell analysis failed for %s: %s", wallet[:8], exc)
@@ -1158,6 +1199,10 @@ def _compute_wallet_verdict(
         return flags, BundleWalletVerdict.CONFIRMED_TEAM
 
     # ── Soft signals ─────────────────────────────────────────────────────
+    if pre.wallet_age_days is not None and pre.wallet_age_days < 1.0:
+        # Wallet created / first seen <24 h before launch — near-certain
+        # team wallet (fresh burner created for this specific bundle).
+        flags.append("BRAND_NEW_WALLET")
     if pre.prefund_source_is_deployer:
         flags.append("PREFUNDED_BY_DEPLOYER")
     if post.transfer_to_deployer_linked_wallet:

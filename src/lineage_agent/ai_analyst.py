@@ -272,7 +272,10 @@ def _build_prompt(
         parts.append("\n=== BUNDLE FORENSICS ===")
         parts.append(f"Overall verdict: {getattr(bundle,'overall_verdict','?')}")
         parts.append(f"Launch slot: {getattr(bundle,'launch_slot','?')}")
-        parts.append(f"Bundle wallets: {len(getattr(bundle,'bundle_wallets',[]))}")
+
+        wallets_list = getattr(bundle, "bundle_wallets", []) or []
+        n_wallets = len(wallets_list)
+        parts.append(f"Bundle wallets: {n_wallets}")
         parts.append(f"Total SOL spent by bundle: {getattr(bundle,'total_sol_spent_by_bundle',0):.4f} SOL")
         parts.append(f"Coordinated sell detected: {getattr(bundle,'coordinated_sell_detected',False)}")
 
@@ -290,6 +293,13 @@ def _build_prompt(
         if common_funder:
             parts.append(f"Common pre-funder: {common_funder[:16]}...")
 
+        factory = getattr(bundle, "factory_address", None)
+        if factory:
+            parts.append(f"Factory wallet: {factory[:16]}... (funded_deployer={getattr(bundle,'factory_funded_deployer',False)})")
+            snip = getattr(bundle, "factory_sniper_wallets", [])
+            if snip:
+                parts.append(f"Factory snipers: {len(snip)} wallets")
+
         common_sinks = getattr(bundle, "common_sink_wallets", [])
         if common_sinks:
             parts.append(f"Common SOL sinks (≥2 wallets → same destination): {[s[:12] for s in common_sinks]}")
@@ -300,22 +310,62 @@ def _build_prompt(
             for ev in evidence_chain[:6]:
                 parts.append(f"  • {ev}")
 
-        # Per-wallet detail (top 5 by suspicion)
-        wallets = getattr(bundle, "bundle_wallets", [])
-        suspicious = [
-            w for w in wallets
-            if getattr(w, "verdict", "early_buyer") != "early_buyer"
-        ]
-        if suspicious:
-            parts.append("Suspicious wallets detail:")
-            for w in suspicious[:5]:
-                pre = getattr(w, "pre_sell", None)
-                post = getattr(w, "post_sell", None)
-                parts.append(
-                    f"  {w.wallet[:14]} verdict={w.verdict} "
-                    f"sol_spent={w.sol_spent:.4f} "
-                    f"flags={w.red_flags[:3]}"
-                )
+        # ── Aggregate per-wallet signals (computed here for AI context) ───
+        # wallets_list items may be plain strings in mocks; guard everywhere
+        def _pre(w):  return getattr(w, "pre_sell",  None) if hasattr(w, "wallet") else None
+        def _post(w): return getattr(w, "post_sell", None) if hasattr(w, "wallet") else None
+
+        brand_new_count   = sum(1 for w in wallets_list if (getattr(_pre(w),"wallet_age_days",99) or 99) < 1.0)
+        sold_count        = sum(1 for w in wallets_list if getattr(_post(w),"sell_detected",False))
+        funded_deployer_c = sum(1 for w in wallets_list if getattr(_pre(w),"prefund_source_is_deployer",False))
+        funded_known_c    = sum(1 for w in wallets_list if getattr(_pre(w),"prefund_source_is_known_funder",False))
+        intra_bundle_c    = sum(
+            1 for w in wallets_list
+            if getattr(_pre(w),"prefund_hours_before_launch",None) == 0.0
+            and getattr(_pre(w),"prefund_source",None)
+        )
+
+        if brand_new_count:
+            parts.append(
+                f"SIGNAL: {brand_new_count}/{n_wallets} wallets are brand-new "
+                f"(<24h old at launch) — characteristic of dedicated Jito bundle burners."
+            )
+        if intra_bundle_c:
+            parts.append(
+                f"SIGNAL: {intra_bundle_c}/{n_wallets} wallets funded INSIDE the launch block "
+                f"(intra-bundle atomic funding) — factory wallet creates+funds+buys atomically."
+            )
+        if funded_deployer_c:
+            parts.append(f"SIGNAL: {funded_deployer_c}/{n_wallets} wallets directly pre-funded by deployer.")
+        if funded_known_c:
+            parts.append(f"SIGNAL: {funded_known_c}/{n_wallets} wallets funded by same shared funder.")
+        if sold_count:
+            parts.append(f"SIGNAL: {sold_count}/{n_wallets} wallets have sold their position.")
+
+        # Per-wallet table — ALL wallets (budget: short rows)
+        parts.append("Per-wallet breakdown:")
+        for w in wallets_list[:10]:
+            # handle both full objects and plain-string wallet addresses (mock/legacy)
+            if not hasattr(w, "wallet"):
+                parts.append(f"  {str(w)[:14]}...")
+                continue
+            pre  = getattr(w, "pre_sell",  None)
+            post = getattr(w, "post_sell", None)
+            age  = getattr(pre, "wallet_age_days", None)
+            age_str = f"{age:.1f}d" if age is not None else "?"
+            funder = getattr(pre, "prefund_source", None)
+            funder_str = funder[:10] + "..." if funder else "none"
+            is_dep = getattr(pre, "prefund_source_is_deployer", False)
+            hrs    = getattr(pre, "prefund_hours_before_launch", None)
+            sold   = getattr(post, "sell_detected", False)
+            dests  = getattr(post, "fund_destinations", []) or []
+            n_dests = len(dests)
+            flags  = getattr(w, "red_flags", [])
+            parts.append(
+                f"  {w.wallet[:14]}... age={age_str} funder={'deployer' if is_dep else funder_str}"
+                f" hrs_before={hrs} sold={sold} n_out_dests={n_dests}"
+                f" flags={flags[:3]} verdict={getattr(w,'verdict','?')}"
+            )
 
     # ── SOL flow intelligence ─────────────────────────────────────────────
     if sol_flow:
