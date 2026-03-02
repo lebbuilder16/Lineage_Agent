@@ -153,7 +153,7 @@ async def analyze_token(
 
     try:
         client = _get_client()
-        for _attempt in range(2):  # 1 retry on timeout or rate-limit
+        for _attempt in range(3):  # up to 2 retries on transient errors (529, timeout, rate-limit)
             try:
                 message = await client.messages.create(
                     model=_MODEL,
@@ -164,10 +164,20 @@ async def analyze_token(
                 break
             except Exception as _retry_exc:
                 _ename = type(_retry_exc).__name__
-                if _attempt == 0 and ("RateLimit" in _ename or "Timeout" in _ename or "APIConnection" in _ename):
+                _retriable = (
+                    "RateLimit" in _ename
+                    or "Timeout" in _ename
+                    or "APIConnection" in _ename
+                    or ("InternalServer" in _ename and "overloaded" in str(_retry_exc).lower())
+                )
+                if _attempt < 2 and _retriable:
                     import asyncio as _asyncio
-                    logger.warning("[ai_analyst] retry attempt after %s for %s", _ename, mint[:12])
-                    await _asyncio.sleep(3)
+                    _wait = (2 ** _attempt) * 3  # 3s, 6s
+                    logger.warning(
+                        "[ai_analyst] retry %d/2 after %s (%ds) for %s",
+                        _attempt + 1, _ename, _wait, mint[:12],
+                    )
+                    await _asyncio.sleep(_wait)
                     continue
                 raise
         raw = message.content[0].text
