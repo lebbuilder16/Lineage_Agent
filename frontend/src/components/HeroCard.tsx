@@ -177,7 +177,7 @@ export default function HeroCard({ data, analysis, analysisLoading }: Props) {
 
         {/* Share */}
         <div className="shrink-0 pt-1">
-          <ShareButton data={data} />
+          <ShareButton data={data} analysis={analysis} />
         </div>
       </div>
 
