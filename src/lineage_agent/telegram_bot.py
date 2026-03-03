@@ -3,16 +3,15 @@ Telegram bot interface for the Meme Lineage Agent.
 
 Commands
 --------
-/start                      – Welcome message
-/help                       – Show all commands and usage
-/lineage <mint>             – Detect lineage for a token
+/start                      – Welcome + help
+/scan <mint>                – Forensic analysis of a token
 /search <name>              – Search tokens by name or symbol
-/about                      – About Lineage Agent
-/links                      – Official links (website, docs, GitHub, Twitter)
 /watch deployer <address>   – Subscribe to alerts for a deployer wallet
 /watch narrative <name>     – Subscribe to alerts for a narrative category
 /unwatch <id>               – Cancel a subscription by ID
-/mywatches                  – List all active subscriptions
+/watches                    – List all active subscriptions
+
+Smart text handler: paste a mint → auto-scan, type a name → auto-search
 """
 
 from __future__ import annotations
@@ -69,102 +68,41 @@ def _e(text: str) -> str:
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Send a welcome message and usage instructions."""
+    """Welcome message with all usage info and links."""
     text = (
-        "🧬 <b>Meme Lineage Agent</b>\n\n"
-        "I help you identify the <b>root token</b> and its clones in the Solana memecoin ecosystem.\n\n"
-        "No more buying imposters. No more broken families. Just pure forensic intelligence.\n\n"
-        "<b>Quick start:</b>\n"
-        "• Paste a token mint → I'll detect its lineage\n"
-        "• Or try /search <code>&lt;name&gt;</code> to find tokens\n\n"
-        "<b>Core Commands:</b>\n"
-        "• /lineage <code>&lt;mint&gt;</code> — Forensic analysis of a token\n"
-        "• /search <code>&lt;name&gt;</code> — Find tokens by name or symbol\n"
-        "• /about — Learn what we do\n"
-        "• /links — Website, docs, GitHub, X\n\n"
-        "<b>Monitoring:</b>\n"
-        "• /watch deployer <code>&lt;wallet&gt;</code> — Alert on new tokens from a wallet\n"
-        "• /watch narrative <code>&lt;name&gt;</code> — Alert on narrative themes (pepe, ai...)\n"
-        "• /mywatches — Your active subscriptions\n\n"
-        "Use /help for more details."
+        "🧬 <b>Meme Lineage Agent</b>\n"
+        "Forensic intelligence for Solana memecoins.\n\n"
+        "<b>Just paste a mint address</b> — I'll scan it automatically.\n\n"
+        "<b>Commands:</b>\n"
+        "• /scan <code>&lt;mint&gt;</code> — Forensic analysis\n"
+        "• /search <code>&lt;name&gt;</code> — Find tokens\n"
+        "• /watch deployer <code>&lt;wallet&gt;</code> — Alert on new deploys\n"
+        "• /watch narrative <code>&lt;theme&gt;</code> — Alert by narrative (pepe, ai…)\n"
+        "• /unwatch <code>&lt;id&gt;</code> · /watches — Manage alerts"
     )
-    await update.message.reply_text(text, parse_mode="HTML")
+    keyboard = InlineKeyboardMarkup([[
+        InlineKeyboardButton("🌐 Website", url="https://www.lineagefun.xyz"),
+        InlineKeyboardButton("📚 Docs", url="https://lineage-4.gitbook.io/lineage-docs/"),
+    ], [
+        InlineKeyboardButton("💻 GitHub", url="https://github.com/lebbuilder16/Lineage_Agent"),
+        InlineKeyboardButton("𝕏 Twitter", url="https://x.com/LineageMemes"),
+    ]])
+    await update.message.reply_text(text, parse_mode="HTML", reply_markup=keyboard)
 
 
-async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Send help / usage instructions."""
-    text = (
-        "🧬 <b>Meme Lineage Agent — Complete Help</b>\n\n"
-        "<b>Account &amp; Info:</b>\n"
-        "• /start — Welcome message\n"
-        "• /about — What Lineage Agent does\n"
-        "• /links — Official website, docs, social media\n"
-        "• /help — This message\n\n"
-        "<b>Forensic Analysis:</b>\n"
-        "• /lineage <code>&lt;mint&gt;</code> — Deep forensic analysis of a token\n"
-        "  Returns: root token, clones, risk score, bundle detection, SOL flow trace\n"
-        "• /search <code>&lt;name&gt;</code> — Find tokens by name or symbol\n\n"
-        "<b>Alerts &amp; Subscriptions:</b>\n"
-        "• /watch deployer <code>&lt;address&gt;</code> — Get alerts when this wallet deploys new tokens\n"
-        "• /watch narrative <code>&lt;name&gt;</code> — Get alerts for tokens in a theme (pepe, ai, cat...)\n"
-        "• /unwatch <code>&lt;id&gt;</code> — Cancel a subscription\n"
-        "• /mywatches — See all your active subscriptions\n\n"
-        "<b>Examples:</b>\n"
-        "• <code>/lineage DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263</code>\n"
-        "• <code>/search bonk</code>\n"
-        "• <code>/watch deployer Abc123XYZ...</code>\n"
-        "• <code>/watch narrative pepe</code>\n\n"
-        "<i>Need more help? See /about and /links.</i>"
-    )
-    await update.message.reply_text(text, parse_mode="HTML")
-
-
-async def about_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Send information about Lineage Agent."""
-    text = (
-        "🧬 <b>About Lineage Agent</b>\n\n"
-        "Lineage Agent is an agentic forensic intelligence platform for the Solana memecoin ecosystem.\n\n"
-        "<b>The Problem:</b>\n"
-        "The Solana blockchain sees 1M+ token launches per month. Operators systematically deploy "
-        "clones of popular tokens, extract capital via rug pulls, then re-launch near-identical "
-        "tokens targeting the same audience.\n\n"
-        "<b>Our Solution:</b>\n"
-        "We combine 13 independent on-chain forensic signals:\n"
-        "• Metadata DNA fingerprinting (cross-wallet operator identity)\n"
-        "• Family tree reconstruction (root + derivatives)\n"
-        "• Bundle detection (Jito coordinated buys)\n"
-        "• SOL flow trace (post-rug capital routing)\n"
-        "• Death Clock (rug timing forecast)\n"
-        "• Zombie detection (recycled tokens)\n"
-        "• AI analysis (Claude LLM with conviction chains)\n"
-        "and more.\n\n"
-        "<b>Result:</b> Full forensic lineage reports in under 60 seconds."
-    )
-    await update.message.reply_text(text, parse_mode="HTML")
-
-
-async def links_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Send official links and social media."""
-    text = (
-        "🔗 <b>Lineage Agent — Official Links</b>\n\n"
-        "🌐 <b>Website:</b> <a href=\"https://www.lineagefun.xyz\">lineagefun.xyz</a>\n"
-        "📚 <b>Docs &amp; Whitepaper:</b> <a href=\"https://lineage-4.gitbook.io/lineage-docs/\">GitBook</a>\n"
-        "💻 <b>Open Source:</b> <a href=\"https://github.com/lebbuilder16/Lineage_Agent\">GitHub</a>\n"
-        "𝕏 <b>X / Twitter:</b> <a href=\"https://x.com/LineageMemes\">@LineageMemes</a>\n\n"
-        "<b>Resources:</b>\n"
-        "• <a href=\"https://lineage-4.gitbook.io/lineage-docs/getting-started\">Getting Started</a>\n"
-        "• <a href=\"https://lineage-4.gitbook.io/lineage-docs/features\">All 13 Signals Explained</a>\n"
-        "• <a href=\"https://lineage-4.gitbook.io/lineage-docs/api-reference\">REST API Reference</a>\n"
-    )
-    await update.message.reply_text(text, parse_mode="HTML")
-
-
-async def unknown_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Respond to unrecognised messages/commands."""
-    await update.message.reply_text(
-        "❓ I don't understand that command.\nUse /help to see available commands.",
-        parse_mode="HTML",
-    )
+async def smart_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Auto-route plain text: mint address → scan, anything else → search."""
+    if not update.message or not update.message.text:
+        return
+    text = update.message.text.strip()
+    if _BASE58_RE.match(text):
+        # Looks like a mint address — run scan
+        context.args = [text]
+        await scan_cmd(update, context)
+    else:
+        # Treat as a search query
+        context.args = text.split()
+        await search_cmd(update, context)
 
 
 def _inline_keyboard(mint: str) -> InlineKeyboardMarkup:
@@ -234,8 +172,8 @@ async def _run_lineage_analysis(
     return lineage_result, ai_result
 
 
-async def lineage_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle the /lineage command with full forensic + AI analysis."""
+async def scan_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle the /scan command with full forensic + AI analysis."""
     if not context.args:
         await update.message.reply_text(
             "Usage: /lineage <code>&lt;mint-address&gt;</code>",
@@ -252,7 +190,7 @@ async def lineage_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         )
         return
 
-    logger.info("Received lineage request for %s", mint)
+    logger.info("Received scan request for %s", mint)
     status_msg = await update.message.reply_text(
         "⏳ <b>Starting analysis…</b>", parse_mode="HTML"
     )
@@ -362,11 +300,6 @@ async def lineage_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         parse_mode="HTML",
         reply_markup=keyboard,
     )
-
-
-async def scan_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Alias for /lineage (shorter to type)."""
-    await lineage_cmd(update, context)
 
 
 async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -502,7 +435,7 @@ async def unwatch_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     """Handle /unwatch <id>."""
     if not context.args:
         await update.message.reply_text(
-            "Usage: /unwatch <code>&lt;id&gt;</code> — use /mywatches to see your subscription IDs.",
+            "Usage: /unwatch <code>&lt;id&gt;</code> — use /watches to see your subscription IDs.",
             parse_mode="HTML",
         )
         return
@@ -527,8 +460,8 @@ async def unwatch_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         )
 
 
-async def mywatches_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /mywatches — list all active subscriptions for this chat."""
+async def watches_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /watches — list all active subscriptions for this chat."""
     chat_id = update.effective_chat.id
     subs = await list_subscriptions(chat_id)
 
@@ -545,7 +478,7 @@ async def mywatches_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         lines.append(
             f"  #{s['id']} — <b>{_e(s['sub_type'])}</b>: <code>{_e(s['value'])}</code>"
         )
-    lines.append("\n<i>Use /unwatch &lt;id&gt; to cancel any subscription.</i>")
+    lines.append("\n<i>/unwatch &lt;id&gt; to cancel.</i>")
     await update.message.reply_text("\n".join(lines), parse_mode="HTML")
 
 
@@ -568,19 +501,14 @@ def build_application():
 
     app: Application = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("help", help_cmd))
-    app.add_handler(CommandHandler("about", about_cmd))
-    app.add_handler(CommandHandler("links", links_cmd))
-    app.add_handler(CommandHandler("lineage", lineage_cmd))
-    app.add_handler(CommandHandler("scan", scan_cmd))  # alias
+    app.add_handler(CommandHandler("scan", scan_cmd))
     app.add_handler(CommandHandler("search", search_cmd))
     app.add_handler(CommandHandler("watch", watch_cmd))
     app.add_handler(CommandHandler("unwatch", unwatch_cmd))
-    app.add_handler(CommandHandler("mywatches", mywatches_cmd))
+    app.add_handler(CommandHandler("watches", watches_cmd))
     app.add_handler(CallbackQueryHandler(callback_query_handler))
     app.add_handler(InlineQueryHandler(inline_query_handler))
-    app.add_handler(MessageHandler(filters.COMMAND, unknown_cmd))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, unknown_cmd))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, smart_text_handler))
 
     set_bot_app(app)
     return app

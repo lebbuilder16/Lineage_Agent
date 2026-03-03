@@ -13,7 +13,7 @@ from lineage_agent.models import (
     TokenMetadata,
     TokenSearchResult,
 )
-from lineage_agent.telegram_bot import lineage_cmd, search_cmd, start, help_cmd, unknown_cmd
+from lineage_agent.telegram_bot import scan_cmd, search_cmd, start
 
 # Valid base58 mint for tests (44 chars, no 0/O/I/l)
 _VALID_MINT = "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263"
@@ -49,21 +49,21 @@ class TestStart:
         update.message.reply_text.assert_called_once()
         text = update.message.reply_text.call_args[0][0]
         assert "Meme Lineage Agent" in text
-        assert "/lineage" in text
+        assert "/scan" in text
         assert "/search" in text
 
 
 # ------------------------------------------------------------------
-# /lineage
+# /scan
 # ------------------------------------------------------------------
 
 
-class TestLineageCmd:
+class TestScanCmd:
 
     @pytest.mark.asyncio
     async def test_no_args(self):
         update, context = _make_update(args=[])
-        await lineage_cmd(update, context)
+        await scan_cmd(update, context)
         update.message.reply_text.assert_called_once()
         text = update.message.reply_text.call_args[0][0]
         assert "Usage" in text
@@ -72,7 +72,7 @@ class TestLineageCmd:
     async def test_invalid_mint(self):
         """Non-base58 addresses should be rejected immediately."""
         update, context = _make_update(args=["0OIlBadMint"])
-        await lineage_cmd(update, context)
+        await scan_cmd(update, context)
         update.message.reply_text.assert_called_once()
         text = update.message.reply_text.call_args[0][0]
         assert "Invalid" in text
@@ -110,7 +110,7 @@ class TestLineageCmd:
             new_callable=AsyncMock,
             return_value=fake_result,
         ):
-            await lineage_cmd(update, context)
+            await scan_cmd(update, context)
 
         # reply_text called once (initial "Starting analysis…")
         assert update.message.reply_text.call_count == 1
@@ -133,7 +133,7 @@ class TestLineageCmd:
             new_callable=AsyncMock,
             side_effect=RuntimeError("RPC timeout"),
         ):
-            await lineage_cmd(update, context)
+            await scan_cmd(update, context)
 
         # reply_text once (initial message), then edit_text for error
         assert update.message.reply_text.call_count == 1
@@ -159,7 +159,7 @@ class TestLineageCmd:
             new_callable=AsyncMock,
             return_value=fake_result,
         ):
-            await lineage_cmd(update, context)
+            await scan_cmd(update, context)
 
         result_text = status_msg.edit_text.call_args_list[-1][0][0]
         assert "No clones detected" in result_text
@@ -189,7 +189,7 @@ class TestLineageCmd:
             new_callable=AsyncMock,
             return_value=fake_result,
         ):
-            await lineage_cmd(update, context)
+            await scan_cmd(update, context)
 
         result_text = status_msg.edit_text.call_args_list[-1][0][0]
         assert "7 more clones detected" in result_text
@@ -283,48 +283,22 @@ class TestSearchCmd:
 
 
 # ------------------------------------------------------------------
-# /help
+# /start — smart text handler & links
 # ------------------------------------------------------------------
 
 
-class TestHelpCmd:
+class TestStartLinks:
 
     @pytest.mark.asyncio
-    async def test_help_sends_commands(self):
+    async def test_start_has_inline_keyboard(self):
         update, context = _make_update()
-        await help_cmd(update, context)
-        update.message.reply_text.assert_called_once()
-        text = update.message.reply_text.call_args[0][0]
-        assert "/lineage" in text
-        assert "/search" in text
-        assert "/help" in text
-
-    @pytest.mark.asyncio
-    async def test_help_uses_html(self):
-        update, context = _make_update()
-        await help_cmd(update, context)
+        await start(update, context)
         kwargs = update.message.reply_text.call_args[1]
-        assert kwargs.get("parse_mode") == "HTML"
-
-
-# ------------------------------------------------------------------
-# Unknown command
-# ------------------------------------------------------------------
-
-
-class TestUnknownCmd:
+        assert kwargs.get("reply_markup") is not None
 
     @pytest.mark.asyncio
-    async def test_unknown_replies(self):
+    async def test_start_uses_html(self):
         update, context = _make_update()
-        await unknown_cmd(update, context)
-        update.message.reply_text.assert_called_once()
-        text = update.message.reply_text.call_args[0][0]
-        assert "/help" in text
-
-    @pytest.mark.asyncio
-    async def test_unknown_uses_html(self):
-        update, context = _make_update()
-        await unknown_cmd(update, context)
+        await start(update, context)
         kwargs = update.message.reply_text.call_args[1]
         assert kwargs.get("parse_mode") == "HTML"
