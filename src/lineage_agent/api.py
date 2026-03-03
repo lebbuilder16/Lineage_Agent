@@ -1459,8 +1459,7 @@ async def forensic_chat(
         # ── Build forensic context from cache ─────────────────────────────
         context_parts: list[str] = []
         try:
-            from .cache import get_cache as _get_cache
-            _cache = await _get_cache()
+            from .data_sources._clients import cache as _cache  # noqa: PLC0415
             # Try cached AI analysis first
             _ai_key = f"ai:v2:{mint}"
             _ai_cached = _cache.get(_ai_key)
@@ -1551,9 +1550,8 @@ async def _get_current_user(request: Request):
     api_key = request.headers.get("X-API-Key", "")
     if not api_key:
         raise HTTPException(status_code=401, detail="Missing X-API-Key header")
-    from .cache import get_cache as _get_cache
-    cache = await _get_cache()
-    user = await verify_api_key(cache, api_key)
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+    user = await verify_api_key(_cache, api_key)
     if user is None:
         raise HTTPException(status_code=401, detail="Invalid API key")
     return user
@@ -1568,11 +1566,10 @@ async def auth_login(body: _LoginRequest, request: Request):
     """
     if not body.privy_id or len(body.privy_id) < 5:
         raise HTTPException(status_code=422, detail="privy_id is required")
-    from .cache import get_cache as _get_cache
-    cache = await _get_cache()
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
     try:
         user = await create_or_get_user(
-            cache,
+            _cache,
             privy_id=body.privy_id,
             wallet_address=body.wallet_address,
             email=body.email,
@@ -1607,9 +1604,8 @@ async def auth_me(request: Request):
 async def auth_watches(request: Request):
     """Return user's watches. Requires X-API-Key header."""
     user = await _get_current_user(request)
-    from .cache import get_cache as _get_cache
-    cache = await _get_cache()
-    watches = await get_user_watches(cache, user["id"])
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+    watches = await get_user_watches(_cache, user["id"])
     return {"watches": watches}
 
 
@@ -1617,9 +1613,8 @@ async def auth_watches(request: Request):
 async def auth_add_watch(body: _WatchRequest, request: Request):
     """Add a watch for the current user. Requires X-API-Key header."""
     user = await _get_current_user(request)
-    from .cache import get_cache as _get_cache
-    cache = await _get_cache()
-    watch = await add_user_watch(cache, user["id"], body.sub_type, body.value)
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+    watch = await add_user_watch(_cache, user["id"], body.sub_type, body.value)
     if watch is None:
         raise HTTPException(status_code=409, detail="Watch already exists")
     return watch
@@ -1629,9 +1624,8 @@ async def auth_add_watch(body: _WatchRequest, request: Request):
 async def auth_remove_watch(watch_id: int, request: Request):
     """Delete a watch by id. Requires X-API-Key header."""
     user = await _get_current_user(request)
-    from .cache import get_cache as _get_cache
-    cache = await _get_cache()
-    deleted = await remove_user_watch(cache, user["id"], watch_id)
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+    deleted = await remove_user_watch(_cache, user["id"], watch_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Watch not found")
     return {"deleted": True}
