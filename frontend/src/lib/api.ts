@@ -603,6 +603,7 @@ export interface AIAnalysis {
   verdict_summary: string;
   narrative: AIAnalysisNarrative;
   key_findings: string[];
+  conviction_chain: string | null;
   operator_hypothesis: string | null;
   model: string;
   analyzed_at: string;

@@ -281,17 +281,17 @@ export default function AIAnalysisCard({ analysis, isLoading }: Props) {
       {/* ── narrative ──────────────────────────────────────────────────── */}
       <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 px-3 py-1.5 mb-3">
         <NarrativeRow
-          label="Observation"
+          label="Analysis"
           text={ai.narrative.observation}
           accent="text-sky-400"
         />
         <NarrativeRow
-          label="Pattern"
+          label="Attack chain"
           text={ai.narrative.pattern}
           accent="text-violet-400"
         />
         <NarrativeRow
-          label="Risk"
+          label="Damage"
           text={ai.narrative.risk}
           accent="text-red-400"
         />
@@ -328,7 +328,16 @@ export default function AIAnalysisCard({ analysis, isLoading }: Props) {
         </div>
       )}
 
-      {/* ── operator hypothesis ────────────────────────────────────────── */}
+      {/* ── operator hypothesis ────────────────────────────────────────── */}      {ai.conviction_chain && (
+        <div className="mb-3 rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-amber-500/70 mb-1">
+            Conviction
+          </p>
+          <p className="text-xs text-zinc-300 leading-relaxed">
+            {ai.conviction_chain}
+          </p>
+        </div>
+      )}
       {ai.operator_hypothesis && (
         <div className="mb-3 rounded-lg border border-zinc-700/50 bg-zinc-900/60 px-3 py-2">
           <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-1">

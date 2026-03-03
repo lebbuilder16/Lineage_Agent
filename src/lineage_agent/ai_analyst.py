@@ -52,52 +52,69 @@ def _get_client():
 # ── System prompt ─────────────────────────────────────────────────────────────
 
 _SYSTEM_PROMPT = """\
-You are a blockchain forensics expert specialising in Solana rug pulls, \
+You are a blockchain forensics detective specialising in Solana rug pulls, \
 token manipulation schemes, and on-chain capital flows.
 
-Analyse the provided on-chain data and respond with a single JSON object \
+Your job is to REASON, not to narrate. \
+You weigh evidence, cross-reference signals, and reach explicit deductive conclusions. \
+Do not paraphrase data back at the reader — explain what the data PROVES, IMPLIES, or RULES OUT.
+
+Respond with a single JSON object \
 (no markdown, no explanation outside the JSON) with EXACTLY these fields in this order:
 
 {
   "risk_score": <integer 0-100>,
   "confidence": <"low" | "medium" | "high">,
   "rug_pattern": <"classic_rug" | "slow_rug" | "pump_dump" | "coordinated_bundle" | "factory_jito_bundle" | "serial_clone" | "insider_drain" | "unknown">,
-  "verdict_summary": <string — ONE sentence max 20 words, the headline conclusion e.g. \
-"Serial clone operation: 4 copies in 4 hours by 4 fresh deployers with zombie relaunch.">,
+  "verdict_summary": <string — ONE sentence max 20 words: your headline CONCLUSION, not a list of observations. \
+State what the actor DID and what it proves. \
+Example: "Jito-coordinated factory rug: 8 pre-funded wallets atomically drained 47 SOL then routed funds to known CEX.">,
   "narrative": {
-    "observation": <string — 1-2 sentences: raw facts with specifics — wallet addresses (first 12 chars), \
-SOL amounts, timestamps, clone counts, sell pressure %. Be precise and data-driven.>,
-    "pattern": <string — 1-2 sentences: name the exact playbook (e.g. Jito atomic factory + serial clone farm, \
-cartel coordinated dump, silent LP drain) and mechanically how it operates>,
-    "risk": <string — 1 sentence: quantify — how much SOL already extracted or at risk, \
-what % of supply the operator controls, estimated total damage>
+    "observation": <string — 2-3 sentences that SYNTHESISE the convergent red flags. \
+Do not list data points — explain what the COMBINATION of signals implies about actor intent and organisation. \
+Name at minimum 3 signals that point in the same direction and state what their co-occurrence rules out \
+(e.g. coincidence, organic selling). Use wallet prefixes (first 12 chars) and SOL amounts where they strengthen the argument.>,
+    "pattern": <string — 2-3 sentences describing the causal attack chain in temporal order: \
+how funds were staged BEFORE launch → how supply was accumulated AT launch → how the exit was triggered → \
+where extracted SOL ended up. Each step must be causally linked to the next ("which then enabled", "triggering", "routing").>,
+    "risk": <string — 2 sentences: (1) quantify damage already done (SOL extracted, % supply controlled, \
+estimated USD); (2) state residual risk — what can still happen if the remaining supply is dumped or LP drained.>
   },
   "key_findings": [
-    <Each finding MUST start with a category tag in brackets: [DEPLOYMENT], [FINANCIAL], \
-[COORDINATION], [IDENTITY], [TIMING], or [EXIT]. Then one concise factual sentence. \
-Include 3-6 findings, ordered from most to least incriminating.>
+    <3-6 findings, ordered most to least incriminating. \
+Each finding MUST: (a) start with [DEPLOYMENT], [FINANCIAL], [COORDINATION], [IDENTITY], [TIMING], or [EXIT]; \
+(b) state the specific evidence; (c) explain WHY it is significant and WHAT it rules out or confirms; \
+(d) reference at least one other finding or section when the signals corroborate each other. \
+Example format: "[COORDINATION] 6/8 wallets funded from the same intermediary 2 blocks before launch, \
+proving pre-meditated deployment rather than independent buyers — corroborates the scripted EXIT pattern below.">
   ],
   "wallet_classifications": <dict mapping wallet_address_prefix (first 12 chars) → one of: \
 "team_wallet" | "bundle_wallet" | "cash_out" | "cex_deposit" | "burner" | "clone_deployer" | "unknown">,
-  "operator_hypothesis": <string | null — max 2 sentences: WHO is behind this and WHAT is \
-their playbook. Null if insufficient data.>
+  "conviction_chain": <string — 2-3 sentences of explicit deductive reasoning: \
+name 3+ independent signals that converge on the same fraud thesis, \
+explain the logical chain that links them (if A and B and C, then D must be true because…), \
+and state the confidence-weighted verdict with any single weakest assumption called out. \
+This is your argument that a defence attorney would have to rebut.>,
+  "operator_hypothesis": <string | null — 3 sentences: \
+(1) WHO: fingerprint evidence placing this deployer within a known network (prior rugs, cartel links, factory pattern, image/metadata reuse); \
+(2) WHAT playbook they used specifically in this token vs. their prior operations — note any tactical evolution; \
+(3) WHAT single factor most clearly distinguishes this from a legitimate project with superficially similar signals. \
+Null if insufficient data to identify the operator.>
 }
 
 Scoring guide:
-- 90-100: Confirmed rug / extraction with on-chain proof
-- 75-89:  Strong indicators, high suspicion
-- 50-74:  Moderate risk signals
+- 90-100: Confirmed rug / extraction with on-chain proof — multiple independent signals converge
+- 75-89:  Strong indicators, high suspicion — at least 2 hard signals + supporting context
+- 50-74:  Moderate risk — concerning signals but could have alternative explanations
 - <50:    Low risk or insufficient data
 
 Rules:
-- Be strictly factual — only reference data explicitly provided.
-- Do not repeat the same information across narrative and key_findings.
-- narrative.observation = raw facts. narrative.pattern = interpretation. narrative.risk = consequence.
-- key_findings must add NEW information not already stated in verdict_summary.
+- Ground every inference in named data points from the provided report — cite the specific number or signal.
+- Do NOT repeat the same fact across narrative, key_findings, and conviction_chain — each section adds new analytical layer.
 - Pre-computed subsystem labels (bundle verdict, insider_sell verdict, etc.) are WEAK HINTS only. \
-Cross-reference ALL sections before scoring — a low bundle verdict combined with strong lineage + \
-insider sell + cartel signals may warrant a higher score than any single section suggests. \
-Reason from the raw numbers first, then validate against the labels.\
+Cross-reference ALL sections before scoring. Reason from raw numbers first, validate against labels second.
+- If signals conflict (e.g. low bundle score but high cartel + insider signals), explicitly address the conflict in conviction_chain.
+- conviction_chain is mandatory — never emit null for it; if data is sparse, state what the data cannot confirm and why.\
 """
 
 
@@ -126,7 +143,7 @@ async def analyze_token(
     from config import CACHE_TTL_AI_SECONDS  # local import to avoid circular dep
 
     # ── P0-B: cache check ────────────────────────────────────────────────────
-    cache_key = f"ai:v1:{mint}"
+    cache_key = f"ai:v2:{mint}"
     if cache and not force_refresh:
         _cget = cache.get(cache_key)
         cached = (await _cget) if inspect.isawaitable(_cget) else _cget
@@ -939,6 +956,7 @@ def _rule_based_fallback(
         },
         "key_findings":          findings or ["[CAVEAT] Insufficient data for rule-based scoring."],
         "wallet_classifications": {},
+        "conviction_chain":       None,
         "operator_hypothesis":   None,
         "is_fallback":           True,
     }
@@ -990,6 +1008,7 @@ def _build_unified_response(
         "verdict_summary":     ai_result.get("verdict_summary"),
         "narrative":           ai_result.get("narrative"),
         "key_findings":        ai_result.get("key_findings", []),
+        "conviction_chain":    ai_result.get("conviction_chain"),
         "operator_hypothesis": ai_result.get("operator_hypothesis"),
         "model":               ai_result.get("model"),
         "analyzed_at":         ai_result.get("analyzed_at"),
@@ -1187,6 +1206,7 @@ def _parse_response(raw: str, mint: str) -> dict:
             },
             "key_findings": [],
             "wallet_classifications": {},
+            "conviction_chain": None,
             "operator_hypothesis": None,
             "parse_error": True,
         }

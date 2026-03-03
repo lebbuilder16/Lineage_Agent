@@ -289,7 +289,17 @@ export default function OverviewTab({
         </div>
       )}
 
-      {/* ── 5. Operator Profile ───────────────────────────────────── */}
+      {/* ── 5. Conviction ───────────────────────────────────── */}
+      {ai.conviction_chain && (
+        <div className={SECTION}>
+          <p className={LABEL}>Conviction</p>
+          <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2.5">
+            <p className="text-xs text-zinc-300 leading-relaxed">{ai.conviction_chain}</p>
+          </div>
+        </div>
+      )}
+
+      {/* ── 6. Operator Profile ────────────────────────────────── */}
       {ai.operator_hypothesis && (
         <div className={SECTION}>
           <p className={LABEL}>Operator Profile</p>
