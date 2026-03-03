@@ -586,34 +586,61 @@ def build_application():
     return app
 
 
-def main() -> None:
-    """Start the Telegram bot and run it until interrupted."""
-    logging.basicConfig(
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        level=logging.INFO,
-    )
+async def main() -> None:
+    """
+    WEBHOOK mode : set_webhook() chez Telegram, FastAPI reçoit les updates.
+                   PAS de run_webhook() — évite le conflit de port avec FastAPI.
+    POLLING mode : fallback si TELEGRAM_WEBHOOK_URL absent.
+    """
+    import signal as _signal
 
-    if TELEGRAM_BOT_TOKEN.startswith("<"):
-        raise RuntimeError(
-            "Please set your TELEGRAM_BOT_TOKEN in config.py or as an environment variable"
-        )
+    global _application
+    _application = build_application()
 
-    application = build_application()
+    _webhook_url    = os.getenv("TELEGRAM_WEBHOOK_URL", "").strip()
+    _webhook_secret = os.getenv("TELEGRAM_WEBHOOK_SECRET", "").strip()
 
-    logger.info("Starting bot…")
-    if TELEGRAM_WEBHOOK_URL:
-        logger.info("Webhook mode: %s", TELEGRAM_WEBHOOK_URL)
-        application.run_webhook(
-            listen="0.0.0.0",
-            port=8080,
-            url_path="/telegram/webhook",
-            webhook_url=TELEGRAM_WEBHOOK_URL,
-            secret_token=TELEGRAM_WEBHOOK_SECRET or None,
-        )
+    if _webhook_url and _webhook_url.startswith("https://"):
+        logger.info("Bot starting in WEBHOOK mode: %s", _webhook_url)
+        try:
+            await _application.initialize()
+            await _application.bot.set_webhook(
+                url=_webhook_url,
+                secret_token=_webhook_secret or None,
+                allowed_updates=["message", "callback_query", "inline_query"],
+            )
+            await _application.start()
+            logger.info("Webhook registered — FastAPI handles incoming updates")
+
+            stop_event = asyncio.Event()
+            loop = asyncio.get_running_loop()
+            for sig in (_signal.SIGINT, _signal.SIGTERM):
+                try:
+                    loop.add_signal_handler(sig, stop_event.set)
+                except NotImplementedError:
+                    pass
+            await stop_event.wait()
+
+        except Exception as exc:
+            logger.error("Webhook setup failed (%s) — falling back to polling", exc)
+            try:
+                await _application.stop()
+                await _application.shutdown()
+            except Exception:
+                pass
+            _application = build_application()
+            await _application.run_polling(drop_pending_updates=True)
+            return
+        finally:
+            try:
+                await _application.stop()
+                await _application.shutdown()
+            except Exception:
+                pass
     else:
-        logger.info("Polling mode (no TELEGRAM_WEBHOOK_URL set)")
-        application.run_polling()
+        logger.info("Bot starting in POLLING mode (no TELEGRAM_WEBHOOK_URL)")
+        await _application.run_polling(drop_pending_updates=True)
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
