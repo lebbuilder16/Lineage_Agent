@@ -17,6 +17,7 @@ Commands
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 
@@ -27,6 +28,7 @@ from config import TELEGRAM_BOT_TOKEN
 from .alert_service import set_bot_app
 from .data_sources._clients import list_subscriptions, subscribe_alert, unsubscribe_alert
 from .lineage_detector import detect_lineage, search_tokens
+from .ai_analyst import analyze_token
 
 # Base58 validation regex (same as in api.py)
 _BASE58_RE = re.compile(r"^[1-9A-HJ-NP-Za-km-z]{32,44}$")
@@ -150,7 +152,7 @@ async def unknown_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
 
 async def lineage_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle the /lineage command."""
+    """Handle the /lineage command with full forensic + AI analysis."""
     if not context.args:
         await update.message.reply_text("Usage: /lineage <mint\\-address>", parse_mode="MarkdownV2")
         return
@@ -165,48 +167,140 @@ async def lineage_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         return
 
     logger.info("Received lineage request for %s", mint)
-    await update.message.reply_text("🔍 Analyzing lineage… please wait\\.", parse_mode="MarkdownV2")
+    status_msg = await update.message.reply_text("🔍 Analyzing… lineage + forensics\\.", parse_mode="MarkdownV2")
 
     try:
-        result = await detect_lineage(mint)
+        # Run detect_lineage + analyze_token in parallel
+        lineage_result, ai_result = await asyncio.gather(
+            detect_lineage(mint),
+            None,  # placeholder — filled below
+            return_exceptions=True,
+        )
+
+        # Check lineage result
+        if isinstance(lineage_result, Exception):
+            logger.exception("Lineage detection error for %s", mint)
+            await status_msg.edit_text(
+                "❌ Something went wrong while analyzing this token\\. Please try again later\\.",
+                parse_mode="MarkdownV2",
+            )
+            return
+
+        # Now call AI analysis with lineage result (sequential to avoid timeout)
+        try:
+            ai_result = await asyncio.wait_for(
+                analyze_token(mint, lineage_result=lineage_result),
+                timeout=30.0,
+            )
+        except asyncio.TimeoutError:
+            logger.warning("AI analysis timed out for %s", mint)
+            ai_result = None
+        except Exception:
+            logger.exception("AI analysis failed for %s", mint)
+            ai_result = None
+
     except Exception:
         logger.exception("Lineage detection error for %s", mint)
-        await update.message.reply_text(
+        await status_msg.edit_text(
             "❌ Something went wrong while analyzing this token\\. Please try again later\\.",
             parse_mode="MarkdownV2",
         )
         return
 
-    root = result.root
+    # Build hybrid message: lineage + AI analysis
+    root = lineage_result.root
     root_name = _esc(root.name) if root and root.name else "Unknown"
     root_mint = root.mint if root else mint
 
-    # Build a rich lineage card
-    conf_pct = f"{result.confidence:.0%}"
-    lines = [
-        "🧬 *Lineage Card*\n",
-        f"📌 *Queried mint:* `{mint}`",
-        f"👑 *Root:* {root_name} \\(`{root_mint[:8]}…`\\)",
-        f"🎯 *Confidence:* {_esc(conf_pct)}",
-        f"👨‍👧‍👦 *Family size:* {result.family_size}",
-    ]
+    lines = ["🧬 *Lineage Card*\n"]
+    
+    # ── Lineage basics ────────────────────────────────────────────────
+    lines.append(f"📌 *Queried:* `{mint}`")
+    lines.append(f"👑 *Root:* {root_name} \\(`{root_mint[:8]}…`\\)")
+    conf_pct = f"{lineage_result.confidence:.0%}" if lineage_result.confidence else "?"
+    lines.append(f"🎯 *Confidence:* {_esc(conf_pct)} | 👨‍👧‍👦 *Family:* {lineage_result.family_size} tokens")
 
-    if result.derivatives:
-        lines.append("\n📋 *Top derivatives / clones:*")
-        for i, d in enumerate(result.derivatives[:5], 1):
-            score = d.evidence.composite_score
-            liq = f"${d.liquidity_usd:,.0f}" if d.liquidity_usd else "n/a"
-            dname = _esc(d.name or d.symbol or d.mint[:8])
-            lines.append(
-                f"  {i}\\. {dname} "
-                f"\\– score {_esc(f'{score:.2f}')}, liq {_esc(liq)}"
-            )
-        if len(result.derivatives) > 5:
-            lines.append(f"  _…and {len(result.derivatives) - 5} more_")
+    # ── Bundle verdict (if available) ──────────────────────────────────
+    bundle = lineage_result.bundle_report
+    if bundle:
+        verdict = getattr(bundle, "overall_verdict", "?") or "?"
+        verdict_emoji = {
+            "confirmed_team_extraction": "🔴",
+            "suspected_team_extraction": "🟠",
+            "coordinated_dump_unknown_team": "⚠️",
+            "early_buyers_no_link_proven": "✅",
+        }.get(verdict, "❓")
+        lines.append(f"\n{verdict_emoji} *Bundle Verdict:* {_esc(verdict.replace('_', ' ').title())}")
+
+    # ── AI Analysis results ────────────────────────────────────────────
+    if ai_result:
+        risk_score = ai_result.get("risk_score")
+        confidence = ai_result.get("confidence", "?")
+        rug_pattern = ai_result.get("rug_pattern", "unknown")
+        verdict_summary = ai_result.get("verdict_summary", "")
+        key_findings = ai_result.get("key_findings", []) or []
+        conviction_chain = ai_result.get("conviction_chain")
+
+        # Risk score with emoji
+        risk_emoji = {
+            "low": "🟢",   # 0-30
+            "medium": "🟡",  # 31-54
+            "caution": "🟠",  # 55-74
+            "high": "🔴",   # 75-100
+        }
+        if risk_score is not None:
+            if risk_score < 31:
+                emoji = "🟢"
+            elif risk_score < 55:
+                emoji = "🟡"
+            elif risk_score < 75:
+                emoji = "🟠"
+            else:
+                emoji = "🔴"
+            lines.append(f"\n{emoji} *Risk Score:* {risk_score}/100 \\({confidence}\\)")
+
+        # Rug pattern
+        if rug_pattern and rug_pattern != "unknown":
+            lines.append(f"🎭 *Pattern:* {_esc(rug_pattern.replace('_', ' ').title())}")
+
+        # Verdict summary
+        if verdict_summary:
+            lines.append(f"📋 _{_esc(verdict_summary)}_")
+
+        # Top 2 key findings
+        if key_findings:
+            lines.append("\n🔍 *Key Findings:*")
+            for finding in key_findings[:2]:
+                # Strip [LABEL] prefix if present and shorten
+                clean_finding = finding
+                if "[" in finding and "]" in finding:
+                    clean_finding = finding[finding.index("]") + 1:].strip()
+                clean_finding = clean_finding[:80] + ("…" if len(clean_finding) > 80 else "")
+                lines.append(f"  • {_esc(clean_finding)}")
+
+        # Conviction chain (brief summary of confidence)
+        if conviction_chain:
+            chain_short = conviction_chain[:120] + ("…" if len(conviction_chain) > 120 else "")
+            lines.append(f"\n💡 *Conviction:* _{_esc(chain_short)}_")
     else:
-        lines.append("\n✅ No derivatives/clones found\\.")
+        lines.append("\n⚠️ *AI Analysis:* Not available (check back soon)")
 
-    await update.message.reply_text("\n".join(lines), parse_mode="MarkdownV2")
+    # ── Derivatives preview ───────────────────────────────────────────────
+    if lineage_result.derivatives:
+        lines.append(f"\n📊 *Top clones* \\(1 of {len(lineage_result.derivatives)}\\):")
+        for d in lineage_result.derivatives[:1]:
+            dname = _esc(d.name or d.symbol or d.mint[:8])
+            score = d.evidence.composite_score if d.evidence else 0.0
+            liq = f"${d.liquidity_usd:,.0f}" if d.liquidity_usd else "n/a"
+            lines.append(f"  {dname} — score {_esc(f'{score:.2f}')}, liq {_esc(liq)}")
+        if len(lineage_result.derivatives) > 1:
+            lines.append(f"  _{len(lineage_result.derivatives) - 1} more clones detected_")
+    else:
+        lines.append("\n✅ *No clones detected*")
+
+    lines.append(f"\n🔗 [View full report](https://www\\.lineagefun\\.xyz/lineage/{mint})")
+
+    await status_msg.edit_text("\n".join(lines), parse_mode="MarkdownV2")
 
 
 async def search_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
