@@ -114,7 +114,9 @@ Rules:
 - Pre-computed subsystem labels (bundle verdict, insider_sell verdict, etc.) are WEAK HINTS only. \
 Cross-reference ALL sections before scoring. Reason from raw numbers first, validate against labels second.
 - If signals conflict (e.g. low bundle score but high cartel + insider signals), explicitly address the conflict in conviction_chain.
-- conviction_chain is mandatory — never emit null for it; if data is sparse, state what the data cannot confirm and why.\
+- conviction_chain is mandatory — never emit null for it; if data is sparse, state what the data cannot confirm and why.
+- CRITICAL JSON FORMATTING: string values must be valid JSON. Do NOT use double-quote characters inside string values — \
+use single quotes or rephrase instead. No literal newlines inside string values. No trailing commas.\
 """
 
 
@@ -1232,7 +1234,21 @@ def _parse_response(raw: str, mint: str) -> dict:
             except json.JSONDecodeError:
                 pass
 
-    # 4. Truncated response — attempt partial field extraction
+    # 4. json-repair: handles unescaped quotes, trailing commas, truncated JSON
+    try:
+        from json_repair import repair_json  # noqa: PLC0415
+        candidate = cleaned if cleaned.lstrip().startswith("{") else cleaned[cleaned.find("{"):]
+        repaired = repair_json(candidate, return_objects=True)
+        if isinstance(repaired, dict) and repaired.get("risk_score") is not None:
+            repaired["mint"] = mint
+            repaired["model"] = _MODEL
+            repaired["analyzed_at"] = ts
+            logger.info("[ai_analyst] JSON repaired via json_repair for %s", mint[:12])
+            return repaired
+    except Exception as _repair_exc:
+        logger.debug("[ai_analyst] json_repair failed: %s", _repair_exc)
+
+    # 5. Ultimate fallback
     logger.warning("[ai_analyst] JSON parse failed (all strategies). raw=%s", raw[:300])
     return {
         "mint": mint,
