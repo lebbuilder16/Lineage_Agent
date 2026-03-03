@@ -120,6 +120,48 @@ use single quotes or rephrase instead. No literal newlines inside string values.
 """
 
 
+# ── Heuristic pre-score (used for adaptive model selection) ──────────────────
+
+def _heuristic_score(lineage: Optional[Any], bundle: Optional[Any], sol_flow: Optional[Any]) -> int:
+    """Quick rule-based risk estimate computed BEFORE calling Claude.
+    Used only to decide whether to upgrade to sonnet. Not shown to users.
+    """
+    score = 0
+    if bundle:
+        verdict = getattr(bundle, "overall_verdict", "") or ""
+        if "confirmed" in verdict:
+            score += 45
+        elif "suspected" in verdict:
+            score += 30
+        elif "coordinated" in verdict:
+            score += 20
+        if getattr(bundle, "coordinated_sell_detected", False):
+            score += 10
+    if lineage:
+        dp = getattr(lineage, "deployer_profile", None)
+        if dp:
+            rugs = getattr(dp, "rug_count", 0) or 0
+            if rugs >= 5:
+                score += 25
+            elif rugs >= 2:
+                score += 15
+            elif rugs >= 1:
+                score += 8
+        derivatives = getattr(lineage, "derivatives", []) or []
+        score += min(len(derivatives) * 3, 15)
+        if getattr(lineage, "zombie_alert", None):
+            score += 15
+    if sol_flow:
+        extracted = getattr(sol_flow, "total_extracted_sol", 0) or 0
+        if extracted >= 20:
+            score += 20
+        elif extracted >= 5:
+            score += 12
+        elif extracted >= 1:
+            score += 6
+    return min(score, 100)
+
+
 # ── Public API ────────────────────────────────────────────────────────────────
 
 async def analyze_token(
@@ -177,12 +219,22 @@ async def analyze_token(
     prompt = _build_prompt(mint, lineage_result, bundle_report, sol_flow_report,
                            deployer_history, behavioral_signals)
 
+    # ── Adaptive model selection: sonnet for high-risk tokens ───────────────────────
+    _call_model = _MODEL
+    if not os.getenv("ANTHROPIC_MODEL"):  # only auto-switch if not forced by env
+        _hscore = _heuristic_score(lineage_result, bundle_report, sol_flow_report)
+        if _hscore >= 75:
+            _call_model = "claude-sonnet-4-6"
+            logger.info("[ai_analyst] adaptive model: sonnet (heuristic=%d) for %s", _hscore, mint[:12])
+        else:
+            logger.debug("[ai_analyst] adaptive model: haiku (heuristic=%d) for %s", _hscore, mint[:12])
+
     try:
         client = _get_client()
         for _attempt in range(3):  # up to 2 retries on transient errors (529, timeout, rate-limit)
             try:
                 message = await client.messages.create(
-                    model=_MODEL,
+                    model=_call_model,
                     max_tokens=_MAX_TOKENS,
                     system=_SYSTEM_PROMPT,
                     messages=[{"role": "user", "content": prompt}],
@@ -209,10 +261,11 @@ async def analyze_token(
         raw = message.content[0].text
         logger.info(
             "[ai_analyst] %s | model=%s input_tokens=%d output_tokens=%d",
-            mint[:12], _MODEL,
+            mint[:12], _call_model,
             message.usage.input_tokens, message.usage.output_tokens,
         )
         result = _parse_response(raw, mint)
+        result["model"] = _call_model  # override with actual model used
 
         # ── P0-A: sanity-check the score against hard evidence ────────────────
         result = _sanity_check(result, lineage_result, bundle_report, sol_flow_report)
@@ -336,7 +389,7 @@ def _build_prompt(
                     f"Clone deployment window: {_win_min:.0f} min total  "
                     f"| median gap between deploys: {_med_gap:.0f} min"
                 )
-        for der in derivatives[:6]:
+        for der in derivatives[: (4 if len(derivatives) > 10 else 6)]:
             parts.append(
                 f"  Gen{getattr(der,'generation','?')}: {getattr(der,'name','?')} "
                 f"({getattr(der,'symbol','?')}) deployer={str(getattr(der,'deployer','?'))[:12]}... "
@@ -454,9 +507,20 @@ def _build_prompt(
         if sold_count:
             parts.append(f"SIGNAL: {sold_count}/{n_wallets} wallets have sold their position.")
 
-        # Per-wallet table — ALL wallets (budget: short rows)
-        parts.append("Per-wallet breakdown:")
-        for w in wallets_list[:15]:  # cover up to _MAX_BUNDLE_WALLETS (15)
+        # Per-wallet table — top 10 most incriminating wallets to save tokens
+        # Sort: confirmed > suspected > other, then by sol_received_from_sell desc
+        _VERDICT_ORDER = {"confirmed_team": 0, "suspected_team": 1, "coordinated_dump": 2}
+        def _wallet_sort_key(w):
+            v = getattr(w, "verdict", "other") or "other"
+            vrank = next((r for k, r in _VERDICT_ORDER.items() if k in v), 3)
+            sol_r = getattr(getattr(w, "post_sell", None), "sol_received_from_sell", 0.0) or 0.0
+            return (vrank, -sol_r)
+        _top_wallets = sorted(
+            [w for w in wallets_list if hasattr(w, "wallet")],
+            key=_wallet_sort_key,
+        )[:10]
+        parts.append("Per-wallet breakdown (top 10 by severity):")
+        for w in _top_wallets:
             # handle both full objects and plain-string wallet addresses (mock/legacy)
             if not hasattr(w, "wallet"):
                 parts.append(f"  {str(w)[:14]}...")
@@ -472,14 +536,11 @@ def _build_prompt(
             prefund_sol = getattr(pre, "prefund_sol", 0.0) or 0.0
             sold   = getattr(post, "sell_detected", False)
             sol_recv = getattr(post, "sol_received_from_sell", 0.0) or 0.0
-            dests  = getattr(post, "fund_destinations", []) or []
-            n_dests = len(dests)
             flags  = getattr(w, "red_flags", [])
             parts.append(
                 f"  {w.wallet[:14]}... age={age_str} funder={'deployer' if is_dep else funder_str}"
                 f"({prefund_sol:.3f}SOL) hrs_before={hrs} sold={sold}"
-                f" sol_recv={sol_recv:.3f}SOL n_out_dests={n_dests}"
-                f" flags={flags[:3]} verdict={getattr(w,'verdict','?')}"
+                f" sol_recv={sol_recv:.3f}SOL flags={flags[:3]} verdict={getattr(w,'verdict','?')}"
             )
 
     # ── SOL flow intelligence ─────────────────────────────────────────────
@@ -500,9 +561,12 @@ def _build_prompt(
                 parts.append(f"  bridge={getattr(ex,'bridge_program','?')[:12]} "
                               f"amount={getattr(ex,'amount_sol',0):.4f} SOL")
 
-        # Top 6 flows sorted by amount
+        # Top 6 flows sorted by amount — skip micro-flows (<0.1 SOL) to save tokens
         flows = getattr(sol_flow, "flows", []) or []
-        top_flows = sorted(flows, key=lambda e: getattr(e, "amount_sol", 0), reverse=True)[:6]
+        top_flows = sorted(
+            [e for e in flows if getattr(e, "amount_sol", 0) >= 0.1],
+            key=lambda e: getattr(e, "amount_sol", 0), reverse=True
+        )[:6]
         if top_flows:
             parts.append("Largest flows:")
             for edge in top_flows:

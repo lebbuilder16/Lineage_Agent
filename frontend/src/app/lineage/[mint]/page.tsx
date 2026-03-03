@@ -1,9 +1,10 @@
 "use client";
 
 import { useParams } from "next/navigation";
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { useLineageWS } from "@/lib/useLineageWS";
-import { fetchAnalysis, type AnalyzeResponse } from "@/lib/api";
+import { useAnalysisStream } from "@/lib/useAnalysisStream";
+import AnalysisProgress from "@/components/AnalysisProgress";
 import { SearchBar } from "@/components/SearchBar";
 import { addToHistory } from "@/components/CommandPalette";
 import HeroCard from "@/components/HeroCard";
@@ -24,22 +25,16 @@ export default function LineagePage() {
   const mint = params.mint;
 
   const { data, isLoading, error, progress, analyze } = useLineageWS();
-  const [analysis, setAnalysis] = useState<AnalyzeResponse | null>(null);
-  const [analysisLoading, setAnalysisLoading] = useState(false);
+
+  const {
+    steps: analysisSteps,
+    analysis,
+    loading: analysisLoading,
+  } = useAnalysisStream(mint);
 
   useEffect(() => {
     if (mint) analyze(mint);
   }, [mint, analyze]);
-
-  useEffect(() => {
-    if (!mint) return;
-    setAnalysis(null);
-    setAnalysisLoading(true);
-    fetchAnalysis(mint)
-      .then(setAnalysis)
-      .catch(() => setAnalysis(null))
-      .finally(() => setAnalysisLoading(false));
-  }, [mint]);
 
   useEffect(() => {
     // Use the SCANNED token's name for the page title, not the root
@@ -203,6 +198,8 @@ export default function LineagePage() {
               {progress.step}
             </p>
           )}
+          {/* AI analysis step-by-step progress */}
+          <AnalysisProgress steps={analysisSteps} />
         </motion.div>
       )}
 

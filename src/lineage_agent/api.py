@@ -29,6 +29,7 @@ import sentry_sdk
 from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
+from sse_starlette.sse import EventSourceResponse
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
@@ -1108,8 +1109,105 @@ async def get_ai_analysis(
 
 
 # ------------------------------------------------------------------
-# Run with: python -m lineage_agent.api
+# AI Forensic Analysis — SSE streaming endpoint
 # ------------------------------------------------------------------
+
+@app.get(
+    "/analyze/{mint}/stream",
+    tags=["lineage"],
+    summary="AI forensic analysis with SSE progress events",
+)
+@limiter.limit("6/minute")
+async def stream_ai_analysis(
+    request: Request,
+    mint: str,
+    force_refresh: bool = Query(False, description="Re-run AI analysis even if cached"),
+) -> EventSourceResponse:
+    """Same as /analyze/{mint} but streams progress via Server-Sent Events.
+
+    Events:
+      step  {"step":"lineage"|"bundle"|"sol_flow"|"ai", "status":"running"|"done", "ms":<int>}
+      complete  <full AnalyzeResponse JSON>
+      error  {"detail":"..."}
+    """
+    if not _BASE58_RE.match(mint):
+        raise HTTPException(status_code=400, detail="Invalid Solana mint address")
+
+    async def _generator():
+        import json as _json
+        import time as _time
+        from .ai_analyst import analyze_token as _analyze_token, _build_unified_response as _bur, _heuristic_score
+        from .bundle_tracker_service import get_cached_bundle_report as _gcbr
+        from .sol_flow_service import get_sol_flow_report as _gsfr
+
+        def _evt(event: str, data: dict) -> dict:
+            return {"event": event, "data": _json.dumps(data)}
+
+        # 1. Lineage
+        yield _evt("step", {"step": "lineage", "status": "running"})
+        _t0 = _time.monotonic()
+        try:
+            lineage_res = await asyncio.wait_for(detect_lineage(mint), timeout=55.0)
+        except Exception as _e:
+            logger.warning("[stream] lineage failed for %s: %s", mint[:12], _e)
+            lineage_res = None
+        yield _evt("step", {"step": "lineage", "status": "done", "ms": int((_time.monotonic() - _t0) * 1000)})
+
+        # 2. Bundle + SOL flow concurrently (fast DB reads)
+        yield _evt("step", {"step": "bundle", "status": "running"})
+        yield _evt("step", {"step": "sol_flow", "status": "running"})
+        _t1 = _time.monotonic()
+        _bundle_res, _sol_res = await asyncio.gather(
+            _gcbr(mint), _gsfr(mint), return_exceptions=True,
+        )
+        if isinstance(_bundle_res, Exception): _bundle_res = None
+        if isinstance(_sol_res,   Exception): _sol_res   = None
+        _data_ms = int((_time.monotonic() - _t1) * 1000)
+        yield _evt("step", {"step": "bundle",   "status": "done", "ms": _data_ms})
+        yield _evt("step", {"step": "sol_flow", "status": "done", "ms": _data_ms})
+
+        if not lineage_res and not _bundle_res and not _sol_res:
+            yield _evt("error", {"detail": "No on-chain data found. Run /lineage?mint=... first."})
+            return
+
+        # 3. AI analysis
+        try:
+            from .data_sources._clients import cache as _cache  # noqa: PLC0415
+        except Exception:
+            _cache = None
+        _hscore = _heuristic_score(lineage_res, _bundle_res, _sol_res)
+        yield _evt("step", {"step": "ai", "status": "running", "heuristic": _hscore})
+        _t2 = _time.monotonic()
+        try:
+            ai_result = await asyncio.wait_for(
+                _analyze_token(
+                    mint,
+                    lineage_result=lineage_res,
+                    bundle_report=_bundle_res,
+                    sol_flow_report=_sol_res,
+                    cache=_cache,
+                    force_refresh=force_refresh,
+                ),
+                timeout=70.0,
+            )
+        except asyncio.TimeoutError:
+            yield _evt("error", {"detail": "AI analysis timed out"})
+            return
+        except Exception as _exc:
+            logger.exception("[stream] AI failed for %s", mint[:12])
+            yield _evt("error", {"detail": "AI analysis failed"})
+            return
+        _ai_ms = int((_time.monotonic() - _t2) * 1000)
+        yield _evt("step", {"step": "ai", "status": "done", "ms": _ai_ms})
+
+        if ai_result is None:
+            yield _evt("error", {"detail": "AI analysis unavailable — check ANTHROPIC_API_KEY"})
+            return
+
+        payload = _bur(mint, ai_result, lineage=lineage_res, bundle=_bundle_res, sol_flow=_sol_res)
+        yield _evt("complete", payload)
+
+    return EventSourceResponse(_generator())
 
 if __name__ == "__main__":
     import uvicorn
