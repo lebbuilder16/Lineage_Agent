@@ -23,8 +23,8 @@ logger = logging.getLogger(__name__)
 # Model selection: haiku 4.5 for cost/speed — override via ANTHROPIC_MODEL env var
 # Available as of 2026: claude-haiku-4-5-20251001, claude-sonnet-4-5-20250929, claude-sonnet-4-6
 _MODEL = os.getenv("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
-_MAX_TOKENS = 2000
-_TIMEOUT = 45.0  # seconds
+_MAX_TOKENS = 3500
+_TIMEOUT = 60.0  # seconds (bumped: v3 prompt generates longer output)
 
 
 # ── Lazy client (avoids import error when API key not set) ────────────────────
@@ -1175,38 +1175,81 @@ def _build_unified_response(
 def _parse_response(raw: str, mint: str) -> dict:
     """Parse Claude's JSON response robustly."""
     ts = datetime.now(tz=timezone.utc).isoformat()
+    cleaned = raw.strip()
+
+    # 1. Strip markdown code fences if present
+    if cleaned.startswith("```"):
+        lines = cleaned.split("\n")
+        cleaned = "\n".join(
+            line for line in lines
+            if not line.strip().startswith("```")
+        ).strip()
+
+    # 2. Try straight parse first
     try:
-        cleaned = raw.strip()
-        # Strip markdown code fences if present
-        if cleaned.startswith("```"):
-            lines = cleaned.split("\n")
-            cleaned = "\n".join(
-                line for line in lines
-                if not line.strip().startswith("```")
-            )
-        result = json.loads(cleaned.strip())
+        result = json.loads(cleaned)
         result["mint"] = mint
         result["model"] = _MODEL
         result["analyzed_at"] = ts
         return result
     except json.JSONDecodeError:
-        logger.warning("[ai_analyst] JSON parse failed, raw=%s", raw[:200])
-        return {
-            "mint": mint,
-            "model": _MODEL,
-            "analyzed_at": ts,
-            "risk_score": None,
-            "confidence": "low",
-            "rug_pattern": "unknown",
-            "verdict_summary": "Analysis failed — could not parse AI response.",
-            "narrative": {
-                "observation": raw[:400],
-                "pattern": None,
-                "risk": None,
-            },
-            "key_findings": [],
-            "wallet_classifications": {},
-            "conviction_chain": None,
-            "operator_hypothesis": None,
-            "parse_error": True,
-        }
+        pass
+
+    # 3. Extract first complete JSON object by brace matching
+    brace_start = cleaned.find("{")
+    if brace_start != -1:
+        depth = 0
+        brace_end = -1
+        in_string = False
+        escape_next = False
+        for i, ch in enumerate(cleaned[brace_start:], start=brace_start):
+            if escape_next:
+                escape_next = False
+                continue
+            if ch == "\\" and in_string:
+                escape_next = True
+                continue
+            if ch == '"':
+                in_string = not in_string
+                continue
+            if in_string:
+                continue
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    brace_end = i
+                    break
+        if brace_end != -1:
+            try:
+                result = json.loads(cleaned[brace_start:brace_end + 1])
+                result["mint"] = mint
+                result["model"] = _MODEL
+                result["analyzed_at"] = ts
+                logger.info("[ai_analyst] JSON extracted via brace matching for %s", mint[:12])
+                return result
+            except json.JSONDecodeError:
+                pass
+
+    # 4. Truncated response — attempt partial field extraction
+    logger.warning("[ai_analyst] JSON parse failed (all strategies). raw=%s", raw[:300])
+    return {
+        "mint": mint,
+        "model": _MODEL,
+        "analyzed_at": ts,
+        "risk_score": None,
+        "confidence": "low",
+        "rug_pattern": "unknown",
+        "verdict_summary": "Analysis failed — could not parse AI response.",
+        "narrative": {
+            "observation": raw[:400],
+            "pattern": None,
+            "risk": None,
+        },
+        "key_findings": [],
+        "wallet_classifications": {},
+        "conviction_chain": None,
+        "operator_hypothesis": None,
+        "parse_error": True,
+    }
