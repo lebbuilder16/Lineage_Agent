@@ -105,10 +105,10 @@ async def smart_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await search_cmd(update, context)
 
 
-def _inline_keyboard(mint: str) -> InlineKeyboardMarkup:
+def _inline_keyboard(mint: str, deployer: str | None = None) -> InlineKeyboardMarkup:
     """Build the inline action buttons shown under a lineage result."""
     url = f"{_DASHBOARD_BASE}/lineage/{mint}"
-    return InlineKeyboardMarkup([
+    rows = [
         [
             InlineKeyboardButton("📊 Full Report", url=url),
             InlineKeyboardButton("📦 Bundle", url=f"{url}#bundle"),
@@ -117,10 +117,21 @@ def _inline_keyboard(mint: str) -> InlineKeyboardMarkup:
             InlineKeyboardButton("💸 SOL Flow", url=f"{url}#money-flow"),
             InlineKeyboardButton("🤖 AI Analysis", url=f"{url}#overview"),
         ],
-        [
+    ]
+    # Watch deployer button — callback_data ≤ 64 bytes
+    if deployer and _BASE58_RE.match(deployer):
+        rows.append([
+            InlineKeyboardButton(
+                "🔔 Watch deployer",
+                callback_data=f"watch:deployer:{deployer}",
+            ),
             InlineKeyboardButton("🔗 Share", switch_inline_query=mint),
-        ],
-    ])
+        ])
+    else:
+        rows.append([
+            InlineKeyboardButton("🔗 Share", switch_inline_query=mint),
+        ])
+    return InlineKeyboardMarkup(rows)
 
 
 async def _run_lineage_analysis(
@@ -293,7 +304,8 @@ async def scan_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         lines.append("\n✅ <b>No clones detected</b>")
 
     # Inline buttons
-    keyboard = _inline_keyboard(mint)
+    root_deployer = root.deployer if root and root.deployer else None
+    keyboard = _inline_keyboard(mint, deployer=root_deployer)
 
     await status_msg.edit_text(
         "\n".join(lines),
@@ -303,9 +315,26 @@ async def scan_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Acknowledge inline keyboard button taps silently."""
-    if update.callback_query:
-        await update.callback_query.answer()
+    """Handle inline keyboard button taps."""
+    query = update.callback_query
+    if not query:
+        return
+    data = query.data or ""
+
+    if data.startswith("watch:deployer:"):
+        deployer = data[len("watch:deployer:"):]
+        chat_id = update.effective_chat.id
+        try:
+            inserted = await subscribe_alert(chat_id, "deployer", deployer)
+            if inserted:
+                await query.answer("✅ Now watching this deployer!", show_alert=False)
+            else:
+                await query.answer("ℹ️ Already watching this deployer", show_alert=False)
+        except Exception:
+            logger.exception("watch callback failed for chat %s", chat_id)
+            await query.answer("❌ DB error — try /watch command instead", show_alert=True)
+    else:
+        await query.answer()
 
 
 async def inline_query_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -394,7 +423,7 @@ async def watch_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(
             "Usage:\n"
             "/watch deployer <code>&lt;wallet-address&gt;</code>\n"
-            "/watch narrative <code>&lt;name&gt;</code>",
+            "/watch narrative <code>&lt;theme&gt;</code> (pepe, ai, cat…)",
             parse_mode="HTML",
         )
         return
@@ -417,7 +446,16 @@ async def watch_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     chat_id = update.effective_chat.id
-    inserted = await subscribe_alert(chat_id, sub_type, value)
+    try:
+        inserted = await subscribe_alert(chat_id, sub_type, value)
+    except Exception as exc:
+        logger.exception("subscribe_alert failed for chat %s", chat_id)
+        await update.message.reply_text(
+            "❌ Could not save subscription (DB error). Please try again later.",
+            parse_mode="HTML",
+        )
+        return
+
     if inserted:
         await update.message.reply_text(
             f"✅ Watching <b>{_e(sub_type)}</b>: <code>{_e(value)}</code>\n"
@@ -426,7 +464,7 @@ async def watch_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
     else:
         await update.message.reply_text(
-            f"ℹ️ You're already watching <b>{_e(sub_type)}</b>: <code>{_e(value)}</code>.",
+            f"ℹ️ Already watching <b>{_e(sub_type)}</b>: <code>{_e(value)}</code>.",
             parse_mode="HTML",
         )
 
@@ -447,7 +485,15 @@ async def unwatch_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         return
 
     chat_id = update.effective_chat.id
-    removed = await unsubscribe_alert(chat_id, sub_id)
+    try:
+        removed = await unsubscribe_alert(chat_id, sub_id)
+    except Exception:
+        logger.exception("unsubscribe_alert failed for chat %s", chat_id)
+        await update.message.reply_text(
+            "❌ Could not remove subscription (DB error). Please try again later.",
+            parse_mode="HTML",
+        )
+        return
     if removed:
         await update.message.reply_text(
             f"✅ Subscription #{sub_id} cancelled.",
@@ -463,7 +509,15 @@ async def unwatch_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 async def watches_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /watches — list all active subscriptions for this chat."""
     chat_id = update.effective_chat.id
-    subs = await list_subscriptions(chat_id)
+    try:
+        subs = await list_subscriptions(chat_id)
+    except Exception:
+        logger.exception("list_subscriptions failed for chat %s", chat_id)
+        await update.message.reply_text(
+            "❌ Could not load subscriptions (DB error). Please try again later.",
+            parse_mode="HTML",
+        )
+        return
 
     if not subs:
         await update.message.reply_text(
