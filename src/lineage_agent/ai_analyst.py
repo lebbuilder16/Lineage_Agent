@@ -159,11 +159,19 @@ _FORENSIC_TOOL = {
 
 # ── Heuristic pre-score (used for adaptive model selection) ──────────────────
 
-def _heuristic_score(lineage: Optional[Any], bundle: Optional[Any], sol_flow: Optional[Any]) -> int:
+def _heuristic_score(
+    lineage: Optional[Any],
+    bundle: Optional[Any],
+    sol_flow: Optional[Any],
+    behavioral_signals: Optional[dict] = None,
+) -> int:
     """Quick rule-based risk estimate computed BEFORE calling Claude.
-    Used only to decide whether to upgrade to sonnet. Not shown to users.
+    Used to pick the model (Haiku vs Sonnet) AND injected into the prompt
+    as a weak signal. Covers 13 independent signals.
     """
     score = 0
+
+    # ── Bundle signals ────────────────────────────────────────────────────
     if bundle:
         verdict = getattr(bundle, "overall_verdict", "") or ""
         if "confirmed" in verdict:
@@ -174,6 +182,8 @@ def _heuristic_score(lineage: Optional[Any], bundle: Optional[Any], sol_flow: Op
             score += 20
         if getattr(bundle, "coordinated_sell_detected", False):
             score += 10
+
+    # ── Lineage signals ───────────────────────────────────────────────────
     if lineage:
         dp = getattr(lineage, "deployer_profile", None)
         if dp:
@@ -188,6 +198,46 @@ def _heuristic_score(lineage: Optional[Any], bundle: Optional[Any], sol_flow: Op
         score += min(len(derivatives) * 3, 15)
         if getattr(lineage, "zombie_alert", None):
             score += 15
+
+        # insider sell
+        _ins = getattr(lineage, "insider_sell", None)
+        if _ins:
+            _ins_v = getattr(_ins, "verdict", "") or ""
+            if _ins_v == "insider_dump":
+                score += 20
+            elif _ins_v == "suspicious":
+                score += 10
+            if getattr(_ins, "deployer_exited", False):
+                score += 15
+
+        # death clock
+        _dc = getattr(lineage, "death_clock", None)
+        if _dc:
+            _dc_level = getattr(_dc, "risk_level", "") or ""
+            if _dc_level == "critical":
+                score += 15
+            elif _dc_level == "high":
+                score += 10
+
+        # factory rhythm
+        _fr = getattr(lineage, "factory_rhythm", None)
+        if _fr and getattr(_fr, "is_factory", False):
+            score += 10
+
+        # cartel
+        if getattr(lineage, "cartel_report", None):
+            score += 15
+
+        # operator impact
+        _oi = getattr(lineage, "operator_impact", None)
+        if _oi:
+            _rug_rate = getattr(_oi, "rug_rate_pct", 0) or 0
+            if _rug_rate >= 60:
+                score += 15
+            elif _rug_rate >= 30:
+                score += 8
+
+    # ── SOL flow signals ──────────────────────────────────────────────────
     if sol_flow:
         extracted = getattr(sol_flow, "total_extracted_sol", 0) or 0
         if extracted >= 20:
@@ -196,6 +246,13 @@ def _heuristic_score(lineage: Optional[Any], bundle: Optional[Any], sol_flow: Op
             score += 12
         elif extracted >= 1:
             score += 6
+
+    # ── Behavioral signals ────────────────────────────────────────────────
+    if behavioral_signals:
+        _pc = behavioral_signals.get("phash_cluster") or {}
+        if isinstance(_pc, dict) and (_pc.get("rugged_reuses") or 0) >= 1:
+            score += 10
+
     return min(score, 100)
 
 
@@ -253,14 +310,17 @@ async def analyze_token(
     if cache:
         behavioral_signals = await _gather_behavioral_signals(mint, lineage_result, cache)
 
-    prompt = _build_prompt(mint, lineage_result, bundle_report, sol_flow_report,
-                           deployer_history, behavioral_signals)
+    # ── Heuristic pre-score (model selection + prompt signal) ───────────────
+    _hscore = _heuristic_score(lineage_result, bundle_report, sol_flow_report,
+                               behavioral_signals)
 
-    # ── Adaptive model selection: sonnet for high-risk tokens ───────────────────────
+    prompt = _build_prompt(mint, lineage_result, bundle_report, sol_flow_report,
+                           deployer_history, behavioral_signals, heuristic_score=_hscore)
+
+    # ── Adaptive model selection: sonnet for moderate-to-high-risk tokens ────
     _call_model = _MODEL
     if not os.getenv("ANTHROPIC_MODEL"):  # only auto-switch if not forced by env
-        _hscore = _heuristic_score(lineage_result, bundle_report, sol_flow_report)
-        if _hscore >= 75:
+        if _hscore >= 55:
             _call_model = _MODEL_SONNET
             logger.info("[ai_analyst] adaptive model: sonnet (heuristic=%d) for %s", _hscore, mint[:12])
         else:
@@ -381,6 +441,7 @@ def _build_prompt(
     sol_flow: Optional[Any],
     deployer_history: Optional[list] = None,
     behavioral_signals: Optional[dict] = None,
+    heuristic_score: Optional[int] = None,
 ) -> str:
     parts: list[str] = [f"Token mint: {mint}\n"]
 
@@ -390,6 +451,11 @@ def _build_prompt(
     _has_sol = "✓" if sol_flow else "✗"
     parts.append(f"DATA AVAILABLE: LINEAGE={_has_lin}  BUNDLE={_has_bun}  SOL_FLOW={_has_sol}")
     parts.append("(Absent sections = data not collected yet, NOT necessarily clean)\n")
+    if heuristic_score is not None:
+        parts.append(
+            f"Pre-scan heuristic: {heuristic_score}/100 "
+            "(automated rule-based pre-assessment — treat as weak signal only, reason from raw data first)"
+        )
 
     # ── Query token identity (the specific token being analyzed) ─────────
     if lineage:

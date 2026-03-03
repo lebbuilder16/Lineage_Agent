@@ -52,7 +52,8 @@ class TestBuildPrompt:
         assert "BUNDLE=✗" in prompt
         assert "SOL_FLOW=✗" in prompt
         # No actual data sections rendered
-        assert "=== LINEAGE ANALYSIS ===" not in prompt
+        assert "LINEAGE / FAMILY CONTEXT" not in prompt
+        assert "FAMILY CONTEXT" not in prompt
         assert "=== BUNDLE FORENSICS ===" not in prompt
         assert "=== SOL FLOW TRACE ===" not in prompt
 
@@ -76,7 +77,7 @@ class TestBuildPrompt:
             deployer_profile=None,
         )
         prompt = _build_prompt(MINT, lineage, None, None)
-        assert "LINEAGE ANALYSIS" in prompt
+        assert "LINEAGE / FAMILY CONTEXT" in prompt
         assert "TestToken" in prompt
         assert "TST" in prompt
         assert "Clones detected: 1" in prompt
@@ -222,9 +223,11 @@ class TestParseResponse:
 
 class TestAnalyzeToken:
     def _make_mock_response(self, payload: dict):
-        """Build a minimal mock of anthropic message response."""
+        """Build a minimal mock of anthropic message response (tool_use format)."""
         content_item = MagicMock()
-        content_item.text = json.dumps(payload)
+        content_item.type = "tool_use"
+        content_item.name = "forensic_report"
+        content_item.input = payload
         usage = MagicMock()
         usage.input_tokens = 500
         usage.output_tokens = 200
@@ -252,6 +255,7 @@ class TestAnalyzeToken:
             },
             "key_findings": ["[DEPLOYMENT] 5 clones in 4 minutes.", "[IDENTITY] Shared metadata URI."],
             "wallet_classifications": {},
+            "conviction_chain": "5 clones in 4 min + shared metadata + coordinated bundle converge on serial extraction.",
             "operator_hypothesis": "Automated clone-farming platform.",
         }
         mock_response = self._make_mock_response(payload)
@@ -354,8 +358,9 @@ class TestAnalyzeToken:
 
     @pytest.mark.asyncio
     async def test_parse_error_still_returns_result(self):
-        """If Claude returns malformed JSON, we still return the fallback dict."""
+        """If Claude returns malformed JSON in a text block, we still return the fallback dict."""
         content_item = MagicMock()
+        content_item.type = "text"
         content_item.text = "I cannot comply with this request."
         usage = MagicMock()
         usage.input_tokens = 100
