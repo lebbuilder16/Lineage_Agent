@@ -18,6 +18,7 @@ Commands
 from __future__ import annotations
 
 import asyncio
+import html
 import logging
 import re
 
@@ -37,15 +38,13 @@ logger = logging.getLogger(__name__)
 
 
 # ------------------------------------------------------------------
-# Markdown escaping helper
+# HTML escaping helper
 # ------------------------------------------------------------------
 
-_MD_V2_SPECIAL = set(r"_*[]()~`>#+-=|{}.!")
 
-
-def _esc(text: str) -> str:
-    """Escape special characters for Telegram MarkdownV2."""
-    return "".join(f"\\{c}" if c in _MD_V2_SPECIAL else c for c in text)
+def _e(text: str) -> str:
+    """Escape special characters for Telegram HTML parse mode."""
+    return html.escape(str(text))
 
 
 # ------------------------------------------------------------------
@@ -56,137 +55,140 @@ def _esc(text: str) -> str:
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Send a welcome message and usage instructions."""
     text = (
-        "🧬 *Meme Lineage Agent*\n\n"
-        "I help you identify the *root token* and its clones in the Solana memecoin ecosystem\\.\n\n"
-        "No more buying imposters\. No more broken families\. Just pure forensic intelligence\\.\n\n"
-        "*Quick start:*\n"
+        "🧬 <b>Meme Lineage Agent</b>\n\n"
+        "I help you identify the <b>root token</b> and its clones in the Solana memecoin ecosystem.\n\n"
+        "No more buying imposters. No more broken families. Just pure forensic intelligence.\n\n"
+        "<b>Quick start:</b>\n"
         "• Paste a token mint → I'll detect its lineage\n"
-        "• Or try /search `<name>` to find tokens\n\n"
-        "*Core Commands:*\n"
-        "• /lineage `<mint>` \\– Forensic analysis of a token\n"
-        "• /search `<name>` \\– Find tokens by name or symbol\n"
-        "• /about \\– Learn what we do\n"
-        "• /links \\– Website, docs, GitHub, Twitter\n\n"
-        "*Monitoring:*\n"
-        "• /watch deployer `<wallet>` \\– Alert on new tokens from a wallet\n"
-        "• /watch narrative `<name>` \\– Alert on narrative themes (pepe, ai, etc)\n"
-        "• /mywatches \\– Your active subscriptions\n\n"
-        "Use /help for more details\\.\n"
+        "• Or try /search <code>&lt;name&gt;</code> to find tokens\n\n"
+        "<b>Core Commands:</b>\n"
+        "• /lineage <code>&lt;mint&gt;</code> — Forensic analysis of a token\n"
+        "• /search <code>&lt;name&gt;</code> — Find tokens by name or symbol\n"
+        "• /about — Learn what we do\n"
+        "• /links — Website, docs, GitHub, X\n\n"
+        "<b>Monitoring:</b>\n"
+        "• /watch deployer <code>&lt;wallet&gt;</code> — Alert on new tokens from a wallet\n"
+        "• /watch narrative <code>&lt;name&gt;</code> — Alert on narrative themes (pepe, ai...)\n"
+        "• /mywatches — Your active subscriptions\n\n"
+        "Use /help for more details."
     )
-    await update.message.reply_text(text, parse_mode="MarkdownV2")
+    await update.message.reply_text(text, parse_mode="HTML")
 
 
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Send help / usage instructions."""
     text = (
-        "🧬 *Meme Lineage Agent \\– Complete Help*\n\n"
-        "*Account & Info:*\n"
-        "• /start \\– Welcome message\n"
-        "• /about \\– What Lineage Agent does\n"
-        "• /links \\– Official website, docs, social media\n"
-        "• /help \\– This message\n\n"
-        "*Forensic Analysis:*\n"
-        "• /lineage `<mint>` \\– Deep forensic analysis of a token\n"
+        "🧬 <b>Meme Lineage Agent — Complete Help</b>\n\n"
+        "<b>Account &amp; Info:</b>\n"
+        "• /start — Welcome message\n"
+        "• /about — What Lineage Agent does\n"
+        "• /links — Official website, docs, social media\n"
+        "• /help — This message\n\n"
+        "<b>Forensic Analysis:</b>\n"
+        "• /lineage <code>&lt;mint&gt;</code> — Deep forensic analysis of a token\n"
         "  Returns: root token, clones, risk score, bundle detection, SOL flow trace\n"
-        "• /search `<name>` \\– Find tokens by name or symbol\n\n"
-        "*Alerts \\& Subscriptions:*\n"
-        "• /watch deployer `<address>` \\– Get alerts when this wallet deploys new tokens\n"
-        "• /watch narrative `<name>` \\– Get alerts for tokens in a theme (pepe, ai, cat, etc)\n"
-        "• /unwatch `<id>` \\– Cancel a subscription\n"
-        "• /mywatches \\– See all your active subscriptions\n\n"
-        "*Examples:*\n"
-        "• `/lineage DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263`\n"
-        "• `/search bonk`\n"
-        "• `/watch deployer Abc123XYZ...`\n"
-        "• `/watch narrative pepe`\n\n"
-        "_Need more help? See /about and /links\\._ "
+        "• /search <code>&lt;name&gt;</code> — Find tokens by name or symbol\n\n"
+        "<b>Alerts &amp; Subscriptions:</b>\n"
+        "• /watch deployer <code>&lt;address&gt;</code> — Get alerts when this wallet deploys new tokens\n"
+        "• /watch narrative <code>&lt;name&gt;</code> — Get alerts for tokens in a theme (pepe, ai, cat...)\n"
+        "• /unwatch <code>&lt;id&gt;</code> — Cancel a subscription\n"
+        "• /mywatches — See all your active subscriptions\n\n"
+        "<b>Examples:</b>\n"
+        "• <code>/lineage DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263</code>\n"
+        "• <code>/search bonk</code>\n"
+        "• <code>/watch deployer Abc123XYZ...</code>\n"
+        "• <code>/watch narrative pepe</code>\n\n"
+        "<i>Need more help? See /about and /links.</i>"
     )
-    await update.message.reply_text(text, parse_mode="MarkdownV2")
+    await update.message.reply_text(text, parse_mode="HTML")
 
 
 async def about_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Send information about Lineage Agent."""
     text = (
-        "🧬 *About Lineage Agent*\n\n"
-        "Lineage Agent is an agentic forensic intelligence platform for the Solana memecoin ecosystem\\.\n\n"
-        "*The Problem:*\n"
-        "The Solana blockchain sees 1M\\+ token launches per month\. Operators systematically deploy clones of popular tokens, extract capital via rug pulls, then re\\-launch near\\-identical tokens targeting the same audience\\.\n\n"
-        "*Our Solution:*\n"
-        "We combine 13 independent on\\-chain forensic signals:"
-        "\n• Metadata DNA fingerprinting \\( cross\\-wallet operator identity \\)"
-        "\n• Family tree reconstruction \\( root \\+ derivatives \\)"
-        "\n• Bundle detection \\( Jito coordinated buys \\)"
-        "\n• SOL flow trace \\( post\\-rug capital routing \\)"
-        "\n• Death Clock \\( rug timing forecast \\)"
-        "\n• Zombie detection \\( recycled tokens \\)"
-        "\n• AI analysis \\( Claude LLM with conviction chains \\)"
-        "\nand more\\.\n\n"
-        "*Result:* Full forensic lineage reports in under 60 seconds\."
+        "🧬 <b>About Lineage Agent</b>\n\n"
+        "Lineage Agent is an agentic forensic intelligence platform for the Solana memecoin ecosystem.\n\n"
+        "<b>The Problem:</b>\n"
+        "The Solana blockchain sees 1M+ token launches per month. Operators systematically deploy "
+        "clones of popular tokens, extract capital via rug pulls, then re-launch near-identical "
+        "tokens targeting the same audience.\n\n"
+        "<b>Our Solution:</b>\n"
+        "We combine 13 independent on-chain forensic signals:\n"
+        "• Metadata DNA fingerprinting (cross-wallet operator identity)\n"
+        "• Family tree reconstruction (root + derivatives)\n"
+        "• Bundle detection (Jito coordinated buys)\n"
+        "• SOL flow trace (post-rug capital routing)\n"
+        "• Death Clock (rug timing forecast)\n"
+        "• Zombie detection (recycled tokens)\n"
+        "• AI analysis (Claude LLM with conviction chains)\n"
+        "and more.\n\n"
+        "<b>Result:</b> Full forensic lineage reports in under 60 seconds."
     )
-    await update.message.reply_text(text, parse_mode="MarkdownV2")
+    await update.message.reply_text(text, parse_mode="HTML")
 
 
 async def links_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Send official links and social media."""
     text = (
-        "🔗 *Lineage Agent — Official Links*\n\n"
-        "🌐 *Website:* [lineagefun\\.xyz](https://www\\.lineagefun\\.xyz)\n"
-        "📚 *Docs \\& Whitepaper:* [lineage\\-4\\.gitbook\\.io](https://lineage\\-4\\.gitbook\\.io/lineage\\-docs/)\n"
-        "💻 *Open Source:* [github\\.com/lebbuilder16/Lineage\\_Agent](https://github\\.com/lebbuilder16/Lineage_Agent)\n"
-        "𝕏 *X \\/Twitter:* [@LineageMemes](https://x\\.com/LineageMemes)\n\n"
-        "*Resources:*\n"
-        "• [Getting Started](https://lineage\\-4\\.gitbook\\.io/lineage\\-docs/getting\\-started)\n"
-        "• [All 13 Signals Explained](https://lineage\\-4\\.gitbook\\.io/lineage\\-docs/features)\n"
-        "• [REST API Reference](https://lineage\\-4\\.gitbook\\.io/lineage\\-docs/api\\-reference)\n"
+        "🔗 <b>Lineage Agent — Official Links</b>\n\n"
+        "🌐 <b>Website:</b> <a href=\"https://www.lineagefun.xyz\">lineagefun.xyz</a>\n"
+        "📚 <b>Docs &amp; Whitepaper:</b> <a href=\"https://lineage-4.gitbook.io/lineage-docs/\">GitBook</a>\n"
+        "💻 <b>Open Source:</b> <a href=\"https://github.com/lebbuilder16/Lineage_Agent\">GitHub</a>\n"
+        "𝕏 <b>X / Twitter:</b> <a href=\"https://x.com/LineageMemes\">@LineageMemes</a>\n\n"
+        "<b>Resources:</b>\n"
+        "• <a href=\"https://lineage-4.gitbook.io/lineage-docs/getting-started\">Getting Started</a>\n"
+        "• <a href=\"https://lineage-4.gitbook.io/lineage-docs/features\">All 13 Signals Explained</a>\n"
+        "• <a href=\"https://lineage-4.gitbook.io/lineage-docs/api-reference\">REST API Reference</a>\n"
     )
-    await update.message.reply_text(text, parse_mode="MarkdownV2")
+    await update.message.reply_text(text, parse_mode="HTML")
 
 
 async def unknown_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Respond to unrecognised messages/commands."""
     await update.message.reply_text(
-        "❓ I don't understand that command\\.\n"
-        "Use /help to see available commands\\.",
-        parse_mode="MarkdownV2",
+        "❓ I don't understand that command.\nUse /help to see available commands.",
+        parse_mode="HTML",
     )
 
 
 async def lineage_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle the /lineage command with full forensic + AI analysis."""
     if not context.args:
-        await update.message.reply_text("Usage: /lineage <mint\\-address>", parse_mode="MarkdownV2")
+        await update.message.reply_text(
+            "Usage: /lineage <code>&lt;mint-address&gt;</code>",
+            parse_mode="HTML",
+        )
         return
 
     mint = context.args[0]
 
     if not _BASE58_RE.match(mint):
         await update.message.reply_text(
-            "❌ Invalid Solana mint address\\. Expected 32\\-44 base58 characters\\.",
-            parse_mode="MarkdownV2",
+            "❌ Invalid Solana mint address. Expected 32–44 base58 characters.",
+            parse_mode="HTML",
         )
         return
 
     logger.info("Received lineage request for %s", mint)
-    status_msg = await update.message.reply_text("🔍 Analyzing… lineage + forensics\\.", parse_mode="MarkdownV2")
+    status_msg = await update.message.reply_text(
+        "🔍 Analyzing… lineage + forensics.", parse_mode="HTML"
+    )
 
     try:
-        # Run detect_lineage + analyze_token in parallel
-        lineage_result, ai_result = await asyncio.gather(
+        lineage_result, _ = await asyncio.gather(
             detect_lineage(mint),
-            None,  # placeholder — filled below
+            asyncio.sleep(0),
             return_exceptions=True,
         )
 
-        # Check lineage result
         if isinstance(lineage_result, Exception):
             logger.exception("Lineage detection error for %s", mint)
             await status_msg.edit_text(
-                "❌ Something went wrong while analyzing this token\\. Please try again later\\.",
-                parse_mode="MarkdownV2",
+                "❌ Something went wrong while analyzing this token. Please try again later.",
+                parse_mode="HTML",
             )
             return
 
-        # Now call AI analysis with lineage result (sequential to avoid timeout)
         try:
             ai_result = await asyncio.wait_for(
                 analyze_token(mint, lineage_result=lineage_result),
@@ -202,25 +204,28 @@ async def lineage_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     except Exception:
         logger.exception("Lineage detection error for %s", mint)
         await status_msg.edit_text(
-            "❌ Something went wrong while analyzing this token\\. Please try again later\\.",
-            parse_mode="MarkdownV2",
+            "❌ Something went wrong while analyzing this token. Please try again later.",
+            parse_mode="HTML",
         )
         return
 
     # Build hybrid message: lineage + AI analysis
     root = lineage_result.root
-    root_name = _esc(root.name) if root and root.name else "Unknown"
+    root_name = _e(root.name) if root and root.name else "Unknown"
     root_mint = root.mint if root else mint
 
-    lines = ["🧬 *Lineage Card*\n"]
-    
-    # ── Lineage basics ────────────────────────────────────────────────
-    lines.append(f"📌 *Queried:* `{mint}`")
-    lines.append(f"👑 *Root:* {root_name} \\(`{root_mint[:8]}…`\\)")
-    conf_pct = f"{lineage_result.confidence:.0%}" if lineage_result.confidence else "?"
-    lines.append(f"🎯 *Confidence:* {_esc(conf_pct)} | 👨‍👧‍👦 *Family:* {lineage_result.family_size} tokens")
+    lines = ["🧬 <b>Lineage Card</b>\n"]
 
-    # ── Bundle verdict (if available) ──────────────────────────────────
+    # ── Lineage basics ─────────────────────────────────────────────────
+    lines.append(f"📌 <b>Queried:</b> <code>{_e(mint)}</code>")
+    lines.append(f"👑 <b>Root:</b> {root_name} (<code>{_e(root_mint[:8])}…</code>)")
+    conf_pct = f"{lineage_result.confidence:.0%}" if lineage_result.confidence else "?"
+    lines.append(
+        f"🎯 <b>Confidence:</b> {_e(conf_pct)} | "
+        f"👨‍👧‍👦 <b>Family:</b> {lineage_result.family_size} tokens"
+    )
+
+    # ── Bundle verdict ─────────────────────────────────────────────────
     bundle = lineage_result.bundle_report
     if bundle:
         verdict = getattr(bundle, "overall_verdict", "?") or "?"
@@ -230,9 +235,12 @@ async def lineage_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             "coordinated_dump_unknown_team": "⚠️",
             "early_buyers_no_link_proven": "✅",
         }.get(verdict, "❓")
-        lines.append(f"\n{verdict_emoji} *Bundle Verdict:* {_esc(verdict.replace('_', ' ').title())}")
+        lines.append(
+            f"\n{verdict_emoji} <b>Bundle Verdict:</b> "
+            f"{_e(verdict.replace('_', ' ').title())}"
+        )
 
-    # ── AI Analysis results ────────────────────────────────────────────
+    # ── AI Analysis ────────────────────────────────────────────────────
     if ai_result:
         risk_score = ai_result.get("risk_score")
         confidence = ai_result.get("confidence", "?")
@@ -241,13 +249,6 @@ async def lineage_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         key_findings = ai_result.get("key_findings", []) or []
         conviction_chain = ai_result.get("conviction_chain")
 
-        # Risk score with emoji
-        risk_emoji = {
-            "low": "🟢",   # 0-30
-            "medium": "🟡",  # 31-54
-            "caution": "🟠",  # 55-74
-            "high": "🔴",   # 75-100
-        }
         if risk_score is not None:
             if risk_score < 31:
                 emoji = "🟢"
@@ -257,56 +258,63 @@ async def lineage_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 emoji = "🟠"
             else:
                 emoji = "🔴"
-            lines.append(f"\n{emoji} *Risk Score:* {risk_score}/100 \\({confidence}\\)")
+            lines.append(
+                f"\n{emoji} <b>Risk Score:</b> {risk_score}/100 ({_e(str(confidence))})"
+            )
 
-        # Rug pattern
         if rug_pattern and rug_pattern != "unknown":
-            lines.append(f"🎭 *Pattern:* {_esc(rug_pattern.replace('_', ' ').title())}")
+            lines.append(
+                f"🎭 <b>Pattern:</b> {_e(rug_pattern.replace('_', ' ').title())}"
+            )
 
-        # Verdict summary
         if verdict_summary:
-            lines.append(f"📋 _{_esc(verdict_summary)}_")
+            lines.append(f"📋 <i>{_e(verdict_summary)}</i>")
 
-        # Top 2 key findings
         if key_findings:
-            lines.append("\n🔍 *Key Findings:*")
+            lines.append("\n🔍 <b>Key Findings:</b>")
             for finding in key_findings[:2]:
-                # Strip [LABEL] prefix if present and shorten
-                clean_finding = finding
+                clean = finding
                 if "[" in finding and "]" in finding:
-                    clean_finding = finding[finding.index("]") + 1:].strip()
-                clean_finding = clean_finding[:80] + ("…" if len(clean_finding) > 80 else "")
-                lines.append(f"  • {_esc(clean_finding)}")
+                    clean = finding[finding.index("]") + 1:].strip()
+                clean = clean[:80] + ("…" if len(clean) > 80 else "")
+                lines.append(f"  • {_e(clean)}")
 
-        # Conviction chain (brief summary of confidence)
         if conviction_chain:
-            chain_short = conviction_chain[:120] + ("…" if len(conviction_chain) > 120 else "")
-            lines.append(f"\n💡 *Conviction:* _{_esc(chain_short)}_")
+            chain_short = conviction_chain[:120] + (
+                "…" if len(conviction_chain) > 120 else ""
+            )
+            lines.append(f"\n💡 <b>Conviction:</b> <i>{_e(chain_short)}</i>")
     else:
-        lines.append("\n⚠️ *AI Analysis:* Not available (check back soon)")
+        lines.append("\n⚠️ <b>AI Analysis:</b> Not available (check back soon)")
 
-    # ── Derivatives preview ───────────────────────────────────────────────
+    # ── Derivatives preview ─────────────────────────────────────────────
     if lineage_result.derivatives:
-        lines.append(f"\n📊 *Top clones* \\(1 of {len(lineage_result.derivatives)}\\):")
+        total = len(lineage_result.derivatives)
+        lines.append(f"\n📊 <b>Top clones</b> (1 of {total}):")
         for d in lineage_result.derivatives[:1]:
-            dname = _esc(d.name or d.symbol or d.mint[:8])
+            dname = _e(d.name or d.symbol or d.mint[:8])
             score = d.evidence.composite_score if d.evidence else 0.0
             liq = f"${d.liquidity_usd:,.0f}" if d.liquidity_usd else "n/a"
-            lines.append(f"  {dname} — score {_esc(f'{score:.2f}')}, liq {_esc(liq)}")
-        if len(lineage_result.derivatives) > 1:
-            lines.append(f"  _{len(lineage_result.derivatives) - 1} more clones detected_")
+            lines.append(f"  {dname} — score {score:.2f}, liq {_e(liq)}")
+        if total > 1:
+            lines.append(f"  <i>{total - 1} more clones detected</i>")
     else:
-        lines.append("\n✅ *No clones detected*")
+        lines.append("\n✅ <b>No clones detected</b>")
 
-    lines.append(f"\n🔗 [View full report](https://www\\.lineagefun\\.xyz/lineage/{mint})")
+    lines.append(
+        f"\n🔗 <a href=\"https://www.lineagefun.xyz/lineage/{_e(mint)}\">View full report</a>"
+    )
 
-    await status_msg.edit_text("\n".join(lines), parse_mode="MarkdownV2")
+    await status_msg.edit_text("\n".join(lines), parse_mode="HTML")
 
 
 async def search_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle the /search command."""
     if not context.args:
-        await update.message.reply_text("Usage: /search <token\\-name>", parse_mode="MarkdownV2")
+        await update.message.reply_text(
+            "Usage: /search <code>&lt;token-name&gt;</code>",
+            parse_mode="HTML",
+        )
         return
 
     query = " ".join(context.args)
@@ -317,27 +325,27 @@ async def search_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     except Exception:
         logger.exception("Search error for '%s'", query)
         await update.message.reply_text(
-            "❌ Something went wrong while searching\\. Please try again later\\.",
-            parse_mode="MarkdownV2",
+            "❌ Something went wrong while searching. Please try again later.",
+            parse_mode="HTML",
         )
         return
 
     if not results:
         await update.message.reply_text(
-            f"No tokens found for *{_esc(query)}*\\.",
-            parse_mode="MarkdownV2",
+            f"No tokens found for <b>{_e(query)}</b>.",
+            parse_mode="HTML",
         )
         return
 
-    lines = [f"🔎 *Search results for '{_esc(query)}':*\n"]
+    lines = [f"🔎 <b>Search results for '{_e(query)}':</b>\n"]
     for i, t in enumerate(results[:10], 1):
         mcap = f"${t.market_cap_usd:,.0f}" if t.market_cap_usd else "n/a"
         lines.append(
-            f"{i}\\. *{_esc(t.name)}* \\({_esc(t.symbol)}\\) \\– mcap {_esc(mcap)}\n"
-            f"   `{t.mint}`"
+            f"{i}. <b>{_e(t.name)}</b> ({_e(t.symbol)}) — mcap {_e(mcap)}\n"
+            f"   <code>{t.mint}</code>"
         )
 
-    await update.message.reply_text("\n".join(lines), parse_mode="MarkdownV2")
+    await update.message.reply_text("\n".join(lines), parse_mode="HTML")
 
 
 async def watch_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -345,9 +353,9 @@ async def watch_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not context.args or len(context.args) < 2:
         await update.message.reply_text(
             "Usage:\n"
-            "/watch deployer `<wallet\\-address>`\n"
-            "/watch narrative `<name>`",
-            parse_mode="MarkdownV2",
+            "/watch deployer <code>&lt;wallet-address&gt;</code>\n"
+            "/watch narrative <code>&lt;name&gt;</code>",
+            parse_mode="HTML",
         )
         return
 
@@ -356,15 +364,15 @@ async def watch_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     if sub_type not in ("deployer", "narrative"):
         await update.message.reply_text(
-            "❌ Unknown watch type\\. Use `deployer` or `narrative`\\.",
-            parse_mode="MarkdownV2",
+            "❌ Unknown watch type. Use <code>deployer</code> or <code>narrative</code>.",
+            parse_mode="HTML",
         )
         return
 
     if sub_type == "deployer" and not _BASE58_RE.match(value):
         await update.message.reply_text(
-            "❌ Invalid Solana address\\. Expected 32\\-44 base58 characters\\.",
-            parse_mode="MarkdownV2",
+            "❌ Invalid Solana address. Expected 32–44 base58 characters.",
+            parse_mode="HTML",
         )
         return
 
@@ -372,14 +380,14 @@ async def watch_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     inserted = await subscribe_alert(chat_id, sub_type, value)
     if inserted:
         await update.message.reply_text(
-            f"✅ Watching *{sub_type}*: `{_esc(value)}`\n"
-            f"You'll be notified when matching tokens appear\\.",
-            parse_mode="MarkdownV2",
+            f"✅ Watching <b>{_e(sub_type)}</b>: <code>{_e(value)}</code>\n"
+            "You'll be notified when matching tokens appear.",
+            parse_mode="HTML",
         )
     else:
         await update.message.reply_text(
-            f"ℹ️ You're already watching *{sub_type}*: `{_esc(value)}`\\.",
-            parse_mode="MarkdownV2",
+            f"ℹ️ You're already watching <b>{_e(sub_type)}</b>: <code>{_e(value)}</code>.",
+            parse_mode="HTML",
         )
 
 
@@ -387,28 +395,28 @@ async def unwatch_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     """Handle /unwatch <id>."""
     if not context.args:
         await update.message.reply_text(
-            "Usage: /unwatch `<id>` — use /mywatches to see your subscription IDs\\.",
-            parse_mode="MarkdownV2",
+            "Usage: /unwatch <code>&lt;id&gt;</code> — use /mywatches to see your subscription IDs.",
+            parse_mode="HTML",
         )
         return
 
     try:
         sub_id = int(context.args[0])
     except ValueError:
-        await update.message.reply_text("❌ ID must be a number\\.", parse_mode="MarkdownV2")
+        await update.message.reply_text("❌ ID must be a number.", parse_mode="HTML")
         return
 
     chat_id = update.effective_chat.id
     removed = await unsubscribe_alert(chat_id, sub_id)
     if removed:
         await update.message.reply_text(
-            f"✅ Subscription \\#{sub_id} cancelled\\.",
-            parse_mode="MarkdownV2",
+            f"✅ Subscription #{sub_id} cancelled.",
+            parse_mode="HTML",
         )
     else:
         await update.message.reply_text(
-            f"❌ Subscription \\#{sub_id} not found or doesn't belong to you\\.",
-            parse_mode="MarkdownV2",
+            f"❌ Subscription #{sub_id} not found or doesn't belong to you.",
+            parse_mode="HTML",
         )
 
 
@@ -419,19 +427,19 @@ async def mywatches_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
     if not subs:
         await update.message.reply_text(
-            "📋 You have no active subscriptions\\.\n"
-            "Use /watch to start tracking deployers or narratives\\.",
-            parse_mode="MarkdownV2",
+            "📋 You have no active subscriptions.\n"
+            "Use /watch to start tracking deployers or narratives.",
+            parse_mode="HTML",
         )
         return
 
-    lines = ["📋 *Your active subscriptions:*\n"]
+    lines = ["📋 <b>Your active subscriptions:</b>\n"]
     for s in subs:
         lines.append(
-            f"  \\#{s['id']} — *{_esc(s['sub_type'])}*: `{_esc(s['value'])}`"
+            f"  #{s['id']} — <b>{_e(s['sub_type'])}</b>: <code>{_e(s['value'])}</code>"
         )
-    lines.append("\n_Use /unwatch `<id>` to cancel any subscription\\._")
-    await update.message.reply_text("\n".join(lines), parse_mode="MarkdownV2")
+    lines.append("\n<i>Use /unwatch &lt;id&gt; to cancel any subscription.</i>")
+    await update.message.reply_text("\n".join(lines), parse_mode="HTML")
 
 
 # ------------------------------------------------------------------
