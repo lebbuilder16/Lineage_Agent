@@ -161,6 +161,7 @@ export default function HeroCard({ data, analysis, analysisLoading }: Props) {
                 href={`https://solscan.io/account/${token.deployer}`}
               />
             )}
+            <TokenDatePills token={token} />
             {token?.dex_url && (
               <a
                 href={token.dex_url}
@@ -246,6 +247,60 @@ export default function HeroCard({ data, analysis, analysisLoading }: Props) {
 }
 
 /* ── Pill helper ───────────────────────────────────────────────────── */
+
+/** Format a ISO date string as relative age ("2d", "705d", "3h") */
+function relativeAge(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const h = diff / 36e5;
+  if (h < 1) return `${Math.round(h * 60)}m`;
+  if (h < 48) return `${Math.round(h)}h`;
+  return `${Math.round(h / 24)}d`;
+}
+
+/**
+ * Shows one or two date pills:
+ * - Normal token: single "Created X ago" pill
+ * - Stealth pre-mint (|pair - mint| > 24h): two distinct pills with warning badge
+ */
+function TokenDatePills({ token }: { token: { created_at: string | null; pair_created_at: string | null } | null | undefined }) {
+  if (!token) return null;
+
+  const mintDate = token.created_at;
+  const pairDate = token.pair_created_at;
+
+  if (!mintDate && !pairDate) return null;
+
+  // Determine if this is a stealth pre-mint
+  const isPreMint =
+    mintDate &&
+    pairDate &&
+    (new Date(pairDate).getTime() - new Date(mintDate).getTime()) > 86_400_000; // > 24h diff
+
+  if (!isPreMint) {
+    // Normal: show a single "Listing" or "Minted" pill using whichever date is available
+    const date = pairDate ?? mintDate!;
+    return (
+      <Pill
+        label="Listed"
+        value={relativeAge(date) + " ago"}
+      />
+    );
+  }
+
+  // Pre-mint case: show both dates + warning
+  return (
+    <>
+      <span
+        className="inline-flex items-center gap-1 rounded-md border border-red-600/50 bg-red-950/30 px-2 py-0.5 text-[10px] font-semibold text-red-300"
+        title={`Mint initialised on-chain: ${new Date(mintDate!).toLocaleDateString()} — Listed on DEX: ${new Date(pairDate!).toLocaleDateString()}`}
+      >
+        ⚠ Pre-mint
+      </span>
+      <Pill label="Minted" value={relativeAge(mintDate!) + " ago"} />
+      <Pill label="Listed" value={relativeAge(pairDate!) + " ago"} />
+    </>
+  );
+}
 
 function Pill({
   label,

@@ -470,6 +470,7 @@ def _build_prompt(
             _qt_deployer = str(getattr(_qt, "deployer", "") or "?")
             parts.append(f"Name: {_qt_name} ({_qt_symbol})")
             parts.append(f"Deployer: {_qt_deployer[:16]}...")
+            _qt_pair_created = getattr(_qt, "pair_created_at", None)
             if _qt_created:
                 try:
                     from datetime import datetime as _dt_cls, timezone as _tz
@@ -477,7 +478,32 @@ def _build_prompt(
                     _created_dt = (_qt_created if getattr(_qt_created, "tzinfo", None)
                                    else _dt_cls.fromisoformat(str(_qt_created)).replace(tzinfo=_tz.utc))
                     _age_h = (_now_utc - _created_dt).total_seconds() / 3600
-                    parts.append(f"Token age: {_age_h:.1f}h ({_age_h/24:.1f}d)")
+                    parts.append(f"On-chain mint age: {_age_h:.1f}h ({_age_h/24:.1f}d)  ← mint account initialised on-chain")
+                    # Pair/listing date context
+                    if _qt_pair_created:
+                        try:
+                            _pair_dt = (_qt_pair_created if getattr(_qt_pair_created, "tzinfo", None)
+                                        else _dt_cls.fromisoformat(str(_qt_pair_created)).replace(tzinfo=_tz.utc))
+                            _pair_age_h = (_now_utc - _pair_dt).total_seconds() / 3600
+                            parts.append(
+                                f"DEX listing age: {_pair_age_h:.1f}h ({_pair_age_h/24:.1f}d)  ← first pairCreatedAt on DexScreener (= trading start)"
+                            )
+                            _premint_gap_h = (_pair_dt - _created_dt).total_seconds() / 3600
+                            if _premint_gap_h > 24:
+                                parts.append(
+                                    f"⚠ STEALTH PRE-MINT DETECTED: mint was created {_premint_gap_h:.0f}h "
+                                    f"({_premint_gap_h/24:.0f}d) BEFORE its first DEX listing. "
+                                    "Supply could have been silently distributed during this window. "
+                                    "This is a strong insider-accumulation / slow-rug indicator."
+                                )
+                        except Exception:
+                            pass
+                    elif _age_h > 48:
+                        # If no pair_created_at but token appears very old — note uncertainty
+                        parts.append(
+                            "Note: No DexScreener pairCreatedAt available — on-chain age may reflect "
+                            "an unrelated earlier mint account reuse."
+                        )
                 except Exception:
                     parts.append(f"Created: {_qt_created}")
             if _qt_mcap is not None:

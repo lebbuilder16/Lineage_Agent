@@ -35,6 +35,14 @@ class TokenMetadata(BaseModel):
     dex_url: str = Field("", description="DexScreener URL for this token")
     metadata_uri: str = Field("", description="Metaplex metadata URI (off-chain JSON)")
     token_standard: str = Field("", description="Token standard from DAS (Fungible, FungibleAsset, etc.)")
+    pair_created_at: Optional[datetime] = Field(
+        None,
+        description=(
+            "Earliest DexScreener pairCreatedAt — when the token was first listed on a DEX. "
+            "Distinct from created_at which reflects the on-chain mint initialisation. "
+            "When pair_created_at >> created_at the token was stealth pre-minted."
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------

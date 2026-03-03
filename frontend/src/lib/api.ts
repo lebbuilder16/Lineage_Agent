@@ -19,6 +19,10 @@ export interface TokenMetadata {
   image_uri: string;
   deployer: string;
   created_at: string | null;
+  /** Earliest DexScreener pairCreatedAt — when the token was first listed on a DEX.
+   * Distinct from created_at which is the on-chain mint initialisation date.
+   * When pair_created_at is much more recent than created_at, the token was stealth pre-minted. */
+  pair_created_at: string | null;
   market_cap_usd: number | null;
   liquidity_usd: number | null;
   price_usd: number | null;

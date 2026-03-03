@@ -148,6 +148,10 @@ class DexScreenerClient:
             market_cap_usd=market_cap,
             liquidity_usd=total_liquidity,
             created_at=created_at,
+            # Keep the DEX listing date separate so callers can distinguish
+            # "mint initialisation date" (created_at, overwritten by on-chain
+            # sig-walk) from "first listed on DEX" (pair_created_at, stable).
+            pair_created_at=created_at,
             dex_url=best.get("url", ""),
         )
 
