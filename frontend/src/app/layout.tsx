@@ -5,7 +5,14 @@ import Link from "next/link";
 import { CommandPalette } from "@/components/CommandPalette";
 import { MobileNav } from "@/components/MobileNav";
 import AlertBell from "@/components/AlertBell";
-import WalletButton from "@/components/WalletButton";
+import dynamic from "next/dynamic";
+
+const WalletButton = dynamic(() => import("@/components/WalletButton"), {
+  ssr: false,
+  loading: () => (
+    <div className="h-[38px] w-[90px] rounded-full bg-white/5 border border-white/10 animate-pulse" />
+  ),
+});
 import { GeistSans } from "geist/font/sans";
 import { GeistMono } from "geist/font/mono";
 import { Syne } from "next/font/google";

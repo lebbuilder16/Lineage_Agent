@@ -17,7 +17,15 @@ function shortenAddress(addr: string | null): string {
 export default function WalletButton() {
   const { ready, authenticated, authUser, loading, login, logout } = useAuth();
   const [open, setOpen] = useState(false);
+  // After 3 s without Privy being ready, show the Connect button anyway
+  const [timedOut, setTimedOut] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (ready) return;
+    const t = setTimeout(() => setTimedOut(true), 3000);
+    return () => clearTimeout(t);
+  }, [ready]);
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -30,7 +38,12 @@ export default function WalletButton() {
     return () => document.removeEventListener("mousedown", handleClick);
   }, []);
 
-  if (!ready) return null;
+  // Show skeleton only during the short init window
+  if (!ready && !timedOut) {
+    return (
+      <div className="h-[38px] w-[90px] rounded-full bg-white/5 border border-white/10 animate-pulse" />
+    );
+  }
 
   if (!authenticated) {
     return (
