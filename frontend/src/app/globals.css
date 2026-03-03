@@ -104,6 +104,15 @@
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 9999px;
   }
+  /* Scroll offset for sections targeted by anchor links — clears the fixed header */
+  section[id], div[id] {
+    scroll-margin-top: 5rem;
+  }
+  /* Break long words on mobile to prevent horizontal overflow */
+  h1, h2, h3, h4 {
+    overflow-wrap: break-word;
+    word-break: break-word;
+  }
   /* Reduced motion: disable all transitions/animations */
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after {

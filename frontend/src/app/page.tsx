@@ -16,10 +16,10 @@ const fadeUp = (delay = 0) => ({
 
 export default function HomePage() {
   return (
-    <div className="min-h-[calc(100svh-5rem)] overflow-x-hidden">
+    <div className="min-h-screen overflow-x-clip">
 
       {/* ── 1. Hero ─────────────────────────────────────────────── */}
-      <section className="relative flex flex-col items-center justify-center min-h-[calc(100svh-5rem)] px-4 text-center pt-32 pb-24">
+      <section className="relative flex flex-col items-center justify-center min-h-[calc(100svh-5rem)] px-4 text-center pb-24">
         <div
           className="pointer-events-none absolute inset-0 -z-10"
           style={{ background: "radial-gradient(ellipse 60% 50% at 50% 0%, rgba(57,255,20,0.1) 0%, transparent 70%)" }}
@@ -95,7 +95,7 @@ export default function HomePage() {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 1.4, duration: 0.6 }}
-          className="absolute bottom-8 flex flex-col items-center gap-1 text-white/20"
+          className="absolute bottom-8 hidden sm:flex flex-col items-center gap-1 text-white/20"
         >
           <span className="text-xs font-display tracking-widest uppercase">Scroll</span>
           <ChevronDown className="h-4 w-4 animate-bounce" />
@@ -113,7 +113,7 @@ export default function HomePage() {
       </section>
 
       {/* ── 3. About ────────────────────────────────────────────── */}
-      <section id="about" className="max-w-6xl mx-auto px-4 sm:px-6 py-24 sm:py-36">
+      <section id="about" className="max-w-6xl mx-auto px-4 sm:px-6 py-24 sm:py-36 scroll-mt-20">
         <div className="grid sm:grid-cols-2 gap-12 items-center">
           <motion.div
             initial={{ opacity: 0, x: -40 }}
@@ -223,7 +223,7 @@ export default function HomePage() {
       </section>
 
       {/* ── 5. Signals ──────────────────────────────────────────── */}
-      <section id="signals" className="max-w-6xl mx-auto px-4 sm:px-6 py-24 sm:py-36">
+      <section id="signals" className="max-w-6xl mx-auto px-4 sm:px-6 py-24 sm:py-36 scroll-mt-20">
         <div className="grid sm:grid-cols-2 gap-16 items-center">
           <motion.div
             initial={{ opacity: 0, x: -30 }}
@@ -307,7 +307,7 @@ export default function HomePage() {
             <h2 className="display-heading text-display-md text-white">HOW IT WORKS</h2>
           </motion.div>
 
-          <div className="grid sm:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             {[
               { step: "01", title: "INPUT", description: "Paste a Solana mint address or search by token name. We accept both — we&apos;re not picky." },
               { step: "02", title: "ANALYSIS", description: "Our agent queries DexScreener, Solana RPC, and IPFS to collect all metadata. Takes ~5 seconds." },
@@ -336,7 +336,7 @@ export default function HomePage() {
       </section>
 
       {/* ── 7. How to Use ────────────────────────────────────────── */}
-      <section id="how-it-works" className="max-w-5xl mx-auto px-4 sm:px-6 py-24 sm:py-36">
+      <section id="how-it-works" className="max-w-5xl mx-auto px-4 sm:px-6 py-24 sm:py-36 scroll-mt-20">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           whileInView={{ opacity: 1, y: 0 }}
@@ -377,7 +377,7 @@ export default function HomePage() {
       </section>
 
       {/* ── 8. FAQ ──────────────────────────────────────────────── */}
-      <section id="faq" className="w-full border-t border-white/5 bg-white/[0.015] py-24">
+      <section id="faq" className="w-full border-t border-white/5 bg-white/[0.015] py-24 scroll-mt-20">
         <div className="max-w-3xl mx-auto px-4 sm:px-6">
           <motion.div
             initial={{ opacity: 0, y: 20 }}

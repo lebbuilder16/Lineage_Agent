@@ -22,24 +22,18 @@ export function MobileNav() {
     setOpen(false);
   }, [pathname]);
 
-  // Lock body scroll when open — iOS-compatible approach
+  // Lock body scroll when open — simple overflow approach, no iOS scroll-to-top bug
   useEffect(() => {
     if (open) {
-      const scrollY = window.scrollY;
-      document.body.style.position = "fixed";
-      document.body.style.top = `-${scrollY}px`;
-      document.body.style.width = "100%";
+      document.documentElement.style.overflow = "hidden";
+      document.body.style.overflow = "hidden";
     } else {
-      const scrollY = document.body.style.top;
-      document.body.style.position = "";
-      document.body.style.top = "";
-      document.body.style.width = "";
-      if (scrollY) window.scrollTo(0, parseInt(scrollY || "0") * -1);
+      document.documentElement.style.overflow = "";
+      document.body.style.overflow = "";
     }
     return () => {
-      document.body.style.position = "";
-      document.body.style.top = "";
-      document.body.style.width = "";
+      document.documentElement.style.overflow = "";
+      document.body.style.overflow = "";
     };
   }, [open]);
 

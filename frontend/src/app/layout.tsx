@@ -84,7 +84,7 @@ export default function RootLayout({
                   <Link
                     key={item.href}
                     href={item.href}
-                    className="px-3 py-1 rounded-full text-sm text-white/60 hover:text-white hover:bg-white/5 transition-colors"
+                    className="px-3 py-2 min-h-[44px] inline-flex items-center rounded-full text-sm text-white/60 hover:text-white hover:bg-white/5 transition-colors"
                   >
                     {item.label}
                   </Link>
@@ -97,7 +97,7 @@ export default function RootLayout({
               {/* CTA button */}
               <Link
                 href="/search"
-                className="flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-neon text-black text-sm font-bold font-display hover:bg-neon/90 transition-colors"
+                className="flex items-center gap-1.5 px-4 py-2 min-h-[44px] rounded-full bg-neon text-black text-sm font-bold font-display hover:bg-neon/90 transition-colors"
               >
                 <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -123,8 +123,8 @@ export default function RootLayout({
             </nav>
           </header>
 
-          {/* Main content — proper top padding for fixed nav */}
-          <main id="main" className="mx-auto max-w-6xl px-4 pt-32 pb-8 sm:px-6">{children}</main>
+          {/* Main content — header height = ~5rem so pt-20 (80px) clears the fixed nav */}
+          <main id="main" className="mx-auto max-w-6xl px-4 pt-20 pb-8 sm:px-6">{children}</main>
         </Providers>
       </body>
     </html>
