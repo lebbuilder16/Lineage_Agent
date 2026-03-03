@@ -61,6 +61,12 @@ Explain what the data PROVES, IMPLIES, or RULES OUT — do not paraphrase it bac
 
 After analysing the data, call the forensic_report tool with your findings.
 
+ANALYSIS SCOPE — READ CAREFULLY:
+Your analysis target is EXCLUSIVELY the token labelled "TOKEN BEING ANALYZED" at the top of the data.
+Root tokens, clones, and derivatives are BACKGROUND CONTEXT to help you understand the operator's pattern \
+— do NOT score or diagnose them. risk_score, verdict_summary, conviction_chain, and all findings must \
+reflect the QUERY TOKEN's specific on-chain situation, not the family as a whole.
+
 Scoring guide:
 - 90-100: Confirmed rug / extraction with on-chain proof — multiple independent signals converge
 - 75-89:  Strong indicators, high suspicion — at least 2 hard signals + supporting context
@@ -87,7 +93,7 @@ _FORENSIC_TOOL = {
         "properties": {
             "risk_score": {
                 "type": "integer",
-                "description": "Risk score 0–100.",
+                "description": "Risk score 0–100 reflecting the QUERY TOKEN specifically, not its family or clones.",
             },
             "confidence": {
                 "type": "string",
@@ -103,7 +109,7 @@ _FORENSIC_TOOL = {
             },
             "verdict_summary": {
                 "type": "string",
-                "description": "ONE sentence, max 20 words: headline CONCLUSION stating what the actor DID and what it proves.",
+                "description": "ONE sentence, max 20 words: headline CONCLUSION about the QUERY TOKEN — stating what the actor DID to it and what it proves.",
             },
             "narrative": {
                 "type": "object",
@@ -135,7 +141,7 @@ _FORENSIC_TOOL = {
             },
             "conviction_chain": {
                 "type": "string",
-                "description": "2-3 sentences: 3+ independent converging signals, logical chain, confidence-weighted verdict, weakest assumption called out.",
+                "description": "2-3 sentences anchored to the QUERY TOKEN: 3+ independent converging signals, logical chain, confidence-weighted verdict, weakest assumption called out.",
             },
             "operator_hypothesis": {
                 "type": ["string", "null"],
@@ -387,7 +393,7 @@ def _build_prompt(
     if lineage:
         _qt = getattr(lineage, "query_token", None) or getattr(lineage, "root", None)
         if _qt:
-            parts.append("=== QUERY TOKEN (token under analysis) ===")
+            parts.append("=== ⚑ TOKEN BEING ANALYZED — YOUR PRIMARY SUBJECT ===")
             _qt_name    = getattr(_qt, "name", "") or "?"
             _qt_symbol  = getattr(_qt, "symbol", "") or "?"
             _qt_created = getattr(_qt, "created_at", None)
@@ -413,16 +419,26 @@ def _build_prompt(
 
     # ── Lineage / clone intelligence ──────────────────────────────────────
     if lineage:
-        parts.append("=== LINEAGE ANALYSIS ===")
+        query_is_root = getattr(lineage, "query_is_root", None)
+        if query_is_root is False:
+            parts.append(
+                "\n=== FAMILY CONTEXT (enrichment only — do NOT score these tokens) ==="
+            )
+            parts.append(
+                "⚠ SCOPE REMINDER: The token above is a CLONE, not the root. "
+                "Root and sibling clones below are CONTEXT — your risk_score and verdict must "
+                "reflect the CLONE token being analyzed, not the root or other clones."
+            )
+        else:
+            parts.append("\n=== LINEAGE / FAMILY CONTEXT ===")
+            if query_is_root is True:
+                parts.append("NOTE: The queried token IS the root of this clone family.")
+
         root = getattr(lineage, "root", None)
         if root:
             parts.append(f"Root token: {getattr(root,'name','')} ({getattr(root,'symbol','')})")
             parts.append(f"Root deployer: {getattr(root,'deployer','?')[:16]}...")
             parts.append(f"Root created: {getattr(root,'created_at','?')}")
-
-        query_is_root = getattr(lineage, "query_is_root", None)
-        if query_is_root is not None:
-            parts.append(f"Queried token is root: {query_is_root}")
 
         derivatives = getattr(lineage, "derivatives", []) or []
         parts.append(f"Clones detected: {len(derivatives)}")
