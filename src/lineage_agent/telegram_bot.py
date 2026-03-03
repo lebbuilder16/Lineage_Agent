@@ -4,8 +4,11 @@ Telegram bot interface for the Meme Lineage Agent.
 Commands
 --------
 /start                      – Welcome message
+/help                       – Show all commands and usage
 /lineage <mint>             – Detect lineage for a token
 /search <name>              – Search tokens by name or symbol
+/about                      – About Lineage Agent
+/links                      – Official links (website, docs, GitHub, Twitter)
 /watch deployer <address>   – Subscribe to alerts for a deployer wallet
 /watch narrative <name>     – Subscribe to alerts for a narrative category
 /unwatch <id>               – Cancel a subscription by ID
@@ -52,16 +55,21 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Send a welcome message and usage instructions."""
     text = (
         "🧬 *Meme Lineage Agent*\n\n"
-        "I help you identify the *root token* and its clones "
-        "in the Solana memecoin ecosystem\\.\n\n"
-        "*Commands:*\n"
-        "• /lineage `<mint>` \\– Detect the lineage of a token\n"
-        "• /search `<name>` \\– Search tokens by name or symbol\n"
-        "• /watch deployer `<address>` \\– Alert on new tokens from a wallet\n"
-        "• /watch narrative `<name>` \\– Alert on new tokens in a narrative\n"
-        "• /unwatch `<id>` \\– Cancel an alert subscription\n"
-        "• /mywatches \\– List your active subscriptions\n"
-        "• /help \\– Show this help message\n"
+        "I help you identify the *root token* and its clones in the Solana memecoin ecosystem\\.\n\n"
+        "No more buying imposters\. No more broken families\. Just pure forensic intelligence\\.\n\n"
+        "*Quick start:*\n"
+        "• Paste a token mint → I'll detect its lineage\n"
+        "• Or try /search `<name>` to find tokens\n\n"
+        "*Core Commands:*\n"
+        "• /lineage `<mint>` \\– Forensic analysis of a token\n"
+        "• /search `<name>` \\– Find tokens by name or symbol\n"
+        "• /about \\– Learn what we do\n"
+        "• /links \\– Website, docs, GitHub, Twitter\n\n"
+        "*Monitoring:*\n"
+        "• /watch deployer `<wallet>` \\– Alert on new tokens from a wallet\n"
+        "• /watch narrative `<name>` \\– Alert on narrative themes (pepe, ai, etc)\n"
+        "• /mywatches \\– Your active subscriptions\n\n"
+        "Use /help for more details\\.\n"
     )
     await update.message.reply_text(text, parse_mode="MarkdownV2")
 
@@ -69,20 +77,65 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Send help / usage instructions."""
     text = (
-        "🧬 *Meme Lineage Agent \\– Help*\n\n"
-        "*Commands:*\n"
-        "• /lineage `<mint>` \\– Detect the lineage of a Solana token\n"
-        "• /search `<name>` \\– Search tokens by name or symbol\n"
-        "• /watch deployer `<address>` \\– Subscribe to deployer wallet alerts\n"
-        "• /watch narrative `<name>` \\– Subscribe to narrative category alerts\n"
-        "• /unwatch `<id>` \\– Cancel subscription by ID \\(see /mywatches\\)\n"
-        "• /mywatches \\– List your active subscriptions\n"
-        "• /help \\– Show this message\n\n"
+        "🧬 *Meme Lineage Agent \\– Complete Help*\n\n"
+        "*Account & Info:*\n"
+        "• /start \\– Welcome message\n"
+        "• /about \\– What Lineage Agent does\n"
+        "• /links \\– Official website, docs, social media\n"
+        "• /help \\– This message\n\n"
+        "*Forensic Analysis:*\n"
+        "• /lineage `<mint>` \\– Deep forensic analysis of a token\n"
+        "  Returns: root token, clones, risk score, bundle detection, SOL flow trace\n"
+        "• /search `<name>` \\– Find tokens by name or symbol\n\n"
+        "*Alerts \\& Subscriptions:*\n"
+        "• /watch deployer `<address>` \\– Get alerts when this wallet deploys new tokens\n"
+        "• /watch narrative `<name>` \\– Get alerts for tokens in a theme (pepe, ai, cat, etc)\n"
+        "• /unwatch `<id>` \\– Cancel a subscription\n"
+        "• /mywatches \\– See all your active subscriptions\n\n"
         "*Examples:*\n"
         "• `/lineage DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263`\n"
         "• `/search bonk`\n"
+        "• `/watch deployer Abc123XYZ...`\n"
         "• `/watch narrative pepe`\n\n"
-        "Paste a Solana mint address or type a token name to get started\\."
+        "_Need more help? See /about and /links\\._ "
+    )
+    await update.message.reply_text(text, parse_mode="MarkdownV2")
+
+
+async def about_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Send information about Lineage Agent."""
+    text = (
+        "🧬 *About Lineage Agent*\n\n"
+        "Lineage Agent is an agentic forensic intelligence platform for the Solana memecoin ecosystem\\.\n\n"
+        "*The Problem:*\n"
+        "The Solana blockchain sees 1M\\+ token launches per month\. Operators systematically deploy clones of popular tokens, extract capital via rug pulls, then re\\-launch near\\-identical tokens targeting the same audience\\.\n\n"
+        "*Our Solution:*\n"
+        "We combine 13 independent on\\-chain forensic signals:"
+        "\n• Metadata DNA fingerprinting \\( cross\\-wallet operator identity \\)"
+        "\n• Family tree reconstruction \\( root \\+ derivatives \\)"
+        "\n• Bundle detection \\( Jito coordinated buys \\)"
+        "\n• SOL flow trace \\( post\\-rug capital routing \\)"
+        "\n• Death Clock \\( rug timing forecast \\)"
+        "\n• Zombie detection \\( recycled tokens \\)"
+        "\n• AI analysis \\( Claude LLM with conviction chains \\)"
+        "\nand more\\.\n\n"
+        "*Result:* Full forensic lineage reports in under 60 seconds\."
+    )
+    await update.message.reply_text(text, parse_mode="MarkdownV2")
+
+
+async def links_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Send official links and social media."""
+    text = (
+        "🔗 *Lineage Agent — Official Links*\n\n"
+        "🌐 *Website:* [lineagefun\\.xyz](https://www\\.lineagefun\\.xyz)\n"
+        "📚 *Docs \\& Whitepaper:* [lineage\\-4\\.gitbook\\.io](https://lineage\\-4\\.gitbook\\.io/lineage\\-docs/)\n"
+        "💻 *Open Source:* [github\\.com/lebbuilder16/Lineage\\_Agent](https://github\\.com/lebbuilder16/Lineage_Agent)\n"
+        "𝕏 *X \\/Twitter:* [@LineageMemes](https://x\\.com/LineageMemes)\n\n"
+        "*Resources:*\n"
+        "• [Getting Started](https://lineage\\-4\\.gitbook\\.io/lineage\\-docs/getting\\-started)\n"
+        "• [All 13 Signals Explained](https://lineage\\-4\\.gitbook\\.io/lineage\\-docs/features)\n"
+        "• [REST API Reference](https://lineage\\-4\\.gitbook\\.io/lineage\\-docs/api\\-reference)\n"
     )
     await update.message.reply_text(text, parse_mode="MarkdownV2")
 
@@ -307,6 +360,8 @@ def main() -> None:
     application = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_cmd))
+    application.add_handler(CommandHandler("about", about_cmd))
+    application.add_handler(CommandHandler("links", links_cmd))
     application.add_handler(CommandHandler("lineage", lineage_cmd))
     application.add_handler(CommandHandler("search", search_cmd))
     application.add_handler(CommandHandler("watch", watch_cmd))
