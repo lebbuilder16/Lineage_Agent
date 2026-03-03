@@ -20,11 +20,12 @@ from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
-# Model selection: haiku 4.5 for cost/speed — override via ANTHROPIC_MODEL env var
-# Available as of 2026: claude-haiku-4-5-20251001, claude-sonnet-4-5-20250929, claude-sonnet-4-6
-_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
+# Model selection — override via ANTHROPIC_MODEL env var
+# Use non-dated aliases where possible for forward-compatibility
+_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-haiku-4-5")
+_MODEL_SONNET = os.getenv("ANTHROPIC_MODEL_SONNET", "claude-sonnet-4-6")
 _MAX_TOKENS = 2500  # tool_use generates cleaner output, needs fewer tokens
-_TIMEOUT = 60.0  # seconds
+_TIMEOUT = 55.0  # seconds — must be < Fly machine timeout (60s) to surface proper error
 
 
 # ── Lazy client (avoids import error when API key not set) ────────────────────
@@ -260,7 +261,7 @@ async def analyze_token(
     if not os.getenv("ANTHROPIC_MODEL"):  # only auto-switch if not forced by env
         _hscore = _heuristic_score(lineage_result, bundle_report, sol_flow_report)
         if _hscore >= 75:
-            _call_model = "claude-sonnet-4-6"
+            _call_model = _MODEL_SONNET
             logger.info("[ai_analyst] adaptive model: sonnet (heuristic=%d) for %s", _hscore, mint[:12])
         else:
             logger.debug("[ai_analyst] adaptive model: haiku (heuristic=%d) for %s", _hscore, mint[:12])
@@ -277,6 +278,7 @@ async def analyze_token(
                     tools=[_FORENSIC_TOOL],
                     tool_choice={"type": "tool", "name": "forensic_report"},
                     messages=[{"role": "user", "content": prompt}],
+                    timeout=_TIMEOUT,
                 )
                 break
             except Exception as _retry_exc:
@@ -351,7 +353,7 @@ async def analyze_token(
         if "RateLimit" in exc_name:
             logger.warning("[ai_analyst] rate-limited for mint=%s", mint[:12])
         elif "NotFound" in exc_name:
-            logger.error("[ai_analyst] model not found (%s) — set ANTHROPIC_MODEL env var. %s", _MODEL, exc)
+            logger.error("[ai_analyst] model not found (%s) — set ANTHROPIC_MODEL env var. %s", _call_model, exc)
         elif "APIConnection" in exc_name:
             logger.error("[ai_analyst] connection error: %s", exc)
         elif "APIStatus" in exc_name:
