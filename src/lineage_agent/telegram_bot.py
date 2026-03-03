@@ -586,7 +586,7 @@ def build_application():
     return app
 
 
-async async def main() -> None:
+async def main() -> None:
     """
     WEBHOOK : set_webhook() chez Telegram, FastAPI reçoit les updates.
               PAS de run_webhook() — évite le conflit de port avec FastAPI.
