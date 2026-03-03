@@ -37,30 +37,34 @@ function actionFromScore(score: number | null): ActionLevel {
 
 const ACTION_CONFIG: Record<
   ActionLevel,
-  { label: string; description: string; badge: string; Icon: React.ElementType }
+  { label: string; description: string; hero: string; heroBorder: string; Icon: React.ElementType }
 > = {
   avoid: {
-    label: "Avoid",
+    label: "AVOID",
     description: "Multiple high-severity signals detected. Do not engage.",
-    badge: "border-red-500/40 bg-red-950/50 text-red-300",
+    hero: "bg-red-950/40 text-red-100",
+    heroBorder: "border-red-500/60",
     Icon: ShieldAlert,
   },
   caution: {
-    label: "Caution",
+    label: "CAUTION",
     description: "Suspicious patterns present. Proceed with full due diligence.",
-    badge: "border-amber-500/40 bg-amber-950/50 text-amber-300",
+    hero: "bg-amber-950/30 text-amber-100",
+    heroBorder: "border-amber-500/50",
     Icon: AlertTriangle,
   },
   monitor: {
-    label: "Monitor",
+    label: "MONITOR",
     description: "Low-to-medium signals. Watch for deteriorating activity.",
-    badge: "border-sky-500/40 bg-sky-950/50 text-sky-300",
+    hero: "bg-sky-950/30 text-sky-100",
+    heroBorder: "border-sky-500/40",
     Icon: Activity,
   },
   clear: {
-    label: "Clear",
+    label: "CLEAR",
     description: "No significant red flags identified at this time.",
-    badge: "border-emerald-500/40 bg-emerald-950/50 text-emerald-300",
+    hero: "bg-emerald-950/30 text-emerald-100",
+    heroBorder: "border-emerald-500/40",
     Icon: CheckCircle2,
   },
 };
@@ -81,12 +85,13 @@ export default function OverviewTab({
   analysisLoading,
 }: Props) {
   const [showAllFindings, setShowAllFindings] = useState(false);
+  const [expanded, setExpanded] = useState(false);
 
   const ai = analysis?.ai_analysis;
   const f = analysis?.forensic;
   const risk = riskLevel(ai?.risk_score ?? null);
   const action = actionFromScore(ai?.risk_score ?? null);
-  const { label: actionLabel, description: actionDesc, badge: actionBadge, Icon: ActionIcon } =
+  const { label: actionLabel, description: actionDesc, hero: actionHero, heroBorder: actionHeroBorder, Icon: ActionIcon } =
     ACTION_CONFIG[action];
 
   /* Loading state */
@@ -165,145 +170,138 @@ export default function OverviewTab({
   const allFindings = ai.key_findings.map((f) => parseTag(f));
   const visibleFindings = showAllFindings ? allFindings : allFindings.slice(0, 5);
 
+  const confidenceLabel =
+    ai.confidence === "high" ? "High conf."
+    : ai.confidence === "medium" ? "Med. conf."
+    : "Low conf.";
+  const confidencePill =
+    ai.confidence === "high"
+      ? "border-emerald-500/30 bg-emerald-950/40 text-emerald-300"
+      : ai.confidence === "medium"
+        ? "border-amber-500/30 bg-amber-950/40 text-amber-300"
+        : "border-zinc-700 bg-zinc-900 text-zinc-400";
+
   return (
     <div className="space-y-3">
 
-      {/* ── 1. Case Brief ─────────────────────────────────────────── */}
-      <div className={cn(SECTION, "border-l-2", risk.border)}>
-        <div className="flex flex-wrap items-center gap-2 mb-3">
-          <p className={cn(LABEL, "mb-0")}>Case Brief</p>
+      {/* ── DECISION HERO ─────────────────────────────────────────── */}
+      <div className={cn(
+        "rounded-xl border-2 px-5 py-5",
+        actionHero,
+        actionHeroBorder,
+      )}>
+        {/* Action label — dominant */}
+        <div className="flex items-center gap-3 mb-3">
+          <ActionIcon className="h-6 w-6 shrink-0" />
+          <span className="text-2xl font-black tracking-[0.06em]">{actionLabel}</span>
           <div className="flex items-center gap-1.5 ml-auto flex-wrap">
             <span className={cn(
               "rounded-md border px-2 py-0.5 text-[10px] font-bold tabular-nums",
               risk.border, risk.bg, risk.color,
             )}>
-              Risk {ai.risk_score ?? "?"}/100
+              {ai.risk_score ?? "?"}/100
             </span>
             <span className={cn(
               "rounded-md border px-2 py-0.5 text-[10px] font-semibold",
-              ai.confidence === "high"
-                ? "border-emerald-500/30 bg-emerald-950/40 text-emerald-300"
-                : ai.confidence === "medium"
-                  ? "border-amber-500/30 bg-amber-950/40 text-amber-300"
-                  : "border-zinc-700 bg-zinc-900 text-zinc-400",
+              confidencePill,
             )}>
-              {ai.confidence === "high"
-                ? "High confidence"
-                : ai.confidence === "medium"
-                  ? "Med. confidence"
-                  : "Low confidence"}
+              {confidenceLabel}
             </span>
           </div>
         </div>
-
-        <p className="text-sm text-zinc-100 leading-relaxed font-medium">
-          {ai.verdict_summary}
-        </p>
-
-        {/* Action recommendation */}
-        <div className={cn(
-          "mt-3 flex items-center gap-2.5 rounded-lg border px-3 py-2",
-          actionBadge,
-        )}>
-          <ActionIcon className="h-4 w-4 shrink-0" />
-          <div>
-            <span className="text-xs font-bold mr-1.5">{actionLabel}</span>
-            <span className="text-[11px] opacity-80">{actionDesc}</span>
-          </div>
-        </div>
+        {/* Verdict + description */}
+        <p className="text-sm font-medium leading-relaxed opacity-95">{ai.verdict_summary}</p>
+        <p className="mt-1 text-[11px] opacity-55">{actionDesc}</p>
       </div>
 
-      {/* ── 2. Key Drivers ────────────────────────────────────────── */}
+      {/* ── TOP 3 SIGNALS ─────────────────────────────────────────── */}
       {topSignals.length > 0 && (
-        <div className={SECTION}>
-          <p className={LABEL}>Key Drivers</p>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-            {topSignals.map((s, i) => (
-              <SignalCard key={i} signal={s} />
-            ))}
-          </div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+          {topSignals.map((s, i) => (
+            <SignalCard key={i} signal={s} />
+          ))}
         </div>
       )}
 
-      {/* ── 3. Reasoning Trail ────────────────────────────────────── */}
-      <div className={SECTION}>
-        <p className={LABEL}>Reasoning Trail</p>
-        <ReasoningRow
-          step={1}
-          label="What we see"
-          text={ai.narrative.observation}
-          accent="text-sky-400"
-          borderColor="border-sky-500/30"
-        />
-        <ReasoningRow
-          step={2}
-          label="What it means"
-          text={ai.narrative.pattern}
-          accent="text-violet-400"
-          borderColor="border-violet-500/30"
-        />
-        <ReasoningRow
-          step={3}
-          label="What&apos;s at risk"
-          text={ai.narrative.risk}
-          accent="text-red-400"
-          borderColor="border-red-500/30"
-          isLast
-        />
-      </div>
+      {/* ── FULL ANALYSIS TOGGLE ──────────────────────────────────── */}
+      <button
+        onClick={() => setExpanded((p) => !p)}
+        className={cn(
+          "w-full flex items-center justify-between rounded-xl border px-4 py-3 text-xs font-semibold transition-colors",
+          expanded
+            ? "border-zinc-700 bg-zinc-900 text-zinc-300"
+            : "border-zinc-800 bg-zinc-900/40 text-zinc-500 hover:text-zinc-300 hover:border-zinc-700",
+        )}
+      >
+        <span>{expanded ? "Hide reasoning" : "See full reasoning"}</span>
+        {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+      </button>
 
-      {/* ── 4. Key Evidence ───────────────────────────────────────── */}
-      {allFindings.length > 0 && (
-        <div className={SECTION}>
-          <p className={LABEL}>Key Evidence</p>
-          <ol className="space-y-2">
-            {visibleFindings.map(({ tag, text }, i) => (
-              <li key={i} className="flex items-start gap-2">
-                <span className="shrink-0 mt-0.5 text-[10px] font-mono text-zinc-600 w-4 text-right">
-                  {i + 1}.
-                </span>
-                {tag && (
-                  <span className={cn(
-                    "shrink-0 rounded border px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider leading-none mt-[3px]",
-                    TAG_COLORS[tag] ?? "border-zinc-700 bg-zinc-900 text-zinc-400",
-                  )}>
-                    {tag.replace(/_/g, " ")}
-                  </span>
-                )}
-                <span className="text-xs text-zinc-300 leading-relaxed">{text}</span>
-              </li>
-            ))}
-          </ol>
-          {allFindings.length > 5 && (
-            <button
-              onClick={() => setShowAllFindings((p) => !p)}
-              className="mt-3 flex items-center gap-1 text-[11px] text-zinc-500 hover:text-zinc-300 transition-colors"
-            >
-              {showAllFindings ? (
-                <><ChevronUp className="h-3 w-3" /> Show less</>
-              ) : (
-                <><ChevronDown className="h-3 w-3" /> {allFindings.length - 5} more findings</>
+      {/* ── COLLAPSIBLE DETAIL ────────────────────────────────────── */}
+      {expanded && (
+        <div className="space-y-3">
+
+          {/* Reasoning Trail */}
+          <div className={SECTION}>
+            <p className={LABEL}>Reasoning Trail</p>
+            <ReasoningRow step={1} label="What we see" text={ai.narrative.observation} accent="text-sky-400" borderColor="border-sky-500/30" />
+            <ReasoningRow step={2} label="What it means" text={ai.narrative.pattern} accent="text-violet-400" borderColor="border-violet-500/30" />
+            <ReasoningRow step={3} label="What&apos;s at risk" text={ai.narrative.risk} accent="text-red-400" borderColor="border-red-500/30" isLast />
+          </div>
+
+          {/* Key Evidence */}
+          {allFindings.length > 0 && (
+            <div className={SECTION}>
+              <p className={LABEL}>Key Evidence</p>
+              <ol className="space-y-2">
+                {visibleFindings.map(({ tag, text }, i) => (
+                  <li key={i} className="flex items-start gap-2">
+                    <span className="shrink-0 mt-0.5 text-[10px] font-mono text-zinc-600 w-4 text-right">{i + 1}.</span>
+                    {tag && (
+                      <span className={cn(
+                        "shrink-0 rounded border px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider leading-none mt-[3px]",
+                        TAG_COLORS[tag] ?? "border-zinc-700 bg-zinc-900 text-zinc-400",
+                      )}>
+                        {tag.replace(/_/g, " ")}
+                      </span>
+                    )}
+                    <span className="text-xs text-zinc-300 leading-relaxed">{text}</span>
+                  </li>
+                ))}
+              </ol>
+              {allFindings.length > 5 && (
+                <button
+                  onClick={() => setShowAllFindings((p) => !p)}
+                  className="mt-3 flex items-center gap-1 text-[11px] text-zinc-500 hover:text-zinc-300 transition-colors"
+                >
+                  {showAllFindings ? (
+                    <><ChevronUp className="h-3 w-3" /> Show less</>
+                  ) : (
+                    <><ChevronDown className="h-3 w-3" /> {allFindings.length - 5} more findings</>
+                  )}
+                </button>
               )}
-            </button>
+            </div>
           )}
-        </div>
-      )}
 
-      {/* ── 5. Conviction ───────────────────────────────────── */}
-      {ai.conviction_chain && (
-        <div className={SECTION}>
-          <p className={LABEL}>Conviction</p>
-          <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2.5">
-            <p className="text-xs text-zinc-300 leading-relaxed">{ai.conviction_chain}</p>
-          </div>
-        </div>
-      )}
+          {/* Conviction */}
+          {ai.conviction_chain && (
+            <div className={SECTION}>
+              <p className={LABEL}>Conviction</p>
+              <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2.5">
+                <p className="text-xs text-zinc-300 leading-relaxed">{ai.conviction_chain}</p>
+              </div>
+            </div>
+          )}
 
-      {/* ── 6. Operator Profile ────────────────────────────────── */}
-      {ai.operator_hypothesis && (
-        <div className={SECTION}>
-          <p className={LABEL}>Operator Profile</p>
-          <p className="text-xs text-zinc-300 leading-relaxed">{ai.operator_hypothesis}</p>
+          {/* Operator Profile */}
+          {ai.operator_hypothesis && (
+            <div className={SECTION}>
+              <p className={LABEL}>Operator Profile</p>
+              <p className="text-xs text-zinc-300 leading-relaxed">{ai.operator_hypothesis}</p>
+            </div>
+          )}
+
         </div>
       )}
 
