@@ -166,6 +166,12 @@ LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO").upper()
 LOG_FORMAT: str = os.getenv("LOG_FORMAT", "text")  # "text" or "json"
 
 # ---------------------------------------------------------------------------
+# Auth — Privy + JWT
+# ---------------------------------------------------------------------------
+PRIVY_APP_ID: str = os.getenv("PRIVY_APP_ID", "")
+JWT_SECRET: str = os.getenv("JWT_SECRET", "change-me-in-production-use-fly-secrets")
+
+# ---------------------------------------------------------------------------
 # API server
 # ---------------------------------------------------------------------------
 API_HOST: str = os.getenv("API_HOST", "0.0.0.0")

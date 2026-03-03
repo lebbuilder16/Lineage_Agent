@@ -5,6 +5,7 @@ import Link from "next/link";
 import { CommandPalette } from "@/components/CommandPalette";
 import { MobileNav } from "@/components/MobileNav";
 import AlertBell from "@/components/AlertBell";
+import WalletButton from "@/components/WalletButton";
 import { GeistSans } from "geist/font/sans";
 import { GeistMono } from "geist/font/mono";
 import { Syne } from "next/font/google";
@@ -122,6 +123,9 @@ export default function RootLayout({
 
               {/* Alert bell — real-time notifications */}
               <AlertBell />
+
+              {/* Wallet / auth button */}
+              <WalletButton />
 
               {/* Mobile burger */}
               <MobileNav />

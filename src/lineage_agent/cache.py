@@ -423,6 +423,52 @@ class SQLiteCache:
             "CREATE INDEX IF NOT EXISTS idx_ie_phash ON intelligence_events(phash)"
         )
 
+        # ---------------------------------------------------------------
+        # Phase 1 — user accounts & web watchlist
+        # ---------------------------------------------------------------
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS users (
+                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                privy_id       TEXT UNIQUE NOT NULL,
+                email          TEXT,
+                wallet_address TEXT,
+                plan           TEXT NOT NULL DEFAULT 'free',
+                api_key        TEXT UNIQUE NOT NULL,
+                created_at     REAL NOT NULL
+            )
+            """
+        )
+        await db.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_privy ON users(privy_id)"
+        )
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_users_wallet ON users(wallet_address)"
+        )
+        await db.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_apikey ON users(api_key)"
+        )
+
+        # user_watches: web-side alert subscriptions linked to a user account
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS user_watches (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                sub_type   TEXT NOT NULL,
+                value      TEXT NOT NULL,
+                created_at REAL NOT NULL
+            )
+            """
+        )
+        await db.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_uw_unique "
+            "ON user_watches(user_id, sub_type, value)"
+        )
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_uw_user ON user_watches(user_id)"
+        )
+
         await db.commit()
         self._initialised = True
 

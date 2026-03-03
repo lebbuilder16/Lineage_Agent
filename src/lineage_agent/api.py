@@ -88,6 +88,13 @@ from .models import (
 )
 from .rug_detector import cancel_rug_sweep, schedule_rug_sweep
 from .db_maintenance import cancel_db_maintenance, schedule_db_maintenance
+from .auth_service import (
+    create_or_get_user,
+    verify_api_key,
+    get_user_watches,
+    add_user_watch,
+    remove_user_watch,
+)
 
 # Initialise structured logging early
 setup_logging()
@@ -228,8 +235,8 @@ app.add_middleware(
     # generated or a custom domain is added.
     allow_origins=["*"],
     allow_credentials=False,
-    allow_methods=["GET", "POST"],
-    allow_headers=["Content-Type", "Accept"],
+    allow_methods=["GET", "POST", "DELETE"],
+    allow_headers=["Content-Type", "Accept", "X-API-Key"],
 )
 
 
@@ -1522,6 +1529,112 @@ async def forensic_chat(
             yield _evt("error", {"detail": f"Chat error: {type(_exc).__name__}"})
 
     return EventSourceResponse(_generator())
+
+
+# ---------------------------------------------------------------------------
+# Auth — Phase 1 (Privy-based API keys)
+# ---------------------------------------------------------------------------
+
+class _LoginRequest(BaseModel):
+    privy_id: str
+    wallet_address: Optional[str] = None
+    email: Optional[str] = None
+
+
+class _WatchRequest(BaseModel):
+    sub_type: str  # e.g. "deployer", "mint"
+    value: str     # address
+
+
+async def _get_current_user(request: Request):
+    """Dependency: parse X-API-Key header → user dict or raise 401."""
+    api_key = request.headers.get("X-API-Key", "")
+    if not api_key:
+        raise HTTPException(status_code=401, detail="Missing X-API-Key header")
+    from .cache import get_cache as _get_cache
+    cache = await _get_cache()
+    user = await verify_api_key(cache, api_key)
+    if user is None:
+        raise HTTPException(status_code=401, detail="Invalid API key")
+    return user
+
+
+@app.post("/auth/login", tags=["auth"])
+async def auth_login(body: _LoginRequest, request: Request):
+    """
+    Upsert a user identified by their Privy ID.
+    Returns the user record including the API key.
+    Call this from the frontend after Privy.authenticate().
+    """
+    if not body.privy_id or len(body.privy_id) < 5:
+        raise HTTPException(status_code=422, detail="privy_id is required")
+    from .cache import get_cache as _get_cache
+    cache = await _get_cache()
+    try:
+        user = await create_or_get_user(
+            cache,
+            privy_id=body.privy_id,
+            wallet_address=body.wallet_address,
+            email=body.email,
+        )
+    except Exception as exc:
+        logger.exception("auth_login failed")
+        raise HTTPException(status_code=500, detail="User creation failed") from exc
+    return {
+        "id": user["id"],
+        "privy_id": user["privy_id"],
+        "wallet_address": user["wallet_address"],
+        "email": user["email"],
+        "plan": user["plan"],
+        "api_key": user["api_key"],
+    }
+
+
+@app.get("/auth/me", tags=["auth"])
+async def auth_me(request: Request):
+    """Return current user info. Requires X-API-Key header."""
+    user = await _get_current_user(request)
+    return {
+        "id": user["id"],
+        "privy_id": user["privy_id"],
+        "wallet_address": user["wallet_address"],
+        "email": user["email"],
+        "plan": user["plan"],
+    }
+
+
+@app.get("/auth/watches", tags=["auth"])
+async def auth_watches(request: Request):
+    """Return user's watches. Requires X-API-Key header."""
+    user = await _get_current_user(request)
+    from .cache import get_cache as _get_cache
+    cache = await _get_cache()
+    watches = await get_user_watches(cache, user["id"])
+    return {"watches": watches}
+
+
+@app.post("/auth/watches", tags=["auth"])
+async def auth_add_watch(body: _WatchRequest, request: Request):
+    """Add a watch for the current user. Requires X-API-Key header."""
+    user = await _get_current_user(request)
+    from .cache import get_cache as _get_cache
+    cache = await _get_cache()
+    watch = await add_user_watch(cache, user["id"], body.sub_type, body.value)
+    if watch is None:
+        raise HTTPException(status_code=409, detail="Watch already exists")
+    return watch
+
+
+@app.delete("/auth/watches/{watch_id}", tags=["auth"])
+async def auth_remove_watch(watch_id: int, request: Request):
+    """Delete a watch by id. Requires X-API-Key header."""
+    user = await _get_current_user(request)
+    from .cache import get_cache as _get_cache
+    cache = await _get_cache()
+    deleted = await remove_user_watch(cache, user["id"], watch_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Watch not found")
+    return {"deleted": True}
 
 
 if __name__ == "__main__":
