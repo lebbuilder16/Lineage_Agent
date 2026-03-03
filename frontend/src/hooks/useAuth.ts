@@ -65,15 +65,14 @@ export function useAuth() {
     try {
       const walletAddress =
         user.wallet?.address ??
-        user.linkedAccounts?.find((a: { type: string; address?: string }) => a.type === "wallet")
-          ?.address ??
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (user.linkedAccounts?.find((a: any) => a.type === "wallet") as any)?.address ??
         null;
 
       const emailAddress =
         user.email?.address ??
-        user.linkedAccounts?.find(
-          (a: { type: string; address?: string }) => a.type === "email"
-        )?.address ??
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (user.linkedAccounts?.find((a: any) => a.type === "email") as any)?.address ??
         null;
 
       const res = await fetch(`${API_BASE}/auth/login`, {
