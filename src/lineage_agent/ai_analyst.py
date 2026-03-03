@@ -23,8 +23,8 @@ logger = logging.getLogger(__name__)
 # Model selection: haiku 4.5 for cost/speed — override via ANTHROPIC_MODEL env var
 # Available as of 2026: claude-haiku-4-5-20251001, claude-sonnet-4-5-20250929, claude-sonnet-4-6
 _MODEL = os.getenv("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
-_MAX_TOKENS = 3500
-_TIMEOUT = 60.0  # seconds (bumped: v3 prompt generates longer output)
+_MAX_TOKENS = 2500  # tool_use generates cleaner output, needs fewer tokens
+_TIMEOUT = 60.0  # seconds
 
 
 # ── Lazy client (avoids import error when API key not set) ────────────────────
@@ -49,58 +49,17 @@ def _get_client():
     return _client
 
 
-# ── System prompt ─────────────────────────────────────────────────────────────
+# ── System prompt (shortened: field-level docs moved to tool schema) ─────────
 
 _SYSTEM_PROMPT = """\
 You are a blockchain forensics detective specialising in Solana rug pulls, \
 token manipulation schemes, and on-chain capital flows.
 
 Your job is to REASON, not to narrate. \
-You weigh evidence, cross-reference signals, and reach explicit deductive conclusions. \
-Do not paraphrase data back at the reader — explain what the data PROVES, IMPLIES, or RULES OUT.
+Weigh evidence, cross-reference signals, and reach explicit deductive conclusions. \
+Explain what the data PROVES, IMPLIES, or RULES OUT — do not paraphrase it back.
 
-Respond with a single JSON object \
-(no markdown, no explanation outside the JSON) with EXACTLY these fields in this order:
-
-{
-  "risk_score": <integer 0-100>,
-  "confidence": <"low" | "medium" | "high">,
-  "rug_pattern": <"classic_rug" | "slow_rug" | "pump_dump" | "coordinated_bundle" | "factory_jito_bundle" | "serial_clone" | "insider_drain" | "unknown">,
-  "verdict_summary": <string — ONE sentence max 20 words: your headline CONCLUSION, not a list of observations. \
-State what the actor DID and what it proves. \
-Example: "Jito-coordinated factory rug: 8 pre-funded wallets atomically drained 47 SOL then routed funds to known CEX.">,
-  "narrative": {
-    "observation": <string — 2-3 sentences that SYNTHESISE the convergent red flags. \
-Do not list data points — explain what the COMBINATION of signals implies about actor intent and organisation. \
-Name at minimum 3 signals that point in the same direction and state what their co-occurrence rules out \
-(e.g. coincidence, organic selling). Use wallet prefixes (first 12 chars) and SOL amounts where they strengthen the argument.>,
-    "pattern": <string — 2-3 sentences describing the causal attack chain in temporal order: \
-how funds were staged BEFORE launch → how supply was accumulated AT launch → how the exit was triggered → \
-where extracted SOL ended up. Each step must be causally linked to the next ("which then enabled", "triggering", "routing").>,
-    "risk": <string — 2 sentences: (1) quantify damage already done (SOL extracted, % supply controlled, \
-estimated USD); (2) state residual risk — what can still happen if the remaining supply is dumped or LP drained.>
-  },
-  "key_findings": [
-    <3-6 findings, ordered most to least incriminating. \
-Each finding MUST: (a) start with [DEPLOYMENT], [FINANCIAL], [COORDINATION], [IDENTITY], [TIMING], or [EXIT]; \
-(b) state the specific evidence; (c) explain WHY it is significant and WHAT it rules out or confirms; \
-(d) reference at least one other finding or section when the signals corroborate each other. \
-Example format: "[COORDINATION] 6/8 wallets funded from the same intermediary 2 blocks before launch, \
-proving pre-meditated deployment rather than independent buyers — corroborates the scripted EXIT pattern below.">
-  ],
-  "wallet_classifications": <dict mapping wallet_address_prefix (first 12 chars) → one of: \
-"team_wallet" | "bundle_wallet" | "cash_out" | "cex_deposit" | "burner" | "clone_deployer" | "unknown">,
-  "conviction_chain": <string — 2-3 sentences of explicit deductive reasoning: \
-name 3+ independent signals that converge on the same fraud thesis, \
-explain the logical chain that links them (if A and B and C, then D must be true because…), \
-and state the confidence-weighted verdict with any single weakest assumption called out. \
-This is your argument that a defence attorney would have to rebut.>,
-  "operator_hypothesis": <string | null — 3 sentences: \
-(1) WHO: fingerprint evidence placing this deployer within a known network (prior rugs, cartel links, factory pattern, image/metadata reuse); \
-(2) WHAT playbook they used specifically in this token vs. their prior operations — note any tactical evolution; \
-(3) WHAT single factor most clearly distinguishes this from a legitimate project with superficially similar signals. \
-Null if insufficient data to identify the operator.>
-}
+After analysing the data, call the forensic_report tool with your findings.
 
 Scoring guide:
 - 90-100: Confirmed rug / extraction with on-chain proof — multiple independent signals converge
@@ -109,15 +68,86 @@ Scoring guide:
 - <50:    Low risk or insufficient data
 
 Rules:
-- Ground every inference in named data points from the provided report — cite the specific number or signal.
-- Do NOT repeat the same fact across narrative, key_findings, and conviction_chain — each section adds new analytical layer.
-- Pre-computed subsystem labels (bundle verdict, insider_sell verdict, etc.) are WEAK HINTS only. \
-Cross-reference ALL sections before scoring. Reason from raw numbers first, validate against labels second.
-- If signals conflict (e.g. low bundle score but high cartel + insider signals), explicitly address the conflict in conviction_chain.
-- conviction_chain is mandatory — never emit null for it; if data is sparse, state what the data cannot confirm and why.
-- CRITICAL JSON FORMATTING: string values must be valid JSON. Do NOT use double-quote characters inside string values — \
-use single quotes or rephrase instead. No literal newlines inside string values. No trailing commas.\
+- Ground every inference in named data points — cite the specific number or signal.
+- Do NOT repeat the same fact across narrative, key_findings, and conviction_chain — each adds a new layer.
+- Pre-computed labels (bundle verdict, insider_sell verdict) are WEAK HINTS only. \
+Reason from raw numbers first, validate against labels second.
+- If signals conflict, explicitly address the conflict in conviction_chain.
+- conviction_chain is mandatory — if data is sparse, state what the data cannot confirm and why.\
 """
+
+
+# ── Tool definition for structured output (guarantees valid JSON) ─────────────
+
+_FORENSIC_TOOL = {
+    "name": "forensic_report",
+    "description": "Submit the structured forensic analysis report for this token.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "risk_score": {
+                "type": "integer",
+                "description": "Risk score 0–100.",
+            },
+            "confidence": {
+                "type": "string",
+                "enum": ["low", "medium", "high"],
+            },
+            "rug_pattern": {
+                "type": "string",
+                "enum": [
+                    "classic_rug", "slow_rug", "pump_dump",
+                    "coordinated_bundle", "factory_jito_bundle",
+                    "serial_clone", "insider_drain", "unknown",
+                ],
+            },
+            "verdict_summary": {
+                "type": "string",
+                "description": "ONE sentence, max 20 words: headline CONCLUSION stating what the actor DID and what it proves.",
+            },
+            "narrative": {
+                "type": "object",
+                "properties": {
+                    "observation": {
+                        "type": "string",
+                        "description": "2-3 sentences synthesising convergent red flags. Explain what the COMBINATION implies about intent. Name 3+ corroborating signals.",
+                    },
+                    "pattern": {
+                        "type": "string",
+                        "description": "2-3 sentences: causal attack chain in temporal order (staging → accumulation → exit → destination). Each step causally linked.",
+                    },
+                    "risk": {
+                        "type": "string",
+                        "description": "2 sentences: (1) quantify damage (SOL extracted, % supply, est. USD); (2) residual risk.",
+                    },
+                },
+                "required": ["observation", "pattern", "risk"],
+            },
+            "key_findings": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "3-6 findings, most incriminating first. Each starts with [DEPLOYMENT], [FINANCIAL], [COORDINATION], [IDENTITY], [TIMING], or [EXIT].",
+            },
+            "wallet_classifications": {
+                "type": "object",
+                "description": "wallet_prefix (12 chars) → team_wallet|bundle_wallet|cash_out|cex_deposit|burner|clone_deployer|unknown.",
+                "additionalProperties": {"type": "string"},
+            },
+            "conviction_chain": {
+                "type": "string",
+                "description": "2-3 sentences: 3+ independent converging signals, logical chain, confidence-weighted verdict, weakest assumption called out.",
+            },
+            "operator_hypothesis": {
+                "type": ["string", "null"],
+                "description": "3 sentences: (1) WHO via fingerprint; (2) WHAT playbook vs prior ops; (3) distinguishing factor from legit. Null if insufficient data.",
+            },
+        },
+        "required": [
+            "risk_score", "confidence", "rug_pattern", "verdict_summary",
+            "narrative", "key_findings", "wallet_classifications", "conviction_chain",
+        ],
+    },
+}
 
 
 # ── Heuristic pre-score (used for adaptive model selection) ──────────────────
@@ -236,7 +266,10 @@ async def analyze_token(
                 message = await client.messages.create(
                     model=_call_model,
                     max_tokens=_MAX_TOKENS,
+                    temperature=0,
                     system=_SYSTEM_PROMPT,
+                    tools=[_FORENSIC_TOOL],
+                    tool_choice={"type": "tool", "name": "forensic_report"},
                     messages=[{"role": "user", "content": prompt}],
                 )
                 break
@@ -258,14 +291,40 @@ async def analyze_token(
                     await _asyncio.sleep(_wait)
                     continue
                 raise
-        raw = message.content[0].text
+
+        # ── Extract result from tool_use content block ───────────────────────
+        result = None
+        for block in message.content:
+            if getattr(block, "type", None) == "tool_use" and getattr(block, "name", None) == "forensic_report":
+                result = block.input  # already a dict — guaranteed valid JSON by API
+                break
+
         logger.info(
-            "[ai_analyst] %s | model=%s input_tokens=%d output_tokens=%d",
+            "[ai_analyst] %s | model=%s input_tokens=%d output_tokens=%d tool_use=%s",
             mint[:12], _call_model,
             message.usage.input_tokens, message.usage.output_tokens,
+            result is not None,
         )
-        result = _parse_response(raw, mint)
-        result["model"] = _call_model  # override with actual model used
+
+        if result is None:
+            # Fallback: try text response (shouldn't happen with tool_choice forced)
+            raw = ""
+            for block in message.content:
+                if getattr(block, "type", None) == "text":
+                    raw = block.text
+                    break
+            if raw:
+                logger.warning("[ai_analyst] no tool_use block, falling back to text parse for %s", mint[:12])
+                result = _parse_response(raw, mint)
+            else:
+                logger.error("[ai_analyst] no tool_use or text in response for %s, stop_reason=%s",
+                             mint[:12], getattr(message, "stop_reason", "unknown"))
+                return None
+
+        ts = datetime.now(tz=timezone.utc).isoformat()
+        result["mint"] = mint
+        result["model"] = _call_model
+        result["analyzed_at"] = ts
 
         # ── P0-A: sanity-check the score against hard evidence ────────────────
         result = _sanity_check(result, lineage_result, bundle_report, sol_flow_report)
