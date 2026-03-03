@@ -39,7 +39,7 @@ from telegram.ext import (
     filters,
 )
 
-from config import TELEGRAM_BOT_TOKEN
+from config import TELEGRAM_BOT_TOKEN, TELEGRAM_WEBHOOK_URL, TELEGRAM_WEBHOOK_SECRET
 from .alert_service import set_bot_app
 from .data_sources._clients import list_subscriptions, subscribe_alert, unsubscribe_alert
 from .lineage_detector import detect_lineage, search_tokens
@@ -554,6 +554,38 @@ async def mywatches_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 # ------------------------------------------------------------------
 
 
+# Module-level application instance (set by build_application / main)
+_application = None
+
+
+def build_application():
+    """Build and configure the PTB Application with all handlers.
+
+    Returns the Application instance. Does NOT start polling or the event loop.
+    Useful for webhook mode where the app is integrated into FastAPI.
+    """
+    from telegram.ext import Application  # type: ignore[attr-defined]
+
+    app: Application = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("help", help_cmd))
+    app.add_handler(CommandHandler("about", about_cmd))
+    app.add_handler(CommandHandler("links", links_cmd))
+    app.add_handler(CommandHandler("lineage", lineage_cmd))
+    app.add_handler(CommandHandler("scan", scan_cmd))  # alias
+    app.add_handler(CommandHandler("search", search_cmd))
+    app.add_handler(CommandHandler("watch", watch_cmd))
+    app.add_handler(CommandHandler("unwatch", unwatch_cmd))
+    app.add_handler(CommandHandler("mywatches", mywatches_cmd))
+    app.add_handler(CallbackQueryHandler(callback_query_handler))
+    app.add_handler(InlineQueryHandler(inline_query_handler))
+    app.add_handler(MessageHandler(filters.COMMAND, unknown_cmd))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, unknown_cmd))
+
+    set_bot_app(app)
+    return app
+
+
 def main() -> None:
     """Start the Telegram bot and run it until interrupted."""
     logging.basicConfig(
@@ -566,34 +598,21 @@ def main() -> None:
             "Please set your TELEGRAM_BOT_TOKEN in config.py or as an environment variable"
         )
 
-    application = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("help", help_cmd))
-    application.add_handler(CommandHandler("about", about_cmd))
-    application.add_handler(CommandHandler("links", links_cmd))
-    application.add_handler(CommandHandler("lineage", lineage_cmd))
-    application.add_handler(CommandHandler("scan", scan_cmd))  # alias
-    application.add_handler(CommandHandler("search", search_cmd))
-    application.add_handler(CommandHandler("watch", watch_cmd))
-    application.add_handler(CommandHandler("unwatch", unwatch_cmd))
-    application.add_handler(CommandHandler("mywatches", mywatches_cmd))
-    # Inline keyboard button taps
-    application.add_handler(CallbackQueryHandler(callback_query_handler))
-    # Inline mode: @lineage_bot <mint>
-    application.add_handler(InlineQueryHandler(inline_query_handler))
-    # Catch-all for unknown commands / messages
-    application.add_handler(
-        MessageHandler(filters.COMMAND, unknown_cmd)
-    )
-    application.add_handler(
-        MessageHandler(filters.TEXT & ~filters.COMMAND, unknown_cmd)
-    )
-
-    # Register bot with alert service so it can dispatch notifications
-    set_bot_app(application)
+    application = build_application()
 
     logger.info("Starting bot…")
-    application.run_polling()
+    if TELEGRAM_WEBHOOK_URL:
+        logger.info("Webhook mode: %s", TELEGRAM_WEBHOOK_URL)
+        application.run_webhook(
+            listen="0.0.0.0",
+            port=8080,
+            url_path="/telegram/webhook",
+            webhook_url=TELEGRAM_WEBHOOK_URL,
+            secret_token=TELEGRAM_WEBHOOK_SECRET or None,
+        )
+    else:
+        logger.info("Polling mode (no TELEGRAM_WEBHOOK_URL set)")
+        application.run_polling()
 
 
 if __name__ == "__main__":

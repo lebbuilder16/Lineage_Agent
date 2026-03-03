@@ -719,3 +719,77 @@ export async function fetchAnalysis(mint: string): Promise<AnalyzeResponse> {
     clearTimeout(timer);
   }
 }
+
+/* ---------- Forensic Chat (Phase 3.1) -------------------------------- */
+
+export interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+/**
+ * Stream a forensic chat reply for a specific mint via SSE.
+ * Calls onToken for each text chunk, onDone when complete, onError on failure.
+ * Returns an AbortController so the caller can cancel the stream.
+ */
+export function streamForensicChat(
+  mint: string,
+  message: string,
+  history: ChatMessage[],
+  onToken: (text: string) => void,
+  onDone: () => void,
+  onError: (detail: string) => void,
+): AbortController {
+  const ctrl = new AbortController();
+
+  (async () => {
+    try {
+      const res = await fetch(`${API_BASE}/chat/${encodeURIComponent(mint)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message, history }),
+        signal: ctrl.signal,
+      });
+
+      if (!res.ok || !res.body) {
+        onError(`HTTP ${res.status}`);
+        return;
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        // Parse SSE lines
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+
+        let event = "";
+        for (const line of lines) {
+          if (line.startsWith("event:")) {
+            event = line.slice(6).trim();
+          } else if (line.startsWith("data:")) {
+            const raw = line.slice(5).trim();
+            try {
+              const data = JSON.parse(raw);
+              if (event === "token" && data.text) onToken(data.text);
+              else if (event === "done") onDone();
+              else if (event === "error") onError(data.detail ?? "Unknown error");
+            } catch {}
+            event = "";
+          }
+        }
+      }
+    } catch (err: unknown) {
+      if (err instanceof Error && err.name === "AbortError") return;
+      onError("Connection failed");
+    }
+  })();
+
+  return ctrl;
+}

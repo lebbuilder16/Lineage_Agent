@@ -28,7 +28,8 @@ from typing import Optional
 import sentry_sdk
 from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
+from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -47,6 +48,8 @@ from config import (
     SENTRY_ENVIRONMENT,
     SENTRY_TRACES_SAMPLE_RATE,
     SOLANA_RPC_ENDPOINT,
+    TELEGRAM_WEBHOOK_SECRET,
+    TELEGRAM_WEBHOOK_URL,
 )
 from .circuit_breaker import get_all_statuses as cb_statuses
 from .lineage_detector import (
@@ -501,6 +504,81 @@ async def ws_alerts(websocket: WebSocket):
             await websocket.close()
         except Exception:
             pass
+
+
+# ------------------------------------------------------------------
+# Telegram webhook endpoint (Phase 5.1)
+# Active only when TELEGRAM_WEBHOOK_URL is configured; otherwise
+# the bot is run in polling mode as a separate process.
+# ------------------------------------------------------------------
+
+# Module-level PTB application (populated on first webhook request)
+_ptb_app = None
+_ptb_app_lock = asyncio.Lock()
+
+
+async def _get_ptb_app():
+    """Lazily build and initialise the PTB application for webhook mode."""
+    global _ptb_app
+    if _ptb_app is not None:
+        return _ptb_app
+    async with _ptb_app_lock:
+        if _ptb_app is not None:
+            return _ptb_app
+        try:
+            from .telegram_bot import build_application as _build_app
+            from config import TELEGRAM_BOT_TOKEN as _TBT
+            if not _TBT:
+                return None
+            app_ptb = _build_app()
+            await app_ptb.initialize()
+            await app_ptb.start()
+            _ptb_app = app_ptb
+            logger.info("[webhook] PTB application initialised")
+        except Exception as _exc:
+            logger.warning("[webhook] PTB init failed: %s", _exc)
+    return _ptb_app
+
+
+@app.post(
+    "/telegram/webhook",
+    include_in_schema=False,  # keep hidden from public API docs
+)
+async def telegram_webhook(request: Request) -> JSONResponse:
+    """Receive Telegram updates via webhook.
+
+    Telegram must be configured to POST updates to this URL.
+    When TELEGRAM_WEBHOOK_SECRET is set, the ``X-Telegram-Bot-Api-Secret-Token``
+    header is validated.
+    """
+    if not TELEGRAM_WEBHOOK_URL:
+        raise HTTPException(status_code=404, detail="Webhook mode not enabled")
+
+    # Validate secret token if configured
+    if TELEGRAM_WEBHOOK_SECRET:
+        incoming_secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
+        if incoming_secret != TELEGRAM_WEBHOOK_SECRET:
+            logger.warning("[webhook] Rejected request with invalid secret token")
+            raise HTTPException(status_code=403, detail="Invalid secret token")
+
+    raw_body = await request.body()
+    try:
+        import json as _json
+        from telegram import Update as _Update
+
+        ptb = await _get_ptb_app()
+        if ptb is None:
+            raise HTTPException(status_code=503, detail="Bot not configured")
+
+        data = _json.loads(raw_body)
+        update = _Update.de_json(data, ptb.bot)
+        await ptb.process_update(update)
+    except HTTPException:
+        raise
+    except Exception as _exc:
+        logger.exception("[webhook] Failed to process update: %s", _exc)
+        # Return 200 to Telegram regardless — avoids flooding retries
+    return JSONResponse({"ok": True})
 
 
 @app.get(
@@ -1258,6 +1336,140 @@ async def stream_ai_analysis(
         yield _evt("complete", payload)
 
     return EventSourceResponse(_generator())
+
+# ------------------------------------------------------------------
+# AI Forensic Chat — conversational analysis endpoint (Phase 3.1)
+# ------------------------------------------------------------------
+
+class ChatMessage(BaseModel):
+    role: str  # "user" | "assistant"
+    content: str
+
+
+class ChatRequest(BaseModel):
+    message: str
+    history: list[ChatMessage] = []
+
+
+_CHAT_SYSTEM = """\
+You are a Solana blockchain forensics detective embedded in the Lineage Agent platform.
+The user is analysing a specific token. You have access to the forensic report already
+computed for this token (provided below under FORENSIC CONTEXT).
+
+RULES:
+- Answer ONLY about the analysed token and its on-chain data.
+- Cite specific numbers and addresses from the context when relevant.
+- Be concise but complete — bullet points are welcome.
+- If the context does not contain enough information to answer, say so honestly.
+- NEVER fabricate on-chain data.
+"""
+
+
+@app.post(
+    "/chat/{mint}",
+    tags=["chat"],
+    summary="Conversational forensic chat for a specific token (SSE streaming)",
+)
+@limiter.limit("20/minute")
+async def forensic_chat(
+    request: Request,
+    mint: str,
+    body: ChatRequest,
+) -> EventSourceResponse:
+    """Stream a Claude reply about a specific token's forensic analysis.
+
+    Events:
+      token  {"text": "<chunk>"}
+      done   {}
+      error  {"detail": "..."}
+    """
+    if not _BASE58_RE.match(mint):
+        raise HTTPException(status_code=400, detail="Invalid Solana mint address")
+
+    if not body.message or len(body.message) > 2000:
+        raise HTTPException(status_code=400, detail="Message required (max 2000 chars)")
+
+    async def _generator():
+        import json as _json
+        from .ai_analyst import _get_client as _get_ai_client, _MODEL_SONNET
+
+        def _evt(event: str, data: dict) -> dict:
+            return {"event": event, "data": _json.dumps(data)}
+
+        # ── Build forensic context from cache ─────────────────────────────
+        context_parts: list[str] = []
+        try:
+            from .cache import get_cache as _get_cache
+            _cache = await _get_cache()
+            # Try cached AI analysis first
+            _ai_key = f"ai:v2:{mint}"
+            _ai_cached = _cache.get(_ai_key)
+            if hasattr(_ai_cached, "__await__"):
+                _ai_cached = await _ai_cached
+            if isinstance(_ai_cached, dict):
+                context_parts.append(f"RISK SCORE: {_ai_cached.get('risk_score', 'N/A')}/100")
+                context_parts.append(f"CONFIDENCE: {_ai_cached.get('confidence', 'N/A')}")
+                _verdict = _ai_cached.get("verdict_summary") or ""
+                if _verdict:
+                    context_parts.append(f"VERDICT: {_verdict}")
+                _narrative = _ai_cached.get("narrative") or ""
+                if _narrative:
+                    context_parts.append(f"NARRATIVE:\n{_narrative}")
+                _findings = _ai_cached.get("key_findings") or []
+                if _findings:
+                    context_parts.append("KEY FINDINGS:\n" + "\n".join(f"- {f}" for f in _findings))
+                _chain = _ai_cached.get("conviction_chain") or []
+                if _chain:
+                    context_parts.append("CONVICTION CHAIN:\n" + "\n".join(f"- {c}" for c in _chain))
+
+            # Try cached lineage for token metadata
+            _lin_key = f"lineage:{mint}"
+            _lin_cached = _cache.get(_lin_key)
+            if hasattr(_lin_cached, "__await__"):
+                _lin_cached = await _lin_cached
+            if hasattr(_lin_cached, "root") and _lin_cached.root:
+                root = _lin_cached.root
+                context_parts.append(
+                    f"TOKEN: {getattr(root, 'name', '?')} ({getattr(root, 'symbol', '?')}) | "
+                    f"Deployer: {getattr(root, 'deployer', 'N/A')} | "
+                    f"MCap: ${getattr(root, 'market_cap_usd', None) or 'N/A'}"
+                )
+                if getattr(_lin_cached, "derivatives", None):
+                    context_parts.append(f"FAMILY SIZE: {_lin_cached.family_size} tokens")
+        except Exception as _ctx_exc:
+            logger.warning("[chat] context fetch failed: %s", _ctx_exc)
+
+        forensic_context = "\n\n".join(context_parts) if context_parts else "No cached analysis available for this token."
+        system_with_ctx = f"{_CHAT_SYSTEM}\n\n---\nFORENSIC CONTEXT FOR {mint}:\n{forensic_context}\n---"
+
+        # ── Build messages list ───────────────────────────────────────────
+        messages = [
+            {"role": msg.role, "content": msg.content}
+            for msg in body.history[-8:]  # keep last 8 turns for context window
+        ]
+        messages.append({"role": "user", "content": body.message})
+
+        # ── Stream Claude response ────────────────────────────────────────
+        try:
+            client = _get_ai_client()
+            async with client.messages.stream(
+                model=_MODEL_SONNET,
+                max_tokens=1024,
+                temperature=0,
+                system=system_with_ctx,
+                messages=messages,
+            ) as stream:
+                async for text_chunk in stream.text_stream:
+                    yield _evt("token", {"text": text_chunk})
+
+            yield _evt("done", {})
+
+        except Exception as _exc:
+            logger.exception("[chat] stream failed for %s", mint[:12])
+            yield _evt("error", {"detail": f"Chat error: {type(_exc).__name__}"})
+
+    return EventSourceResponse(_generator())
+
 
 if __name__ == "__main__":
     import uvicorn

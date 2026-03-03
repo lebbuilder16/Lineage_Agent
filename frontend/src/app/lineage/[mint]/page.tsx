@@ -20,6 +20,7 @@ import { formatSol } from "@/lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
 import { AlertCircle, RefreshCw, RotateCcw } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { ChatPanel } from "@/components/ChatPanel";
 
 export default function LineagePage() {
   const params = useParams<{ mint: string }>();
@@ -296,6 +297,19 @@ export default function LineagePage() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Forensic AI Chat — floating overlay */}
+      {data && (
+        <ChatPanel
+          mint={mint}
+          tokenName={
+            data.query_token?.name ||
+            data.query_token?.symbol ||
+            data.root?.name ||
+            undefined
+          }
+        />
+      )}
     </div>
   );
 }

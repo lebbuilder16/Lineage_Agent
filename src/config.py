@@ -59,6 +59,12 @@ if not _telegram_token:
     )
 TELEGRAM_BOT_TOKEN: str = _telegram_token  # empty string disables the bot
 
+# Webhook mode (optional) — set TELEGRAM_WEBHOOK_URL to the public HTTPS URL
+# of your backend, e.g. https://lineage-agent.fly.dev/telegram/webhook
+# Leave empty to run in polling mode (default / local dev).
+TELEGRAM_WEBHOOK_URL: str = os.getenv("TELEGRAM_WEBHOOK_URL", "")
+TELEGRAM_WEBHOOK_SECRET: str = os.getenv("TELEGRAM_WEBHOOK_SECRET", "")
+
 # ---------------------------------------------------------------------------
 # Solana RPC
 # ---------------------------------------------------------------------------
