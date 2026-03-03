@@ -30,7 +30,7 @@ export default function LineagePage() {
     steps: analysisSteps,
     analysis,
     loading: analysisLoading,
-  } = useAnalysisStream(mint);
+  } = useAnalysisStream(data ? mint : null);
 
   useEffect(() => {
     if (mint) analyze(mint);
@@ -198,8 +198,6 @@ export default function LineagePage() {
               {progress.step}
             </p>
           )}
-          {/* AI analysis step-by-step progress */}
-          <AnalysisProgress steps={analysisSteps} />
         </motion.div>
       )}
 
@@ -245,6 +243,11 @@ export default function LineagePage() {
               analysis={analysis}
               analysisLoading={analysisLoading}
             />
+
+            {/* AI analysis progress — shown while stream is running */}
+            {analysisLoading && (
+              <AnalysisProgress steps={analysisSteps} />
+            )}
 
             {/* Forensic tabs */}
             {tabs.length > 0 && (

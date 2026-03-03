@@ -44,6 +44,7 @@ export function useAnalysisStream(
   const [loading, setLoading] = useState(false);
 
   const esRef = useRef<EventSource | null>(null);
+  const doneRef = useRef(false); // guard against stale-closure onerror
 
   const reset = useCallback(() => {
     setSteps(INITIAL_STEPS);
@@ -56,6 +57,7 @@ export function useAnalysisStream(
 
     // Close any existing stream
     esRef.current?.close();
+    doneRef.current = false;
     reset();
     setLoading(true);
 
@@ -84,6 +86,7 @@ export function useAnalysisStream(
     es.addEventListener("complete", (e: MessageEvent) => {
       try {
         const payload = JSON.parse(e.data) as AnalyzeResponse;
+        doneRef.current = true;
         setAnalysis(payload);
       } catch {
         setError("Impossible de décoder la réponse AI");
@@ -106,8 +109,8 @@ export function useAnalysisStream(
 
     // Network-level error (EventSource onerror)
     es.onerror = () => {
-      // Only treat it as fatal if we still don't have data
-      if (!analysis) {
+      // Use ref to avoid stale closure — only error if stream never completed
+      if (!doneRef.current) {
         setError("Connexion SSE interrompue");
         setLoading(false);
       }
