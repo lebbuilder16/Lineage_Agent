@@ -188,12 +188,24 @@ async def lifespan(application: FastAPI):
     _schedule_alert_sweep()
     _schedule_cartel_sweep()
     schedule_db_maintenance()
+
+    # -----------------------------------------------------------------------
+    # Telegram bot — start inline with FastAPI (no separate process needed)
+    # -----------------------------------------------------------------------
+    _bot_polling_task: asyncio.Task | None = None
+    await _start_telegram_bot()
+
     yield
+
+    # -----------------------------------------------------------------------
+    # Shutdown
+    # -----------------------------------------------------------------------
     logger.info("Shutting down \u2013 closing HTTP clients \u2026")
     cancel_rug_sweep()
     cancel_alert_sweep()
     _cancel_cartel_sweep()
     cancel_db_maintenance()
+    await _stop_telegram_bot()
     await close_clients()
 
 
@@ -507,36 +519,77 @@ async def ws_alerts(websocket: WebSocket):
 
 
 # ------------------------------------------------------------------
-# Telegram webhook endpoint (Phase 5.1)
-# Active only when TELEGRAM_WEBHOOK_URL is configured; otherwise
-# the bot is run in polling mode as a separate process.
-# ------------------------------------------------------------------
-
-# Module-level PTB application (populated on first webhook request)
+# ---------------------------------------------------------------------------
+# Telegram bot — lifecycle helpers (Phase 5.1)
+# Runs inline with FastAPI: webhook mode if TELEGRAM_WEBHOOK_URL is set,
+# otherwise long-polling as a background asyncio task.
+# ---------------------------------------------------------------------------
 _ptb_app = None
-_ptb_app_lock = asyncio.Lock()
+_ptb_polling_task: asyncio.Task | None = None
+
+
+async def _start_telegram_bot() -> None:
+    """Initialize PTB and register webhook or start polling."""
+    global _ptb_app, _ptb_polling_task
+    from config import TELEGRAM_BOT_TOKEN as _TBT
+    if not _TBT:
+        logger.warning("[bot] TELEGRAM_BOT_TOKEN not set — bot disabled")
+        return
+    try:
+        from .telegram_bot import build_application as _build_app
+        _ptb_app = _build_app()
+        await _ptb_app.initialize()
+        if TELEGRAM_WEBHOOK_URL and TELEGRAM_WEBHOOK_URL.startswith("https://"):
+            logger.info("[bot] Registering webhook: %s", TELEGRAM_WEBHOOK_URL)
+            await _ptb_app.bot.set_webhook(
+                url=TELEGRAM_WEBHOOK_URL,
+                secret_token=TELEGRAM_WEBHOOK_SECRET or None,
+                allowed_updates=["message", "callback_query", "inline_query"],
+            )
+            await _ptb_app.start()
+            logger.info("[bot] Webhook mode active — FastAPI handles updates")
+        else:
+            logger.info("[bot] No TELEGRAM_WEBHOOK_URL — starting polling mode")
+            await _ptb_app.start()
+
+            async def _poll():
+                try:
+                    await _ptb_app.updater.start_polling(drop_pending_updates=True)
+                    logger.info("[bot] Polling started")
+                except Exception as _e:
+                    logger.error("[bot] Polling error: %s", _e)
+
+            _ptb_polling_task = asyncio.create_task(_poll())
+    except Exception as exc:
+        logger.error("[bot] Startup failed: %s", exc)
+        _ptb_app = None
+
+
+async def _stop_telegram_bot() -> None:
+    """Gracefully stop the PTB application."""
+    global _ptb_app, _ptb_polling_task
+    if _ptb_polling_task and not _ptb_polling_task.done():
+        _ptb_polling_task.cancel()
+        try:
+            await _ptb_polling_task
+        except asyncio.CancelledError:
+            pass
+    if _ptb_app is not None:
+        try:
+            if TELEGRAM_WEBHOOK_URL:
+                await _ptb_app.bot.delete_webhook()
+            if _ptb_app.updater and _ptb_app.updater.running:
+                await _ptb_app.updater.stop()
+            await _ptb_app.stop()
+            await _ptb_app.shutdown()
+            logger.info("[bot] PTB application stopped")
+        except Exception as exc:
+            logger.warning("[bot] Shutdown error (ignored): %s", exc)
+        _ptb_app = None
 
 
 async def _get_ptb_app():
-    """Lazily build and initialise the PTB application for webhook mode."""
-    global _ptb_app
-    if _ptb_app is not None:
-        return _ptb_app
-    async with _ptb_app_lock:
-        if _ptb_app is not None:
-            return _ptb_app
-        try:
-            from .telegram_bot import build_application as _build_app
-            from config import TELEGRAM_BOT_TOKEN as _TBT
-            if not _TBT:
-                return None
-            app_ptb = _build_app()
-            await app_ptb.initialize()
-            await app_ptb.start()
-            _ptb_app = app_ptb
-            logger.info("[webhook] PTB application initialised")
-        except Exception as _exc:
-            logger.warning("[webhook] PTB init failed: %s", _exc)
+    """Return the running PTB application (initialized at startup)."""
     return _ptb_app
 
 
