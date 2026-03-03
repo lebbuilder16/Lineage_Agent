@@ -8,6 +8,7 @@ import AnalysisProgress from "@/components/AnalysisProgress";
 import { SearchBar } from "@/components/SearchBar";
 import { addToHistory } from "@/components/CommandPalette";
 import HeroCard from "@/components/HeroCard";
+import WatchButton from "@/components/WatchButton";
 import ZombieAlert from "@/components/forensics/ZombieAlert";
 import ForensicTabs, { type TabDef } from "@/components/forensics/ForensicTabs";
 import OverviewTab from "@/components/forensics/OverviewTab";
@@ -17,7 +18,7 @@ import LineageTab from "@/components/forensics/LineageTab";
 import DeployerTab from "@/components/forensics/DeployerTab";
 import { formatSol } from "@/lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
-import { AlertCircle, RefreshCw } from "lucide-react";
+import { AlertCircle, RefreshCw, RotateCcw } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export default function LineagePage() {
@@ -30,6 +31,9 @@ export default function LineagePage() {
     steps: analysisSteps,
     analysis,
     loading: analysisLoading,
+    error: analysisError,
+    retryCount,
+    retryNow,
   } = useAnalysisStream(data ? mint : null);
 
   useEffect(() => {
@@ -238,15 +242,51 @@ export default function LineagePage() {
             {data.zombie_alert && <ZombieAlert alert={data.zombie_alert} />}
 
             {/* Hero: token info + badges + AI verdict */}
-            <HeroCard
-              data={data}
-              analysis={analysis}
-              analysisLoading={analysisLoading}
-            />
+            <div className="relative">
+              <HeroCard
+                data={data}
+                analysis={analysis}
+                analysisLoading={analysisLoading}
+              />
+              {/* Watch / star button — overlaid on the hero card */}
+              <div className="absolute right-4 top-4">
+                <WatchButton
+                  mint={mint}
+                  name={
+                    data.query_token?.name ||
+                    data.query_token?.symbol ||
+                    data.root?.name ||
+                    mint.slice(0, 8)
+                  }
+                  symbol={data.query_token?.symbol || data.root?.symbol}
+                  riskScore={analysis?.ai_analysis?.risk_score ?? undefined}
+                  showLabel
+                />
+              </div>
+            </div>
 
             {/* AI analysis progress — shown while stream is running */}
             {analysisLoading && (
               <AnalysisProgress steps={analysisSteps} />
+            )}
+
+            {/* AI streaming error (non-fatal — lineage results still shown) */}
+            {analysisError && !analysisLoading && (
+              <div className="flex items-center justify-between gap-3 rounded-lg border border-amber-500/20 bg-amber-500/5 px-4 py-3">
+                <div className="flex items-center gap-2">
+                  <AlertCircle className="h-4 w-4 shrink-0 text-amber-400" />
+                  <p className="text-xs text-amber-300">{analysisError}</p>
+                </div>
+                {retryCount <= 3 && (
+                  <button
+                    onClick={retryNow}
+                    className="shrink-0 inline-flex items-center gap-1.5 rounded-full border border-amber-400/30 px-3 py-1 text-xs font-medium text-amber-400 hover:bg-amber-400/10 transition-colors"
+                  >
+                    <RotateCcw className="h-3 w-3" />
+                    Retry AI
+                  </button>
+                )}
+              </div>
             )}
 
             {/* Forensic tabs */}

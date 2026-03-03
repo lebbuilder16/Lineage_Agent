@@ -22,9 +22,13 @@ _VALID_MINT2 = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
 
 def _make_update(text: str = "", args: list[str] | None = None):
     """Create a minimal mock Update + Context."""
+    # The status message returned by reply_text() needs edit_text as AsyncMock
+    status_msg = MagicMock()
+    status_msg.edit_text = AsyncMock()
+
     update = MagicMock()
     update.message = MagicMock()
-    update.message.reply_text = AsyncMock()
+    update.message.reply_text = AsyncMock(return_value=status_msg)
 
     context = MagicMock()
     context.args = args or []
@@ -99,6 +103,7 @@ class TestLineageCmd:
         )
 
         update, context = _make_update(args=[_VALID_MINT])
+        status_msg = update.message.reply_text.return_value
 
         with patch(
             "lineage_agent.telegram_bot.detect_lineage",
@@ -107,9 +112,11 @@ class TestLineageCmd:
         ):
             await lineage_cmd(update, context)
 
-        # First call = "Analyzing lineage…", second = the result
-        assert update.message.reply_text.call_count == 2
-        result_text = update.message.reply_text.call_args_list[1][0][0]
+        # reply_text called once (initial "Starting analysis…")
+        assert update.message.reply_text.call_count == 1
+        # Final result is in the last edit_text call
+        assert status_msg.edit_text.call_count >= 1
+        result_text = status_msg.edit_text.call_args_list[-1][0][0]
         assert "Lineage Card" in result_text
         assert "TestToken" in result_text
         assert "92%" in result_text
@@ -119,6 +126,7 @@ class TestLineageCmd:
     async def test_error(self):
         """Internal errors should return a generic message, not the traceback."""
         update, context = _make_update(args=[_VALID_MINT])
+        status_msg = update.message.reply_text.return_value
 
         with patch(
             "lineage_agent.telegram_bot.detect_lineage",
@@ -127,9 +135,10 @@ class TestLineageCmd:
         ):
             await lineage_cmd(update, context)
 
-        # "Analyzing…" + error message
-        assert update.message.reply_text.call_count == 2
-        error_text = update.message.reply_text.call_args_list[1][0][0]
+        # reply_text once (initial message), then edit_text for error
+        assert update.message.reply_text.call_count == 1
+        assert status_msg.edit_text.call_count >= 1
+        error_text = status_msg.edit_text.call_args_list[-1][0][0]
         assert "Something went wrong" in error_text
         assert "RPC timeout" not in error_text
 
@@ -143,6 +152,7 @@ class TestLineageCmd:
             family_size=1,
         )
         update, context = _make_update(args=[_VALID_MINT])
+        status_msg = update.message.reply_text.return_value
 
         with patch(
             "lineage_agent.telegram_bot.detect_lineage",
@@ -151,8 +161,8 @@ class TestLineageCmd:
         ):
             await lineage_cmd(update, context)
 
-        result_text = update.message.reply_text.call_args_list[1][0][0]
-        assert "No derivatives" in result_text
+        result_text = status_msg.edit_text.call_args_list[-1][0][0]
+        assert "No clones detected" in result_text
 
     @pytest.mark.asyncio
     async def test_more_than_five_derivatives(self):
@@ -172,6 +182,7 @@ class TestLineageCmd:
             family_size=9,
         )
         update, context = _make_update(args=[_VALID_MINT])
+        status_msg = update.message.reply_text.return_value
 
         with patch(
             "lineage_agent.telegram_bot.detect_lineage",
@@ -180,8 +191,8 @@ class TestLineageCmd:
         ):
             await lineage_cmd(update, context)
 
-        result_text = update.message.reply_text.call_args_list[1][0][0]
-        assert "and 3 more" in result_text
+        result_text = status_msg.edit_text.call_args_list[-1][0][0]
+        assert "7 more clones detected" in result_text
 
 
 # ------------------------------------------------------------------
@@ -289,11 +300,11 @@ class TestHelpCmd:
         assert "/help" in text
 
     @pytest.mark.asyncio
-    async def test_help_uses_markdown(self):
+    async def test_help_uses_html(self):
         update, context = _make_update()
         await help_cmd(update, context)
         kwargs = update.message.reply_text.call_args[1]
-        assert kwargs.get("parse_mode") == "MarkdownV2"
+        assert kwargs.get("parse_mode") == "HTML"
 
 
 # ------------------------------------------------------------------
@@ -312,8 +323,8 @@ class TestUnknownCmd:
         assert "/help" in text
 
     @pytest.mark.asyncio
-    async def test_unknown_uses_markdown(self):
+    async def test_unknown_uses_html(self):
         update, context = _make_update()
         await unknown_cmd(update, context)
         kwargs = update.message.reply_text.call_args[1]
-        assert kwargs.get("parse_mode") == "MarkdownV2"
+        assert kwargs.get("parse_mode") == "HTML"

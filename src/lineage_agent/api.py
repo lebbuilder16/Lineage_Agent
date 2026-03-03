@@ -56,7 +56,12 @@ from .lineage_detector import (
     init_clients,
     search_tokens,
 )
-from .alert_service import cancel_alert_sweep, schedule_alert_sweep as _schedule_alert_sweep
+from .alert_service import (
+    cancel_alert_sweep,
+    register_web_client,
+    schedule_alert_sweep as _schedule_alert_sweep,
+    unregister_web_client,
+)
 from .deployer_service import compute_deployer_profile
 from .operator_impact_service import compute_operator_impact
 from .sol_flow_service import get_sol_flow_report, trace_sol_flow
@@ -447,6 +452,51 @@ async def ws_lineage(websocket: WebSocket):
         except Exception:
             pass
     finally:
+        try:
+            await websocket.close()
+        except Exception:
+            pass
+
+
+# ------------------------------------------------------------------
+# WebSocket: real-time alert push for the browser dashboard
+# ------------------------------------------------------------------
+
+@app.websocket("/ws/alerts")
+async def ws_alerts(websocket: WebSocket):
+    """Push deployer/narrative alerts to browser dashboard clients.
+
+    The client connects and keeps the connection open. The server pushes
+    JSON events whenever a watched deployer or narrative produces a new token::
+
+        {"event": "alert", "type": "deployer|narrative", "title": "...",
+         "body": "...", "mint": "<address>"}
+
+    The client should send periodic pings (plain text ``"ping"``) to keep
+    the connection alive through proxies.
+    """
+    await websocket.accept()
+    register_web_client(websocket)
+    logger.info("Browser alert client connected")
+    try:
+        while True:
+            # Wait for client keepalive pings; timeout = 90s
+            try:
+                msg = await asyncio.wait_for(websocket.receive_text(), timeout=90)
+                if msg.strip().lower() == "ping":
+                    await websocket.send_text("pong")
+            except asyncio.TimeoutError:
+                # No ping received — send a server-side keepalive
+                try:
+                    await websocket.send_text("ping")
+                except Exception:
+                    break
+    except WebSocketDisconnect:
+        logger.info("Browser alert client disconnected")
+    except Exception:
+        logger.exception("WebSocket alert error")
+    finally:
+        unregister_web_client(websocket)
         try:
             await websocket.close()
         except Exception:

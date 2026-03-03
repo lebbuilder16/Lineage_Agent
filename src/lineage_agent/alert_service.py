@@ -19,9 +19,12 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from .data_sources._clients import all_subscriptions, event_query
+
+if TYPE_CHECKING:
+    from fastapi import WebSocket
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +34,31 @@ _LOOKBACK_SECONDS = 6 * 60         # check events from last 6 min (overlap to co
 _sweep_task: Optional[asyncio.Task] = None
 # Store reference to the Telegram Application so we can send messages
 _bot_app: Optional[object] = None
+# Web WebSocket clients (browser dashboard)
+_web_clients: set["WebSocket"] = set()
+
+
+def register_web_client(ws: "WebSocket") -> None:
+    """Register a new browser WebSocket client for push alerts."""
+    _web_clients.add(ws)
+
+
+def unregister_web_client(ws: "WebSocket") -> None:
+    """Remove a disconnected browser WebSocket client."""
+    _web_clients.discard(ws)
+
+
+async def _broadcast_web_alert(payload: dict) -> None:
+    """Push *payload* to all connected browser web clients."""
+    if not _web_clients:
+        return
+    dead: set["WebSocket"] = set()
+    for ws in list(_web_clients):
+        try:
+            await ws.send_json(payload)
+        except Exception:
+            dead.add(ws)
+    _web_clients -= dead
 
 
 def set_bot_app(app: object) -> None:
@@ -98,6 +126,13 @@ async def _run_alert_sweep() -> int:
                     )
                     await _send_alert(chat_id, text)
                     dispatched += 1
+                    await _broadcast_web_alert({
+                        "event": "alert",
+                        "type": "deployer",
+                        "title": f"Deployer Alert: {name}",
+                        "body": f"Watched deployer {value[:12]}… launched {name} — mcap {mcap_str}",
+                        "mint": row.get("mint"),
+                    })
 
             elif sub_type == "narrative":
                 rows = await event_query(
@@ -118,6 +153,13 @@ async def _run_alert_sweep() -> int:
                     )
                     await _send_alert(chat_id, text)
                     dispatched += 1
+                    await _broadcast_web_alert({
+                        "event": "alert",
+                        "type": "narrative",
+                        "title": f"Narrative Alert: {name}",
+                        "body": f"New {value} token launched: {name} — mcap {mcap_str}",
+                        "mint": row.get("mint"),
+                    })
 
         except Exception as exc:
             logger.debug("Alert sweep error for sub %s: %s", sub, exc)

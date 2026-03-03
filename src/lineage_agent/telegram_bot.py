@@ -22,8 +22,22 @@ import html
 import logging
 import re
 
-from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters
+from telegram import (
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    InlineQueryResultArticle,
+    InputTextMessageContent,
+    Update,
+)
+from telegram.ext import (
+    ApplicationBuilder,
+    CallbackQueryHandler,
+    CommandHandler,
+    ContextTypes,
+    InlineQueryHandler,
+    MessageHandler,
+    filters,
+)
 
 from config import TELEGRAM_BOT_TOKEN
 from .alert_service import set_bot_app
@@ -33,6 +47,8 @@ from .ai_analyst import analyze_token
 
 # Base58 validation regex (same as in api.py)
 _BASE58_RE = re.compile(r"^[1-9A-HJ-NP-Za-km-z]{32,44}$")
+# Dashboard base URL
+_DASHBOARD_BASE = "https://www.lineagefun.xyz"
 
 logger = logging.getLogger(__name__)
 
@@ -151,6 +167,73 @@ async def unknown_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     )
 
 
+def _inline_keyboard(mint: str) -> InlineKeyboardMarkup:
+    """Build the inline action buttons shown under a lineage result."""
+    url = f"{_DASHBOARD_BASE}/lineage/{mint}"
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("📊 Full Report", url=url),
+            InlineKeyboardButton("📦 Bundle", url=f"{url}#bundle"),
+        ],
+        [
+            InlineKeyboardButton("💸 SOL Flow", url=f"{url}#money-flow"),
+            InlineKeyboardButton("🤖 AI Analysis", url=f"{url}#overview"),
+        ],
+        [
+            InlineKeyboardButton("🔗 Share", switch_inline_query=mint),
+        ],
+    ])
+
+
+async def _run_lineage_analysis(
+    mint: str,
+    status_msg: object,
+) -> tuple | None:
+    """
+    Run sequential lineage + AI analysis with progressive message edits.
+    Returns (lineage_result, ai_result) or None on fatal error.
+    """
+    from telegram import Message
+    msg: Message = status_msg  # type: ignore[assignment]
+
+    # Step 1 — lineage
+    await msg.edit_text(
+        "🔍 <b>Step 1/2</b> — Fetching on-chain lineage…",
+        parse_mode="HTML",
+    )
+    try:
+        lineage_result = await detect_lineage(mint)
+    except Exception:
+        logger.exception("Lineage detection error for %s", mint)
+        await msg.edit_text(
+            "❌ Something went wrong while analyzing this token. Please try again later.",
+            parse_mode="HTML",
+        )
+        return None
+
+    fam = getattr(lineage_result, "family_size", 0)
+    await msg.edit_text(
+        f"🔍 <b>Step 1/2</b> — Lineage ready ✅  ({fam} tokens in family)\n"
+        "🤖 <b>Step 2/2</b> — Running AI forensic analysis…",
+        parse_mode="HTML",
+    )
+
+    # Step 2 — AI
+    try:
+        ai_result = await asyncio.wait_for(
+            analyze_token(mint, lineage_result=lineage_result),
+            timeout=30.0,
+        )
+    except asyncio.TimeoutError:
+        logger.warning("AI analysis timed out for %s", mint)
+        ai_result = None
+    except Exception:
+        logger.exception("AI analysis failed for %s", mint)
+        ai_result = None
+
+    return lineage_result, ai_result
+
+
 async def lineage_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle the /lineage command with full forensic + AI analysis."""
     if not context.args:
@@ -171,43 +254,13 @@ async def lineage_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     logger.info("Received lineage request for %s", mint)
     status_msg = await update.message.reply_text(
-        "🔍 Analyzing… lineage + forensics.", parse_mode="HTML"
+        "⏳ <b>Starting analysis…</b>", parse_mode="HTML"
     )
 
-    try:
-        lineage_result, _ = await asyncio.gather(
-            detect_lineage(mint),
-            asyncio.sleep(0),
-            return_exceptions=True,
-        )
-
-        if isinstance(lineage_result, Exception):
-            logger.exception("Lineage detection error for %s", mint)
-            await status_msg.edit_text(
-                "❌ Something went wrong while analyzing this token. Please try again later.",
-                parse_mode="HTML",
-            )
-            return
-
-        try:
-            ai_result = await asyncio.wait_for(
-                analyze_token(mint, lineage_result=lineage_result),
-                timeout=30.0,
-            )
-        except asyncio.TimeoutError:
-            logger.warning("AI analysis timed out for %s", mint)
-            ai_result = None
-        except Exception:
-            logger.exception("AI analysis failed for %s", mint)
-            ai_result = None
-
-    except Exception:
-        logger.exception("Lineage detection error for %s", mint)
-        await status_msg.edit_text(
-            "❌ Something went wrong while analyzing this token. Please try again later.",
-            parse_mode="HTML",
-        )
+    result = await _run_lineage_analysis(mint, status_msg)
+    if result is None:
         return
+    lineage_result, ai_result = result
 
     # Build hybrid message: lineage + AI analysis
     root = lineage_result.root
@@ -301,11 +354,65 @@ async def lineage_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     else:
         lines.append("\n✅ <b>No clones detected</b>")
 
-    lines.append(
-        f"\n🔗 <a href=\"https://www.lineagefun.xyz/lineage/{_e(mint)}\">View full report</a>"
+    # Inline buttons
+    keyboard = _inline_keyboard(mint)
+
+    await status_msg.edit_text(
+        "\n".join(lines),
+        parse_mode="HTML",
+        reply_markup=keyboard,
     )
 
-    await status_msg.edit_text("\n".join(lines), parse_mode="HTML")
+
+async def scan_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Alias for /lineage (shorter to type)."""
+    await lineage_cmd(update, context)
+
+
+async def callback_query_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Acknowledge inline keyboard button taps silently."""
+    if update.callback_query:
+        await update.callback_query.answer()
+
+
+async def inline_query_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle @lineage_bot <mint> inline queries from any chat."""
+    query = update.inline_query
+    if not query:
+        return
+    text = (query.query or "").strip()
+    if not _BASE58_RE.match(text):
+        await query.answer(
+            results=[],
+            switch_pm_text="Paste a valid Solana mint address",
+            switch_pm_parameter="help",
+            cache_time=10,
+        )
+        return
+
+    mint = text
+    url = f"{_DASHBOARD_BASE}/lineage/{mint}"
+
+    # Return a quick preview card without running full analysis (latency budget)
+    message_text = (
+        f"🧬 <b>Lineage Report</b>\n"
+        f"<code>{_e(mint)}</code>\n\n"
+        f"Open for full forensic analysis:\n"
+        f"<a href=\"{url}\">{url}</a>"
+    )
+    results = [
+        InlineQueryResultArticle(
+            id=mint,
+            title=f"Lineage: {mint[:12]}…",
+            description="Tap to share a forensic report link",
+            input_message_content=InputTextMessageContent(
+                message_text=message_text,
+                parse_mode="HTML",
+            ),
+            reply_markup=_inline_keyboard(mint),
+        )
+    ]
+    await query.answer(results=results, cache_time=60)
 
 
 async def search_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -465,10 +572,15 @@ def main() -> None:
     application.add_handler(CommandHandler("about", about_cmd))
     application.add_handler(CommandHandler("links", links_cmd))
     application.add_handler(CommandHandler("lineage", lineage_cmd))
+    application.add_handler(CommandHandler("scan", scan_cmd))  # alias
     application.add_handler(CommandHandler("search", search_cmd))
     application.add_handler(CommandHandler("watch", watch_cmd))
     application.add_handler(CommandHandler("unwatch", unwatch_cmd))
     application.add_handler(CommandHandler("mywatches", mywatches_cmd))
+    # Inline keyboard button taps
+    application.add_handler(CallbackQueryHandler(callback_query_handler))
+    # Inline mode: @lineage_bot <mint>
+    application.add_handler(InlineQueryHandler(inline_query_handler))
     # Catch-all for unknown commands / messages
     application.add_handler(
         MessageHandler(filters.COMMAND, unknown_cmd)
