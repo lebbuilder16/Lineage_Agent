@@ -586,11 +586,11 @@ def build_application():
     return app
 
 
-async def main() -> None:
+async async def main() -> None:
     """
-    WEBHOOK mode : set_webhook() chez Telegram, FastAPI reçoit les updates.
-                   PAS de run_webhook() — évite le conflit de port avec FastAPI.
-    POLLING mode : fallback si TELEGRAM_WEBHOOK_URL absent.
+    WEBHOOK : set_webhook() chez Telegram, FastAPI reçoit les updates.
+              PAS de run_webhook() — évite le conflit de port avec FastAPI.
+    POLLING : fallback si TELEGRAM_WEBHOOK_URL absent.
     """
     import signal as _signal
 
