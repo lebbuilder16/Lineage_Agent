@@ -119,27 +119,27 @@ function WalletRow({ w, index }: { w: BundleWalletAnalysis; index: number }) {
       <td className="py-1.5 pr-3 tabular-nums">{fmt(w.sol_spent)} ◎</td>
       <td className="py-1.5 pr-3">
         {hasPreLink ? (
-          <span className="text-red-400 font-semibold text-[10px]">
+          <span className="text-red-400 font-semibold text-xs">
             funded by deployer
           </span>
         ) : w.pre_sell.prefund_source_is_known_funder ? (
-          <span className="text-amber-400 text-[10px]">common funder</span>
+          <span className="text-amber-400 text-xs">common funder</span>
         ) : (
           <span className="text-zinc-600">—</span>
         )}
       </td>
       <td className="py-1.5 pr-3">
         {w.post_sell.sell_detected ? (
-          <span className="text-red-400 text-[10px]">
+          <span className="text-red-400 text-xs">
             {fmt(w.post_sell.sol_received_from_sell)} ◎
           </span>
         ) : (
-          <span className="text-zinc-600 text-[10px]">no sell</span>
+          <span className="text-zinc-600 text-xs">no sell</span>
         )}
       </td>
       <td className="py-1.5 pr-3">
         {hasPostLink ? (
-          <span className="text-orange-400 text-[10px]">
+          <span className="text-orange-400 text-xs">
             {w.post_sell.direct_transfer_to_deployer
               ? "→ deployer"
               : w.post_sell.transfer_to_deployer_linked_wallet
@@ -153,7 +153,7 @@ function WalletRow({ w, index }: { w: BundleWalletAnalysis; index: number }) {
       <td className="py-1.5">
         <span
           className={cn(
-            "rounded-full border px-1.5 py-0.5 text-[9px] font-semibold",
+            "rounded-full border px-1.5 py-0.5 text-[11px] font-semibold",
             vc.style
           )}
         >
@@ -246,7 +246,7 @@ export default function BundleReportCard({ report }: Props) {
         {/* Team-link ratio bar */}
         {report.bundle_wallets.length > 0 && (
           <div className="space-y-1">
-            <div className="flex justify-between text-[10px] text-muted-foreground">
+            <div className="flex justify-between text-xs text-muted-foreground">
               <span>Team-linked wallets (on-chain proof required)</span>
               <span>
                 {teamLinked} / {report.bundle_wallets.length}
@@ -278,7 +278,7 @@ export default function BundleReportCard({ report }: Props) {
                 />
               )}
             </div>
-            <div className="flex gap-3 text-[9px] text-muted-foreground">
+            <div className="flex gap-3 text-[11px] text-muted-foreground">
               <span className="flex items-center gap-1">
                 <span className="w-2 h-2 rounded-full bg-red-500 inline-block" />
                 confirmed ({confirmedCount})
@@ -347,7 +347,49 @@ export default function BundleReportCard({ report }: Props) {
 
         {/* Wallet table */}
         {report.bundle_wallets.length > 0 && (
-          <div className="overflow-x-auto">
+          <>
+            {/* Mobile wallet cards */}
+            <div className="sm:hidden space-y-2">
+              {report.bundle_wallets.map((w, i) => {
+                const vc = WALLET_VERDICT_CONFIG[w.verdict];
+                const hasPreLink = w.pre_sell.prefund_source_is_deployer;
+                const hasPostLink =
+                  w.post_sell.direct_transfer_to_deployer ||
+                  w.post_sell.transfer_to_deployer_linked_wallet ||
+                  w.post_sell.indirect_via_intermediary;
+                return (
+                  <div key={w.wallet} className="rounded-lg border border-white/5 bg-zinc-900/50 px-3 py-2.5 space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <a href={`/deployer/${w.wallet}`} className="font-mono text-xs hover:text-primary transition-colors">
+                        <span className="text-zinc-500 mr-1">{i + 1}.</span>{short(w.wallet)}
+                      </a>
+                      <span className={cn("rounded-full border px-1.5 py-0.5 text-[11px] font-semibold", vc.style)}>{vc.label}</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
+                      <div><span className="text-zinc-500">SOL in </span><span className="text-zinc-200 tabular-nums">{fmt(w.sol_spent)} ◎</span></div>
+                      {w.post_sell.sell_detected && (
+                        <div><span className="text-zinc-500">SOL sold </span><span className="text-red-400 tabular-nums">{fmt(w.post_sell.sol_received_from_sell)} ◎</span></div>
+                      )}
+                      {hasPreLink && <div className="col-span-2 text-red-400">⚠ funded by deployer</div>}
+                      {hasPostLink && (
+                        <div className="col-span-2 text-orange-400">
+                          → {w.post_sell.direct_transfer_to_deployer ? "deployer" : w.post_sell.transfer_to_deployer_linked_wallet ? "linked wallet" : "indirect"}
+                        </div>
+                      )}
+                    </div>
+                    {w.red_flags.length > 0 && (
+                      <div className="flex flex-wrap gap-1">
+                        {w.red_flags.slice(0, 3).map((f) => (
+                          <span key={f} className="rounded border border-zinc-700 bg-zinc-900 px-1.5 py-0.5 text-[11px] text-zinc-400 font-mono">{f}</span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            {/* Desktop table */}
+            <div className="hidden sm:block overflow-x-auto">
             <table className="w-full text-xs border-collapse">
               <thead>
                 <tr className="text-left text-muted-foreground border-b border-border">
@@ -366,7 +408,8 @@ export default function BundleReportCard({ report }: Props) {
                 ))}
               </tbody>
             </table>
-          </div>
+            </div>
+          </>
         )}
 
         {/* Red flags for top wallets */}

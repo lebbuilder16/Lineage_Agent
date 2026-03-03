@@ -41,7 +41,7 @@ export default function ForensicTabs({ tabs, defaultTab }: Props) {
               disabled={tab.disabled}
               onClick={() => !tab.disabled && setActive(tab.id)}
               className={cn(
-                "relative flex items-center gap-1.5 whitespace-nowrap px-3 py-2 text-xs font-medium transition-colors rounded-t-lg",
+                "relative flex items-center gap-1.5 whitespace-nowrap px-3 py-3 text-xs font-medium transition-colors rounded-t-lg",
                 isActive
                   ? "text-white"
                   : tab.disabled
@@ -54,7 +54,7 @@ export default function ForensicTabs({ tabs, defaultTab }: Props) {
               {tab.badge != null && tab.badge !== "" && (
                 <span
                   className={cn(
-                    "rounded-full px-1.5 py-px text-[9px] font-bold tabular-nums",
+                    "rounded-full px-1.5 py-px text-[11px] font-bold tabular-nums",
                     isActive
                       ? "bg-neon/20 text-neon"
                       : tab.disabled

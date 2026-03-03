@@ -146,7 +146,7 @@ function WalletNode({
       >
         <div
           style={{
-            fontSize: "9px",
+            fontSize: "11px",
             fontFamily: "monospace",
             color: isSelected ? "#facc15" : isHovered ? "#c4b5fd" : "#94a3b8",
             background: "rgba(0,0,0,0.55)",
@@ -228,7 +228,7 @@ function Scene({
       <ambientLight intensity={0.5} />
       <pointLight position={[100, 100, 100]} intensity={1.2} />
       <pointLight position={[-100, -50, -100]} intensity={0.6} color="#6366f1" />
-      <OrbitControls makeDefault enableDamping dampingFactor={0.08} />
+      <OrbitControls makeDefault enableDamping dampingFactor={0.08} touches={{ ONE: 2, TWO: 1 }} />
 
       {/* Edges */}
       {edges.map((e, i) => {
@@ -320,7 +320,7 @@ export default function CartelGraph3D({
   );
 
   return (
-    <div className="relative w-full rounded-xl border border-border overflow-hidden bg-[#09090b]" style={{ height: "580px" }}>
+    <div className="relative w-full rounded-xl border border-border overflow-hidden bg-[#09090b]" style={{ height: "580px", touchAction: "pan-y" }}>
       {/* Signal legend */}
       <div className="absolute top-3 left-3 z-10 flex flex-wrap gap-2">
         {signalTypes.map((sig) => {
@@ -329,7 +329,7 @@ export default function CartelGraph3D({
           return (
             <span
               key={sig}
-              className="flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium backdrop-blur-sm"
+              className="flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium backdrop-blur-sm"
               style={{ borderColor: `${c.hex}60`, color: c.hex, background: `${c.hex}18` }}
             >
               <span className="inline-block h-1.5 w-3 rounded-full" style={{ background: c.hex }} />
@@ -340,19 +340,20 @@ export default function CartelGraph3D({
       </div>
 
       {/* Hint */}
-      <div className="absolute bottom-3 left-3 z-10 text-[10px] text-zinc-600 select-none">
-        Drag to orbit · Scroll to zoom · Click a node to inspect
+      <div className="absolute bottom-3 left-3 z-10 text-[11px] text-zinc-600 select-none">
+        <span className="hidden sm:inline">Drag to orbit · Scroll to zoom · Click a node to inspect</span>
+        <span className="sm:hidden">👆 Drag to rotate · Pinch to zoom · Tap node to inspect</span>
       </div>
 
       {/* Selected wallet tooltip */}
       {selectedWallet && (
         <div className="absolute top-3 right-3 z-10 rounded-lg border border-indigo-500/40 bg-black/70 backdrop-blur-sm px-3 py-2 text-xs max-w-[220px]">
-          <p className="text-zinc-400 mb-1 text-[10px] uppercase tracking-wider">Selected wallet</p>
-          <code className="font-mono text-yellow-300 break-all text-[10px]">{selectedWallet}</code>
+          <p className="text-zinc-400 mb-1 text-[11px] uppercase tracking-wider">Selected wallet</p>
+          <code className="font-mono text-yellow-300 break-all text-[11px]">{selectedWallet}</code>
           <div className="mt-2 flex gap-2">
             <a
               href={`/deployer/${selectedWallet}`}
-              className="text-indigo-400 hover:text-indigo-300 text-[10px] underline"
+              className="text-indigo-400 hover:text-indigo-300 text-[11px] underline"
             >
               Deployer profile →
             </a>
@@ -360,14 +361,15 @@ export default function CartelGraph3D({
               href={`https://solscan.io/account/${selectedWallet}`}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-zinc-500 hover:text-zinc-300 text-[10px] underline"
+              className="text-zinc-500 hover:text-zinc-300 text-[11px] underline"
             >
               Solscan ↗
             </a>
           </div>
           <button
             onClick={() => setSelectedWallet(null)}
-            className="absolute top-1.5 right-2 text-zinc-600 hover:text-zinc-300 text-xs"
+            className="absolute top-0 right-0 p-2 text-zinc-600 hover:text-zinc-300"
+            aria-label="Close"
           >
             ✕
           </button>
@@ -375,7 +377,7 @@ export default function CartelGraph3D({
       )}
 
       {/* Wallet count badge */}
-      <div className="absolute bottom-3 right-3 z-10 rounded-full border border-indigo-500/30 bg-black/60 px-2.5 py-1 text-[10px] text-indigo-400 select-none">
+      <div className="absolute bottom-3 right-3 z-10 rounded-full border border-indigo-500/30 bg-black/60 px-2.5 py-1 text-[11px] text-indigo-400 select-none">
         {wallets.length} wallets · {edges.length} edges
       </div>
 

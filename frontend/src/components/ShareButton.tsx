@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { Share2, Copy, Check } from "lucide-react";
+import { Share2, Copy, Check, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import type { LineageResult, AnalyzeResponse } from "@/lib/api";
 
 interface Props {
@@ -106,6 +107,7 @@ function buildTweetText(
 export function ShareButton({ data, analysis }: Props) {
   const [copied, setCopied] = useState(false);
   const [open, setOpen] = useState(false);
+  const isMobile = useIsMobile();
 
   const url = typeof window !== "undefined" ? window.location.href : "";
   const tweetText = buildTweetText(data, analysis, url);
@@ -129,7 +131,7 @@ export function ShareButton({ data, analysis }: Props) {
         aria-haspopup="menu"
         aria-expanded={open}
         className={cn(
-          "inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-sm font-medium",
+          "inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-sm font-medium min-h-[44px] sm:min-h-0",
           "border border-white/10 bg-background text-muted-foreground",
           "hover:text-foreground hover:bg-white/5 transition-colors",
           open && "bg-white/5 text-foreground"
@@ -144,57 +146,64 @@ export function ShareButton({ data, analysis }: Props) {
         <>
           {/* Backdrop */}
           <div className="fixed inset-0 z-[55]" onClick={() => setOpen(false)} />
-          {/* Dropdown */}
-          <div
-            className="absolute right-0 top-10 z-[56] w-52 rounded-xl border border-white/10 bg-[#0f0f0f] shadow-2xl animate-fade-in-scale overflow-hidden"
-            role="menu"
-            aria-label="Share options"
-          >
-            <button
-              onClick={copyLink}
-              role="menuitem"
-              className="flex w-full items-center gap-3 px-3 py-2.5 text-sm hover:bg-white/5 transition-colors text-left"
+
+          {isMobile ? (
+            /* ── Bottom sheet (mobile) ─────────────────────────── */
+            <div
+              className="fixed bottom-0 inset-x-0 z-[56] rounded-t-2xl border-t border-white/10 bg-[#0f0f0f] shadow-2xl overflow-hidden"
+              role="menu"
+              aria-label="Share options"
             >
-              {copied ? (
-                <Check className="h-4 w-4 text-neon" />
-              ) : (
-                <Copy className="h-4 w-4 text-muted-foreground" />
-              )}
-              <span>{copied ? "Copied!" : "Copy link"}</span>
-            </button>
-            <div className="border-t border-white/5" />
-            <a
-              href={tweetUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              role="menuitem"
-              onClick={() => setOpen(false)}
-              className="flex items-center gap-3 px-3 py-2.5 text-sm hover:bg-white/5 transition-colors"
+              {/* Handle */}
+              <div className="flex justify-center pt-3 pb-1">
+                <div className="w-10 h-1 rounded-full bg-white/20" />
+              </div>
+              <div className="flex items-center justify-between px-4 pb-2 pt-1">
+                <p className="text-xs text-white/40 font-medium uppercase tracking-widest">Share</p>
+                <button onClick={() => setOpen(false)} className="p-2 text-white/40 hover:text-white transition-colors" aria-label="Close">
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <div className="pb-safe-area pb-8">
+                <button onClick={copyLink} role="menuitem" className="flex w-full items-center gap-3 px-4 py-3.5 text-sm hover:bg-white/5 transition-colors text-left min-h-[52px]">
+                  {copied ? <Check className="h-5 w-5 text-neon shrink-0" /> : <Copy className="h-5 w-5 text-muted-foreground shrink-0" />}
+                  <span>{copied ? "Copied!" : "Copy link"}</span>
+                </button>
+                <div className="border-t border-white/5" />
+                <a href={tweetUrl} target="_blank" rel="noopener noreferrer" role="menuitem" onClick={() => setOpen(false)} className="flex items-center gap-3 px-4 py-3.5 text-sm hover:bg-white/5 transition-colors min-h-[52px]">
+                  <svg className="h-5 w-5 text-muted-foreground shrink-0" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.402 6.231H2.742l7.737-8.835L1.254 2.25H8.08l4.253 5.622 5.911-5.622Zm-1.161 17.52h1.833L7.084 4.126H5.117z" /></svg>
+                  <span>Share on X</span>
+                </a>
+                <div className="border-t border-white/5" />
+                <a href={farcasterUrl} target="_blank" rel="noopener noreferrer" role="menuitem" onClick={() => setOpen(false)} className="flex items-center gap-3 px-4 py-3.5 text-sm hover:bg-white/5 transition-colors min-h-[52px]">
+                  <svg className="h-5 w-5 text-muted-foreground shrink-0" viewBox="0 0 1000 1000" fill="currentColor" aria-hidden="true"><path d="M257.778 155.556H742.222V844.445H671.111V528.889H670.414C662.554 441.677 589.258 373.333 500 373.333C410.742 373.333 337.446 441.677 329.586 528.889H328.889V844.445H257.778V155.556Z" /><path d="M128.889 253.333L157.778 351.111H182.222V746.667C169.949 746.667 160 756.616 160 768.889V795.556H155.556C143.283 795.556 133.333 805.505 133.333 817.778V844.445H382.222V817.778C382.222 805.505 372.273 795.556 360 795.556H355.556V768.889C355.556 756.616 345.606 746.667 333.333 746.667H306.667V253.333H128.889Z" /><path d="M675.556 746.667C663.283 746.667 653.333 756.616 653.333 768.889V795.556H648.889C636.616 795.556 626.667 805.505 626.667 817.778V844.445H875.556V817.778C875.556 805.505 865.606 795.556 853.333 795.556H848.889V768.889C848.889 756.616 838.94 746.667 826.667 746.667V351.111H851.111L880 253.333H702.222V746.667H675.556Z" /></svg>
+                  <span>Share on Farcaster</span>
+                </a>
+              </div>
+            </div>
+          ) : (
+            /* ── Dropdown (desktop) ────────────────────────────── */
+            <div
+              className="absolute right-0 top-10 z-[56] w-52 rounded-xl border border-white/10 bg-[#0f0f0f] shadow-2xl animate-fade-in-scale overflow-hidden"
+              role="menu"
+              aria-label="Share options"
             >
-              {/* X (Twitter) icon */}
-              <svg className="h-4 w-4 text-muted-foreground shrink-0" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.402 6.231H2.742l7.737-8.835L1.254 2.25H8.08l4.253 5.622 5.911-5.622Zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
-              </svg>
-              <span>Share on X</span>
-            </a>
-            <div className="border-t border-white/5" />
-            <a
-              href={farcasterUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              role="menuitem"
-              onClick={() => setOpen(false)}
-              className="flex items-center gap-3 px-3 py-2.5 text-sm hover:bg-white/5 transition-colors"
-            >
-              {/* Farcaster / Warpcast icon */}
-              <svg className="h-4 w-4 text-muted-foreground shrink-0" viewBox="0 0 1000 1000" fill="currentColor" aria-hidden="true">
-                <path d="M257.778 155.556H742.222V844.445H671.111V528.889H670.414C662.554 441.677 589.258 373.333 500 373.333C410.742 373.333 337.446 441.677 329.586 528.889H328.889V844.445H257.778V155.556Z" />
-                <path d="M128.889 253.333L157.778 351.111H182.222V746.667C169.949 746.667 160 756.616 160 768.889V795.556H155.556C143.283 795.556 133.333 805.505 133.333 817.778V844.445H382.222V817.778C382.222 805.505 372.273 795.556 360 795.556H355.556V768.889C355.556 756.616 345.606 746.667 333.333 746.667H306.667V253.333H128.889Z" />
-                <path d="M675.556 746.667C663.283 746.667 653.333 756.616 653.333 768.889V795.556H648.889C636.616 795.556 626.667 805.505 626.667 817.778V844.445H875.556V817.778C875.556 805.505 865.606 795.556 853.333 795.556H848.889V768.889C848.889 756.616 838.94 746.667 826.667 746.667V351.111H851.111L880 253.333H702.222V746.667H675.556Z" />
-              </svg>
-              <span>Share on Farcaster</span>
-            </a>
-          </div>
+              <button onClick={copyLink} role="menuitem" className="flex w-full items-center gap-3 px-3 py-2.5 text-sm hover:bg-white/5 transition-colors text-left">
+                {copied ? <Check className="h-4 w-4 text-neon" /> : <Copy className="h-4 w-4 text-muted-foreground" />}
+                <span>{copied ? "Copied!" : "Copy link"}</span>
+              </button>
+              <div className="border-t border-white/5" />
+              <a href={tweetUrl} target="_blank" rel="noopener noreferrer" role="menuitem" onClick={() => setOpen(false)} className="flex items-center gap-3 px-3 py-2.5 text-sm hover:bg-white/5 transition-colors">
+                <svg className="h-4 w-4 text-muted-foreground shrink-0" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.402 6.231H2.742l7.737-8.835L1.254 2.25H8.08l4.253 5.622 5.911-5.622Zm-1.161 17.52h1.833L7.084 4.126H5.117z" /></svg>
+                <span>Share on X</span>
+              </a>
+              <div className="border-t border-white/5" />
+              <a href={farcasterUrl} target="_blank" rel="noopener noreferrer" role="menuitem" onClick={() => setOpen(false)} className="flex items-center gap-3 px-3 py-2.5 text-sm hover:bg-white/5 transition-colors">
+                <svg className="h-4 w-4 text-muted-foreground shrink-0" viewBox="0 0 1000 1000" fill="currentColor" aria-hidden="true"><path d="M257.778 155.556H742.222V844.445H671.111V528.889H670.414C662.554 441.677 589.258 373.333 500 373.333C410.742 373.333 337.446 441.677 329.586 528.889H328.889V844.445H257.778V155.556Z" /><path d="M128.889 253.333L157.778 351.111H182.222V746.667C169.949 746.667 160 756.616 160 768.889V795.556H155.556C143.283 795.556 133.333 805.505 133.333 817.778V844.445H382.222V817.778C382.222 805.505 372.273 795.556 360 795.556H355.556V768.889C355.556 756.616 345.606 746.667 333.333 746.667H306.667V253.333H128.889Z" /><path d="M675.556 746.667C663.283 746.667 653.333 756.616 653.333 768.889V795.556H648.889C636.616 795.556 626.667 805.505 626.667 817.778V844.445H875.556V817.778C875.556 805.505 865.606 795.556 853.333 795.556H848.889V768.889C848.889 756.616 838.94 746.667 826.667 746.667V351.111H851.111L880 253.333H702.222V746.667H675.556Z" /></svg>
+                <span>Share on Farcaster</span>
+              </a>
+            </div>
+          )}
         </>
       )}
     </div>

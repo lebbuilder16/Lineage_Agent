@@ -48,10 +48,10 @@ export function MobileNav() {
       {/* Burger button — mobile only */}
       <button
         onClick={() => setOpen((o) => !o)}
-        className="sm:hidden ml-1 flex h-8 w-8 items-center justify-center rounded-full text-white/60 hover:text-white hover:bg-white/5 transition-colors"
+        className="sm:hidden ml-1 flex h-11 w-11 items-center justify-center rounded-full text-white/60 hover:text-white hover:bg-white/5 transition-colors"
         aria-label={open ? "Close menu" : "Open menu"}
       >
-        {open ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
+        {open ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
       </button>
 
       {/* Full-screen overlay */}
