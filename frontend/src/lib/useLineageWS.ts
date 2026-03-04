@@ -8,13 +8,46 @@ import {
   type ProgressEvent,
 } from "./api";
 
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 min
+
+function cacheKey(mint: string) {
+  return `lineage_v1:${mint}`;
+}
+
+function readCache(mint: string): LineageResult | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = sessionStorage.getItem(cacheKey(mint));
+    if (!raw) return null;
+    const { ts, data } = JSON.parse(raw) as { ts: number; data: LineageResult };
+    if (Date.now() - ts > CACHE_TTL_MS) return null;
+    return data;
+  } catch {
+    return null;
+  }
+}
+
+function writeCache(mint: string, data: LineageResult) {
+  if (typeof window === "undefined") return;
+  try {
+    sessionStorage.setItem(cacheKey(mint), JSON.stringify({ ts: Date.now(), data }));
+  } catch {
+    // storage quota — ignore
+  }
+}
+
 export interface UseLineageWSReturn {
   data: LineageResult | null;
   error: string | null;
   isLoading: boolean;
   progress: ProgressEvent | null;
-  /** Start an analysis (WS with progress bar → HTTP fallback). */
+  /** Start a full analysis (WS with progress bar → HTTP fallback). */
   analyze: (mint: string) => void;
+  /**
+   * Restore cached result for `mint` without hitting the network.
+   * Returns `true` if a fresh cache entry was found, `false` otherwise.
+   */
+  restoreFromCache: (mint: string) => boolean;
 }
 
 /**
@@ -28,6 +61,16 @@ export function useLineageWS(): UseLineageWSReturn {
   const [progress, setProgress] = useState<ProgressEvent | null>(null);
   const runIdRef = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
+
+  const restoreFromCache = useCallback((mint: string): boolean => {
+    const cached = readCache(mint);
+    if (!cached) return false;
+    setData(cached);
+    setError(null);
+    setIsLoading(false);
+    setProgress({ step: "Done", progress: 100 });
+    return true;
+  }, []);
 
   const analyze = useCallback((mint: string) => {
     // Cancel any in-flight WebSocket from a previous call
@@ -49,6 +92,7 @@ export function useLineageWS(): UseLineageWSReturn {
         if (runIdRef.current !== runId) return;
         setData(result);
         setProgress({ step: "Done", progress: 100 });
+        writeCache(mint, result);
       })
       .catch(async (err) => {
         if (runIdRef.current !== runId) return;
@@ -61,6 +105,7 @@ export function useLineageWS(): UseLineageWSReturn {
           if (runIdRef.current !== runId) return;
           setData(result);
           setProgress({ step: "Done", progress: 100 });
+          writeCache(mint, result);
         } catch (fallbackErr) {
           if (runIdRef.current !== runId) return;
           const msg =
@@ -76,5 +121,5 @@ export function useLineageWS(): UseLineageWSReturn {
       });
   }, []);
 
-  return { data, error, isLoading, progress, analyze };
+  return { data, error, isLoading, progress, analyze, restoreFromCache };
 }

@@ -9,7 +9,7 @@
  */
 
 import { usePathname } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { usePrivy } from "@privy-io/react-auth";
 
 const PUBLIC_PATHS = ["/"];
@@ -19,35 +19,12 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { ready, authenticated, login } = usePrivy();
   const [privyTimedOut, setPrivyTimedOut] = useState(false);
-  const [debugLogs, setDebugLogs] = useState<string[]>([]);
-  const [loginError, setLoginError] = useState<string | null>(null);
-  const mountTime = useRef(Date.now());
-
-  const addLog = (msg: string) => {
-    const t = ((Date.now() - mountTime.current) / 1000).toFixed(1);
-    setDebugLogs(prev => [...prev.slice(-12), `[+${t}s] ${msg}`]);
-  };
-
-  useEffect(() => {
-    addLog(`mount | ready=${ready} auth=${authenticated}`);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Log every ready/authenticated change
-  useEffect(() => {
-    addLog(`ready=${ready} auth=${authenticated}`);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, authenticated]);
 
   // Safety valve — if Privy never becomes ready, unblock the UI after 6 s
   useEffect(() => {
     if (ready) return;
-    const t = setTimeout(() => {
-      setPrivyTimedOut(true);
-      addLog("TIMEOUT — privy never became ready");
-    }, PRIVY_TIMEOUT_MS);
+    const t = setTimeout(() => setPrivyTimedOut(true), PRIVY_TIMEOUT_MS);
     return () => clearTimeout(t);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready]);
 
   // Public routes — always render
@@ -84,18 +61,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
       </p>
 
       <button
-        onClick={() => {
-          addLog("login() called");
-          setLoginError(null);
-          try {
-            login();
-            addLog("login() invoked (void)");
-          } catch (e: unknown) {
-            const msg = e instanceof Error ? e.message : String(e);
-            addLog(`login() THREW: ${msg}`);
-            setLoginError(msg);
-          }
-        }}
+        onClick={() => { try { login(); } catch { /* popup blocked — user can retry */ } }}
         className="flex items-center gap-2 px-6 py-3 rounded-full bg-neon text-black font-bold text-sm hover:bg-neon/90 transition-colors"
       >
         <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -107,22 +73,6 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
       <p className="mt-6 text-xs text-white/20">
         Solana wallet · Email · Free access
       </p>
-
-      {/* ── On-screen debug panel — remove after fix ── */}
-      {loginError && (
-        <div className="mt-4 w-full max-w-sm rounded-lg bg-red-900/60 border border-red-500/40 px-3 py-2 text-left">
-          <p className="text-xs font-bold text-red-400 mb-1">Login error</p>
-          <p className="text-xs text-red-300 break-all">{loginError}</p>
-        </div>
-      )}
-      <div className="mt-4 w-full max-w-sm rounded-lg bg-black/60 border border-white/10 px-3 py-2 text-left">
-        <p className="text-[10px] font-bold text-white/30 mb-1">
-          DEBUG — ready={String(ready)} auth={String(authenticated)} timedOut={String(privyTimedOut)}
-        </p>
-        {debugLogs.map((l, i) => (
-          <p key={i} className="text-[10px] text-white/40 font-mono leading-tight">{l}</p>
-        ))}
-      </div>
     </div>
   );
 }

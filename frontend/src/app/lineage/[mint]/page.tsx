@@ -26,7 +26,7 @@ export default function LineagePage() {
   const params = useParams<{ mint: string }>();
   const mint = params.mint;
 
-  const { data, isLoading, error, progress, analyze } = useLineageWS();
+  const { data, isLoading, error, progress, analyze, restoreFromCache } = useLineageWS();
 
   const {
     steps: analysisSteps,
@@ -38,8 +38,13 @@ export default function LineagePage() {
   } = useAnalysisStream(data ? mint : null);
 
   useEffect(() => {
-    if (mint) analyze(mint);
-  }, [mint, analyze]);
+    if (!mint) return;
+    // If a fresh result is cached (e.g. auth-state remount or page refresh),
+    // restore it immediately without hitting the network.
+    if (!restoreFromCache(mint)) {
+      analyze(mint);
+    }
+  }, [mint, analyze, restoreFromCache]);
 
   useEffect(() => {
     // Use the SCANNED token's name for the page title, not the root
