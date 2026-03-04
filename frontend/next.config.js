@@ -43,9 +43,25 @@ const nextConfig = {
                 "default-src 'self'",
                 "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
                 "style-src 'self' 'unsafe-inline'",
-                `connect-src 'self' ${apiUrl} ${wsUrl} https://*.sentry.io`,
+                [
+                  `connect-src 'self'`,
+                  apiUrl,
+                  wsUrl,
+                  "https://*.sentry.io",
+                  // Privy auth + RPC
+                  "https://auth.privy.io",
+                  "https://*.privy.io",
+                  "https://*.privy.systems",
+                  // WalletConnect relay
+                  "wss://relay.walletconnect.com",
+                  "wss://relay.walletconnect.org",
+                  "https://*.walletconnect.com",
+                  "https://*.walletconnect.org",
+                ].join(" "),
                 "img-src 'self' data: blob: https:",
                 "font-src 'self' data:",
+                // Privy uses cross-origin iframes for embedded wallets
+                "frame-src https://auth.privy.io https://*.privy.io https://*.walletconnect.com https://*.walletconnect.org",
                 "frame-ancestors 'none'",
                 "base-uri 'self'",
                 "form-action 'self'",
