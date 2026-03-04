@@ -6,6 +6,7 @@ import { Scan, GitFork, BarChart3, ChevronDown, BookOpen } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
 import { useState } from "react";
+import { usePrivy } from "@privy-io/react-auth";
 
 /* ─── helpers ────────────────────────────────────────────────────── */
 const fadeUp = (delay = 0) => ({
@@ -15,6 +16,7 @@ const fadeUp = (delay = 0) => ({
 });
 
 export default function HomePage() {
+  const { ready, authenticated, login } = usePrivy();
   return (
     <div className="min-h-screen overflow-x-clip">
 
@@ -57,22 +59,42 @@ export default function HomePage() {
           </p>
 
           <div className="w-full max-w-xl mt-2">
-            <SearchBar />
-            <p className="mt-2 text-center text-xs text-white/30">
-              Press{" "}
-              <kbd className="inline-flex h-4 items-center rounded border border-white/10 bg-white/5 px-1 font-mono text-[9px]">⌘K</kbd>
-              {" "}to open anywhere
-            </p>
+            {ready && authenticated ? (
+              <>
+                <SearchBar />
+                <p className="mt-2 text-center text-xs text-white/30">
+                  Press{" "}
+                  <kbd className="inline-flex h-4 items-center rounded border border-white/10 bg-white/5 px-1 font-mono text-[9px]">⌘K</kbd>
+                  {" "}to open anywhere
+                </p>
+              </>
+            ) : (
+              <div className="flex flex-col items-center gap-3 py-4">
+                <p className="text-white/40 text-sm">Sign in to start scanning tokens</p>
+                <button
+                  onClick={login}
+                  disabled={!ready}
+                  className="inline-flex items-center gap-2 px-6 py-3 rounded-full bg-neon text-black font-display font-bold text-sm hover:bg-neon/90 transition-all hover:scale-105 active:scale-95 disabled:opacity-50 disabled:scale-100"
+                >
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
+                  </svg>
+                  Connect to scan
+                </button>
+              </div>
+            )}
           </div>
 
           <div className="flex flex-wrap gap-3 justify-center mt-2">
-            <Link
-              href="/search"
-              className="inline-flex items-center gap-2 px-6 py-3 rounded-full bg-neon text-black font-display font-bold text-sm hover:bg-neon/90 transition-all hover:scale-105 active:scale-95"
-            >
-              <Scan className="h-4 w-4" />
-              Start Detecting Clones
-            </Link>
+            {authenticated && (
+              <Link
+                href="/search"
+                className="inline-flex items-center gap-2 px-6 py-3 rounded-full bg-neon text-black font-display font-bold text-sm hover:bg-neon/90 transition-all hover:scale-105 active:scale-95"
+              >
+                <Scan className="h-4 w-4" />
+                Start Detecting Clones
+              </Link>
+            )}
             <a
               href="#about"
               className="inline-flex items-center gap-2 px-6 py-3 rounded-full border border-white/10 text-white/70 font-display font-semibold text-sm hover:border-white/30 hover:text-white transition-all"
