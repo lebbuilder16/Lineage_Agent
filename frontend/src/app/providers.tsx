@@ -1,12 +1,25 @@
 "use client";
 
+/**
+ * Providers — wraps the app in QueryClientProvider + PrivyProvider.
+ *
+ * PrivyProvider is loaded via `dynamic({ ssr: false })` so it is NEVER rendered
+ * during Next.js SSR / static generation.  This prevents the build-time crash:
+ *   "Cannot initialize the Privy provider with an invalid Privy app ID"
+ * which occurs when NEXT_PUBLIC_PRIVY_APP_ID is absent from the build env.
+ *
+ * Both AuthGate and WalletButton are also `ssr: false` (see layout.tsx), so
+ * usePrivy() is never called server-side — no React-context mismatch.
+ */
+
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
-import { PrivyProvider } from "@privy-io/react-auth";
+import dynamic from "next/dynamic";
 
-// NEXT_PUBLIC_PRIVY_APP_ID must be set in Vercel env vars.
-// Without a valid App ID, Privy will not initialise (AuthGate handles this with a timeout).
-const PRIVY_APP_ID = process.env.NEXT_PUBLIC_PRIVY_APP_ID ?? "";
+// PrivyProvider runs client-only — avoids SSR / build-time crash with no App ID.
+const PrivyClientWrapper = dynamic(() => import("./PrivyClientWrapper"), {
+  ssr: false,
+});
 
 export function Providers({ children }: { children: ReactNode }) {
   const [client] = useState(
@@ -22,26 +35,13 @@ export function Providers({ children }: { children: ReactNode }) {
       })
   );
 
-  // ALWAYS render PrivyProvider — skipping it causes usePrivy() hooks (AuthGate,
-  // WalletButton) to crash because they're called outside the provider tree.
-  // Use a placeholder when the real App ID isn't baked in yet; Privy will simply
-  // fail to initialise and AuthGate's 6s timeout will show the login button.
+  // QueryClientProvider is rendered immediately (SSR + client).
+  // PrivyClientWrapper is client-only (ssr: false) — it wraps children in
+  // PrivyProvider once the JS chunk loads.  During that brief loading window,
+  // PrivyClientWrapper renders null but the page shell is already visible.
   return (
-    <PrivyProvider
-      appId={PRIVY_APP_ID || "placeholder-app-id"}
-      config={{
-        loginMethods: ["email", "wallet"],
-        appearance: {
-          theme: "dark",
-          accentColor: "#c8f135",
-          logo: "/favicon.ico",
-        },
-        embeddedWallets: {
-          solana: { createOnLogin: "users-without-wallets" },
-        },
-      }}
-    >
-      <QueryClientProvider client={client}>{children}</QueryClientProvider>
-    </PrivyProvider>
+    <QueryClientProvider client={client}>
+      <PrivyClientWrapper>{children}</PrivyClientWrapper>
+    </QueryClientProvider>
   );
 }

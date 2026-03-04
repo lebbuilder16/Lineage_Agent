@@ -79,6 +79,7 @@ jobs:
         run: npm run build
         env:
           NEXT_PUBLIC_API_URL: http://localhost:8000
+          NEXT_PUBLIC_PRIVY_APP_ID: ${{ secrets.NEXT_PUBLIC_PRIVY_APP_ID }}
 
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
@@ -87,6 +88,7 @@ jobs:
         run: npx playwright test --reporter=list
         env:
           NEXT_PUBLIC_API_URL: http://localhost:8000
+          NEXT_PUBLIC_PRIVY_APP_ID: ${{ secrets.NEXT_PUBLIC_PRIVY_APP_ID }}
 
       - name: Upload Playwright report
         if: ${{ !cancelled() }}
