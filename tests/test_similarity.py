@@ -109,7 +109,6 @@ class TestDeployerScoreWithOperator:
     @pytest.mark.asyncio
     async def test_different_deployers_no_mapping(self, monkeypatch):
         """Without operator mapping data, returns 0.0."""
-        from lineage_agent import similarity
         from unittest.mock import AsyncMock
 
         mock_query = AsyncMock(return_value=[])

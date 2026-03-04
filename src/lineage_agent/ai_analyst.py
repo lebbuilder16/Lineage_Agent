@@ -764,7 +764,7 @@ def _build_prompt(
         if phash:
             reuses  = phash.get("total_reuses", 0)
             rugged  = phash.get("rugged_reuses", 0)
-            lines   = [f"\n=== SIGNAL: IMAGE PHASH CLUSTER ==="]
+            lines   = ["\n=== SIGNAL: IMAGE PHASH CLUSTER ==="]
             lines.append(f"Same image reused across {reuses} other token(s); {rugged} of them rugged.")
             for t in phash.get("tokens", []):
                 rug_tag = " [RUGGED]" if t.get("rugged") else ""
@@ -773,7 +773,7 @@ def _build_prompt(
 
         dna = behavioral_signals.get("narrative_dna")
         if dna:
-            sections.append(f"\n=== SIGNAL: NARRATIVE DNA (metadata fingerprint) ===")
+            sections.append("\n=== SIGNAL: NARRATIVE DNA (metadata fingerprint) ===")
             sections.append(f"Upload service: {dna.get('upload_service')}")
             sections.append(f"Description pattern: {dna.get('description_pattern')}")
             sections.append(
@@ -783,7 +783,7 @@ def _build_prompt(
 
         timing = behavioral_signals.get("timing_pattern")
         if timing:
-            sections.append(f"\n=== SIGNAL: TIMING FINGERPRINT ===")
+            sections.append("\n=== SIGNAL: TIMING FINGERPRINT ===")
             sections.append(f"Tokens observed for this deployer: {timing.get('tokens_observed')}")
             sections.append(f"Average launch hour (UTC): {timing.get('avg_launch_hour_utc')}h")
             if timing.get("consistent_schedule"):
@@ -813,9 +813,12 @@ def _build_prompt(
         sp24 = getattr(ins, "sell_pressure_24h", None)
         pc1  = getattr(ins, "price_change_1h",   None)
         vsr  = getattr(ins, "volume_spike_ratio", None)
-        if sp1  is not None: parts.append(f"Sell pressure  1h={sp1:.0%}  6h={sp6:.0%}  24h={sp24:.0%}")
-        if pc1  is not None: parts.append(f"Price change   1h={pc1:+.1f}%")
-        if vsr  is not None: parts.append(f"Volume spike ratio: {vsr:.1f}x  (>3 = burst selling)")
+        if sp1  is not None:
+            parts.append(f"Sell pressure  1h={sp1:.0%}  6h={sp6:.0%}  24h={sp24:.0%}")
+        if pc1  is not None:
+            parts.append(f"Price change   1h={pc1:+.1f}%")
+        if vsr  is not None:
+            parts.append(f"Volume spike ratio: {vsr:.1f}x  (>3 = burst selling)")
         for we in (getattr(ins, "wallet_events", []) or [])[:4]:
             parts.append(f"  {getattr(we,'wallet','?')[:14]} role={getattr(we,'role','?')} exited={getattr(we,'exited',False)}")
 

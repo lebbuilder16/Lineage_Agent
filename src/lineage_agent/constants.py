@@ -170,7 +170,7 @@ LAMPORTS_PER_SOL: int = 1_000_000_000
 
 # Minimum SOL transfer in lamports (for flow tracing)
 # Configurable via env var MIN_TRANSFER_LAMPORTS (default 0.1 SOL)
-import os as _os
+import os as _os  # noqa: E402
 MIN_TRANSFER_LAMPORTS: int = int(
     _os.getenv("MIN_TRANSFER_LAMPORTS", str(100_000_000))
 )

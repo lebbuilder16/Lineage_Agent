@@ -41,7 +41,6 @@ from config import (
     API_HOST,
     API_PORT,
     CACHE_BACKEND,
-    CORS_ORIGINS,
     RATE_LIMIT_LINEAGE,
     RATE_LIMIT_SEARCH,
     SENTRY_DSN,
@@ -71,7 +70,7 @@ from .sol_flow_service import get_sol_flow_report, trace_sol_flow
 from .lineage_detector import resolve_deployer as _resolve_deployer
 from .cartel_service import compute_cartel_report, run_cartel_sweep
 from .cartel_financial_service import build_financial_edges
-from .data_sources._clients import operator_mapping_query, sol_flows_query
+from .data_sources._clients import operator_mapping_query
 from .logging_config import generate_request_id, request_id_ctx, setup_logging
 from .models import (
     BatchLineageRequest,
@@ -941,7 +940,6 @@ async def get_cartel_community(
             wallets.add(row["wallet_a"])
             wallets.add(row["wallet_b"])
         # Try each wallet until we find the one whose community matches
-        import hashlib
         for wallet in wallets:
             report = await compute_cartel_report(wallet, wallet)
             if report and report.deployer_community:
@@ -1221,7 +1219,6 @@ async def get_ai_analysis(
 
     from .ai_analyst import analyze_token, _build_unified_response
     from .bundle_tracker_service import get_cached_bundle_report
-    from .sol_flow_service import get_sol_flow_report
 
     # detect_lineage handles its own cache (instant if cached, RPC fallback if not)
     # sol_flow + bundle are pure DB reads — all run concurrently
@@ -1348,8 +1345,10 @@ async def stream_ai_analysis(
         _bundle_res, _sol_res = await asyncio.gather(
             _gcbr(mint), _gsfr(mint), return_exceptions=True,
         )
-        if isinstance(_bundle_res, Exception): _bundle_res = None
-        if isinstance(_sol_res,   Exception): _sol_res   = None
+        if isinstance(_bundle_res, Exception):
+            _bundle_res = None
+        if isinstance(_sol_res,   Exception):
+            _sol_res   = None
         _data_ms = int((_time.monotonic() - _t1) * 1000)
         yield _evt("step", {"step": "bundle",   "status": "done", "ms": _data_ms})
         yield _evt("step", {"step": "sol_flow", "status": "done", "ms": _data_ms})

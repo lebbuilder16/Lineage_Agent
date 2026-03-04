@@ -18,12 +18,12 @@ import json
 import logging
 import re
 import statistics
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Literal, Optional
 
 from .data_sources._clients import event_insert, event_query, get_img_client
 from .models import FactoryRhythmReport, TokenMetadata
-from .utils import classify_narrative, NARRATIVE_TAXONOMY
+from .utils import classify_narrative
 
 logger = logging.getLogger(__name__)
 
@@ -190,4 +190,4 @@ def _longest_common_prefix(strings: list[str]) -> str:
 
 
 # _parse_dt is now imported from .utils (unified parse_datetime)
-from .utils import parse_datetime as _parse_dt
+from .utils import parse_datetime as _parse_dt  # noqa: E402

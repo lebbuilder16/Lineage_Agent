@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import html
 import logging
+import os
 import re
 
 from telegram import (
@@ -38,7 +39,7 @@ from telegram.ext import (
     filters,
 )
 
-from config import TELEGRAM_BOT_TOKEN, TELEGRAM_WEBHOOK_URL, TELEGRAM_WEBHOOK_SECRET
+from config import TELEGRAM_BOT_TOKEN
 from .alert_service import set_bot_app
 from .data_sources._clients import list_subscriptions, subscribe_alert, unsubscribe_alert
 from .lineage_detector import detect_lineage, search_tokens
@@ -448,7 +449,7 @@ async def watch_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = update.effective_chat.id
     try:
         inserted = await subscribe_alert(chat_id, sub_type, value)
-    except Exception as exc:
+    except Exception:
         logger.exception("subscribe_alert failed for chat %s", chat_id)
         await update.message.reply_text(
             "❌ Could not save subscription (DB error). Please try again later.",

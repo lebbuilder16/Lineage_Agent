@@ -16,11 +16,11 @@ For each pair (token_A, token_B) in the family:
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Optional
 
 from .constants import DEAD_LIQUIDITY_USD
-from .models import DerivativeInfo, LineageResult, TokenMetadata, ZombieAlert
+from .models import LineageResult, ZombieAlert
 
 logger = logging.getLogger(__name__)
 
@@ -109,12 +109,10 @@ def detect_resurrection(result: LineageResult) -> Optional[ZombieAlert]:
                     resurrection_mint = mint_b
                     dead_mint = mint_a
                     dead_name = name_a
-                    dead_created = created_a
                     dead_liq = liq_a
                 else:
                     dead_mint = mint_a
                     dead_name = name_a
-                    dead_created = created_a
                     dead_liq = liq_a
 
                 best = ZombieAlert(

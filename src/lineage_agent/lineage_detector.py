@@ -11,11 +11,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any, Awaitable, Callable, Optional
 
 from config import (
-    ANALYSIS_TIMEOUT_SECONDS,
     CACHE_TTL_LINEAGE_SECONDS,
     IMAGE_SIMILARITY_THRESHOLD,
     MAX_CONCURRENT_RPC,
@@ -32,13 +31,10 @@ from .data_sources._clients import (
     cache_delete as _cache_delete,
     cache_get as _cache_get,
     cache_set as _cache_set,
-    close_clients,
-    event_insert as _event_insert,
     get_dex_client as _get_dex_client,
     get_img_client as _get_img_client,
     get_jup_client as _get_jup_client,
     get_rpc_client as _get_rpc_client,
-    init_clients,
 )
 from .death_clock import compute_death_clock
 from .deployer_service import compute_deployer_profile
@@ -64,7 +60,6 @@ from .models import (
 )
 from .similarity import (
     compute_composite_score,
-    compute_deployer_score,
     compute_deployer_score_with_operator,
     compute_image_similarity,
     compute_name_similarity,
@@ -945,7 +940,7 @@ async def _bootstrap_deployer_history(deployer: str) -> None:
             created_at = None
             if created_at_raw:
                 try:
-                    from datetime import datetime as _dt, timezone as _tz
+                    from datetime import datetime as _dt
                     created_at = _dt.fromisoformat(str(created_at_raw).replace("Z", "+00:00"))
                 except (ValueError, TypeError):
                     pass

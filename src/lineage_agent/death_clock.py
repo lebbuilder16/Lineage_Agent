@@ -143,7 +143,7 @@ async def compute_death_clock(
         sample_count=len(durations_h),
         confidence_level=_confidence_level,  # type: ignore[arg-type]
         confidence_note=(
-            f"Single prior rug — estimate based on 1 data point (\u00b150% window)"
+            "Single prior rug — estimate based on 1 data point (\u00b150% window)"
             if single_sample
             else f"Based on {len(durations_h)} confirmed rug(s)"
         ),

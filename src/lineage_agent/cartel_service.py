@@ -31,7 +31,7 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Literal, Optional
 
-from .constants import EXTRACTION_RATE, estimate_extraction_rate
+from .constants import estimate_extraction_rate
 from .data_sources._clients import (
     cartel_edge_upsert,
     cartel_edges_query,

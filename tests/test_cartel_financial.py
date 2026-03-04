@@ -8,8 +8,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timedelta, timezone
-from typing import Any, Optional
-from unittest.mock import AsyncMock
+from typing import Any
 
 import pytest
 
@@ -479,7 +478,7 @@ class TestSignalSharedLp:
         )
 
         # No matching deployer B data, so no edges, but data should be collected
-        count = await signal_shared_lp(_DEPLOYER_A)
+        await signal_shared_lp(_DEPLOYER_A)
 
         # Verify data was cached (re-query the event)
         events = await cache.query_events(

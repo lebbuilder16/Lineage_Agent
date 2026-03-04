@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 import pytest
-import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 from lineage_agent.bridge_tracker import (
     CrossChainExit,

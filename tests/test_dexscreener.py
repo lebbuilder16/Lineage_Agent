@@ -87,7 +87,6 @@ class TestPairsToSearchResults:
         pair_created_at = t2.  Using t1 would make it look older than organic
         PumpFun launches and incorrectly select it as the root.
         """
-        import time
         # Pool A: small test pool, created earlier (2025-01-29 12:00 UTC)
         early_ms = int(1738148400 * 1000)   # 2025-01-29 12:00 UTC
         # Pool B: main viral pool, created later (2025-01-30 15:31 UTC)

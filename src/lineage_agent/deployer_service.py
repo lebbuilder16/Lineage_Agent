@@ -20,7 +20,7 @@ import asyncio
 import logging
 import time
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Optional
 
 from .data_sources._clients import event_query

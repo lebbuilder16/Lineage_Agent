@@ -807,7 +807,6 @@ class TestCollectWindowSigs:
     async def test_cross_page_accumulation(self, mock_rpc):
         """Window sigs spanning two pages are both collected."""
         creation_slot = 100
-        window_end = creation_slot + _BUNDLE_SLOT_WINDOW  # 120
         # Page 1: 1000 sigs, min_slot > creation_slot (need more pages)
         page1 = [{"signature": f"new_{i}", "slot": 200 + i} for i in range(998)]
         # Add 2 sigs in the window at the end of page 1

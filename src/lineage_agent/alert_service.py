@@ -58,7 +58,7 @@ async def _broadcast_web_alert(payload: dict) -> None:
             await ws.send_json(payload)
         except Exception:
             dead.add(ws)
-    _web_clients -= dead
+    _web_clients.difference_update(dead)
 
 
 def set_bot_app(app: object) -> None:

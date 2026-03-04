@@ -210,7 +210,8 @@ async def _fetch_linked_wallet_tokens(
                 from datetime import datetime, timezone
 
                 def _parse(v: object):  # noqa: ANN202
-                    if v is None or isinstance(v, datetime): return v
+                    if v is None or isinstance(v, datetime):
+                        return v
                     try:
                         dt = datetime.fromisoformat(str(v))
                         return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)

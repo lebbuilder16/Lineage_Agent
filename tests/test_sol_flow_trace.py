@@ -6,7 +6,6 @@ and _parse_inner_instructions without touching the network.
 
 from __future__ import annotations
 
-import pytest
 
 from lineage_agent.sol_flow_service import (
     _parse_sol_flows,
