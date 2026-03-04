@@ -22,16 +22,13 @@ export function Providers({ children }: { children: ReactNode }) {
       })
   );
 
-  // If App ID is missing, skip PrivyProvider entirely to avoid silent crash —
-  // AuthGate will time out and show the login button.
-  if (!PRIVY_APP_ID) {
-    console.warn("[Lineage] NEXT_PUBLIC_PRIVY_APP_ID is not set. Auth will be unavailable.");
-    return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
-  }
-
+  // ALWAYS render PrivyProvider — skipping it causes usePrivy() hooks (AuthGate,
+  // WalletButton) to crash because they're called outside the provider tree.
+  // Use a placeholder when the real App ID isn't baked in yet; Privy will simply
+  // fail to initialise and AuthGate's 6s timeout will show the login button.
   return (
     <PrivyProvider
-      appId={PRIVY_APP_ID}
+      appId={PRIVY_APP_ID || "placeholder-app-id"}
       config={{
         loginMethods: ["email", "wallet"],
         appearance: {
