@@ -3,24 +3,36 @@
 /**
  * AuthGate — blocks access to protected routes until the user authenticates via Privy.
  * The homepage "/" remains public (marketing page).
+ *
+ * Robustness: if Privy never signals `ready` (bad App ID, network error),
+ * a 6-second timeout breaks out of the spinner so the user always sees UI.
  */
 
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { usePrivy } from "@privy-io/react-auth";
 
 const PUBLIC_PATHS = ["/"];
+const PRIVY_TIMEOUT_MS = 6000;
 
 export default function AuthGate({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { ready, authenticated, login } = usePrivy();
   const [loginLoading, setLoginLoading] = useState(false);
+  const [privyTimedOut, setPrivyTimedOut] = useState(false);
+
+  // Safety valve — if Privy never becomes ready, unblock the UI after 6 s
+  useEffect(() => {
+    if (ready) return;
+    const t = setTimeout(() => setPrivyTimedOut(true), PRIVY_TIMEOUT_MS);
+    return () => clearTimeout(t);
+  }, [ready]);
 
   // Public routes — always render
   if (PUBLIC_PATHS.includes(pathname ?? "/")) return <>{children}</>;
 
-  // Privy initialising — show spinner (wait for real ready state)
-  if (!ready) {
+  // Privy still initialising and within timeout — show spinner
+  if (!ready && !privyTimedOut) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
         <div className="h-8 w-8 rounded-full border-2 border-neon/30 border-t-neon animate-spin" />
@@ -32,7 +44,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   // Authenticated — render children normally
   if (authenticated) return <>{children}</>;
 
-  // Not authenticated — show access wall
+  // Not authenticated (or Privy timed out) — show access wall
   async function handleLogin() {
     setLoginLoading(true);
     try {

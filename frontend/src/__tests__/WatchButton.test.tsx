@@ -19,7 +19,7 @@ describe("WatchButton", () => {
 
   it("renders 'Watch' label when not watched and showLabel=true", () => {
     mockUseWatchlist.mockReturnValue({
-      items: [],
+      entries: [],
       add: vi.fn(),
       remove: vi.fn(),
       toggle: mockToggle,
@@ -41,7 +41,7 @@ describe("WatchButton", () => {
 
   it("renders 'Watching' label when already watched", () => {
     mockUseWatchlist.mockReturnValue({
-      items: [{ mint: "MINT123", name: "Test Token", symbol: "TST", addedAt: Date.now() }],
+      entries: [{ mint: "MINT123", name: "Test Token", symbol: "TST", addedAt: Date.now() }],
       add: vi.fn(),
       remove: vi.fn(),
       toggle: mockToggle,
@@ -63,7 +63,7 @@ describe("WatchButton", () => {
 
   it("calls toggle when clicked", () => {
     mockUseWatchlist.mockReturnValue({
-      items: [],
+      entries: [],
       add: vi.fn(),
       remove: vi.fn(),
       toggle: mockToggle,
@@ -84,7 +84,7 @@ describe("WatchButton", () => {
 
   it("has correct title for watched state", () => {
     mockUseWatchlist.mockReturnValue({
-      items: [],
+      entries: [],
       add: vi.fn(),
       remove: vi.fn(),
       toggle: mockToggle,
@@ -98,7 +98,7 @@ describe("WatchButton", () => {
 
   it("has correct title for unwatched state", () => {
     mockUseWatchlist.mockReturnValue({
-      items: [],
+      entries: [],
       add: vi.fn(),
       remove: vi.fn(),
       toggle: mockToggle,
