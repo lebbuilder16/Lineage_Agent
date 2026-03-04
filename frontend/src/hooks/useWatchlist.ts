@@ -37,6 +37,8 @@ function readStorage(): WatchlistEntry[] {
 function writeStorage(entries: WatchlistEntry[]): void {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
+    // Notify all other useWatchlist instances on the same tab
+    window.dispatchEvent(new Event("lineage:watchlist-changed"));
   } catch {
     // quota exceeded — silently ignore
   }
@@ -90,9 +92,13 @@ async function backendRemove(mint: string, apiKey: string): Promise<void> {
 export function useWatchlist() {
   const [entries, setEntries] = useState<WatchlistEntry[]>([]);
 
-  // Hydrate from localStorage once on mount
+  // Hydrate from localStorage and keep in sync across instances / tabs
   useEffect(() => {
     setEntries(readStorage());
+    const sync = () => setEntries(readStorage());
+    window.addEventListener("lineage:watchlist-changed", sync);
+    window.addEventListener("storage", (e) => { if (e.key === STORAGE_KEY) sync(); });
+    return () => window.removeEventListener("lineage:watchlist-changed", sync);
   }, []);
 
   const isWatched = useCallback(
@@ -146,6 +152,16 @@ export function useWatchlist() {
     writeStorage([]);
   }, []);
 
-  return { entries, isWatched, add, remove, toggle, clear };
+  /** Update the stored riskScore for a watched token (no-op if not watched). */
+  const updateRiskScore = useCallback((mint: string, riskScore: number) => {
+    setEntries((prev) => {
+      if (!prev.some((e) => e.mint === mint)) return prev;
+      const next = prev.map((e) => e.mint === mint ? { ...e, riskScore } : e);
+      writeStorage(next);
+      return next;
+    });
+  }, []);
+
+  return { entries, isWatched, add, remove, toggle, clear, updateRiskScore };
 }
 

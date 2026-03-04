@@ -7,6 +7,7 @@ import { useAnalysisStream } from "@/lib/useAnalysisStream";
 import AnalysisProgress from "@/components/AnalysisProgress";
 import { SearchBar } from "@/components/SearchBar";
 import { addToHistory } from "@/components/CommandPalette";
+import { useWatchlist } from "@/hooks/useWatchlist";
 import HeroCard from "@/components/HeroCard";
 import WatchButton from "@/components/WatchButton";
 import ZombieAlert from "@/components/forensics/ZombieAlert";
@@ -27,6 +28,7 @@ export default function LineagePage() {
   const mint = params.mint;
 
   const { data, isLoading, error, progress, analyze, restoreFromCache } = useLineageWS();
+  const { isWatched, updateRiskScore } = useWatchlist();
 
   const {
     steps: analysisSteps,
@@ -45,6 +47,14 @@ export default function LineagePage() {
       analyze(mint);
     }
   }, [mint, analyze, restoreFromCache]);
+
+  // Sync risk score back into the watchlist whenever analysis finishes
+  useEffect(() => {
+    const score = analysis?.ai_analysis?.risk_score;
+    if (mint && score != null && isWatched(mint)) {
+      updateRiskScore(mint, score);
+    }
+  }, [mint, analysis?.ai_analysis?.risk_score, isWatched, updateRiskScore]);
 
   useEffect(() => {
     // Use the SCANNED token's name for the page title, not the root

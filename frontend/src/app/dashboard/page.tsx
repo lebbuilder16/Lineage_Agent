@@ -24,7 +24,8 @@ interface HistoryEntry {
   name: string;
   ts: number;
 }
-const HISTORY_KEY = "lineage:history";
+// Must match the key used in CommandPalette.tsx
+const HISTORY_KEY = "lineage_history";
 
 function readHistory(): HistoryEntry[] {
   if (typeof window === "undefined") return [];
@@ -79,6 +80,13 @@ export default function DashboardPage() {
 
   useEffect(() => {
     setHistory(readHistory());
+    // Re-read whenever another component adds a history entry (same-tab or cross-tab)
+    const onHistoryChange = () => setHistory(readHistory());
+    window.addEventListener("lineage:history-changed", onHistoryChange);
+    window.addEventListener("storage", (e) => { if (e.key === HISTORY_KEY) onHistoryChange(); });
+    return () => {
+      window.removeEventListener("lineage:history-changed", onHistoryChange);
+    };
   }, []);
 
   const clearHistory = () => {

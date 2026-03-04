@@ -11,6 +11,7 @@ const navItems = [
   { label: "Signals", href: "/#signals" },
   { label: "How it works", href: "/#how-it-works" },
   { label: "FAQ", href: "/#faq" },
+  { label: "Dashboard", href: "/dashboard" },
 ];
 
 export function MobileNav() {

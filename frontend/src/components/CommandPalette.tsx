@@ -29,6 +29,8 @@ export function addToHistory(mint: string, name: string) {
     const prev = getHistory().filter((h) => h.mint !== mint);
     const next = [{ mint, name, ts: Date.now() }, ...prev].slice(0, MAX_HISTORY);
     localStorage.setItem(HISTORY_KEY, JSON.stringify(next));
+    // Notify dashboard (and any other listener) in the same tab
+    window.dispatchEvent(new Event("lineage:history-changed"));
   } catch {}
 }
 
