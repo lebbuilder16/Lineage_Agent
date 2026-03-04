@@ -88,17 +88,8 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
           addLog("login() called");
           setLoginError(null);
           try {
-            const p = login();
-            if (p && typeof p.then === "function") {
-              p.then(() => addLog("login() resolved"))
-               .catch((e: unknown) => {
-                 const msg = e instanceof Error ? e.message : String(e);
-                 addLog(`login() REJECTED: ${msg}`);
-                 setLoginError(msg);
-               });
-            } else {
-              addLog("login() returned non-promise");
-            }
+            login();
+            addLog("login() invoked (void)");
           } catch (e: unknown) {
             const msg = e instanceof Error ? e.message : String(e);
             addLog(`login() THREW: ${msg}`);
