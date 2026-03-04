@@ -1420,7 +1420,13 @@ RULES:
 - Be concise but complete — bullet points are welcome.
 - If the context does not contain enough information to answer, say so honestly.
 - NEVER fabricate on-chain data.
+- Keep responses tight: 2–4 sentences or a short bullet list. No padding.
 """
+
+# In-process context cache: mint -> (timestamp, context_str)
+# Avoids redundant cache.get() calls on every chat turn for the same token.
+_chat_context_cache: dict[str, tuple[float, str]] = {}
+_CHAT_CONTEXT_TTL = 120.0  # seconds
 
 
 @app.post(
@@ -1449,54 +1455,62 @@ async def forensic_chat(
 
     async def _generator():
         import json as _json
-        from .ai_analyst import _get_client as _get_ai_client, _MODEL_SONNET
+        import time as _time
+        from .ai_analyst import _get_client as _get_ai_client, _MODEL
 
         def _evt(event: str, data: dict) -> dict:
             return {"event": event, "data": _json.dumps(data)}
 
-        # ── Build forensic context from cache ─────────────────────────────
-        context_parts: list[str] = []
-        try:
-            from .data_sources._clients import cache as _cache  # noqa: PLC0415
-            # Try cached AI analysis first
-            _ai_key = f"ai:v2:{mint}"
-            _ai_cached = _cache.get(_ai_key)
-            if hasattr(_ai_cached, "__await__"):
-                _ai_cached = await _ai_cached
-            if isinstance(_ai_cached, dict):
-                context_parts.append(f"RISK SCORE: {_ai_cached.get('risk_score', 'N/A')}/100")
-                context_parts.append(f"CONFIDENCE: {_ai_cached.get('confidence', 'N/A')}")
-                _verdict = _ai_cached.get("verdict_summary") or ""
-                if _verdict:
-                    context_parts.append(f"VERDICT: {_verdict}")
-                _narrative = _ai_cached.get("narrative") or ""
-                if _narrative:
-                    context_parts.append(f"NARRATIVE:\n{_narrative}")
-                _findings = _ai_cached.get("key_findings") or []
-                if _findings:
-                    context_parts.append("KEY FINDINGS:\n" + "\n".join(f"- {f}" for f in _findings))
-                _chain = _ai_cached.get("conviction_chain") or []
-                if _chain:
-                    context_parts.append("CONVICTION CHAIN:\n" + "\n".join(f"- {c}" for c in _chain))
+        # ── Build forensic context from cache (with in-process TTL cache) ─
+        now = _time.monotonic()
+        cached_ctx = _chat_context_cache.get(mint)
+        if cached_ctx and (now - cached_ctx[0]) < _CHAT_CONTEXT_TTL:
+            forensic_context = cached_ctx[1]
+        else:
+            context_parts: list[str] = []
+            try:
+                from .data_sources._clients import cache as _cache  # noqa: PLC0415
+                # Try cached AI analysis first
+                _ai_key = f"ai:v2:{mint}"
+                _ai_cached = _cache.get(_ai_key)
+                if hasattr(_ai_cached, "__await__"):
+                    _ai_cached = await _ai_cached
+                if isinstance(_ai_cached, dict):
+                    context_parts.append(f"RISK SCORE: {_ai_cached.get('risk_score', 'N/A')}/100")
+                    context_parts.append(f"CONFIDENCE: {_ai_cached.get('confidence', 'N/A')}")
+                    _verdict = _ai_cached.get("verdict_summary") or ""
+                    if _verdict:
+                        context_parts.append(f"VERDICT: {_verdict}")
+                    _narrative = _ai_cached.get("narrative") or ""
+                    if _narrative:
+                        context_parts.append(f"NARRATIVE:\n{_narrative}")
+                    _findings = _ai_cached.get("key_findings") or []
+                    if _findings:
+                        context_parts.append("KEY FINDINGS:\n" + "\n".join(f"- {f}" for f in _findings))
+                    _chain = _ai_cached.get("conviction_chain") or []
+                    if _chain:
+                        context_parts.append("CONVICTION CHAIN:\n" + "\n".join(f"- {c}" for c in _chain))
 
-            # Try cached lineage for token metadata
-            _lin_key = f"lineage:{mint}"
-            _lin_cached = _cache.get(_lin_key)
-            if hasattr(_lin_cached, "__await__"):
-                _lin_cached = await _lin_cached
-            if hasattr(_lin_cached, "root") and _lin_cached.root:
-                root = _lin_cached.root
-                context_parts.append(
-                    f"TOKEN: {getattr(root, 'name', '?')} ({getattr(root, 'symbol', '?')}) | "
-                    f"Deployer: {getattr(root, 'deployer', 'N/A')} | "
-                    f"MCap: ${getattr(root, 'market_cap_usd', None) or 'N/A'}"
-                )
-                if getattr(_lin_cached, "derivatives", None):
-                    context_parts.append(f"FAMILY SIZE: {_lin_cached.family_size} tokens")
-        except Exception as _ctx_exc:
-            logger.warning("[chat] context fetch failed: %s", _ctx_exc)
+                # Try cached lineage for token metadata
+                _lin_key = f"lineage:{mint}"
+                _lin_cached = _cache.get(_lin_key)
+                if hasattr(_lin_cached, "__await__"):
+                    _lin_cached = await _lin_cached
+                if hasattr(_lin_cached, "root") and _lin_cached.root:
+                    root = _lin_cached.root
+                    context_parts.append(
+                        f"TOKEN: {getattr(root, 'name', '?')} ({getattr(root, 'symbol', '?')}) | "
+                        f"Deployer: {getattr(root, 'deployer', 'N/A')} | "
+                        f"MCap: ${getattr(root, 'market_cap_usd', None) or 'N/A'}"
+                    )
+                    if getattr(_lin_cached, "derivatives", None):
+                        context_parts.append(f"FAMILY SIZE: {_lin_cached.family_size} tokens")
+            except Exception as _ctx_exc:
+                logger.warning("[chat] context fetch failed: %s", _ctx_exc)
 
-        forensic_context = "\n\n".join(context_parts) if context_parts else "No cached analysis available for this token."
+            forensic_context = "\n\n".join(context_parts) if context_parts else "No cached analysis available for this token."
+            _chat_context_cache[mint] = (_time.monotonic(), forensic_context)
+
         system_with_ctx = f"{_CHAT_SYSTEM}\n\n---\nFORENSIC CONTEXT FOR {mint}:\n{forensic_context}\n---"
 
         # ── Build messages list ───────────────────────────────────────────
@@ -1506,12 +1520,12 @@ async def forensic_chat(
         ]
         messages.append({"role": "user", "content": body.message})
 
-        # ── Stream Claude response ────────────────────────────────────────
+        # ── Stream Claude response (Haiku for low latency) ────────────────
         try:
             client = _get_ai_client()
             async with client.messages.stream(
-                model=_MODEL_SONNET,
-                max_tokens=1024,
+                model=_MODEL,
+                max_tokens=400,
                 temperature=0,
                 system=system_with_ctx,
                 messages=messages,
