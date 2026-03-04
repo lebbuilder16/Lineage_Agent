@@ -13,6 +13,15 @@ const WalletButton = dynamic(() => import("@/components/WalletButton"), {
     <div className="h-[38px] w-[90px] rounded-full bg-white/5 border border-white/10 animate-pulse" />
   ),
 });
+
+const AuthGate = dynamic(() => import("@/components/AuthGate"), {
+  ssr: false,
+  loading: () => (
+    <div className="flex items-center justify-center min-h-[60vh]">
+      <div className="h-8 w-8 rounded-full border-2 border-neon/30 border-t-neon animate-spin" />
+    </div>
+  ),
+});
 import { GeistSans } from "geist/font/sans";
 import { GeistMono } from "geist/font/mono";
 import { Syne } from "next/font/google";
@@ -140,7 +149,9 @@ export default function RootLayout({
           </header>
 
           {/* Main content — header height = ~5rem so pt-20 (80px) clears the fixed nav */}
-          <main id="main" className="mx-auto max-w-6xl px-4 pt-20 pb-8 sm:px-6">{children}</main>
+          <main id="main" className="mx-auto max-w-6xl px-4 pt-20 pb-8 sm:px-6">
+            <AuthGate>{children}</AuthGate>
+          </main>
         </Providers>
       </body>
     </html>
