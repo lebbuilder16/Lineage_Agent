@@ -51,11 +51,10 @@ from config import (
     TELEGRAM_WEBHOOK_URL,
 )
 from .circuit_breaker import get_all_statuses as cb_statuses
+from .data_sources._clients import close_clients, init_clients
 from .lineage_detector import (
     bootstrap_deployer_history,
-    close_clients,
     detect_lineage,
-    init_clients,
     search_tokens,
 )
 from .alert_service import (
