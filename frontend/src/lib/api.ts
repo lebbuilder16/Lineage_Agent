@@ -7,7 +7,12 @@
  * - Typed response interfaces
  */
 
+// Used only for WebSocket connections (cannot be proxied via Next.js API routes).
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+// All HTTP requests go through the Next.js server-side proxy so that the
+// browser never needs a direct route to localhost:8000 (critical in Codespaces,
+// Docker environments, and any setup where the backend is not on the public internet).
+const HTTP_API = "/api/proxy";
 const DEFAULT_TIMEOUT_MS = 60_000;
 
 /* ---------- Types --------------------------------------------------- */
@@ -432,7 +437,7 @@ async function fetchJSON<T>(
     const timer = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
-      const res = await fetch(`${API_BASE}${path}`, {
+      const res = await fetch(`${HTTP_API}${path}`, {
         signal: controller.signal,
       });
 
@@ -481,7 +486,7 @@ async function fetchJSONPost<T>(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const res = await fetch(`${API_BASE}${path}`, {
+    const res = await fetch(`${HTTP_API}${path}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -768,7 +773,7 @@ export async function fetchAnalysis(mint: string): Promise<AnalyzeResponse> {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 90_000); // 90s — Claude can be slow
   try {
-    const res = await fetch(`${API_BASE}/analyze/${mint}`, { signal: ctrl.signal });
+    const res = await fetch(`${HTTP_API}/analyze/${mint}`, { signal: ctrl.signal });
     if (!res.ok) throw new Error(`${res.status}`);
     return res.json();
   } finally {
@@ -800,7 +805,7 @@ export function streamForensicChat(
 
   (async () => {
     try {
-      const res = await fetch(`${API_BASE}/chat/${encodeURIComponent(mint)}`, {
+      const res = await fetch(`${HTTP_API}/chat/${encodeURIComponent(mint)}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message, history }),

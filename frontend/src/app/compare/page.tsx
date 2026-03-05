@@ -17,10 +17,14 @@ import { cn } from "@/lib/utils";
 
 /* ── Verdict badge ─────────────────────────────────────────────────────── */
 const VERDICT_CONFIG: Record<string, { label: string; color: string }> = {
-  clone: { label: "Clone detected", color: "text-red-400 border-red-500/30 bg-red-500/10" },
-  same_family: { label: "Same family", color: "text-orange-400 border-orange-500/30 bg-orange-500/10" },
-  similar: { label: "Similar tokens", color: "text-yellow-400 border-yellow-500/30 bg-yellow-500/10" },
-  unrelated: { label: "Unrelated", color: "text-emerald-400 border-emerald-500/30 bg-emerald-500/10" },
+  // Backend-canonical values (api.py Literal type)
+  clone:             { label: "Clone detected",   color: "text-red-400 border-red-500/30 bg-red-500/10" },
+  identical_operator:{ label: "Same operator",    color: "text-red-400 border-red-500/30 bg-red-500/10" },
+  related:           { label: "Related tokens",   color: "text-orange-400 border-orange-500/30 bg-orange-500/10" },
+  unrelated:         { label: "Unrelated",        color: "text-emerald-400 border-emerald-500/30 bg-emerald-500/10" },
+  // Legacy / alternate labels kept for backwards compatibility
+  same_family:       { label: "Same family",      color: "text-orange-400 border-orange-500/30 bg-orange-500/10" },
+  similar:           { label: "Similar tokens",   color: "text-yellow-400 border-yellow-500/30 bg-yellow-500/10" },
 };
 
 function VerdictBadge({ verdict }: { verdict: string }) {
