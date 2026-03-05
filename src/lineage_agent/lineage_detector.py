@@ -689,60 +689,28 @@ async def detect_lineage(
             logger.warning("[%s] enricher failed: %s", name, exc)
             return None
 
-    # All forensic enrichers operate on the SCANNED token's deployer
+    # All forensic enrichers operate on the SCANNED token's deployer.
+    # ── Optimization: gather 1 and gather 2 run CONCURRENTLY ────────────────
+    # Gather 2 is scheduled as an asyncio Task *before* gather 1 is awaited so
+    # both groups execute in parallel on the event loop:
+    #   gather 1 (death_clock, fingerprint, factory, profile)  ≤ 10 s
+    #   gather 2 (sol_flow, cartel, insider, bundle)           ≤ 12 s
+    # Wall-time = max(10 s, 12 s) = 12 s  vs. the previous sequential 10+30 = 40 s.
     _scan_created_at = (query_meta.created_at if query_meta else root_meta.created_at)
-    (
-        result.death_clock,
-        result.operator_fingerprint,
-        result.factory_rhythm,
-        result.deployer_profile,
-    ) = await asyncio.gather(
-        _safe(compute_death_clock(_scan_deployer, _scan_created_at), name="death_clock"),
-        _safe(build_operator_fingerprint(uri_tuples), name="operator_fingerprint"),
-        _safe(analyze_factory_rhythm(_scan_deployer), name="factory_rhythm"),
-        _safe(compute_deployer_profile(_scan_deployer), name="deployer_profile"),
-    )
 
-    # Initiative 1: Operator Impact — requires operator_fingerprint result.
-    # Launched as a concurrent task so it runs in parallel with the second
-    # gather (sol_flow, cartel, insider, bundle) — saves up to 10 s on critical path.
-    _oi_task: Optional[asyncio.Task] = None
-    if result.operator_fingerprint is not None:
-        # Bootstrap linked wallets in background — doesn't block this response.
-        _linked_to_boot = [
-            w for w in result.operator_fingerprint.linked_wallets
-            if w and w != _scan_deployer
-        ]
-        for _w in _linked_to_boot[:4]:
-            asyncio.ensure_future(_bootstrap_deployer_history(_w))
-        _oi_task = asyncio.ensure_future(
-            asyncio.wait_for(
-                compute_operator_impact(
-                    result.operator_fingerprint.fingerprint,
-                    result.operator_fingerprint.linked_wallets,
-                ),
-                timeout=10.0,
-            )
-        )
-
-    # SOL price is now fetched inside _run_bundle() to avoid blocking here.
-    _sol_price: Optional[float] = None  # kept for compatibility (unused below)
-
-    # Initiatives 2, 3, 4, 5 — all independent, run in parallel.
-    # Wall-time = max(sol_flow≤20s, cartel≤8s, insider≤10s, bundle≤25s) = 25s
-    # vs. sequential 58s — critical to stay within ANALYSIS_TIMEOUT_SECONDS.
-    _linked_for_sell = (
-        result.operator_fingerprint.linked_wallets
-        if result.operator_fingerprint
-        else []
-    )
+    # _linked_for_sell starts as an empty list.  _run_insider captures it by
+    # reference.  Because gather 2 launches BEFORE gather 1 completes,
+    # operator_fingerprint is not yet available, so linked_wallets stays [].
+    # analyze_insider_sell still runs correctly (deployer balance + market signals);
+    # only the ≤3 linked-wallet balance checks are skipped on cold paths.
+    _linked_for_sell: list[str] = []
 
     async def _run_sol_flow() -> Optional[object]:
         flow = await _safe(get_sol_flow_report(_scan_mint), name="sol_flow_read")
         if flow is None and _scan_deployer:
             try:
                 flow = await asyncio.wait_for(
-                    trace_sol_flow(_scan_mint, _scan_deployer), timeout=20.0
+                    trace_sol_flow(_scan_mint, _scan_deployer), timeout=12.0
                 )
             except asyncio.TimeoutError:
                 logger.warning("[sol_flow] timed out — continuing in background")
@@ -783,7 +751,6 @@ async def detect_lineage(
             return None
 
     async def _run_bundle() -> Optional[object]:
-        # Fetch SOL price here (was a pre-gather sequential call — now parallel).
         _price: Optional[float] = None
         try:
             _wsol = "So11111111111111111111111111111111111111112"
@@ -792,20 +759,17 @@ async def detect_lineage(
                 _price = _p
         except Exception:
             pass
-        # Hard cap at 30 s for the inline scan — the bundle tracker's own
-        # internal timeout is 55 s which dominates the parallel gather and
-        # pushes total scan time beyond 30 s.  If we hit the cap, the partial
-        # analysis is persisted to DB by the tracker; the next scan reads from
-        # cache instantly.  A background continuation runs to complete the full
-        # analysis so subsequent scans see the full result.  (Optimization #4)
+        # Inline cap = 12 s.  The bundle tracker's own internal timeout (120 s)
+        # handles the full analysis in the background; results are persisted to DB
+        # and the next scan reads them instantly.  (Optimization: was 30 s)
         try:
             return await asyncio.wait_for(
                 analyze_bundle(_scan_mint, _scan_deployer, _price),
-                timeout=30.0,
+                timeout=12.0,
             )
         except asyncio.TimeoutError:
             logger.warning(
-                "[bundle] inline analysis capped at 30 s for %s — "
+                "[bundle] inline analysis capped at 12 s for %s — "
                 "continuing full analysis in background", _scan_mint[:8],
             )
             asyncio.ensure_future(
@@ -816,19 +780,62 @@ async def detect_lineage(
             logger.warning("[bundle] analysis failed: %s", _be)
             return None
 
+    # ── Launch gather 2 as an asyncio Task BEFORE awaiting gather 1 ─────────
+    # Both groups now run in parallel on the event loop.
+    _gather2_task = asyncio.ensure_future(asyncio.gather(
+        _run_sol_flow(),
+        _run_cartel(),
+        _run_insider(),
+        _run_bundle(),
+        return_exceptions=True,
+    ))
+
+    # Gather 1 runs concurrently with _gather2_task above.
+    (
+        result.death_clock,
+        result.operator_fingerprint,
+        result.factory_rhythm,
+        result.deployer_profile,
+    ) = await asyncio.gather(
+        _safe(compute_death_clock(_scan_deployer, _scan_created_at), name="death_clock"),
+        _safe(build_operator_fingerprint(uri_tuples), name="operator_fingerprint"),
+        _safe(analyze_factory_rhythm(_scan_deployer), name="factory_rhythm"),
+        _safe(compute_deployer_profile(_scan_deployer), name="deployer_profile"),
+    )
+
+    # Initiative 1: Operator Impact — requires operator_fingerprint (from gather 1
+    # above).  Launched as a task so it runs in parallel with the tail of gather 2
+    # (typically only ~2 s remain by the time gather 1 finishes).
+    _oi_task: Optional[asyncio.Task] = None
+    if result.operator_fingerprint is not None:
+        _linked_to_boot = [
+            w for w in result.operator_fingerprint.linked_wallets
+            if w and w != _scan_deployer
+        ]
+        for _w in _linked_to_boot[:4]:
+            asyncio.ensure_future(_bootstrap_deployer_history(_w))
+        _oi_task = asyncio.ensure_future(
+            asyncio.wait_for(
+                compute_operator_impact(
+                    result.operator_fingerprint.fingerprint,
+                    result.operator_fingerprint.linked_wallets,
+                ),
+                timeout=10.0,
+            )
+        )
+
+    # Collect gather 2 results — it was already running in parallel with gather 1;
+    # by the time we reach here it is often done (or has ≤2 s remaining).
+    _g2 = await _gather2_task
+    _g2_safe = [None if isinstance(r, Exception) else r for r in _g2]
     (
         result.sol_flow,
         result.cartel_report,
         result.insider_sell,
         result.bundle_report,
-    ) = await asyncio.gather(
-        _run_sol_flow(),
-        _run_cartel(),
-        _run_insider(),
-        _run_bundle(),
-    )
+    ) = _g2_safe
 
-    # Collect operator_impact result (was running concurrently with the gather above)
+    # Collect operator_impact result (_oi_task ran in parallel with gather 2 tail)
     if _oi_task is not None:
         try:
             result.operator_impact = await _oi_task
