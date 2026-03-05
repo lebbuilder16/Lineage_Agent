@@ -151,8 +151,9 @@ export default function HomePage() {
             whileInView={{ opacity: 1, x: 0 }}
             viewport={{ once: true, margin: "-100px" }}
             transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
+            className="min-w-0 overflow-hidden"
           >
-            <p className="display-heading text-[5rem] sm:text-[8rem] md:text-[11rem] leading-none neon-glow select-none">
+            <p className="display-heading text-[5rem] sm:text-[7rem] md:text-[9rem] leading-none neon-glow select-none">
               LFG!
             </p>
           </motion.div>
@@ -162,7 +163,7 @@ export default function HomePage() {
             whileInView={{ opacity: 1, x: 0 }}
             viewport={{ once: true, margin: "-100px" }}
             transition={{ duration: 0.6, delay: 0.15, ease: [0.22, 1, 0.36, 1] }}
-            className="space-y-5"
+            className="space-y-5 min-w-0"
           >
             <p className="display-heading text-xs tracking-widest uppercase text-neon">What is this about?</p>
             <h2 className="display-heading text-display-md text-white">
