@@ -29,6 +29,16 @@ function readCache(mint: string): LineageResult | null {
 
 function writeCache(mint: string, data: LineageResult) {
   if (typeof window === "undefined") return;
+  // Don't cache incomplete results: if bundle_report is null but a deployer
+  // exists, the 30s inline cap fired and the background task is still running.
+  // Forcing a fresh backend call on the next visit ensures the completed
+  // bundle/sol_flow data (persisted to DB by the background task) is shown.
+  const deployer =
+    (data as Record<string, unknown>)?.root?.deployer ||
+    (data as Record<string, unknown>)?.query_token?.deployer;
+  if (deployer && (data as Record<string, unknown>).bundle_report == null) {
+    return; // incomplete — don't cache
+  }
   try {
     sessionStorage.setItem(cacheKey(mint), JSON.stringify({ ts: Date.now(), data }));
   } catch {
