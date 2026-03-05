@@ -93,4 +93,3 @@ Lineage Agent exposes this pattern by combining **13 independent on-chain signal
 - 🌐 **Website:** [www.lineagefun.xyz](https://www.lineagefun.xyz)
 - 🔌 **API:** [lineage-agent.fly.dev](https://lineage-agent.fly.dev)
 - 💻 **GitHub:** [lebbuilder16/Lineage_Agent](https://github.com/lebbuilder16/Lineage_Agent)
-- 𝕏 **Twitter/X:** [@LineageMemes](https://x.com/LineageMemes)

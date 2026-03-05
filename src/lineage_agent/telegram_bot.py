@@ -86,7 +86,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         InlineKeyboardButton("📚 Docs", url="https://lineage-4.gitbook.io/lineage-docs/"),
     ], [
         InlineKeyboardButton("💻 GitHub", url="https://github.com/lebbuilder16/Lineage_Agent"),
-        InlineKeyboardButton("𝕏 Twitter", url="https://x.com/LineageMemes"),
     ]])
     await update.message.reply_text(text, parse_mode="HTML", reply_markup=keyboard)
 

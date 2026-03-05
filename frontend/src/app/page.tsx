@@ -102,13 +102,13 @@ export default function HomePage() {
               How does it work?
             </a>
             <a
-              href="https://x.com/LineageMemes"
+              href="https://www.lineagefun.xyz/"
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-2 px-6 py-3 rounded-full border border-white/10 text-white/50 font-display font-semibold text-sm hover:border-neon/40 hover:text-neon transition-all"
             >
-              <svg viewBox="0 0 24 24" className="h-4 w-4 fill-current" aria-hidden="true"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.744l7.736-8.857L1.254 2.25H8.08l4.253 5.622L18.244 2.25zm-1.161 17.52h1.833L7.084 4.126H5.117L17.083 19.77z"/></svg>
-              Follow us
+              <svg viewBox="0 0 24 24" className="h-4 w-4 fill-none stroke-current" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+              lineagefun.xyz
             </a>
             <a
               href="https://lineage-4.gitbook.io/lineage-docs/"
@@ -440,7 +440,7 @@ export default function HomePage() {
                 { label: "Signals", href: "/#signals", internal: true },
                 { label: "FAQ", href: "/#faq", internal: true },
                 { label: "GitHub", href: "https://github.com/lebbuilder16/Lineage_Agent", internal: false },
-                { label: "𝕏", href: "https://x.com/LineageMemes", internal: false },
+                { label: "Website", href: "https://www.lineagefun.xyz/", internal: false },
               ].map((l) => (
                 l.internal
                   ? <Link key={l.label} href={l.href} className="text-white/40 hover:text-white text-sm transition-colors">{l.label}</Link>
