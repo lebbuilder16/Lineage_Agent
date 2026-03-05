@@ -153,6 +153,13 @@ _CUSTODIAN_SOL_THRESHOLD = 5_000  # ≈ $1M+ — almost certainly institutional
 # address → (label, entity_type) or None
 _dynamic_cache: dict[str, tuple[str, str] | None] = {}
 
+# ---------------------------------------------------------------------------
+# CSV-sourced dynamic labels
+# ---------------------------------------------------------------------------
+# address → (label, entity_type)
+# Populated by refresh_dynamic_labels(); never overwrites KNOWN_LABELS.
+_extra_labels: dict[str, tuple[str, str]] = {}
+
 
 # ---------------------------------------------------------------------------
 # Public API
@@ -203,17 +210,22 @@ def classify_address(address: str) -> WalletInfo:
     Returns:
         WalletInfo with label/entity_type populated or None if unknown.
     """
-    # 1. Exact match (O(1))
+    # 1. Exact match — static KNOWN_LABELS (O(1))
     entry = KNOWN_LABELS.get(address)
     if entry:
         return WalletInfo(address, label=entry[0], entity_type=entry[1])
 
-    # 2. Prefix match (scan is short — list is small)
+    # 2. CSV-sourced dynamic labels (O(1), never overrides static labels)
+    extra = _extra_labels.get(address)
+    if extra:
+        return WalletInfo(address, label=extra[0], entity_type=extra[1])
+
+    # 3. Prefix match (scan is short — list is small)
     for prefix, label, etype in _PREFIX_LABELS:
         if address.startswith(prefix):
             return WalletInfo(address, label=label, entity_type=etype)
 
-    # 3. Unknown
+    # 4. Unknown
     return WalletInfo(address, label=None, entity_type=None)
 
 
@@ -301,3 +313,71 @@ async def enrich_wallet_labels(
         if cached is not None:
             enriched[addr] = WalletInfo(addr, label=cached[0], entity_type=cached[1])
     return enriched
+
+
+# ---------------------------------------------------------------------------
+# Dynamic CSV label loader
+# ---------------------------------------------------------------------------
+
+async def refresh_dynamic_labels(csv_url: str) -> int:
+    """Fetch a CSV of extra wallet labels and load them into ``_extra_labels``.
+
+    The CSV **must** have a header row with columns: ``address,label,entity_type``.
+    Supports both HTTP/HTTPS URLs and ``file://`` paths for local testing.
+
+    Rows where ``address`` is already in ``KNOWN_LABELS`` are silently skipped
+    to prevent overriding curated static labels.
+
+    Parameters
+    ----------
+    csv_url:
+        Full URL (``https://…``) or local path (``file:///tmp/labels.csv``).
+
+    Returns
+    -------
+    int
+        Number of *new* labels loaded (excluding skipped duplicates).
+
+    Raises
+    ------
+    ValueError
+        When the CSV has no ``address`` or ``label`` header column.
+    httpx.HTTPError
+        On network failure (caller is responsible for retry / fallback).
+    """
+    import csv  # noqa: PLC0415
+    import io  # noqa: PLC0415
+
+    if csv_url.startswith("file://"):
+        local_path = csv_url[7:]
+        with open(local_path, newline="", encoding="utf-8") as fh:
+            text = fh.read()
+    else:
+        import httpx  # noqa: PLC0415
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(csv_url, follow_redirects=True)
+            resp.raise_for_status()
+            text = resp.text
+
+    reader = csv.DictReader(io.StringIO(text))
+    if reader.fieldnames is None or "address" not in reader.fieldnames or "label" not in reader.fieldnames:
+        raise ValueError(
+            f"CSV at {csv_url!r} must have 'address' and 'label' columns. "
+            f"Got: {reader.fieldnames!r}"
+        )
+    has_entity_type = "entity_type" in (reader.fieldnames or [])
+
+    new_count = 0
+    for row in reader:
+        addr = (row.get("address") or "").strip()
+        lbl = (row.get("label") or "").strip()
+        etype = (row.get("entity_type") or "wallet").strip() if has_entity_type else "wallet"
+        if not addr or not lbl:
+            continue
+        if addr in KNOWN_LABELS:
+            continue  # never shadow curated static labels
+        _extra_labels[addr] = (lbl, etype)
+        new_count += 1
+
+    logger.info("[wallet_labels] refresh_dynamic_labels: loaded %d labels from %s", new_count, csv_url)
+    return new_count

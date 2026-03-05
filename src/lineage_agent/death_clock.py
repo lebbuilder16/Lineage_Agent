@@ -18,7 +18,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from .data_sources._clients import event_query
-from .models import DeathClockForecast
+from .models import DeathClockForecast, MarketSignals, TokenMetadata
 from .utils import parse_datetime as _parse_dt
 
 logger = logging.getLogger(__name__)
@@ -30,6 +30,7 @@ _MAX_STDEV_RATIO = 2.0    # cap stdev at 2× median to avoid absurd windows
 async def compute_death_clock(
     deployer: str,
     token_created_at: Optional[datetime],
+    token_metadata: Optional[TokenMetadata] = None,
 ) -> Optional[DeathClockForecast]:
     """Compute a rug timing forecast for a token based on deployer history.
 
@@ -39,6 +40,10 @@ async def compute_death_clock(
         The deployer wallet address.
     token_created_at:
         On-chain creation timestamp of the token being analysed.
+    token_metadata:
+        Optional current market data.  When provided, live market signals
+        (low liquidity, sell pressure, price crash) can escalate the
+        timing-based ``risk_level`` by one step.
 
     Returns
     -------
@@ -146,8 +151,7 @@ async def compute_death_clock(
             "Single prior rug — estimate based on 1 data point (\u00b150% window)"
             if single_sample
             else f"Based on {len(durations_h)} confirmed rug(s)"
-        ),
-    )
+        ),        market_signals=_compute_market_signals(token_metadata, risk_level),    )
 
 
 def _elapsed_hours(created_at: datetime) -> float:
@@ -155,6 +159,87 @@ def _elapsed_hours(created_at: datetime) -> float:
     if created_at.tzinfo is None:
         created_at = created_at.replace(tzinfo=timezone.utc)
     return max(0.0, (now - created_at).total_seconds() / 3600.0)
+
+
+# ---------------------------------------------------------------------------
+# Market signal helpers
+# ---------------------------------------------------------------------------
+
+# Risk escalation order (each step escalates by one level)
+_RISK_ESCALATION: dict[str, str] = {
+    "low": "medium",
+    "medium": "high",
+    "high": "critical",
+    "critical": "critical",   # already at max
+    "first_rug": "first_rug",  # single-sample mode — don't escalate
+    "insufficient_data": "insufficient_data",
+}
+
+# Thresholds that trigger a risk boost
+_LOW_LIQ_USD = 500.0          # below this liquidity → suspicious
+_LOW_LIQ_MCAP_RATIO = 0.005   # liquidity < 0.5 % of mcap → typical pre-rug setup
+
+
+def _compute_market_signals(
+    metadata: Optional[TokenMetadata],
+    timing_risk: str,
+) -> Optional[MarketSignals]:
+    """Derive :class:`MarketSignals` from token metadata fields.
+
+    No extra RPC or HTTP calls are made — only uses the already-fetched
+    ``TokenMetadata`` fields (``liquidity_usd``, ``market_cap_usd``).
+
+    Returns ``None`` when no metadata is provided.
+
+    Parameters
+    ----------
+    metadata:
+        Enriched token metadata (may have ``None`` fields).
+    timing_risk:
+        The timing-based risk level *before* market adjustment.
+
+    Returns
+    -------
+    MarketSignals with ``adjusted_risk_boost`` reflecting how many steps
+    the market data would escalate the timing risk, or ``None`` when
+    ``metadata is None``.
+    """
+    if metadata is None:
+        return None
+
+    liq = metadata.liquidity_usd
+    mcap = metadata.market_cap_usd
+
+    boost = 0.0
+
+    # Signal 1 — dangerously low absolute liquidity
+    if liq is not None and liq < _LOW_LIQ_USD:
+        boost += 1.0
+        logger.debug(
+            "[death_clock] market signal: liq=%.2f < %.0f → boost +1",
+            liq, _LOW_LIQ_USD,
+        )
+
+    # Signal 2 — liquidity / mcap ratio indicates pre-rug LP drain
+    liq_mcap_ratio: Optional[float] = None
+    if liq is not None and mcap is not None and mcap > 0:
+        liq_mcap_ratio = liq / mcap
+        if liq_mcap_ratio < _LOW_LIQ_MCAP_RATIO:
+            boost += 1.0
+            logger.debug(
+                "[death_clock] market signal: liq/mcap=%.4f < %.3f → boost +1",
+                liq_mcap_ratio, _LOW_LIQ_MCAP_RATIO,
+            )
+
+    # Cap boost at 3 (matches model Field constraint)
+    boost = min(3.0, boost)
+
+    return MarketSignals(
+        liquidity_usd=liq,
+        market_cap_usd=mcap,
+        liq_to_mcap_ratio=round(liq_mcap_ratio, 6) if liq_mcap_ratio is not None else None,
+        adjusted_risk_boost=boost,
+    )
 
 
 # _parse_dt is now imported from .utils (unified parse_datetime)

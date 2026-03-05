@@ -49,6 +49,8 @@ from config import (
     SOLANA_RPC_ENDPOINT,
     TELEGRAM_WEBHOOK_SECRET,
     TELEGRAM_WEBHOOK_URL,
+    WALLET_LABELS_CSV_URL,
+    WALLET_LABELS_REFRESH_HOURS,
 )
 from .circuit_breaker import get_all_statuses as cb_statuses
 from .data_sources._clients import close_clients, init_clients
@@ -79,9 +81,12 @@ from .models import (
     CartelReport,
     DeployerProfile,
     FinancialGraphSummary,
+    GlobalStats,
     LineageResult,
+    NarrativeCount,
     OperatorImpactReport,
     SolFlowReport,
+    TokenCompareResult,
     TokenSearchResult,
 )
 from .rug_detector import cancel_rug_sweep, schedule_rug_sweep
@@ -163,6 +168,42 @@ def _cancel_cartel_sweep() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Dynamic wallet label refresh task
+# ---------------------------------------------------------------------------
+_wallet_label_task: Optional[asyncio.Task] = None
+
+
+async def _wallet_label_refresh_loop() -> None:
+    """Refresh dynamic wallet labels immediately and then every N hours."""
+    from .wallet_labels import refresh_dynamic_labels  # noqa: PLC0415
+    logger.info("Wallet label refresh task started (interval=%dh)", WALLET_LABELS_REFRESH_HOURS)
+    while True:
+        try:
+            await refresh_dynamic_labels(WALLET_LABELS_CSV_URL)
+        except asyncio.CancelledError:
+            break
+        except Exception:
+            logger.exception("Wallet label refresh failed")
+        try:
+            await asyncio.sleep(WALLET_LABELS_REFRESH_HOURS * 3600)
+        except asyncio.CancelledError:
+            break
+
+
+def _schedule_wallet_label_refresh() -> None:
+    global _wallet_label_task
+    _wallet_label_task = asyncio.create_task(
+        _wallet_label_refresh_loop(), name="wallet_label_refresh"
+    )
+
+
+def _cancel_wallet_label_refresh() -> None:
+    global _wallet_label_task
+    if _wallet_label_task and not _wallet_label_task.done():
+        _wallet_label_task.cancel()
+
+
+# ---------------------------------------------------------------------------
 # Rate limiter
 # ---------------------------------------------------------------------------
 limiter = Limiter(key_func=get_remote_address)
@@ -194,6 +235,23 @@ async def lifespan(application: FastAPI):
     _schedule_cartel_sweep()
     schedule_db_maintenance()
 
+    # ── Log arq status ─────────────────────────────────────────────────────
+    from config import ARQ_REDIS_URL  # noqa: PLC0415
+    if ARQ_REDIS_URL:
+        logger.info("arq: Redis queue enabled (%s)", ARQ_REDIS_URL.split("@")[-1])
+    else:
+        logger.info("arq: ARQ_REDIS_URL not set — background tasks use asyncio.create_task")
+
+    # ── Wallet labels dynamic refresh ──────────────────────────────────────
+    if WALLET_LABELS_CSV_URL:
+        _schedule_wallet_label_refresh()
+        logger.info(
+            "Dynamic wallet labels enabled — CSV=%s, refresh every %dh",
+            WALLET_LABELS_CSV_URL, WALLET_LABELS_REFRESH_HOURS,
+        )
+    else:
+        logger.info("WALLET_LABELS_CSV_URL not set — using static labels only")
+
     # -----------------------------------------------------------------------
     # Telegram bot — start inline with FastAPI (no separate process needed)
     # -----------------------------------------------------------------------
@@ -210,6 +268,7 @@ async def lifespan(application: FastAPI):
     cancel_alert_sweep()
     _cancel_cartel_sweep()
     cancel_db_maintenance()
+    _cancel_wallet_label_refresh()
     await _stop_telegram_bot()
     await close_clients()
 
@@ -1641,6 +1700,210 @@ async def auth_remove_watch(watch_id: int, request: Request):
     if not deleted:
         raise HTTPException(status_code=404, detail="Watch not found")
     return {"deleted": True}
+
+
+# ---------------------------------------------------------------------------
+# Token comparison endpoint
+# ---------------------------------------------------------------------------
+
+@app.get(
+    "/compare",
+    response_model=TokenCompareResult,
+    tags=["intelligence"],
+    summary="Side-by-side similarity analysis between two tokens",
+)
+@limiter.limit("10/minute")
+async def compare_tokens(
+    request: Request,
+    mint_a: str = Query(..., description="First Solana mint address"),
+    mint_b: str = Query(..., description="Second Solana mint address"),
+) -> TokenCompareResult:
+    """Compare two tokens across name, symbol, image, deployer and lineage dimensions.
+
+    No new RPC calls beyond the standard lineage detection:
+    both tokens are resolved via :func:`detect_lineage` (cached).
+    """
+    if not _BASE58_RE.match(mint_a):
+        raise HTTPException(status_code=400, detail="Invalid mint_a address")
+    if not _BASE58_RE.match(mint_b):
+        raise HTTPException(status_code=400, detail="Invalid mint_b address")
+    if mint_a == mint_b:
+        raise HTTPException(status_code=400, detail="mint_a and mint_b must be different")
+
+    try:
+        from .similarity import (  # noqa: PLC0415
+            compute_name_similarity,
+            compute_symbol_similarity,
+            compute_image_similarity,
+        )
+        # Fetch lineage for both tokens concurrently
+        res_a, res_b = await asyncio.gather(
+            detect_lineage(mint_a),
+            detect_lineage(mint_b),
+            return_exceptions=True,
+        )
+    except Exception as exc:
+        logger.exception("compare: lineage fetch failed")
+        raise HTTPException(status_code=500, detail="Internal server error") from exc
+
+    # Handle per-token errors gracefully
+    if isinstance(res_a, Exception):
+        logger.warning("compare: lineage for %s failed: %s", mint_a[:8], res_a)
+        res_a = None
+    if isinstance(res_b, Exception):
+        logger.warning("compare: lineage for %s failed: %s", mint_b[:8], res_b)
+        res_b = None
+
+    tok_a = res_a.root if res_a and res_a.root else None
+    tok_b = res_b.root if res_b and res_b.root else None
+
+    name_sim = compute_name_similarity(
+        tok_a.name if tok_a else "", tok_b.name if tok_b else ""
+    )
+    sym_sim = compute_symbol_similarity(
+        tok_a.symbol if tok_a else "", tok_b.symbol if tok_b else ""
+    )
+    img_sim = -1.0
+    if tok_a and tok_b and tok_a.image_uri and tok_b.image_uri:
+        try:
+            img_sim = await asyncio.wait_for(
+                compute_image_similarity(tok_a.image_uri, tok_b.image_uri),
+                timeout=10.0,
+            )
+        except asyncio.TimeoutError:
+            logger.warning("compare: image similarity timed out for %s vs %s", mint_a[:8], mint_b[:8])
+        except Exception:
+            logger.warning("compare: image similarity failed", exc_info=True)
+
+    same_deployer = bool(
+        tok_a and tok_b
+        and tok_a.deployer
+        and tok_a.deployer == tok_b.deployer
+    )
+
+    # Check whether one token appears in the lineage derivatives of the other
+    same_family = False
+    if res_a and res_b:
+        mints_a = {d.mint for d in (res_a.derivatives or [])} | {res_a.mint}
+        mints_b = {d.mint for d in (res_b.derivatives or [])} | {res_b.mint}
+        same_family = mint_b in mints_a or mint_a in mints_b
+
+    # Composite score: name 35% + symbol 25% + image 40% (when available)
+    if img_sim >= 0.0:
+        composite = name_sim * 0.35 + sym_sim * 0.25 + img_sim * 0.40
+    else:
+        composite = name_sim * 0.55 + sym_sim * 0.45
+
+    # Verdict
+    if same_deployer and composite >= 0.8:
+        verdict = "identical_operator"
+    elif composite >= 0.70 or same_family:
+        verdict = "clone"
+    elif composite >= 0.40 or same_deployer:
+        verdict = "related"
+    else:
+        verdict = "unrelated"
+
+    return TokenCompareResult(
+        mint_a=mint_a,
+        mint_b=mint_b,
+        token_a=tok_a,
+        token_b=tok_b,
+        same_deployer=same_deployer,
+        same_family=same_family,
+        name_similarity=round(name_sim, 4),
+        symbol_similarity=round(sym_sim, 4),
+        image_similarity=round(img_sim, 4),
+        composite_score=round(composite, 4),
+        verdict=verdict,  # type: ignore[arg-type]
+    )
+
+
+# ---------------------------------------------------------------------------
+# Global statistics dashboard
+# ---------------------------------------------------------------------------
+
+# 60-second in-process result cache to avoid DB hammering
+_stats_cache: Optional[tuple[float, GlobalStats]] = None
+_STATS_CACHE_TTL = 60.0
+
+
+@app.get(
+    "/stats/global",
+    response_model=GlobalStats,
+    tags=["intelligence"],
+    summary="Aggregate activity statistics for the last 24 hours",
+)
+@limiter.limit("30/minute")
+async def get_global_stats(request: Request) -> GlobalStats:
+    """Return aggregate intelligence stats: rug count, active deployers, top narratives, etc.
+
+    Results are cached in-process for 60 seconds to keep DB load minimal.
+    """
+    import time as _time  # noqa: PLC0415
+    from datetime import datetime, timezone, timedelta  # noqa: PLC0415
+
+    global _stats_cache
+    now_mono = _time.monotonic()
+    if _stats_cache and (now_mono - _stats_cache[0]) < _STATS_CACHE_TTL:
+        return _stats_cache[1]
+
+    try:
+        from .data_sources._clients import event_query as _eq  # noqa: PLC0415
+
+        cutoff = (datetime.now(tz=timezone.utc) - timedelta(hours=24)).isoformat()
+
+        # Parallel DB reads
+        created_rows, rugged_rows, total_rows, narrative_rows = await asyncio.gather(
+            _eq(
+                where="event_type = 'token_created' AND created_at >= ?",
+                params=(cutoff,),
+                columns="DISTINCT mint, deployer",
+            ),
+            _eq(
+                where="event_type = 'token_rugged' AND rugged_at >= ?",
+                params=(cutoff,),
+                columns="mint",
+            ),
+            _eq(where="1=1", params=(), columns="COUNT(*) as cnt", limit=1),
+            _eq(
+                where="event_type = 'token_created' AND created_at >= ? AND narrative IS NOT NULL AND narrative != '' AND narrative != 'other'",
+                params=(cutoff,),
+                columns="narrative",
+            ),
+        )
+
+        tokens_scanned = len(created_rows)
+        tokens_rugged = len(rugged_rows)
+        rug_rate = round((tokens_rugged / tokens_scanned * 100) if tokens_scanned > 0 else 0.0, 2)
+        active_deployers = len({r.get("deployer", "") for r in created_rows if r.get("deployer")})
+        db_total = total_rows[0].get("cnt", 0) if total_rows else 0
+
+        # Top 5 narratives by occurrence
+        from collections import Counter  # noqa: PLC0415
+        nar_counter: Counter = Counter(
+            r.get("narrative", "") for r in narrative_rows if r.get("narrative")
+        )
+        top_narratives = [
+            NarrativeCount(narrative=nar, count=cnt)
+            for nar, cnt in nar_counter.most_common(5)
+        ]
+
+        stats = GlobalStats(
+            tokens_scanned_24h=tokens_scanned,
+            tokens_rugged_24h=tokens_rugged,
+            rug_rate_24h_pct=rug_rate,
+            active_deployers_24h=active_deployers,
+            top_narratives=top_narratives,
+            db_events_total=db_total,
+            last_updated=datetime.now(tz=timezone.utc),
+        )
+        _stats_cache = (_time.monotonic(), stats)
+        return stats
+
+    except Exception as exc:
+        logger.exception("get_global_stats failed")
+        raise HTTPException(status_code=500, detail="Internal server error") from exc
 
 
 if __name__ == "__main__":

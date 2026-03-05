@@ -23,7 +23,7 @@ from typing import Literal, Optional
 
 from .data_sources._clients import event_insert, event_query, get_img_client
 from .models import FactoryRhythmReport, TokenMetadata
-from .utils import classify_narrative
+from .utils import classify_narrative, classify_narrative_llm
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +57,7 @@ async def record_token_creation(token: TokenMetadata) -> None:
             deployer=token.deployer,
             name=token.name,
             symbol=token.symbol,
-            narrative=classify_narrative(token.name, token.symbol),
+            narrative=await classify_narrative_llm(token.name, token.symbol),
             mcap_usd=token.market_cap_usd,
             liq_usd=token.liquidity_usd,
             created_at=token.created_at.isoformat() if token.created_at else None,

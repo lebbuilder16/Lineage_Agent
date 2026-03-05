@@ -172,6 +172,33 @@ PRIVY_APP_ID: str = os.getenv("PRIVY_APP_ID", "")
 JWT_SECRET: str = os.getenv("JWT_SECRET", "change-me-in-production-use-fly-secrets")
 
 # ---------------------------------------------------------------------------
+# Anthropic LLM
+# ---------------------------------------------------------------------------
+ANTHROPIC_API_KEY: str = os.getenv("ANTHROPIC_API_KEY", "")
+ANTHROPIC_MODEL: str = os.getenv("ANTHROPIC_MODEL", "claude-haiku-4-5")
+
+# ---------------------------------------------------------------------------
+# Background queue (arq + Redis)
+# ---------------------------------------------------------------------------
+# Leave empty to keep the legacy asyncio.create_task behaviour (no Redis needed).
+ARQ_REDIS_URL: str = os.getenv("ARQ_REDIS_URL", "")
+
+# ---------------------------------------------------------------------------
+# Image embeddings — CLIP (open-clip-torch)
+# ---------------------------------------------------------------------------
+# Disabled by default: open-clip-torch is a large dep (~500 MB).
+# Set CLIP_EMBEDDINGS_ENABLED=true to use neural embeddings instead of pHash.
+CLIP_EMBEDDINGS_ENABLED: bool = os.getenv("CLIP_EMBEDDINGS_ENABLED", "false").lower() == "true"
+
+# ---------------------------------------------------------------------------
+# Dynamic wallet labels (CSV refresh)
+# ---------------------------------------------------------------------------
+# CSV must have a header row: address,label,entity_type
+# Leave empty to disable dynamic label refresh.
+WALLET_LABELS_CSV_URL: str = os.getenv("WALLET_LABELS_CSV_URL", "")
+WALLET_LABELS_REFRESH_HOURS: int = _parse_int("WALLET_LABELS_REFRESH_HOURS", "24", minimum=1)
+
+# ---------------------------------------------------------------------------
 # API server
 # ---------------------------------------------------------------------------
 API_HOST: str = os.getenv("API_HOST", "0.0.0.0")

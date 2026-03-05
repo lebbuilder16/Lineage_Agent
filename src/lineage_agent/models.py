@@ -415,6 +415,28 @@ class ZombieAlert(BaseModel):
 # ---------------------------------------------------------------------------
 # Forensic signal: Death Clock (deployer rug timing forecast)
 # ---------------------------------------------------------------------------
+class MarketSignals(BaseModel):
+    """Live market health indicators used to adjust the Death Clock risk level."""
+
+    liquidity_usd: Optional[float] = Field(None, description="Current liquidity in the main DEX pool (USD)")
+    market_cap_usd: Optional[float] = Field(None, description="Current market cap (USD)")
+    liq_to_mcap_ratio: Optional[float] = Field(
+        None, ge=0.0, description="Liquidity / market-cap ratio (< 0.01 is suspicious)"
+    )
+    price_change_h1_pct: Optional[float] = Field(None, description="Price change over the last hour (%)")
+    volume_h1_usd: Optional[float] = Field(None, description="1-hour trading volume (USD)")
+    sell_pressure_pct: Optional[float] = Field(
+        None, ge=0.0, le=100.0, description="% of transactions that are sells in the last hour"
+    )
+    volume_trend: Literal["declining", "stable", "rising"] = Field(
+        "stable", description="Directionality of recent trading volume"
+    )
+    adjusted_risk_boost: float = Field(
+        0.0, ge=0.0, le=3.0,
+        description="Additive boost applied to the timing risk_level (0 = no change, 3 = max escalation)",
+    )
+
+
 class DeathClockForecast(BaseModel):
     """Statistical forecast of when a token may be rugged, based on deployer history."""
 
@@ -430,6 +452,9 @@ class DeathClockForecast(BaseModel):
     sample_count: int = Field(0, description="Number of historical rug samples used")
     confidence_level: Literal["low", "medium", "high"] = Field(
         "low", description="Statistical confidence in the prediction"
+    )
+    market_signals: Optional[MarketSignals] = Field(
+        None, description="Live market signals that may elevate the risk level"
     )
 
 
@@ -738,4 +763,57 @@ class InsiderSellReport(BaseModel):
     verdict: Literal["clean", "suspicious", "insider_dump"] = Field(
         "clean",
         description="clean | suspicious | insider_dump",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Token pair comparison
+# ---------------------------------------------------------------------------
+
+class TokenCompareResult(BaseModel):
+    """Side-by-side similarity analysis between two tokens."""
+
+    mint_a: str
+    mint_b: str
+    token_a: Optional[TokenMetadata] = None
+    token_b: Optional[TokenMetadata] = None
+    same_deployer: bool = False
+    same_family: bool = Field(
+        False,
+        description="True if one token appears in the lineage derivatives of the other",
+    )
+    name_similarity: float = Field(0.0, ge=0.0, le=1.0)
+    symbol_similarity: float = Field(0.0, ge=0.0, le=1.0)
+    image_similarity: float = Field(
+        -1.0, ge=-1.0, le=1.0, description="-1 = image unavailable or comparison failed"
+    )
+    composite_score: float = Field(
+        0.0, ge=0.0, le=1.0, description="Weighted composite of name + symbol + image"
+    )
+    verdict: Literal["identical_operator", "clone", "related", "unrelated"] = "unrelated"
+
+
+# ---------------------------------------------------------------------------
+# Global statistics dashboard
+# ---------------------------------------------------------------------------
+
+class NarrativeCount(BaseModel):
+    narrative: str
+    count: int
+
+
+class GlobalStats(BaseModel):
+    """Aggregate intelligence activity stats for the last 24 hours."""
+
+    tokens_scanned_24h: int = Field(0, description="Distinct token mints recorded")
+    tokens_rugged_24h: int = Field(0, description="Tokens confirmed rugged")
+    rug_rate_24h_pct: float = Field(0.0, ge=0.0, le=100.0, description="rug / scanned × 100")
+    active_deployers_24h: int = Field(0, description="Distinct deployer wallets active")
+    top_narratives: list[NarrativeCount] = Field(
+        default_factory=list,
+        description="Top 5 narratives by token count in the last 24 h",
+    )
+    db_events_total: int = Field(0, description="Total rows in intelligence_events table")
+    last_updated: datetime = Field(
+        default_factory=lambda: datetime.now(tz=timezone.utc)
     )

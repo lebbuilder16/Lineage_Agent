@@ -89,6 +89,17 @@ export interface ZombieAlert {
   confidence: "confirmed" | "probable" | "possible";
 }
 
+export interface MarketSignals {
+  liquidity_usd: number | null;
+  market_cap_usd: number | null;
+  liq_to_mcap_ratio: number | null;
+  price_change_h1_pct: number | null;
+  volume_h1_usd: number | null;
+  sell_pressure_pct: number | null;
+  volume_trend: "declining" | "stable" | "rising";
+  adjusted_risk_boost: number;
+}
+
 export interface DeathClockForecast {
   deployer: string;
   historical_rug_count: number;
@@ -99,6 +110,9 @@ export interface DeathClockForecast {
   predicted_window_start: string | null;
   predicted_window_end: string | null;
   confidence_note: string;
+  sample_count: number;
+  confidence_level: "low" | "medium" | "high";
+  market_signals: MarketSignals | null;
 }
 
 export interface OperatorFingerprint {
@@ -496,6 +510,50 @@ export function searchTokens(query: string): Promise<TokenSearchResult[]> {
   return fetchJSON<TokenSearchResult[]>(
     `/search?q=${encodeURIComponent(query)}`,
   );
+}
+
+/* ---------- Compare two tokens ------------------------------------- */
+
+export interface TokenCompareResult {
+  mint_a: string;
+  mint_b: string;
+  token_a: TokenMetadata | null;
+  token_b: TokenMetadata | null;
+  same_deployer: boolean;
+  same_family: boolean;
+  name_similarity: number;
+  symbol_similarity: number;
+  image_similarity: number;
+  composite_score: number;
+  verdict: "unrelated" | "similar" | "likely_clone" | "confirmed_clone";
+}
+
+export function fetchCompare(mintA: string, mintB: string): Promise<TokenCompareResult> {
+  return fetchJSON<TokenCompareResult>(
+    `/compare?mint_a=${encodeURIComponent(mintA)}&mint_b=${encodeURIComponent(mintB)}`,
+    30_000,
+  );
+}
+
+/* ---------- Global stats ------------------------------------------- */
+
+export interface NarrativeCount {
+  narrative: string;
+  count: number;
+}
+
+export interface GlobalStats {
+  tokens_scanned: number;
+  rugged_24h: number;
+  rug_rate: number;
+  active_deployers: number;
+  top_narratives: NarrativeCount[];
+  db_events_total: number;
+  last_updated: string;
+}
+
+export function fetchGlobalStats(): Promise<GlobalStats> {
+  return fetchJSON<GlobalStats>(`/stats/global`, 15_000);
 }
 
 /* ---------- WebSocket lineage with progress ------------------------- */

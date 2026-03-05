@@ -67,14 +67,25 @@ async def compute_image_similarity(
     timeout: int = 5,
     client: Optional[httpx.AsyncClient] = None,
 ) -> float:
-    """Perceptual-hash similarity between two images fetched by URL.
+    """Return image similarity, using CLIP when enabled or pHash otherwise.
 
-    Returns 1.0 when the hashes are identical and approaches 0.0 as
-    difference grows.
+    When ``CLIP_EMBEDDINGS_ENABLED=true``, delegates to
+    :func:`~lineage_agent.image_clip.compute_clip_similarity` which returns
+    cosine similarity of ViT-B/32 embeddings.
 
-    If *client* is provided it is reused for both downloads (avoids
-    creating a fresh TCP connection per call).
+    When CLIP is disabled (default), uses the 8×8 perceptual hash (pHash)
+    algorithm (existing behaviour — no regression).
+
+    Returns -1.0 when PIL / imagehash is unavailable (pHash path) or when
+    either image URL cannot be fetched (both paths).
     """
+    from config import CLIP_EMBEDDINGS_ENABLED  # noqa: PLC0415
+
+    if CLIP_EMBEDDINGS_ENABLED:
+        from .image_clip import compute_clip_similarity  # noqa: PLC0415
+        return await compute_clip_similarity(url_a, url_b)
+
+    # ── pHash path (original implementation) ───────────────────────────
     if not _PIL_AVAILABLE:
         logger.warning(
             "Pillow / imagehash not installed – image similarity disabled"
