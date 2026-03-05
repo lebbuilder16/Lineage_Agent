@@ -80,6 +80,10 @@ from .models import (
     BundleExtractionReport,
     CartelCommunity,
     CartelReport,
+    DbDiskReport,
+    DbPurgeReport,
+    DbTableInfo,
+    DbVacuumReport,
     DeployerProfile,
     DiskPartitionStats,
     FinancialGraphSummary,
@@ -93,7 +97,15 @@ from .models import (
     TokenSearchResult,
 )
 from .rug_detector import cancel_rug_sweep, schedule_rug_sweep
-from .db_maintenance import cancel_db_maintenance, schedule_db_maintenance
+from .db_maintenance import (
+    cancel_db_maintenance,
+    schedule_db_maintenance,
+    _cleanup_expired_cache,
+    _cleanup_old_sol_flows,
+    _cleanup_old_events,
+    _cleanup_old_bundle_reports,
+    _wal_checkpoint,
+)
 from .auth_service import (
     create_or_get_user,
     verify_api_key,
@@ -607,6 +619,239 @@ async def get_system_stats() -> SystemStats:
         return await asyncio.get_event_loop().run_in_executor(None, _collect_system_stats)
     except Exception as exc:
         logger.exception("get_system_stats failed")
+        raise HTTPException(status_code=500, detail="Internal server error") from exc
+
+
+# ---------------------------------------------------------------------------
+# Database disk analysis and safe cleanup endpoints
+# ---------------------------------------------------------------------------
+
+async def _collect_db_disk_report() -> DbDiskReport:
+    """Query the SQLite database for file size, page stats, and per-table row counts."""
+    import os
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+
+    if not hasattr(_cache, "_get_conn") or not hasattr(_cache, "_db_path"):
+        raise HTTPException(
+            status_code=409,
+            detail="DB disk report is only available when CACHE_BACKEND=sqlite.",
+        )
+
+    db_path: str = _cache._db_path
+    db_size_mb = round(os.path.getsize(db_path) / (1024 ** 2), 3) if os.path.exists(db_path) else 0.0
+
+    db = await _cache._get_conn()
+
+    # Page-level stats
+    row = (await (await db.execute("PRAGMA page_size")).fetchone()) or (4096,)
+    page_size = int(row[0])
+    row = (await (await db.execute("PRAGMA page_count")).fetchone()) or (0,)
+    page_count = int(row[0])
+    row = (await (await db.execute("PRAGMA freelist_count")).fetchone()) or (0,)
+    freelist_pages = int(row[0])
+    reclaimable_mb = round(freelist_pages * page_size / (1024 ** 2), 3)
+
+    # Per-table row counts
+    tables_cursor = await db.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
+    )
+    table_names = [r[0] for r in await tables_cursor.fetchall()]
+
+    table_infos: list[DbTableInfo] = []
+    for tbl in table_names:
+        try:
+            # Table names originate exclusively from sqlite_master (system catalogue),
+            # never from user input, so f-string interpolation is safe here.
+            cnt_cursor = await db.execute(f"SELECT COUNT(*) FROM [{tbl}]")  # noqa: S608
+            cnt_row = await cnt_cursor.fetchone()
+            table_infos.append(DbTableInfo(table=tbl, rows=int(cnt_row[0]) if cnt_row else 0))
+        except Exception:
+            table_infos.append(DbTableInfo(table=tbl, rows=-1))
+
+    # Sort largest first
+    table_infos.sort(key=lambda t: t.rows, reverse=True)
+
+    return DbDiskReport(
+        db_path=db_path,
+        db_size_mb=db_size_mb,
+        page_size_bytes=page_size,
+        page_count=page_count,
+        freelist_pages=freelist_pages,
+        reclaimable_mb=reclaimable_mb,
+        tables=table_infos,
+    )
+
+
+@app.get(
+    "/admin/db",
+    response_model=DbDiskReport,
+    tags=["system"],
+    summary="SQLite database disk usage and per-table row counts",
+)
+async def get_db_disk_report() -> DbDiskReport:
+    """Return the current SQLite database file size, free-page count, and per-table
+    row counts. Use this to identify which tables are consuming the most disk space.
+
+    Only available when ``CACHE_BACKEND=sqlite``.
+    """
+    try:
+        return await _collect_db_disk_report()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("get_db_disk_report failed")
+        raise HTTPException(status_code=500, detail="Internal server error") from exc
+
+
+@app.post(
+    "/admin/db/purge",
+    response_model=DbPurgeReport,
+    tags=["system"],
+    summary="Immediately purge stale rows from the SQLite database",
+)
+async def trigger_db_purge() -> DbPurgeReport:
+    """Delete expired cache entries, old SOL flows, old intelligence events and old
+    bundle reports **right now** (same logic as the background maintenance loop, but
+    triggered on demand).
+
+    This operation is safe — it only removes rows whose TTL has already expired or
+    which are older than the configured retention windows. No analysis data or feature
+    configuration is touched.
+
+    Only available when ``CACHE_BACKEND=sqlite``.
+    """
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+
+    if not hasattr(_cache, "_get_conn"):
+        raise HTTPException(
+            status_code=409,
+            detail="DB purge is only available when CACHE_BACKEND=sqlite.",
+        )
+
+    try:
+        t0 = time.monotonic()
+        db = await _cache._get_conn()
+
+        cache_deleted = 0
+        try:
+            cache_deleted = await _cleanup_expired_cache(db)
+        except Exception:
+            try:
+                now_ts = time.time()
+                cur = await db.execute("DELETE FROM cache WHERE expires_at < ?", (now_ts,))
+                await db.commit()
+                cache_deleted = cur.rowcount
+            except Exception:
+                logger.debug("purge: cache cleanup failed")
+
+        flows_deleted = 0
+        try:
+            flows_deleted = await _cleanup_old_sol_flows(db)
+        except Exception:
+            logger.debug("purge: sol_flows cleanup skipped")
+
+        events_deleted = 0
+        try:
+            events_deleted = await _cleanup_old_events(db)
+        except Exception:
+            logger.debug("purge: events cleanup skipped")
+
+        bundles_deleted = 0
+        try:
+            bundles_deleted = await _cleanup_old_bundle_reports(db)
+        except Exception:
+            logger.debug("purge: bundle_reports cleanup skipped")
+
+        duration_ms = round((time.monotonic() - t0) * 1000, 1)
+        total = cache_deleted + flows_deleted + events_deleted + bundles_deleted
+        logger.info(
+            "On-demand DB purge: cache=%d sol_flows=%d events=%d bundles=%d (total=%d) in %.0fms",
+            cache_deleted, flows_deleted, events_deleted, bundles_deleted, total, duration_ms,
+        )
+        return DbPurgeReport(
+            cache_rows_deleted=cache_deleted,
+            sol_flows_rows_deleted=flows_deleted,
+            events_rows_deleted=events_deleted,
+            bundle_reports_rows_deleted=bundles_deleted,
+            total_rows_deleted=total,
+            duration_ms=duration_ms,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("trigger_db_purge failed")
+        raise HTTPException(status_code=500, detail="Internal server error") from exc
+
+
+@app.post(
+    "/admin/db/vacuum",
+    response_model=DbVacuumReport,
+    tags=["system"],
+    summary="Trigger a full VACUUM and WAL checkpoint on the SQLite database",
+)
+async def trigger_db_vacuum() -> DbVacuumReport:
+    """Run a full ``VACUUM`` on the SQLite database to reclaim disk space from
+    deleted rows and defragment the file.
+
+    Also performs a ``PRAGMA wal_checkpoint(TRUNCATE)`` before the VACUUM so that
+    WAL-file pages are included.  Returns the before/after file size so you can see
+    how much space was freed.
+
+    **Note:** VACUUM acquires an exclusive lock for its duration (typically a few
+    seconds for small databases).  It is safe but will briefly block other DB
+    operations.  Only available when ``CACHE_BACKEND=sqlite``.
+    """
+    import os
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+
+    if not hasattr(_cache, "_get_conn") or not hasattr(_cache, "_db_path"):
+        raise HTTPException(
+            status_code=409,
+            detail="DB vacuum is only available when CACHE_BACKEND=sqlite.",
+        )
+
+    db_path: str = _cache._db_path
+
+    try:
+        t0 = time.monotonic()
+        size_before = os.path.getsize(db_path) if os.path.exists(db_path) else 0
+
+        # Checkpoint first using the shared connection (folds WAL pages into main file)
+        try:
+            db = await _cache._get_conn()
+            await _wal_checkpoint(db)
+        except Exception:
+            logger.debug("vacuum: WAL checkpoint failed — continuing")
+
+        # VACUUM requires an exclusive lock with no other statements in progress.
+        # Open a dedicated temporary connection so it is never shared with
+        # the persistent cache connection that may have open cursors.
+        import aiosqlite  # noqa: PLC0415
+        async with aiosqlite.connect(db_path) as vac_conn:
+            await vac_conn.execute("VACUUM")
+
+        size_after = os.path.getsize(db_path) if os.path.exists(db_path) else 0
+        duration_ms = round((time.monotonic() - t0) * 1000, 1)
+
+        _MB = 1024 ** 2
+        size_before_mb = round(size_before / _MB, 3)
+        size_after_mb = round(size_after / _MB, 3)
+        freed_mb = round(max(size_before_mb - size_after_mb, 0.0), 3)
+
+        logger.info(
+            "On-demand VACUUM: %.3f MiB → %.3f MiB (freed %.3f MiB) in %.0fms",
+            size_before_mb, size_after_mb, freed_mb, duration_ms,
+        )
+        return DbVacuumReport(
+            db_size_before_mb=size_before_mb,
+            db_size_after_mb=size_after_mb,
+            freed_mb=freed_mb,
+            duration_ms=duration_ms,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("trigger_db_vacuum failed")
         raise HTTPException(status_code=500, detail="Internal server error") from exc
 
 

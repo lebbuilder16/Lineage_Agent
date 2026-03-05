@@ -548,3 +548,163 @@ async def test_admin_system_disk_partition_stats(client):
     assert dp.mountpoint == "/"
     assert dp.total_gb == pytest.approx(100.0, rel=0.01)
     assert dp.used_pct == pytest.approx(60.0, rel=0.01)
+
+
+# ------------------------------------------------------------------
+# /admin/db — database disk report
+# ------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_admin_db_reports_409_for_memory_backend(client):
+    """GET /admin/db returns 409 when CACHE_BACKEND=memory."""
+    from fastapi import HTTPException as FastHTTPException
+    with patch(
+        "lineage_agent.api._collect_db_disk_report",
+        side_effect=FastHTTPException(status_code=409, detail="DB disk report is only available when CACHE_BACKEND=sqlite."),
+    ):
+        resp = await client.get("/admin/db")
+    assert resp.status_code == 409
+
+
+@pytest.mark.anyio
+async def test_admin_db_returns_valid_schema_with_sqlite(tmp_path, client):
+    """GET /admin/db returns a valid DbDiskReport when using a real SQLite cache."""
+    from lineage_agent.cache import SQLiteCache
+    from lineage_agent.models import DbDiskReport
+
+    db_path = str(tmp_path / "test_db_disk.db")
+    real_cache = SQLiteCache(db_path=db_path, default_ttl=60)
+    # Trigger schema initialisation
+    conn = await real_cache._get_conn()
+
+    try:
+        with patch("lineage_agent.api._collect_db_disk_report") as mock_collect:
+            from lineage_agent.models import DbTableInfo
+            mock_collect.return_value = DbDiskReport(
+                db_path=db_path,
+                db_size_mb=0.1,
+                page_size_bytes=4096,
+                page_count=10,
+                freelist_pages=2,
+                reclaimable_mb=0.008,
+                tables=[
+                    DbTableInfo(table="cache", rows=5),
+                    DbTableInfo(table="intelligence_events", rows=0),
+                ],
+            )
+            resp = await client.get("/admin/db")
+    finally:
+        await conn.close()
+
+    assert resp.status_code == 200
+    body = resp.json()
+    report = DbDiskReport(**body)
+    assert report.db_size_mb >= 0
+    assert report.page_size_bytes > 0
+    assert report.freelist_pages >= 0
+    assert report.reclaimable_mb >= 0
+    assert len(report.tables) >= 1
+    assert all(t.rows >= 0 for t in report.tables)
+
+
+# ------------------------------------------------------------------
+# /admin/db/purge — on-demand purge
+# ------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_admin_db_purge_returns_409_for_memory_backend(client):
+    """POST /admin/db/purge returns 409 when CACHE_BACKEND=memory (no _get_conn)."""
+    from lineage_agent.cache import TTLCache
+    mem_cache = TTLCache()
+
+    from lineage_agent.data_sources import _clients as _cli_mod
+    orig_cache = _cli_mod.cache
+    try:
+        _cli_mod.cache = mem_cache
+        resp = await client.post("/admin/db/purge")
+    finally:
+        _cli_mod.cache = orig_cache
+
+    assert resp.status_code == 409
+
+
+@pytest.mark.anyio
+async def test_admin_db_purge_returns_summary(tmp_path, client):
+    """POST /admin/db/purge returns a DbPurgeReport with deletion counts."""
+    from lineage_agent.cache import SQLiteCache
+    from lineage_agent.models import DbPurgeReport
+    import time as _time
+
+    db_path = str(tmp_path / "purge_test.db")
+    real_cache = SQLiteCache(db_path=db_path, default_ttl=60)
+    db = await real_cache._get_conn()
+
+    # Insert an already-expired cache row
+    await db.execute(
+        "INSERT OR IGNORE INTO cache (key, value, expires_at) VALUES (?, ?, ?)",
+        ("stale_key", '"stale"', _time.time() - 1),
+    )
+    await db.commit()
+
+    from lineage_agent.data_sources import _clients as _cli_mod
+    orig_cache = _cli_mod.cache
+    try:
+        _cli_mod.cache = real_cache
+        resp = await client.post("/admin/db/purge")
+    finally:
+        _cli_mod.cache = orig_cache
+        await db.close()
+
+    assert resp.status_code == 200
+    report = DbPurgeReport(**resp.json())
+    assert report.cache_rows_deleted >= 1
+    assert report.total_rows_deleted >= 1
+    assert report.duration_ms >= 0
+
+
+# ------------------------------------------------------------------
+# /admin/db/vacuum — on-demand vacuum
+# ------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_admin_db_vacuum_returns_vacuum_report(tmp_path, client):
+    """POST /admin/db/vacuum returns a DbVacuumReport with size metrics."""
+    from lineage_agent.cache import SQLiteCache
+    from lineage_agent.models import DbVacuumReport
+
+    db_path = str(tmp_path / "vacuum_test.db")
+    real_cache = SQLiteCache(db_path=db_path, default_ttl=60)
+    conn = await real_cache._get_conn()
+
+    from lineage_agent.data_sources import _clients as _cli_mod
+    orig_cache = _cli_mod.cache
+    try:
+        _cli_mod.cache = real_cache
+        resp = await client.post("/admin/db/vacuum")
+    finally:
+        _cli_mod.cache = orig_cache
+        await conn.close()
+
+    assert resp.status_code == 200
+    report = DbVacuumReport(**resp.json())
+    assert report.db_size_before_mb >= 0
+    assert report.db_size_after_mb >= 0
+    assert report.freed_mb >= 0
+    assert report.duration_ms >= 0
+
+
+@pytest.mark.anyio
+async def test_admin_db_vacuum_returns_409_for_memory_backend(client):
+    """POST /admin/db/vacuum returns 409 when CACHE_BACKEND=memory."""
+    from lineage_agent.cache import TTLCache
+    mem_cache = TTLCache()
+
+    from lineage_agent.data_sources import _clients as _cli_mod
+    orig_cache = _cli_mod.cache
+    try:
+        _cli_mod.cache = mem_cache
+        resp = await client.post("/admin/db/vacuum")
+    finally:
+        _cli_mod.cache = orig_cache
+
+    assert resp.status_code == 409

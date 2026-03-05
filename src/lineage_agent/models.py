@@ -877,3 +877,63 @@ class SystemStats(BaseModel):
         default_factory=lambda: datetime.now(tz=timezone.utc),
         description="Timestamp when the snapshot was collected",
     )
+
+
+# ---------------------------------------------------------------------------
+# Database disk report
+# ---------------------------------------------------------------------------
+
+class DbTableInfo(BaseModel):
+    """Row count summary for a single SQLite table."""
+
+    table: str = Field(..., description="Table name")
+    rows: int = Field(..., ge=0, description="Approximate row count")
+
+
+class DbDiskReport(BaseModel):
+    """SQLite database disk usage and per-table breakdown."""
+
+    db_path: str = Field(..., description="Filesystem path to the SQLite database file")
+    db_size_mb: float = Field(..., description="Total database file size in MiB")
+    page_size_bytes: int = Field(..., description="SQLite page size in bytes")
+    page_count: int = Field(..., description="Total page count (including free pages)")
+    freelist_pages: int = Field(
+        ..., description="Free (unused) pages that VACUUM can reclaim"
+    )
+    reclaimable_mb: float = Field(
+        ..., description="Estimated disk space recoverable by running VACUUM, in MiB"
+    )
+    tables: list[DbTableInfo] = Field(
+        default_factory=list,
+        description="Per-table row counts (largest tables first)",
+    )
+    collected_at: datetime = Field(
+        default_factory=lambda: datetime.now(tz=timezone.utc),
+        description="Timestamp when the report was collected",
+    )
+
+
+class DbPurgeReport(BaseModel):
+    """Summary of an on-demand database purge operation."""
+
+    cache_rows_deleted: int = Field(0, description="Expired cache rows removed")
+    sol_flows_rows_deleted: int = Field(0, description="Stale SOL flow rows removed")
+    events_rows_deleted: int = Field(0, description="Old intelligence event rows removed")
+    bundle_reports_rows_deleted: int = Field(0, description="Stale bundle report rows removed")
+    total_rows_deleted: int = Field(0, description="Total rows removed across all tables")
+    duration_ms: float = Field(0.0, description="Time taken by the purge operation in ms")
+    purged_at: datetime = Field(
+        default_factory=lambda: datetime.now(tz=timezone.utc)
+    )
+
+
+class DbVacuumReport(BaseModel):
+    """Summary of an on-demand VACUUM + WAL checkpoint operation."""
+
+    db_size_before_mb: float = Field(..., description="DB file size before VACUUM in MiB")
+    db_size_after_mb: float = Field(..., description="DB file size after VACUUM in MiB")
+    freed_mb: float = Field(..., description="Disk space reclaimed in MiB")
+    duration_ms: float = Field(0.0, description="Time taken by the VACUUM in ms")
+    vacuumed_at: datetime = Field(
+        default_factory=lambda: datetime.now(tz=timezone.utc)
+    )
