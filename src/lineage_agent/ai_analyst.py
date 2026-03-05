@@ -74,7 +74,25 @@ Scoring guide:
 - 50-74:  Moderate risk — concerning signals but could have alternative explanations
 - <50:    Low risk or insufficient data
 
-Rules:
+OUTPUT LANGUAGE — MANDATORY — NO EXCEPTIONS:
+The people reading your report are ordinary investors, NOT developers or engineers.
+Write EXCLUSIVELY in plain, accessible English that any non-technical person can understand.
+NEVER reproduce raw technical notation in any output field. Specific prohibitions:
+  - NO key=value pairs — write "the deployer exited" not "deployer_exited=True"
+  - NO internal field names or system labels — "insider_sell verdict=clean" is forbidden output
+  - NO raw abbreviations: HHI, LOW_VOLUME_HIGH_LIQ, phash, vsr, sp1, sp6 must all be translated
+  - NO bare numbers without explaining what they mean in context
+Instead, interpret every signal and state what it implies in plain English:
+  BAD:  "HHI=1.0, LOW_VOLUME_HIGH_LIQ, insider_sell verdict=clean, rug_count=0, total_tokens=0"
+  GOOD: "All liquidity sits in a single pool — this makes it trivially easy for the deployer to \
+drain it in one transaction. Trading volume is unusually low relative to the liquidity size, \
+suggesting artificial depth rather than genuine market activity. No insider wallet sales were \
+detected at analysis time. This deployer has no confirmed rug history on record, though the \
+absence of history does not rule out an early-stage operation."
+Quantities and dollar amounts are encouraged when they add weight: \
+"extracted 14 SOL (~$2,800)" is clear; "total_extracted_sol=14" is not.
+
+Reasoning rules:
 - Ground every inference in named data points — cite the specific number or signal.
 - Do NOT repeat the same fact across narrative, key_findings, and conviction_chain — each adds a new layer.
 - Pre-computed labels (bundle verdict, insider_sell verdict) are WEAK HINTS only. \
@@ -110,22 +128,22 @@ _FORENSIC_TOOL = {
             },
             "verdict_summary": {
                 "type": "string",
-                "description": "ONE sentence, max 20 words: headline CONCLUSION about the QUERY TOKEN — stating what the actor DID to it and what it proves.",
+                "description": "ONE sentence, max 20 words: headline CONCLUSION about the QUERY TOKEN — stating what the actor DID to it and what it proves. Plain English only — no field names, no key=value notation.",
             },
             "narrative": {
                 "type": "object",
                 "properties": {
                     "observation": {
                         "type": "string",
-                        "description": "2-3 sentences synthesising convergent red flags. Explain what the COMBINATION implies about intent. Name 3+ corroborating signals.",
+                        "description": "2-3 sentences synthesising convergent red flags. Explain what the COMBINATION implies about intent. Name 3+ corroborating signals. Written in plain investor-friendly English — no technical labels, no raw flag names, no key=value.",
                     },
                     "pattern": {
                         "type": "string",
-                        "description": "2-3 sentences: causal attack chain in temporal order (staging → accumulation → exit → destination). Each step causally linked.",
+                        "description": "2-3 sentences: causal attack chain in temporal order (staging → accumulation → exit → destination). Each step causally linked. Describe each step in plain language an ordinary investor can follow.",
                     },
                     "risk": {
                         "type": "string",
-                        "description": "2 sentences: (1) quantify damage (SOL extracted, % supply, est. USD); (2) residual risk.",
+                        "description": "2 sentences: (1) quantify damage in plain terms (e.g. how much SOL was extracted, estimated dollar value, share of supply); (2) residual risk. Explain what the numbers mean — do not copy them as raw key=value.",
                     },
                 },
                 "required": ["observation", "pattern", "risk"],
@@ -133,7 +151,7 @@ _FORENSIC_TOOL = {
             "key_findings": {
                 "type": "array",
                 "items": {"type": "string"},
-                "description": "3-6 findings, most incriminating first. Each starts with [DEPLOYMENT], [FINANCIAL], [COORDINATION], [IDENTITY], [TIMING], or [EXIT].",
+                "description": "3-6 findings, most incriminating first. Each starts with [DEPLOYMENT], [FINANCIAL], [COORDINATION], [IDENTITY], [TIMING], or [EXIT]. Each finding must be written in plain English accessible to a non-technical investor — no system field names, no key=value notation.",
             },
             "wallet_classifications": {
                 "type": "object",
@@ -142,11 +160,11 @@ _FORENSIC_TOOL = {
             },
             "conviction_chain": {
                 "type": "string",
-                "description": "2-3 sentences anchored to the QUERY TOKEN: 3+ independent converging signals, logical chain, confidence-weighted verdict, weakest assumption called out.",
+                "description": "2-3 sentences anchored to the QUERY TOKEN: 3+ independent converging signals, logical chain, confidence-weighted verdict, weakest assumption called out. Plain English throughout — translate every signal into its real-world meaning for a non-technical reader.",
             },
             "operator_hypothesis": {
                 "type": ["string", "null"],
-                "description": "3 sentences: (1) WHO via fingerprint; (2) WHAT playbook vs prior ops; (3) distinguishing factor from legit. Null if insufficient data.",
+                "description": "3 sentences: (1) WHO via fingerprint; (2) WHAT playbook vs prior ops; (3) distinguishing factor from legit. Null if insufficient data. Written in plain English accessible to a non-technical investor.",
             },
         },
         "required": [
@@ -281,7 +299,7 @@ async def analyze_token(
     from config import CACHE_TTL_AI_SECONDS  # local import to avoid circular dep
 
     # ── P0-B: cache check ────────────────────────────────────────────────────
-    cache_key = f"ai:v2:{mint}"
+    cache_key = f"ai:v3:{mint}"
     if cache and not force_refresh:
         _cget = cache.get(cache_key)
         cached = (await _cget) if inspect.isawaitable(_cget) else _cget
@@ -451,6 +469,12 @@ def _build_prompt(
     _has_sol = "✓" if sol_flow else "✗"
     parts.append(f"DATA AVAILABLE: LINEAGE={_has_lin}  BUNDLE={_has_bun}  SOL_FLOW={_has_sol}")
     parts.append("(Absent sections = data not collected yet, NOT necessarily clean)\n")
+    parts.append(
+        "⚠ OUTPUT INSTRUCTION: All data below uses internal technical notation (key=value, field names, "
+        "flag codes). These are INPUT signals for you to interpret — do NOT reproduce this notation "
+        "in your output. Translate every signal into plain English that a non-technical investor "
+        "can understand, explaining what each signal means rather than naming it."
+    )
     if heuristic_score is not None:
         parts.append(
             f"Pre-scan heuristic: {heuristic_score}/100 "
@@ -586,11 +610,12 @@ def _build_prompt(
 
         deployer_profile = getattr(lineage, "deployer_profile", None)
         if deployer_profile:
+            _dp_rugs  = getattr(deployer_profile, 'rug_count', 0) or 0
+            _dp_total = getattr(deployer_profile, 'total_tokens_deployed', 0) or 0
+            _dp_life  = getattr(deployer_profile, 'avg_token_lifespan_hours', 0) or 0
             parts.append(
-                f"Deployer history: "
-                f"rug_count={getattr(deployer_profile,'rug_count',0)} "
-                f"total_tokens={getattr(deployer_profile,'total_tokens_deployed',0)} "
-                f"avg_lifespan_hours={getattr(deployer_profile,'avg_token_lifespan_hours',0):.0f}h"
+                f"Deployer history: {_dp_rugs} confirmed rug(s) out of {_dp_total} token(s) deployed; "
+                f"average token lifespan {_dp_life:.0f}h before collapse"
             )
 
     # ── Bundle forensics ──────────────────────────────────────────────────
@@ -804,23 +829,43 @@ def _build_prompt(
     # ── Insider sell / silent drain ─────────────────────────────────────────
     ins = getattr(lineage, "insider_sell", None) if lineage else None
     if ins:
-        parts.append("\n=== INSIDER SELL ANALYSIS ===")
-        parts.append(f"Verdict: {getattr(ins,'verdict','?')} | risk_score={getattr(ins,'risk_score',0):.2f}")
-        parts.append(f"Flags: {getattr(ins,'flags',[])}")
-        parts.append(f"Deployer exited position: {getattr(ins,'deployer_exited',None)}")
+        parts.append("\n=== INSIDER SELL ANALYSIS [interpret these signals — translate into plain language in your output] ===")
+        _ins_verdict = getattr(ins, 'verdict', '?')
+        _ins_score   = getattr(ins, 'risk_score', 0) or 0
+        parts.append(
+            f"Automated pre-label: {_ins_verdict} (internal score {_ins_score:.2f}/1.0) — "
+            "treat as a weak hint only; reason from the raw numbers below"
+        )
+        _ins_flags = getattr(ins, 'flags', []) or []
+        if _ins_flags:
+            parts.append(f"System flags raised: {_ins_flags} — [AI: explain what each flag means in plain language]")
+        _dep_exited = getattr(ins, 'deployer_exited', None)
+        parts.append(
+            f"Deployer wallet sold its position: {'yes' if _dep_exited else 'no' if _dep_exited is False else 'unknown'}"
+        )
         sp1  = getattr(ins, "sell_pressure_1h",  None)
         sp6  = getattr(ins, "sell_pressure_6h",  None)
         sp24 = getattr(ins, "sell_pressure_24h", None)
         pc1  = getattr(ins, "price_change_1h",   None)
         vsr  = getattr(ins, "volume_spike_ratio", None)
-        if sp1  is not None:
-            parts.append(f"Sell pressure  1h={sp1:.0%}  6h={sp6:.0%}  24h={sp24:.0%}")
-        if pc1  is not None:
-            parts.append(f"Price change   1h={pc1:+.1f}%")
-        if vsr  is not None:
-            parts.append(f"Volume spike ratio: {vsr:.1f}x  (>3 = burst selling)")
+        if sp1 is not None:
+            parts.append(
+                f"Sell-side pressure: {sp1:.0%} of volume in last 1h, {sp6:.0%} over 6h, {sp24:.0%} over 24h "
+                "(higher = more selling relative to total volume)"
+            )
+        if pc1 is not None:
+            parts.append(f"Price change over last 1 hour: {pc1:+.1f}%")
+        if vsr is not None:
+            parts.append(
+                f"Volume spike factor: {vsr:.1f}x above baseline "
+                "(values above 3x indicate a sudden burst of selling activity)"
+            )
         for we in (getattr(ins, "wallet_events", []) or [])[:4]:
-            parts.append(f"  {getattr(we,'wallet','?')[:14]} role={getattr(we,'role','?')} exited={getattr(we,'exited',False)}")
+            _we_exited = getattr(we, 'exited', False)
+            parts.append(
+                f"  Wallet {getattr(we,'wallet','?')[:14]} — role: {getattr(we,'role','?')} — "
+                f"{'has sold / exited' if _we_exited else 'has not sold'}"
+            )
 
     # ── Factory rhythm (scripted deployment bot) ─────────────────────────
     fr = getattr(lineage, "factory_rhythm", None) if lineage else None
@@ -861,10 +906,27 @@ def _build_prompt(
     # ── Liquidity architecture ───────────────────────────────────────────
     la = getattr(lineage, "liquidity_arch", None) if lineage else None
     if la:
-        parts.append("\n=== LIQUIDITY ARCHITECTURE ===")
-        parts.append(f"Total liquidity: ${getattr(la,'total_liquidity_usd',0):,.0f} across {getattr(la,'pool_count',0)} pool(s)")
-        parts.append(f"Concentration HHI: {getattr(la,'concentration_hhi',0):.2f}  (1.0 = single pool)")
-        parts.append(f"Authenticity score: {getattr(la,'authenticity_score',0):.2f}  flags={getattr(la,'flags',[])}")
+        parts.append("\n=== LIQUIDITY ARCHITECTURE [translate every metric into plain language in your output] ===")
+        _la_liq   = getattr(la, 'total_liquidity_usd', 0) or 0
+        _la_pools = getattr(la, 'pool_count', 0) or 0
+        _la_hhi   = getattr(la, 'concentration_hhi', 0) or 0
+        _la_auth  = getattr(la, 'authenticity_score', 0) or 0
+        _la_flags = getattr(la, 'flags', []) or []
+        parts.append(f"Total liquidity: ${_la_liq:,.0f} spread across {_la_pools} pool(s)")
+        parts.append(
+            f"Liquidity concentration index: {_la_hhi:.2f} — "
+            "1.0 means all liquidity sits in a single pool (trivially easy for the deployer to drain); "
+            "0.0 would mean perfectly spread across many independent pools"
+        )
+        parts.append(
+            f"Authenticity score: {_la_auth:.2f} — values near 1.0 suggest genuine organic liquidity; "
+            "values near 0.0 suggest artificial or deployer-controlled depth"
+        )
+        if _la_flags:
+            parts.append(
+                f"Risk flags: {_la_flags} — "
+                "[AI: for each flag, explain in plain English what it means and why it is suspicious]"
+            )
 
     return "\n".join(parts)
 
