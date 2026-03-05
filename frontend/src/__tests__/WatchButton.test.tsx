@@ -25,6 +25,7 @@ describe("WatchButton", () => {
       toggle: mockToggle,
       isWatched: () => false,
       clear: vi.fn(),
+      updateRiskScore: vi.fn(),
     });
 
     render(
@@ -47,6 +48,7 @@ describe("WatchButton", () => {
       toggle: mockToggle,
       isWatched: () => true,
       clear: vi.fn(),
+      updateRiskScore: vi.fn(),
     });
 
     render(
@@ -69,6 +71,7 @@ describe("WatchButton", () => {
       toggle: mockToggle,
       isWatched: () => false,
       clear: vi.fn(),
+      updateRiskScore: vi.fn(),
     });
 
     render(<WatchButton mint="MINT123" name="Test Token" showLabel />);
@@ -90,6 +93,7 @@ describe("WatchButton", () => {
       toggle: mockToggle,
       isWatched: () => true,
       clear: vi.fn(),
+      updateRiskScore: vi.fn(),
     });
 
     render(<WatchButton mint="MINT123" name="Test Token" />);
@@ -104,6 +108,7 @@ describe("WatchButton", () => {
       toggle: mockToggle,
       isWatched: () => false,
       clear: vi.fn(),
+      updateRiskScore: vi.fn(),
     });
 
     render(<WatchButton mint="MINT123" name="Test Token" />);
