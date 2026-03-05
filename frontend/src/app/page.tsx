@@ -187,76 +187,60 @@ export default function HomePage() {
             </Link>
           </motion.div>
         </div>
-      </section>
 
-      {/* ── 4. Features ─────────────────────────────────────────── */}
-      <section className="w-full border-y border-white/5 bg-white/[0.015] py-24">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true, margin: "-100px" }}
-            transition={{ duration: 0.5 }}
-            className="mb-14 flex flex-col items-center text-center gap-3"
-          >
-            <p className="display-heading text-xs tracking-widest uppercase text-neon">Features</p>
-            <h2 className="display-heading text-display-md text-white">SOLID SIGNALS</h2>
-            <p className="text-white/40 max-w-md">
-              Multi-layer analysis so detailed it would make your on-chain analyst cry.
-            </p>
-          </motion.div>
-
-          <div className="grid sm:grid-cols-3 gap-4">
-            {[
-              {
-                icon: <Scan className="h-6 w-6" />,
-                tag: "01",
-                title: "Clone Detection",
-                description: "Compares name, symbol, image hash, and deployer wallet across all known Solana tokens. If it looks like DOGE and smells like DOGE, it&apos;s probably a DOGE clone.",
-              },
-              {
-                icon: <GitFork className="h-6 w-6" />,
-                tag: "02",
-                title: "Family Tree",
-                description: "Interactive lineage graph powered by React Flow. Click any node to drill deeper into a token&apos;s bloodline. Warning: some family trees are deeply disturbing.",
-              },
-              {
-                icon: <BarChart3 className="h-6 w-6" />,
-                tag: "03",
-                title: "Confidence Score",
-                description: "Weighted multi-signal analysis produces a 0-100% confidence score. Above 70%? That token has more red flags than a Soviet parade.",
-              },
-            ].map((f, i) => (
-              <motion.div
-                key={f.tag}
-                initial={{ opacity: 0, y: 20 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true, margin: "-60px" }}
-                transition={{ duration: 0.5, delay: i * 0.1 }}
-              >
-                <div className="group h-full rounded-2xl border border-white/5 bg-card p-7 transition-all duration-300 hover:border-neon/20 hover:bg-white/[0.04]">
-                  <div className="flex items-start justify-between mb-5">
-                    <div className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-neon transition-colors group-hover:bg-neon/10 group-hover:border-neon/30">
-                      {f.icon}
-                    </div>
-                    <span className="font-display font-bold text-4xl text-white/[0.05] group-hover:text-white/[0.08] transition-colors">
-                      {f.tag}
-                    </span>
+        {/* Feature cards */}
+        <div className="grid sm:grid-cols-3 gap-4 mt-16">
+          {[
+            {
+              icon: <Scan className="h-6 w-6" />,
+              tag: "01",
+              title: "Clone Detection",
+              description: "Compares name, symbol, image hash, and deployer wallet across all known Solana tokens. If it looks like DOGE and smells like DOGE, it's probably a DOGE clone.",
+            },
+            {
+              icon: <GitFork className="h-6 w-6" />,
+              tag: "02",
+              title: "Family Tree",
+              description: "Interactive lineage graph powered by React Flow. Click any node to drill deeper into a token's bloodline. Warning: some family trees are deeply disturbing.",
+            },
+            {
+              icon: <BarChart3 className="h-6 w-6" />,
+              tag: "03",
+              title: "Confidence Score",
+              description: "Weighted multi-signal analysis produces a 0-100% confidence score. Above 70%? That token has more red flags than a Soviet parade.",
+            },
+          ].map((f, i) => (
+            <motion.div
+              key={f.tag}
+              initial={{ opacity: 0, y: 20 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true, margin: "-60px" }}
+              transition={{ duration: 0.5, delay: i * 0.1 }}
+            >
+              <div className="group h-full rounded-2xl border border-white/5 bg-card p-7 transition-all duration-300 hover:border-neon/20 hover:bg-white/[0.04]">
+                <div className="flex items-start justify-between mb-5">
+                  <div className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-neon transition-colors group-hover:bg-neon/10 group-hover:border-neon/30">
+                    {f.icon}
                   </div>
-                  <h3 className="display-heading font-bold text-base text-white mb-2 uppercase tracking-wide">
-                    {f.title}
-                  </h3>
-                  <p className="text-white/40 text-sm leading-relaxed">{f.description.replace(/&apos;/g, "'")}</p>
+                  <span className="font-display font-bold text-4xl text-white/[0.05] group-hover:text-white/[0.08] transition-colors">
+                    {f.tag}
+                  </span>
                 </div>
-              </motion.div>
-            ))}
-          </div>
+                <h3 className="display-heading font-bold text-base text-white mb-2 uppercase tracking-wide">
+                  {f.title}
+                </h3>
+                <p className="text-white/40 text-sm leading-relaxed">{f.description}</p>
+              </div>
+            </motion.div>
+          ))}
         </div>
       </section>
 
-      {/* ── 5. Signals ──────────────────────────────────────────── */}
+      {/* ── 4. Signals & How it works ──────────────────────────── */}
       <section id="signals" className="max-w-6xl mx-auto px-4 sm:px-6 py-24 sm:py-36 scroll-mt-20">
-        <div className="grid sm:grid-cols-2 gap-16 items-center">
+        <div className="grid sm:grid-cols-2 gap-16 items-start">
+
+          {/* LEFT: signals */}
           <motion.div
             initial={{ opacity: 0, x: -30 }}
             whileInView={{ opacity: 1, x: 0 }}
@@ -272,15 +256,44 @@ export default function HomePage() {
               Five weighted signals, one verdict. Like a lie detector test — but for tokens, and
               actually accurate.
             </p>
-            <Marquee
-              items={["Name Match", "Symbol Match", "Image Hash", "Deployer", "Temporal"]}
-              direction="right"
-              speed="slow"
-              separator="→"
-              className="py-2"
-            />
+            <div className="space-y-4 pt-2">
+              {[
+                { label: "Name Match", pct: 30, desc: "Fuzzy string similarity on token name" },
+                { label: "Symbol Match", pct: 25, desc: "Exact and near-match ticker comparison" },
+                { label: "Image Hash", pct: 25, desc: "Perceptual hash of logo/icon metadata" },
+                { label: "Deployer Wallet", pct: 15, desc: "Same wallet = same person, probably" },
+                { label: "Temporal Proximity", pct: 5, desc: "Launched 10 mins after the OG? Sus." },
+              ].map((s, i) => (
+                <motion.div
+                  key={s.label}
+                  initial={{ opacity: 0, x: 20 }}
+                  whileInView={{ opacity: 1, x: 0 }}
+                  viewport={{ once: true }}
+                  transition={{ delay: i * 0.07, duration: 0.4 }}
+                  className="space-y-1.5"
+                >
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="font-display font-semibold text-white uppercase tracking-wide text-xs">
+                      {s.label}
+                    </span>
+                    <span className="font-display font-bold text-neon">{s.pct}%</span>
+                  </div>
+                  <div className="h-1.5 w-full rounded-full bg-white/5 overflow-hidden">
+                    <motion.div
+                      className="h-full rounded-full bg-neon"
+                      initial={{ width: 0 }}
+                      whileInView={{ width: `${(s.pct / 30) * 100}%` }}
+                      viewport={{ once: true }}
+                      transition={{ delay: i * 0.07 + 0.2, duration: 0.6, ease: "easeOut" }}
+                    />
+                  </div>
+                  <p className="text-white/30 text-xs">{s.desc}</p>
+                </motion.div>
+              ))}
+            </div>
           </motion.div>
 
+          {/* RIGHT: how to use */}
           <motion.div
             initial={{ opacity: 0, x: 30 }}
             whileInView={{ opacity: 1, x: 0 }}
@@ -288,123 +301,36 @@ export default function HomePage() {
             transition={{ duration: 0.6, delay: 0.15 }}
             className="space-y-4"
           >
-            {[
-              { label: "Name Match", pct: 30, desc: "Fuzzy string similarity on token name" },
-              { label: "Symbol Match", pct: 25, desc: "Exact and near-match ticker comparison" },
-              { label: "Image Hash", pct: 25, desc: "Perceptual hash of logo/icon metadata" },
-              { label: "Deployer Wallet", pct: 15, desc: "Same wallet = same person, probably" },
-              { label: "Temporal Proximity", pct: 5, desc: "Launched 10 mins after the OG? Sus." },
-            ].map((s, i) => (
-              <motion.div
-                key={s.label}
-                initial={{ opacity: 0, x: 20 }}
-                whileInView={{ opacity: 1, x: 0 }}
-                viewport={{ once: true }}
-                transition={{ delay: i * 0.07, duration: 0.4 }}
-                className="space-y-1.5"
-              >
-                <div className="flex items-center justify-between text-sm">
-                  <span className="font-display font-semibold text-white uppercase tracking-wide text-xs">
-                    {s.label}
-                  </span>
-                  <span className="font-display font-bold text-neon">{s.pct}%</span>
-                </div>
-                <div className="h-1.5 w-full rounded-full bg-white/5 overflow-hidden">
-                  <motion.div
-                    className="h-full rounded-full bg-neon"
-                    initial={{ width: 0 }}
-                    whileInView={{ width: `${(s.pct / 30) * 100}%` }}
-                    viewport={{ once: true }}
-                    transition={{ delay: i * 0.07 + 0.2, duration: 0.6, ease: "easeOut" }}
-                  />
-                </div>
-                <p className="text-white/30 text-xs">{s.desc}</p>
-              </motion.div>
-            ))}
-          </motion.div>
-        </div>
-      </section>
-
-      {/* ── 6. Process ──────────────────────────────────────────── */}
-      <section className="w-full border-y border-white/5 bg-white/[0.015] py-24">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            transition={{ duration: 0.5 }}
-            className="mb-14 flex flex-col items-center text-center gap-3"
-          >
-            <p className="display-heading text-xs tracking-widest uppercase text-neon">Process</p>
-            <h2 className="display-heading text-display-md text-white">HOW IT WORKS</h2>
+            <p className="display-heading text-xs tracking-widest uppercase text-neon">Tutorial</p>
+            <h2 className="display-heading text-display-md text-white">USE IT OR<br />LOSE IT</h2>
+            <p className="text-white/40 leading-relaxed">Four steps. Even your favourite coin dev can follow this.</p>
+            <div className="space-y-3 pt-2">
+              {[
+                { num: "1", title: "Find a suspicious token", body: "Go to DexScreener, find a token that smells funny, copy its mint address (the long base58 string, not the ticker)." },
+                { num: "2", title: "Paste it in the search bar", body: "Click the search bar on the home page, paste the address (or hit ⌘K from anywhere), and press Enter. On mobile, tap the clipboard icon." },
+                { num: "3", title: "Wait ~5 seconds", body: "We are literally talking to multiple on-chain data sources simultaneously. Good things take time. Patience, degen." },
+                { num: "4", title: "Read the results", body: "The Lineage Card shows the root token, confidence score, and all known clones. Green = mostly original. Red = blatant copy. Share the tea on X." },
+              ].map((s, i) => (
+                <motion.div
+                  key={s.num}
+                  initial={{ opacity: 0, x: -20 }}
+                  whileInView={{ opacity: 1, x: 0 }}
+                  viewport={{ once: true, margin: "-40px" }}
+                  transition={{ delay: i * 0.1, duration: 0.45 }}
+                  className="flex gap-5 p-6 rounded-2xl border border-white/5 bg-card hover:border-neon/15 transition-all group"
+                >
+                  <div className="flex-shrink-0 h-9 w-9 rounded-full border border-neon/30 bg-neon/5 text-neon flex items-center justify-center font-display font-bold text-sm group-hover:bg-neon group-hover:text-black transition-all">
+                    {s.num}
+                  </div>
+                  <div>
+                    <h3 className="display-heading font-bold text-sm text-white uppercase tracking-wide mb-1">{s.title}</h3>
+                    <p className="text-white/40 text-sm leading-relaxed">{s.body}</p>
+                  </div>
+                </motion.div>
+              ))}
+            </div>
           </motion.div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {[
-              { step: "01", title: "INPUT", description: "Paste a Solana mint address or search by token name. We accept both — we&apos;re not picky." },
-              { step: "02", title: "ANALYSIS", description: "Our agent queries DexScreener, Solana RPC, and IPFS to collect all metadata. Takes ~5 seconds." },
-              { step: "03", title: "SCORING", description: "Five signals are weighted and combined into a confidence score. The math is real, I promise." },
-              { step: "04", title: "RESULTS", description: "Full family tree, derivative list, and lineage card. Share with your degen friends via X." },
-            ].map((r, i) => (
-              <motion.div
-                key={r.step}
-                initial={{ opacity: 0, y: 20 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true }}
-                transition={{ delay: i * 0.1, duration: 0.5 }}
-                className="relative p-6 rounded-2xl border border-white/5 bg-card hover:border-neon/15 transition-all group"
-              >
-                <span className="display-heading font-bold text-5xl text-white/[0.04] group-hover:text-neon/10 transition-colors block mb-4">
-                  {r.step}
-                </span>
-                <h3 className="display-heading font-bold text-sm text-white uppercase tracking-widest mb-2">
-                  {r.title}
-                </h3>
-                <p className="text-white/40 text-xs leading-relaxed">{r.description.replace(/&apos;/g, "'")}</p>
-              </motion.div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ── 7. How to Use ────────────────────────────────────────── */}
-      <section id="how-it-works" className="max-w-5xl mx-auto px-4 sm:px-6 py-24 sm:py-36 scroll-mt-20">
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true }}
-          transition={{ duration: 0.5 }}
-          className="mb-14 text-center space-y-3"
-        >
-          <p className="display-heading text-xs tracking-widest uppercase text-neon">Tutorial</p>
-          <h2 className="display-heading text-display-md text-white">USE IT OR LOSE IT</h2>
-          <p className="text-white/40 max-w-sm mx-auto">Four steps. Even your favourite coin dev can follow this.</p>
-        </motion.div>
-
-        <div className="space-y-3">
-          {[
-            { num: "1", title: "Find a suspicious token", body: "Go to DexScreener, find a token that smells funny, copy its mint address (the long base58 string, not the ticker)." },
-            { num: "2", title: "Paste it in the search bar", body: "Click the search bar on the home page, paste the address (or hit ⌘K from anywhere), and press Enter. On mobile, tap the clipboard icon." },
-            { num: "3", title: "Wait ~5 seconds", body: "We are literally talking to multiple on-chain data sources simultaneously. Good things take time. Patience, degen." },
-            { num: "4", title: "Read the results", body: "The Lineage Card shows the root token, confidence score, and all known clones. Green = mostly original. Red = blatant copy. Share the tea on X." },
-          ].map((s, i) => (
-            <motion.div
-              key={s.num}
-              initial={{ opacity: 0, x: -20 }}
-              whileInView={{ opacity: 1, x: 0 }}
-              viewport={{ once: true, margin: "-40px" }}
-              transition={{ delay: i * 0.1, duration: 0.45 }}
-              className="flex gap-5 p-6 rounded-2xl border border-white/5 bg-card hover:border-neon/15 transition-all group"
-            >
-              <div className="flex-shrink-0 h-9 w-9 rounded-full border border-neon/30 bg-neon/5 text-neon flex items-center justify-center font-display font-bold text-sm group-hover:bg-neon group-hover:text-black transition-all">
-                {s.num}
-              </div>
-              <div>
-                <h3 className="display-heading font-bold text-sm text-white uppercase tracking-wide mb-1">{s.title}</h3>
-                <p className="text-white/40 text-sm leading-relaxed">{s.body}</p>
-              </div>
-            </motion.div>
-          ))}
         </div>
       </section>
 
