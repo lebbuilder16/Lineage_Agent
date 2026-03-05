@@ -1,13 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import {
   fetchDeployerProfile,
   type DeployerProfile,
   type DeployerTokenSummary,
-  ApiError,
 } from "@/lib/api";
+import BackButton from "@/components/BackButton";
 import { cn } from "@/lib/utils";
 
 interface Props {
@@ -110,17 +111,11 @@ function TokenRow({ token }: { token: DeployerTokenSummary }) {
 
 export default function DeployerPage({ params }: Props) {
   const { address } = params;
-  const [profile, setProfile] = useState<DeployerProfile | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    setLoading(true);
-    fetchDeployerProfile(address)
-      .then(setProfile)
-      .catch((e) => setError(e instanceof ApiError ? e.detail : String(e)))
-      .finally(() => setLoading(false));
-  }, [address]);
+  const { data: profile, isLoading: loading, error: queryError } = useQuery({
+    queryKey: ["deployer", address],
+    queryFn: () => fetchDeployerProfile(address),
+  });
+  const error = queryError ? (queryError as { detail?: string }).detail ?? String(queryError) : null;
 
   if (loading) {
     return (
@@ -174,6 +169,7 @@ export default function DeployerPage({ params }: Props) {
     <div className="space-y-8">
       {/* Header */}
       <div className="space-y-2">
+        <BackButton />
         <div className="flex flex-wrap items-center gap-3">
           <h1 className="text-2xl font-bold">🕵️ Deployer Profile</h1>
           <span className={cn("rounded-full border px-3 py-1 text-xs font-medium", cfg.badge)}>

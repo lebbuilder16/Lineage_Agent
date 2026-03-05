@@ -8,7 +8,8 @@ import {
   type ProgressEvent,
 } from "./api";
 
-const CACHE_TTL_MS = 5 * 60 * 1000; // 5 min
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 min for complete results
+const CACHE_TTL_INCOMPLETE_MS = 60 * 1000; // 1 min for incomplete results
 
 function cacheKey(mint: string) {
   return `lineage_v1:${mint}`;
@@ -19,8 +20,9 @@ function readCache(mint: string): LineageResult | null {
   try {
     const raw = sessionStorage.getItem(cacheKey(mint));
     if (!raw) return null;
-    const { ts, data } = JSON.parse(raw) as { ts: number; data: LineageResult };
-    if (Date.now() - ts > CACHE_TTL_MS) return null;
+    const { ts, data, ttl } = JSON.parse(raw) as { ts: number; data: LineageResult; ttl?: number };
+    const maxAge = ttl ?? CACHE_TTL_MS;
+    if (Date.now() - ts > maxAge) return null;
     return data;
   } catch {
     return null;
@@ -29,16 +31,15 @@ function readCache(mint: string): LineageResult | null {
 
 function writeCache(mint: string, data: LineageResult) {
   if (typeof window === "undefined") return;
-  // Don't cache incomplete results: if bundle_report is null but a deployer
-  // exists, the 30s inline cap fired and the background task is still running.
-  // Forcing a fresh backend call on the next visit ensures the completed
-  // bundle/sol_flow data (persisted to DB by the background task) is shown.
+  // Cache all results. Incomplete results (deployer present but bundle_report
+  // is null — the 30s inline cap fired) use a shorter 1-min TTL so users see
+  // them instantly on back-navigation, but a fresh re-fetch happens soon after
+  // when the background task has persisted the completed data to the DB.
   const deployer = data.root?.deployer || data.query_token?.deployer;
-  if (deployer && data.bundle_report == null) {
-    return; // incomplete — don't cache
-  }
+  const incomplete = !!(deployer && data.bundle_report == null);
+  const ttl = incomplete ? CACHE_TTL_INCOMPLETE_MS : CACHE_TTL_MS;
   try {
-    sessionStorage.setItem(cacheKey(mint), JSON.stringify({ ts: Date.now(), data }));
+    sessionStorage.setItem(cacheKey(mint), JSON.stringify({ ts: Date.now(), data, ttl }));
   } catch {
     // storage quota — ignore
   }

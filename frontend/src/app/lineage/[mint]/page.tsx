@@ -22,6 +22,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { AlertCircle, RefreshCw, RotateCcw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ChatPanel } from "@/components/ChatPanel";
+import BackButton from "@/components/BackButton";
 
 export default function LineagePage() {
   const params = useParams<{ mint: string }>();
@@ -171,6 +172,7 @@ export default function LineagePage() {
 
   return (
     <div className="space-y-5">
+      <BackButton />
       <SearchBar compact />
 
       {/* ── Loading — skeleton ──────────────────────────────────────── */}

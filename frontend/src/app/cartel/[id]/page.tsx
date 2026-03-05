@@ -1,8 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import dynamic from "next/dynamic";
 import Link from "next/link";
+import BackButton from "@/components/BackButton";
 import {
   ReactFlow,
   Background,
@@ -12,7 +14,7 @@ import {
   type Edge,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { fetchCartelCommunity, type CartelCommunity, type CartelEdge, ApiError } from "@/lib/api";
+import { fetchCartelCommunity, type CartelCommunity, type CartelEdge } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 // Three.js must be client-side only (no SSR)
@@ -122,18 +124,12 @@ function formatUsd(n: number): string {
 
 export default function CartelPage({ params }: Props) {
   const { id } = params;
-  const [community, setCommunity] = useState<CartelCommunity | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const { data: community, isLoading: loading, error: queryError } = useQuery({
+    queryKey: ["cartel", id],
+    queryFn: () => fetchCartelCommunity(id),
+  });
+  const error = queryError ? (queryError as { detail?: string }).detail ?? String(queryError) : null;
   const [view, setView] = useState<"2d" | "3d">("3d");
-
-  useEffect(() => {
-    setLoading(true);
-    fetchCartelCommunity(id)
-      .then(setCommunity)
-      .catch((e) => setError(e instanceof ApiError ? e.detail : String(e)))
-      .finally(() => setLoading(false));
-  }, [id]);
 
   const graph = useMemo(() => (community ? buildGraph(community) : null), [community]);
 
@@ -162,6 +158,7 @@ export default function CartelPage({ params }: Props) {
     <div className="space-y-8">
       {/* Header */}
       <div className="space-y-1">
+        <BackButton />
         <div className="flex flex-wrap items-center gap-3">
           <h1 className="text-2xl font-bold">🕸️ Cartel Community</h1>
           <span

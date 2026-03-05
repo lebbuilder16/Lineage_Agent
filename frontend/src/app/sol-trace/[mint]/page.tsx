@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import {
   ReactFlow,
@@ -11,12 +12,12 @@ import {
   type Edge,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
+import BackButton from "@/components/BackButton";
 import {
   fetchSolTrace,
   type CrossChainExit,
   type SolFlowReport,
   type SolFlowEdge,
-  ApiError,
 } from "@/lib/api";
 
 interface Props {
@@ -259,21 +260,15 @@ function formatUsd(n: number | null): string {
 
 export default function SolTracePage({ params }: Props) {
   const { mint } = params;
-  const [report, setReport] = useState<SolFlowReport | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const { data: report, isLoading: loading, error: queryError } = useQuery({
+    queryKey: ["sol-trace", mint],
+    queryFn: () => fetchSolTrace(mint),
+  });
+  const error = queryError ? (queryError as { detail?: string }).detail ?? String(queryError) : null;
 
   const [sliderVal, setSliderVal] = useState(100);
   const [playing, setPlaying] = useState(false);
   const playRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  useEffect(() => {
-    setLoading(true);
-    fetchSolTrace(mint)
-      .then((r) => { setReport(r); setSliderVal(100); })
-      .catch((e) => setError(e instanceof ApiError ? e.detail : String(e)))
-      .finally(() => setLoading(false));
-  }, [mint]);
 
   useEffect(() => {
     if (playing) {
@@ -378,6 +373,7 @@ export default function SolTracePage({ params }: Props) {
 
       {/* Header */}
       <div className="space-y-1">
+        <BackButton />
         <div className="flex flex-wrap items-center gap-3">
           <h1 className="text-2xl font-bold">💸 SOL Flow Trace</h1>
           {report.known_cex_detected && (

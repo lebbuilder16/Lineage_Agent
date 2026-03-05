@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import {
   fetchOperatorImpact,
   type OperatorImpactReport,
-  ApiError,
 } from "@/lib/api";
+import BackButton from "@/components/BackButton";
 import { cn } from "@/lib/utils";
 
 interface Props {
@@ -38,17 +38,11 @@ function StatCard({ label, value, accent }: { label: string; value: string | num
 
 export default function OperatorPage({ params }: Props) {
   const { fingerprint } = params;
-  const [report, setReport] = useState<OperatorImpactReport | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    setLoading(true);
-    fetchOperatorImpact(fingerprint)
-      .then(setReport)
-      .catch((e) => setError(e instanceof ApiError ? e.detail : String(e)))
-      .finally(() => setLoading(false));
-  }, [fingerprint]);
+  const { data: report, isLoading: loading, error: queryError } = useQuery({
+    queryKey: ["operator", fingerprint],
+    queryFn: () => fetchOperatorImpact(fingerprint),
+  });
+  const error = queryError ? (queryError as { detail?: string }).detail ?? String(queryError) : null;
 
   if (loading) {
     return (
@@ -78,6 +72,7 @@ export default function OperatorPage({ params }: Props) {
     <div className="space-y-8">
       {/* Title */}
       <div className="space-y-1">
+        <BackButton />
         <div className="flex flex-wrap items-center gap-3">
           <h1 className="text-2xl font-bold">🎭 Operator Dossier</h1>
           {report.is_campaign_active && (
