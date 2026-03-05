@@ -5,6 +5,17 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Marquee keyframes — defined here so they're always in the CSS regardless of
+   whether Tailwind's JIT emits the animate-marquee-* utility classes */
+@keyframes marquee-left {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+@keyframes marquee-right {
+  0%   { transform: translateX(-50%); }
+  100% { transform: translateX(0); }
+}
+
 @layer base {
   :root {
     /* Dark-only crypto theme — no light mode */
