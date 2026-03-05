@@ -153,7 +153,7 @@ export default function HomePage() {
             transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
             className="min-w-0"
           >
-            <p className="display-heading leading-none neon-glow select-none" style={{ fontSize: "clamp(3.5rem, 10vw, 8rem)" }}>
+            <p className="display-heading leading-none neon-glow select-none" style={{ fontSize: "clamp(2rem, 7vw, 5rem)" }}>
               LFG!
             </p>
           </motion.div>

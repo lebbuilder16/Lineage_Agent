@@ -60,9 +60,9 @@ module.exports = {
         pill: "9999px",
       },
       fontSize: {
-        "display-xl": ["clamp(3.5rem, 10vw, 8rem)", { lineHeight: "0.9", fontWeight: "800" }],
-        "display-lg": ["clamp(2.5rem, 7vw, 5.5rem)", { lineHeight: "0.95", fontWeight: "800" }],
-        "display-md": ["clamp(1.75rem, 4vw, 3rem)", { lineHeight: "1.0", fontWeight: "700" }],
+        "display-xl": ["clamp(2.25rem, 6vw, 4.5rem)", { lineHeight: "0.92", fontWeight: "800" }],
+        "display-lg": ["clamp(1.75rem, 4.5vw, 3.5rem)", { lineHeight: "0.95", fontWeight: "800" }],
+        "display-md": ["clamp(1.25rem, 3vw, 2.25rem)", { lineHeight: "1.0", fontWeight: "700" }],
       },
       animation: {
         "marquee-left": "marquee-left 28s linear infinite",
