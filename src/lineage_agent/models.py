@@ -785,12 +785,38 @@ class TokenCompareResult(BaseModel):
     name_similarity: float = Field(0.0, ge=0.0, le=1.0)
     symbol_similarity: float = Field(0.0, ge=0.0, le=1.0)
     image_similarity: float = Field(
-        -1.0, ge=-1.0, le=1.0, description="-1 = image unavailable or comparison failed"
+        -1.0,
+        ge=-2.0,
+        le=1.0,
+        description="-1 = no image URL, -2 = image fetch failed/timed-out, [0,1] = similarity score",
+    )
+    temporal_score: float = Field(
+        0.5,
+        ge=0.0,
+        le=1.0,
+        description="Directional age signal: 1.0 = token_a is significantly older, 0.5 = same age / unknown, 0.0 = token_a is significantly newer",
+    )
+    metadata_uri_match: bool = Field(
+        False, description="Both tokens share the exact same on-chain metadata URI"
+    )
+    image_url_match: bool = Field(
+        False, description="Both tokens share the exact same image URL"
+    )
+    same_token_program: bool = Field(
+        False,
+        description="Both mints are owned by the same non-standard SPL program (custom token program)",
     )
     composite_score: float = Field(
-        0.0, ge=0.0, le=1.0, description="Weighted composite of name + symbol + image"
+        0.0,
+        ge=0.0,
+        le=1.0,
+        description="Weighted composite of name + symbol + image + temporal signals",
     )
     verdict: Literal["identical_operator", "clone", "related", "unrelated"] = "unrelated"
+    verdict_reasons: list[str] = Field(
+        default_factory=list,
+        description="Human-readable explanations for the verdict",
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -53,7 +53,7 @@ from config import (
     WALLET_LABELS_REFRESH_HOURS,
 )
 from .circuit_breaker import get_all_statuses as cb_statuses
-from .data_sources._clients import close_clients, init_clients
+from .data_sources._clients import close_clients, init_clients, get_rpc_client
 from .lineage_detector import (
     bootstrap_deployer_history,
     detect_lineage,
@@ -1712,17 +1712,14 @@ async def auth_remove_watch(watch_id: int, request: Request):
     tags=["intelligence"],
     summary="Side-by-side similarity analysis between two tokens",
 )
-@limiter.limit("10/minute")
+@limiter.limit("30/minute")  # raised from 10 → 30 (point 8)
 async def compare_tokens(
     request: Request,
     mint_a: str = Query(..., description="First Solana mint address"),
     mint_b: str = Query(..., description="Second Solana mint address"),
 ) -> TokenCompareResult:
-    """Compare two tokens across name, symbol, image, deployer and lineage dimensions.
-
-    No new RPC calls beyond the standard lineage detection:
-    both tokens are resolved via :func:`detect_lineage` (cached).
-    """
+    """Compare two tokens across name, symbol, image, deployer, temporal and lineage dimensions."""
+    # ── 1. Basic format validation ────────────────────────────────────────────
     if not _BASE58_RE.match(mint_a):
         raise HTTPException(status_code=400, detail="Invalid mint_a address")
     if not _BASE58_RE.match(mint_b):
@@ -1730,39 +1727,91 @@ async def compare_tokens(
     if mint_a == mint_b:
         raise HTTPException(status_code=400, detail="mint_a and mint_b must be different")
 
-    try:
-        from .similarity import (  # noqa: PLC0415
-            compute_name_similarity,
-            compute_symbol_similarity,
-            compute_image_similarity,
-        )
-        # Fetch lineage for both tokens concurrently
-        res_a, res_b = await asyncio.gather(
-            detect_lineage(mint_a),
-            detect_lineage(mint_b),
-            return_exceptions=True,
-        )
-    except Exception as exc:
-        logger.exception("compare: lineage fetch failed")
-        raise HTTPException(status_code=500, detail="Internal server error") from exc
+    from .similarity import (  # noqa: PLC0415
+        compute_name_similarity,
+        compute_symbol_similarity,
+        compute_image_similarity,
+        compute_temporal_score,
+    )
 
-    # Handle per-token errors gracefully
-    if isinstance(res_a, Exception):
+    # ── 2. Validate mint existence on-chain (getAccountInfo) ─────────────────
+    # Runs concurrently with lineage fetch to avoid extra latency.
+    # We skip the hard validation only if the RPC call itself times out/errors
+    # (avoid blocking the comparison on a network hiccup).
+    rpc = get_rpc_client()
+    _SPL_TOKEN_PROGRAMS = frozenset({
+        "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",   # SPL Token
+        "Token2022rMLqfGMQpwkX83CmP5VWMdM8RX8bH6TfpHn",  # Token-2022
+    })
+
+    async def _get_account(mint: str) -> dict | None:
+        try:
+            return await asyncio.wait_for(
+                rpc._call("getAccountInfo", [mint, {"encoding": "base64"}]),
+                timeout=8.0,
+            )
+        except Exception:
+            return None
+
+    # ── 3. Concurrent: account validation + lineage fetch ────────────────────
+    acc_a, acc_b, res_a, res_b = await asyncio.gather(
+        _get_account(mint_a),
+        _get_account(mint_b),
+        detect_lineage(mint_a),
+        detect_lineage(mint_b),
+        return_exceptions=True,
+    )
+
+    # Validate on-chain existence when we got a definitive null value
+    if isinstance(acc_a, dict) and acc_a.get("value") is None:
+        raise HTTPException(status_code=400, detail="mint_a not found on Solana")
+    if isinstance(acc_b, dict) and acc_b.get("value") is None:
+        raise HTTPException(status_code=400, detail="mint_b not found on Solana")
+
+    # Extract token program owner from mint accounts (point 6)
+    owner_a = ((acc_a.get("value") or {}).get("owner", "") if isinstance(acc_a, dict) else "")
+    owner_b = ((acc_b.get("value") or {}).get("owner", "") if isinstance(acc_b, dict) else "")
+    # Only flag as "same program" for non-standard programs (custom token programs)
+    same_token_program = bool(
+        owner_a and owner_b
+        and owner_a == owner_b
+        and owner_a not in _SPL_TOKEN_PROGRAMS
+    )
+
+    # ── 4. Handle lineage result errors (point 1) ─────────────────────────────
+    lineage_a_err = isinstance(res_a, Exception)
+    lineage_b_err = isinstance(res_b, Exception)
+
+    if lineage_a_err:
         logger.warning("compare: lineage for %s failed: %s", mint_a[:8], res_a)
         res_a = None
-    if isinstance(res_b, Exception):
+    if lineage_b_err:
         logger.warning("compare: lineage for %s failed: %s", mint_b[:8], res_b)
         res_b = None
+
+    # If BOTH lineage fetches failed we cannot produce any meaningful score —
+    # return an explicit 503 instead of a misleading "unrelated" verdict.
+    if lineage_a_err and lineage_b_err:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Could not fetch on-chain data for either token — "
+                "the Solana RPC may be temporarily unavailable. Try again shortly."
+            ),
+        )
 
     tok_a = res_a.root if res_a and res_a.root else None
     tok_b = res_b.root if res_b and res_b.root else None
 
+    # ── 5. Similarity signals ─────────────────────────────────────────────────
     name_sim = compute_name_similarity(
         tok_a.name if tok_a else "", tok_b.name if tok_b else ""
     )
     sym_sim = compute_symbol_similarity(
         tok_a.symbol if tok_a else "", tok_b.symbol if tok_b else ""
     )
+
+    # Image similarity — distinguish "no URL" (-1) from "fetch failed" (-2)
     img_sim = -1.0
     if tok_a and tok_b and tok_a.image_uri and tok_b.image_uri:
         try:
@@ -1771,9 +1820,31 @@ async def compare_tokens(
                 timeout=10.0,
             )
         except asyncio.TimeoutError:
+            img_sim = -2.0  # fetch timed out (point 3)
             logger.warning("compare: image similarity timed out for %s vs %s", mint_a[:8], mint_b[:8])
         except Exception:
+            img_sim = -2.0  # fetch/hash failed (point 3)
             logger.warning("compare: image similarity failed", exc_info=True)
+
+    # Temporal signal — how far apart were these tokens deployed? (point 4)
+    ts_a = tok_a.created_at if tok_a else None
+    ts_b = tok_b.created_at if tok_b else None
+    temporal_score = compute_temporal_score(ts_a, ts_b)
+    # Convert directional score to proximity (1=same age, 0=far apart) for composite
+    temporal_proximity = 1.0 - 2.0 * abs(temporal_score - 0.5)
+
+    # Metadata URI exact match (point 5)
+    metadata_uri_match = bool(
+        tok_a and tok_b
+        and tok_a.metadata_uri and tok_b.metadata_uri
+        and tok_a.metadata_uri.strip() == tok_b.metadata_uri.strip()
+    )
+    # Image URL exact match (point 5)
+    image_url_match = bool(
+        tok_a and tok_b
+        and tok_a.image_uri and tok_b.image_uri
+        and tok_a.image_uri.strip() == tok_b.image_uri.strip()
+    )
 
     same_deployer = bool(
         tok_a and tok_b
@@ -1781,28 +1852,66 @@ async def compare_tokens(
         and tok_a.deployer == tok_b.deployer
     )
 
-    # Check whether one token appears in the lineage derivatives of the other
+    # Family membership check
     same_family = False
     if res_a and res_b:
         mints_a = {d.mint for d in (res_a.derivatives or [])} | {res_a.mint}
         mints_b = {d.mint for d in (res_b.derivatives or [])} | {res_b.mint}
         same_family = mint_b in mints_a or mint_a in mints_b
 
-    # Composite score: name 35% + symbol 25% + image 40% (when available)
-    if img_sim >= 0.0:
-        composite = name_sim * 0.35 + sym_sim * 0.25 + img_sim * 0.40
+    # ── 6. Composite score (point 4 — includes temporal) ─────────────────────
+    img_available = img_sim >= 0.0
+    if img_available:
+        # name 30% + symbol 20% + image 35% + temporal 15%
+        composite = (
+            name_sim * 0.30
+            + sym_sim * 0.20
+            + img_sim * 0.35
+            + temporal_proximity * 0.15
+        )
     else:
-        composite = name_sim * 0.55 + sym_sim * 0.45
+        # name 45% + symbol 35% + temporal 20%  (image unavailable)
+        composite = (
+            name_sim * 0.45
+            + sym_sim * 0.35
+            + temporal_proximity * 0.20
+        )
 
-    # Verdict
-    if same_deployer and composite >= 0.8:
+    # ── 7. Verdict ────────────────────────────────────────────────────────────
+    # URL exact-match is definitive clone evidence regardless of composite score
+    has_url_match = metadata_uri_match or image_url_match
+
+    if has_url_match and same_deployer:
         verdict = "identical_operator"
+    elif has_url_match or (same_deployer and composite >= 0.8):
+        verdict = "clone"
     elif composite >= 0.70 or same_family:
         verdict = "clone"
     elif composite >= 0.40 or same_deployer:
         verdict = "related"
     else:
         verdict = "unrelated"
+
+    # ── 8. Human-readable verdict reasons ────────────────────────────────────
+    verdict_reasons: list[str] = []
+    if same_deployer:
+        verdict_reasons.append("same deployer address")
+    if same_family:
+        verdict_reasons.append("one token appears in the other's lineage")
+    if metadata_uri_match:
+        verdict_reasons.append("identical on-chain metadata URI")
+    if image_url_match:
+        verdict_reasons.append("identical image URL")
+    if same_token_program:
+        verdict_reasons.append(f"same custom token program ({owner_a[:8]}…)")
+    if img_available and round(composite * 100) >= 70:
+        verdict_reasons.append(f"composite score {round(composite * 100)}% ≥ 70% clone threshold")
+    elif round(composite * 100) >= 40:
+        verdict_reasons.append(f"composite score {round(composite * 100)}% ≥ 40% related threshold")
+    if lineage_a_err:
+        verdict_reasons.append(f"⚠ on-chain data unavailable for token A — scores may be incomplete")
+    if lineage_b_err:
+        verdict_reasons.append(f"⚠ on-chain data unavailable for token B — scores may be incomplete")
 
     return TokenCompareResult(
         mint_a=mint_a,
@@ -1814,8 +1923,13 @@ async def compare_tokens(
         name_similarity=round(name_sim, 4),
         symbol_similarity=round(sym_sim, 4),
         image_similarity=round(img_sim, 4),
+        temporal_score=round(temporal_score, 4),
+        metadata_uri_match=metadata_uri_match,
+        image_url_match=image_url_match,
+        same_token_program=same_token_program,
         composite_score=round(composite, 4),
         verdict=verdict,  # type: ignore[arg-type]
+        verdict_reasons=verdict_reasons,
     )
 
 

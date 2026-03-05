@@ -207,6 +207,16 @@ export default function ComparePage() {
                   🔗 Same family
                 </span>
               )}
+              {result.metadata_uri_match && (
+                <span className="flex items-center gap-1 text-red-400 font-medium">
+                  🔗 Same metadata URI
+                </span>
+              )}
+              {result.image_url_match && (
+                <span className="flex items-center gap-1 text-red-400 font-medium">
+                  🖼 Same image URL
+                </span>
+              )}
               <span>Composite score: <strong className="text-zinc-200">{Math.round(result.composite_score * 100)}%</strong></span>
             </div>
           </div>
@@ -223,13 +233,58 @@ export default function ComparePage() {
             <ScoreBar label="Name similarity" value={result.name_similarity} />
             <ScoreBar label="Symbol similarity" value={result.symbol_similarity} />
             <ScoreBar
-              label={result.image_similarity < 0 ? "Image similarity (CLIP disabled)" : "Image similarity"}
+              label={
+                result.image_similarity === -2
+                  ? "Image similarity (fetch failed)"
+                  : result.image_similarity < 0
+                  ? "Image similarity (no image)"
+                  : "Image similarity"
+              }
               value={Math.max(0, result.image_similarity)}
+            />
+            <ScoreBar
+              label="Temporal proximity"
+              value={1 - 2 * Math.abs(result.temporal_score - 0.5)}
             />
             <div className="border-t border-white/5 pt-3">
               <ScoreBar label="Composite score" value={result.composite_score} />
             </div>
           </div>
+
+          {/* Extra signals */}
+          {(result.metadata_uri_match || result.image_url_match || result.same_token_program || result.verdict_reasons.length > 0) && (
+            <div className="rounded-xl border border-white/5 bg-card p-5 space-y-3">
+              <h2 className="text-sm font-semibold text-zinc-300">Signals</h2>
+              <div className="flex flex-wrap gap-2">
+                {result.metadata_uri_match && (
+                  <span className="rounded-full bg-red-500/10 border border-red-500/30 px-2.5 py-1 text-xs font-medium text-red-400">🔗 Same metadata URI</span>
+                )}
+                {result.image_url_match && (
+                  <span className="rounded-full bg-red-500/10 border border-red-500/30 px-2.5 py-1 text-xs font-medium text-red-400">🖼 Same image URL</span>
+                )}
+                {result.same_token_program && (
+                  <span className="rounded-full bg-yellow-500/10 border border-yellow-500/30 px-2.5 py-1 text-xs font-medium text-yellow-400">⚙ Same custom program</span>
+                )}
+                <span className="rounded-full bg-zinc-800 border border-white/5 px-2.5 py-1 text-xs text-zinc-400">
+                  {result.temporal_score >= 0.6
+                    ? `Token A is older (temporal score ${Math.round(result.temporal_score * 100)}%)`
+                    : result.temporal_score <= 0.4
+                    ? `Token B is older (temporal score ${Math.round((1 - result.temporal_score) * 100)}%)`
+                    : "Similar age"}
+                </span>
+              </div>
+              {result.verdict_reasons.length > 0 && (
+                <ul className="space-y-1 text-xs text-zinc-400">
+                  {result.verdict_reasons.map((reason, i) => (
+                    <li key={i} className="flex items-start gap-1.5">
+                      <span className="mt-0.5 text-neon/60">›</span>
+                      {reason}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>

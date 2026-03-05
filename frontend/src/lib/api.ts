@@ -403,9 +403,16 @@ export interface TokenCompareResult {
   same_family: boolean;
   name_similarity: number;
   symbol_similarity: number;
+  /** -1 = no image URL, -2 = image fetch failed/timed-out, [0,1] = score */
   image_similarity: number;
+  /** 0=very different ages, 0.5=same age/unknown, 1=token_a significantly older */
+  temporal_score: number;
+  metadata_uri_match: boolean;
+  image_url_match: boolean;
+  same_token_program: boolean;
   composite_score: number;
   verdict: string;
+  verdict_reasons: string[];
 }
 
 /* ---------- Error class --------------------------------------------- */
