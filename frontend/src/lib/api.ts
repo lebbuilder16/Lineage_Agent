@@ -385,10 +385,11 @@ export interface NarrativeCount {
 }
 
 export interface GlobalStats {
-  tokens_scanned: number;
+  tokens_scanned_24h: number;
   tokens_rugged_24h: number;
-  rug_rate: number;
-  active_deployers: number;
+  /** Percentage 0–100 (not a ratio) */
+  rug_rate_24h_pct: number;
+  active_deployers_24h: number;
   top_narratives: NarrativeCount[];
   db_events_total: number;
   last_updated: string;

@@ -176,8 +176,8 @@ export default function DashboardPage() {
           </div>
           <div className="p-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
             <div>
-              <p className="text-xs text-muted-foreground">Tokens scanned</p>
-              <p className="text-xl font-display font-bold">{globalStats.tokens_scanned.toLocaleString()}</p>
+              <p className="text-xs text-muted-foreground">Tokens scanned (24 h)</p>
+              <p className="text-xl font-display font-bold">{globalStats.tokens_scanned_24h.toLocaleString()}</p>
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Rugs (24 h)</p>
@@ -186,12 +186,12 @@ export default function DashboardPage() {
             <div>
               <p className="text-xs text-muted-foreground">Rug rate</p>
               <p className="text-xl font-display font-bold text-orange-400">
-                {(globalStats.rug_rate * 100).toFixed(1)}%
+                {globalStats.rug_rate_24h_pct.toFixed(1)}%
               </p>
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Active deployers</p>
-              <p className="text-xl font-display font-bold">{globalStats.active_deployers}</p>
+              <p className="text-xl font-display font-bold">{globalStats.active_deployers_24h}</p>
             </div>
           </div>
           {globalStats.top_narratives.length > 0 && (
