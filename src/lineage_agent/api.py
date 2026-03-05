@@ -1530,7 +1530,7 @@ async def forensic_chat(
             try:
                 from .data_sources._clients import cache as _cache  # noqa: PLC0415
                 # Try cached AI analysis first
-                _ai_key = f"ai:v2:{mint}"
+                _ai_key = f"ai:v3:{mint}"
                 _ai_cached = _cache.get(_ai_key)
                 if hasattr(_ai_cached, "__await__"):
                     _ai_cached = await _ai_cached
