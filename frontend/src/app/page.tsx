@@ -334,7 +334,54 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* ── 8. FAQ ──────────────────────────────────────────────── */}
+      {/* ── 8. Telegram Bot ─────────────────────────────────────── */}
+      <section id="telegram" className="w-full border-t border-white/5 bg-white/[0.02] py-20 scroll-mt-20">
+        <div className="max-w-2xl mx-auto px-4 sm:px-6 text-center">
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.5 }}
+            className="space-y-8"
+          >
+            <div className="space-y-3">
+              <p className="display-heading text-xs tracking-widest uppercase text-neon">TELEGRAM BOT</p>
+              <h2 className="display-heading text-display-md text-white">SCAN FROM<br />ANYWHERE</h2>
+            </div>
+            <p className="text-white/50 text-sm sm:text-base leading-relaxed max-w-xl mx-auto">
+              Drop any Solana mint address into <span className="text-white/80 font-mono">@meme_lineage_bot</span> and get
+              an instant forensic report — AI risk score, bundle detection, deployer history,
+              clone analysis — all without leaving Telegram.
+            </p>
+            <div className="flex flex-wrap justify-center gap-2 text-xs">
+              {[
+                "🔍 Instant token scan",
+                "🤖 AI risk score",
+                "🧬 Clone detection",
+                "📦 Bundle analysis",
+                "🔔 Deployer alerts",
+              ].map((chip) => (
+                <span key={chip} className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-white/60">
+                  {chip}
+                </span>
+              ))}
+            </div>
+            <a
+              href="https://t.me/meme_lineage_bot"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 rounded-full bg-[#229ED9] px-7 py-3 text-sm font-display font-bold text-white hover:opacity-90 transition-all hover:scale-105"
+            >
+              <svg viewBox="0 0 24 24" className="w-4 h-4 fill-current" xmlns="http://www.w3.org/2000/svg">
+                <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/>
+              </svg>
+              Open @meme_lineage_bot
+            </a>
+          </motion.div>
+        </div>
+      </section>
+
+      {/* ── 9. FAQ ──────────────────────────────────────────────── */}
       <section id="faq" className="w-full border-t border-white/5 bg-white/[0.015] py-24 scroll-mt-20">
         <div className="max-w-3xl mx-auto px-4 sm:px-6">
           <motion.div
@@ -368,6 +415,7 @@ export default function HomePage() {
                 { label: "FAQ", href: "/#faq", internal: true },
                 { label: "GitHub", href: "https://github.com/lebbuilder16/Lineage_Agent", internal: false },
                 { label: "𝕏", href: "https://x.com/LineageMemes", internal: false },
+                { label: "Telegram", href: "https://t.me/meme_lineage_bot", internal: false },
               ].map((l) => (
                 l.internal
                   ? <Link key={l.label} href={l.href} className="text-white/40 hover:text-white text-sm transition-colors">{l.label}</Link>
