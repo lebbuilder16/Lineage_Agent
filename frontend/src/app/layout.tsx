@@ -98,6 +98,7 @@ export default function RootLayout({
                   { label: "Signals", href: "/#signals" },
                   { label: "How it works", href: "/#how-it-works" },
                   { label: "FAQ", href: "/#faq" },
+                  { label: "Compare", href: "/compare" },
                   { label: "Dashboard", href: "/dashboard" },
                 ].map((item) => (
                   <Link

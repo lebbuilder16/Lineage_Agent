@@ -12,11 +12,12 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { Trash2, ExternalLink, Star, Bell, Clock, TrendingUp } from "lucide-react";
+import { Trash2, ExternalLink, Star, Bell, Clock, TrendingUp, BarChart2, AlertTriangle } from "lucide-react";
 import { useWatchlist } from "@/hooks/useWatchlist";
 import { useAlerts } from "@/hooks/useAlerts";
 import { cn } from "@/lib/utils";
 import WatchButton from "@/components/WatchButton";
+import { fetchGlobalStats, type GlobalStats } from "@/lib/api";
 
 // ── History helpers (mirrors CommandPalette.tsx storage) ─────────────────────
 interface HistoryEntry {
@@ -77,13 +78,16 @@ export default function DashboardPage() {
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const { entries: watchlist, remove: removeWatch, clear: clearWatch } = useWatchlist();
   const { alerts, unreadCount, markAllRead, dismiss, requestPermission } = useAlerts();
+  const [globalStats, setGlobalStats] = useState<GlobalStats | null>(null);
 
   useEffect(() => {
     setHistory(readHistory());
-    // Re-read whenever another component adds a history entry (same-tab or cross-tab)
     const onHistoryChange = () => setHistory(readHistory());
     window.addEventListener("lineage:history-changed", onHistoryChange);
     window.addEventListener("storage", (e) => { if (e.key === HISTORY_KEY) onHistoryChange(); });
+
+    fetchGlobalStats().then(setGlobalStats).catch(() => {/* non-blocking */});
+
     return () => {
       window.removeEventListener("lineage:history-changed", onHistoryChange);
     };
@@ -156,6 +160,67 @@ export default function DashboardPage() {
           </div>
         ))}
       </div>
+
+      {/* ── Global stats (live from API) ────────────────────────── */}
+      {globalStats && (
+        <section className="rounded-xl border border-white/5 bg-card overflow-hidden">
+          <div className="flex items-center justify-between border-b border-white/5 px-4 py-3">
+            <h2 className="flex items-center gap-2 text-sm font-semibold">
+              <BarChart2 className="h-4 w-4 text-neon" />
+              Network stats
+              <span className="text-[10px] text-muted-foreground font-normal">(live · 60s cache)</span>
+            </h2>
+            <Link href="/compare" className="text-xs text-neon hover:underline">
+              Compare two tokens →
+            </Link>
+          </div>
+          <div className="p-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
+            <div>
+              <p className="text-xs text-muted-foreground">Tokens scanned</p>
+              <p className="text-xl font-display font-bold">{globalStats.tokens_scanned.toLocaleString()}</p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Rugs (24 h)</p>
+              <p className="text-xl font-display font-bold text-red-400">{globalStats.tokens_rugged_24h}</p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Rug rate</p>
+              <p className="text-xl font-display font-bold text-orange-400">
+                {(globalStats.rug_rate * 100).toFixed(1)}%
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Active deployers</p>
+              <p className="text-xl font-display font-bold">{globalStats.active_deployers}</p>
+            </div>
+          </div>
+          {globalStats.top_narratives.length > 0 && (
+            <div className="border-t border-white/5 px-4 py-3">
+              <p className="text-[10px] uppercase tracking-widest text-zinc-500 mb-2">Top narratives (24 h)</p>
+              <div className="flex flex-wrap gap-2">
+                {globalStats.top_narratives.map((n) => (
+                  <span
+                    key={n.narrative}
+                    className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-xs text-zinc-300"
+                  >
+                    {n.narrative}
+                    <span className="ml-1 text-zinc-500">{n.count}</span>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+          {globalStats.tokens_rugged_24h > 0 && (
+            <div className="border-t border-white/5 px-4 py-2 flex items-center gap-2">
+              <AlertTriangle className="h-3 w-3 text-orange-400 shrink-0" />
+              <p className="text-xs text-muted-foreground">
+                {globalStats.tokens_rugged_24h} rug{globalStats.tokens_rugged_24h > 1 ? "s" : ""} detected in the last 24 hours —{" "}
+                <Link href="/search" className="text-neon hover:underline">run an analysis</Link> on any suspicious token.
+              </p>
+            </div>
+          )}
+        </section>
+      )}
 
       {/* ── Grid: watchlist + history ──────────────────────────────── */}
       <div className="grid gap-6 lg:grid-cols-2">

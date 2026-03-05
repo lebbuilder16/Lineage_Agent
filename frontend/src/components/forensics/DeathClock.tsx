@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import type { DeathClockForecast as DeathClockForecastType } from "@/lib/api";
+import type { DeathClockForecast as DeathClockForecastType, MarketSignals } from "@/lib/api";
 import { ForensicCard } from "./ForensicCard";
 
 const RISK_CONFIG = {
@@ -80,6 +80,8 @@ export default function DeathClock({ forecast }: Props) {
           <span className="text-zinc-500">{forecast.confidence_note}</span>
         )}
       </p>
+
+      {forecast.market_signals && <MarketSignalsPanel signals={forecast.market_signals} />}
     </div>
   );
 }
@@ -87,4 +89,82 @@ export default function DeathClock({ forecast }: Props) {
 function formatDate(iso: string): string {
   const d = new Date(iso);
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+function MarketSignalsPanel({ signals }: { signals: MarketSignals }) {
+  const trend = signals.volume_trend;
+  const trendColor =
+    trend === "rising" ? "text-emerald-400" : trend === "declining" ? "text-red-400" : "text-zinc-400";
+  const trendIcon = trend === "rising" ? "↑" : trend === "declining" ? "↓" : "→";
+
+  const fmt = (v: number | null, decimals = 0, prefix = "") =>
+    v == null ? "—" : `${prefix}${v.toLocaleString(undefined, { maximumFractionDigits: decimals })}`;
+
+  const liqRatioColor =
+    signals.liq_to_mcap_ratio != null && signals.liq_to_mcap_ratio < 0.005
+      ? "text-red-400"
+      : signals.liq_to_mcap_ratio != null && signals.liq_to_mcap_ratio < 0.01
+      ? "text-orange-400"
+      : "text-zinc-300";
+
+  return (
+    <div className="mt-3 border-t border-zinc-800 pt-3">
+      <p className="text-[10px] uppercase tracking-widest text-zinc-500 mb-2">Market signals</p>
+      <div className="grid grid-cols-3 gap-2 text-xs">
+        <div>
+          <p className="text-zinc-500">Liquidity</p>
+          <p className="font-medium text-zinc-200">{fmt(signals.liquidity_usd, 0, "$")}</p>
+        </div>
+        <div>
+          <p className="text-zinc-500">Market cap</p>
+          <p className="font-medium text-zinc-200">{fmt(signals.market_cap_usd, 0, "$")}</p>
+        </div>
+        <div>
+          <p className="text-zinc-500">Liq / MCap</p>
+          <p className={`font-medium ${liqRatioColor}`}>
+            {signals.liq_to_mcap_ratio != null
+              ? `${(signals.liq_to_mcap_ratio * 100).toFixed(2)}%`
+              : "—"}
+          </p>
+        </div>
+        <div>
+          <p className="text-zinc-500">1h price</p>
+          <p
+            className={`font-medium ${
+              signals.price_change_h1_pct != null && signals.price_change_h1_pct < 0
+                ? "text-red-400"
+                : "text-emerald-400"
+            }`}
+          >
+            {signals.price_change_h1_pct != null
+              ? `${signals.price_change_h1_pct > 0 ? "+" : ""}${signals.price_change_h1_pct.toFixed(1)}%`
+              : "—"}
+          </p>
+        </div>
+        <div>
+          <p className="text-zinc-500">Sell pressure</p>
+          <p
+            className={`font-medium ${
+              signals.sell_pressure_pct != null && signals.sell_pressure_pct > 60
+                ? "text-red-400"
+                : "text-zinc-300"
+            }`}
+          >
+            {fmt(signals.sell_pressure_pct, 0)}%
+          </p>
+        </div>
+        <div>
+          <p className="text-zinc-500">Vol trend</p>
+          <p className={`font-medium ${trendColor}`}>
+            {trendIcon} {trend}
+          </p>
+        </div>
+      </div>
+      {signals.adjusted_risk_boost > 0 && (
+        <p className="mt-2 text-[10px] text-orange-400">
+          ⚡ Risk boost +{signals.adjusted_risk_boost.toFixed(1)} from market signals
+        </p>
+      )}
+    </div>
+  );
 }

@@ -372,6 +372,37 @@ export function fetchBundleReport(mint: string, deployer?: string): Promise<Bund
   return fetchJSON<BundleExtractionReport>(`/bundle/${mint}${qs}`, 35_000);
 }
 
+/* ---------- Token compare / global stats types --------------------- */
+
+export interface NarrativeCount {
+  narrative: string;
+  count: number;
+}
+
+export interface GlobalStats {
+  tokens_scanned: number;
+  tokens_rugged_24h: number;
+  rug_rate: number;
+  active_deployers: number;
+  top_narratives: NarrativeCount[];
+  db_events_total: number;
+  last_updated: string;
+}
+
+export interface TokenCompareResult {
+  mint_a: string;
+  mint_b: string;
+  token_a: TokenMetadata | null;
+  token_b: TokenMetadata | null;
+  same_deployer: boolean;
+  same_family: boolean;
+  name_similarity: number;
+  symbol_similarity: number;
+  image_similarity: number;
+  composite_score: number;
+  verdict: string;
+}
+
 /* ---------- Error class --------------------------------------------- */
 
 export class ApiError extends Error {
@@ -498,6 +529,17 @@ export function fetchCartelSearch(deployer: string): Promise<CartelReport> {
   return fetchJSON<CartelReport>(`/cartel/search?deployer=${encodeURIComponent(deployer)}`);
 }
 
+export function fetchCompare(mintA: string, mintB: string): Promise<TokenCompareResult> {
+  return fetchJSON<TokenCompareResult>(
+    `/compare?mint_a=${encodeURIComponent(mintA)}&mint_b=${encodeURIComponent(mintB)}`,
+    30_000,
+  );
+}
+
+export function fetchGlobalStats(): Promise<GlobalStats> {
+  return fetchJSON<GlobalStats>("/stats/global", 15_000);
+}
+
 export function fetchCartelCommunity(communityId: string): Promise<CartelCommunity> {
   return fetchJSON<CartelCommunity>(`/cartel/${encodeURIComponent(communityId)}`);
 }
@@ -510,50 +552,6 @@ export function searchTokens(query: string): Promise<TokenSearchResult[]> {
   return fetchJSON<TokenSearchResult[]>(
     `/search?q=${encodeURIComponent(query)}`,
   );
-}
-
-/* ---------- Compare two tokens ------------------------------------- */
-
-export interface TokenCompareResult {
-  mint_a: string;
-  mint_b: string;
-  token_a: TokenMetadata | null;
-  token_b: TokenMetadata | null;
-  same_deployer: boolean;
-  same_family: boolean;
-  name_similarity: number;
-  symbol_similarity: number;
-  image_similarity: number;
-  composite_score: number;
-  verdict: "unrelated" | "similar" | "likely_clone" | "confirmed_clone";
-}
-
-export function fetchCompare(mintA: string, mintB: string): Promise<TokenCompareResult> {
-  return fetchJSON<TokenCompareResult>(
-    `/compare?mint_a=${encodeURIComponent(mintA)}&mint_b=${encodeURIComponent(mintB)}`,
-    30_000,
-  );
-}
-
-/* ---------- Global stats ------------------------------------------- */
-
-export interface NarrativeCount {
-  narrative: string;
-  count: number;
-}
-
-export interface GlobalStats {
-  tokens_scanned: number;
-  rugged_24h: number;
-  rug_rate: number;
-  active_deployers: number;
-  top_narratives: NarrativeCount[];
-  db_events_total: number;
-  last_updated: string;
-}
-
-export function fetchGlobalStats(): Promise<GlobalStats> {
-  return fetchJSON<GlobalStats>(`/stats/global`, 15_000);
 }
 
 /* ---------- WebSocket lineage with progress ------------------------- */
