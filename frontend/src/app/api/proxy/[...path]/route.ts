@@ -59,6 +59,9 @@ async function proxyRequest(
   const search = req.nextUrl.searchParams.toString();
   const targetUrl = `${BASE}${pathname}${search ? `?${search}` : ""}`;
 
+  // ── LOG: show exactly which URL the proxy is forwarding to ──────────────
+  console.log(`[proxy] ${method} ${targetUrl}  (BACKEND_URL="${BASE}")`);
+
   const headers = new Headers();
   // Forward relevant headers
   const contentType = req.headers.get("content-type");
@@ -76,20 +79,34 @@ async function proxyRequest(
       method,
       headers,
       body,
-      // Node.js fetch doesn't need a signal for typical req/res
     });
 
-    const data = await upstream.arrayBuffer();
-    return new NextResponse(data, {
+    // ── LOG: upstream HTTP status ─────────────────────────────────────────
+    console.log(`[proxy] ← ${upstream.status} ${upstream.statusText}  (${targetUrl})`);
+
+    const rawBody = await upstream.text();
+
+    if (!upstream.ok) {
+      // ── LOG: non-2xx — dump the body so we can see the error detail ─────
+      console.error(`[proxy] upstream error body (${upstream.status}):`, rawBody);
+    }
+
+    return new NextResponse(rawBody, {
       status: upstream.status,
       headers: {
         "content-type": upstream.headers.get("content-type") ?? "application/json",
       },
     });
   } catch (err) {
-    console.error("[proxy] upstream error:", targetUrl, err);
+    // ── LOG: network-level error (connection refused, DNS failure, …) ──────
+    console.error("[proxy] NETWORK ERROR reaching backend:", targetUrl);
+    console.error("[proxy] error details:", err);
     return NextResponse.json(
-      { detail: "Backend unreachable — make sure the API server is running." },
+      {
+        detail:
+          `Backend unreachable at ${BASE} — make sure the API server is running. ` +
+          `(${err instanceof Error ? err.message : String(err)})`,
+      },
       { status: 502 },
     );
   }

@@ -432,6 +432,9 @@ async function fetchJSON<T>(
 ): Promise<T> {
   let lastError: unknown;
 
+  // LOG: visible in browser DevTools → Console
+  console.debug(`[api] fetchJSON → ${HTTP_API}${path}`);
+
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -440,6 +443,9 @@ async function fetchJSON<T>(
       const res = await fetch(`${HTTP_API}${path}`, {
         signal: controller.signal,
       });
+
+      // LOG: show what HTTP status came back
+      console.debug(`[api] fetchJSON ← ${res.status} ${res.statusText}  (attempt ${attempt + 1})`);
 
       // --- 429 rate-limited: honour Retry-After header then retry ----------
       if (res.status === 429 && attempt < MAX_RETRIES) {
@@ -453,6 +459,8 @@ async function fetchJSON<T>(
         let detail = `HTTP ${res.status}`;
         try {
           const body = await res.json();
+          // LOG: dump the error body for easier debugging
+          console.error(`[api] fetchJSON error body:`, body);
           if (body?.detail) detail = body.detail;
         } catch {
           // fallback to status text
