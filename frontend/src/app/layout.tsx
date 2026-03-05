@@ -71,8 +71,8 @@ export default function RootLayout({
 
           {/* Pill nav — fixed, glassmorphism */}
           <header
-            className="fixed top-0 left-0 right-0 z-50 flex justify-center px-4"
-            style={{ paddingTop: "max(1.25rem, env(safe-area-inset-top))" }}
+            className="fixed top-0 left-0 right-0 z-50 flex justify-center px-4 pt-3"
+            style={{ paddingTop: "max(0.75rem, env(safe-area-inset-top))" }}
           >
             <nav className="pill-nav flex items-center gap-1 px-2 py-2">
               {/* Logo */}
