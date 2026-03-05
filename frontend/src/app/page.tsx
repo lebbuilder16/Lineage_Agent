@@ -151,9 +151,9 @@ export default function HomePage() {
             whileInView={{ opacity: 1, x: 0 }}
             viewport={{ once: true, margin: "-100px" }}
             transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
-            className="min-w-0 overflow-hidden"
+            className="min-w-0"
           >
-            <p className="display-heading text-[5rem] sm:text-[7rem] md:text-[9rem] leading-none neon-glow select-none">
+            <p className="display-heading leading-none neon-glow select-none" style={{ fontSize: "clamp(3.5rem, 10vw, 8rem)" }}>
               LFG!
             </p>
           </motion.div>
