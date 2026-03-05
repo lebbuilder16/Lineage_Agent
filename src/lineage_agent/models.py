@@ -817,3 +817,63 @@ class GlobalStats(BaseModel):
     last_updated: datetime = Field(
         default_factory=lambda: datetime.now(tz=timezone.utc)
     )
+
+
+# ---------------------------------------------------------------------------
+# System / machine health
+# ---------------------------------------------------------------------------
+
+class DiskPartitionStats(BaseModel):
+    """Disk usage for a single mounted partition."""
+
+    mountpoint: str = Field(..., description="Filesystem mount path")
+    total_gb: float = Field(..., description="Total capacity in GiB")
+    used_gb: float = Field(..., description="Used space in GiB")
+    free_gb: float = Field(..., description="Free space in GiB")
+    used_pct: float = Field(..., ge=0.0, le=100.0, description="Used percentage")
+
+
+class SystemStats(BaseModel):
+    """Snapshot of host machine resources and optimisation recommendations."""
+
+    # CPU
+    cpu_count_logical: int = Field(..., description="Logical CPU core count")
+    cpu_count_physical: Optional[int] = Field(None, description="Physical CPU core count")
+    cpu_usage_pct: float = Field(..., ge=0.0, le=100.0, description="CPU utilisation (1-second sample)")
+    load_avg_1m: float = Field(..., description="1-minute load average")
+    load_avg_5m: float = Field(..., description="5-minute load average")
+    load_avg_15m: float = Field(..., description="15-minute load average")
+
+    # Memory
+    memory_total_gb: float = Field(..., description="Total RAM in GiB")
+    memory_used_gb: float = Field(..., description="Used RAM (excl. buffers/cache) in GiB")
+    memory_available_gb: float = Field(..., description="Available RAM in GiB")
+    memory_used_pct: float = Field(..., ge=0.0, le=100.0, description="RAM utilisation %")
+    swap_total_gb: float = Field(0.0, description="Total swap in GiB")
+    swap_used_gb: float = Field(0.0, description="Used swap in GiB")
+    swap_used_pct: float = Field(0.0, ge=0.0, le=100.0, description="Swap utilisation %")
+
+    # Disk
+    disks: list[DiskPartitionStats] = Field(
+        default_factory=list,
+        description="Per-partition disk usage (physical partitions only)",
+    )
+
+    # Process
+    process_memory_mb: float = Field(..., description="RSS memory of this process in MiB")
+    open_file_descriptors: int = Field(0, description="Open file descriptors for this process")
+    num_threads: int = Field(0, description="Active threads in this process")
+
+    # Uptime
+    host_uptime_seconds: float = Field(..., description="Host uptime in seconds")
+
+    # Optimisation recommendations derived from the snapshot
+    optimisations: list[str] = Field(
+        default_factory=list,
+        description="Human-readable optimisation suggestions based on current resource usage",
+    )
+
+    collected_at: datetime = Field(
+        default_factory=lambda: datetime.now(tz=timezone.utc),
+        description="Timestamp when the snapshot was collected",
+    )

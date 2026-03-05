@@ -25,6 +25,7 @@ import time
 from contextlib import asynccontextmanager
 from typing import Optional
 
+import psutil
 import sentry_sdk
 from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -80,12 +81,14 @@ from .models import (
     CartelCommunity,
     CartelReport,
     DeployerProfile,
+    DiskPartitionStats,
     FinancialGraphSummary,
     GlobalStats,
     LineageResult,
     NarrativeCount,
     OperatorImpactReport,
     SolFlowReport,
+    SystemStats,
     TokenCompareResult,
     TokenSearchResult,
 )
@@ -405,6 +408,206 @@ async def admin_health() -> dict:
         "cache": cache_info,
         "circuit_breakers": cb_statuses(),
     }
+
+
+def _generate_optimisation_tips(  # noqa: C901
+    *,
+    cpu_pct: float,
+    cpu_logical: int,
+    load_1: float,
+    mem_pct: float,
+    mem_used_gb: float,
+    mem_total_gb: float,
+    swap_total_gb: float,
+    swap_pct: float,
+    swap_used_gb: float,
+    disk_partitions: list[DiskPartitionStats],
+    proc_mem_mb: float,
+    open_fds: int,
+) -> list[str]:
+    """Derive human-readable optimisation tips from the collected metrics.
+
+    Returns a non-empty list; if all metrics are healthy the list contains a
+    single "no action required" message.
+    """
+    opts: list[str] = []
+
+    if cpu_pct >= 90:
+        opts.append(
+            f"CPU usage is critical ({cpu_pct:.0f}%). Consider scaling horizontally "
+            "or profiling the hottest code paths."
+        )
+    elif cpu_pct >= 70:
+        opts.append(
+            f"CPU usage is high ({cpu_pct:.0f}%). Review background tasks and "
+            "consider async I/O optimisations."
+        )
+
+    if load_1 > cpu_logical * 1.5:
+        opts.append(
+            f"1-minute load average ({load_1:.2f}) is well above CPU core count ({cpu_logical}). "
+            "Investigate runaway processes or increase CPU capacity."
+        )
+
+    if mem_pct >= 90:
+        opts.append(
+            f"Memory usage is critical ({mem_pct:.0f}%, {mem_used_gb:.1f}/{mem_total_gb:.1f} GiB). "
+            "Increase RAM or reduce in-process cache sizes."
+        )
+    elif mem_pct >= 75:
+        opts.append(
+            f"Memory usage is elevated ({mem_pct:.0f}%, {mem_used_gb:.1f}/{mem_total_gb:.1f} GiB). "
+            "Consider tuning cache TTL or eviction policies."
+        )
+
+    if swap_total_gb > 0 and swap_pct >= 50:
+        opts.append(
+            f"Swap usage is high ({swap_pct:.0f}%, {swap_used_gb:.1f}/{swap_total_gb:.1f} GiB). "
+            "Excessive swapping degrades performance significantly — add more RAM or reduce memory pressure."
+        )
+
+    for dp in disk_partitions:
+        if dp.used_pct >= 90:
+            opts.append(
+                f"Disk '{dp.mountpoint}' is nearly full ({dp.used_pct:.0f}%, "
+                f"{dp.free_gb:.1f} GiB free). Free space immediately to avoid data loss."
+            )
+        elif dp.used_pct >= 75:
+            opts.append(
+                f"Disk '{dp.mountpoint}' is filling up ({dp.used_pct:.0f}%, "
+                f"{dp.free_gb:.1f} GiB free). Run DB VACUUM, purge old logs, or expand storage."
+            )
+
+    if proc_mem_mb >= 1024:
+        opts.append(
+            f"Process RSS is {proc_mem_mb:.0f} MiB. Check for memory leaks or "
+            "consider reducing in-process caches."
+        )
+
+    if open_fds >= 800:
+        opts.append(
+            f"Open file-descriptor count is high ({open_fds}). "
+            "Verify that DB connections and HTTP clients are being closed properly."
+        )
+
+    if not opts:
+        opts.append("All metrics are within healthy thresholds — no immediate action required.")
+
+    return opts
+
+
+def _collect_system_stats() -> SystemStats:
+    """Collect a single snapshot of host and process resource usage.
+
+    Uses *psutil* for cross-platform CPU / memory / disk metrics and adds
+    optimisation recommendations derived from the measured values.
+
+    Note: ``psutil.cpu_percent(interval=1)`` blocks for 1 second to obtain an
+    accurate CPU measurement.  Call this function from a thread-pool executor
+    so the event loop is not stalled.
+    """
+    import os
+
+    _GB = 1024 ** 3
+    _MB = 1024 ** 2
+
+    # ── CPU ───────────────────────────────────────────────────────────────────
+    cpu_logical = psutil.cpu_count(logical=True) or 1
+    cpu_physical = psutil.cpu_count(logical=False)
+    cpu_pct = psutil.cpu_percent(interval=1)
+    load_1, load_5, load_15 = psutil.getloadavg()
+
+    # ── Memory ────────────────────────────────────────────────────────────────
+    vm = psutil.virtual_memory()
+    mem_total_gb = round(vm.total / _GB, 2)
+    mem_used_gb = round(vm.used / _GB, 2)
+    mem_avail_gb = round(vm.available / _GB, 2)
+    mem_pct = vm.percent
+
+    swap = psutil.swap_memory()
+    swap_total_gb = round(swap.total / _GB, 2)
+    swap_used_gb = round(swap.used / _GB, 2)
+    swap_pct = swap.percent
+
+    # ── Disk ─────────────────────────────────────────────────────────────────
+    disk_partitions: list[DiskPartitionStats] = []
+    for part in psutil.disk_partitions(all=False):
+        try:
+            usage = psutil.disk_usage(part.mountpoint)
+        except (PermissionError, OSError):
+            continue
+        disk_partitions.append(DiskPartitionStats(
+            mountpoint=part.mountpoint,
+            total_gb=round(usage.total / _GB, 2),
+            used_gb=round(usage.used / _GB, 2),
+            free_gb=round(usage.free / _GB, 2),
+            used_pct=round(usage.percent, 1),
+        ))
+
+    # ── Process (self) ────────────────────────────────────────────────────────
+    proc = psutil.Process(os.getpid())
+    proc_mem_mb = round(proc.memory_info().rss / _MB, 1)
+    try:
+        open_fds = proc.num_fds()
+    except (AttributeError, psutil.AccessDenied):
+        open_fds = 0
+    num_threads = proc.num_threads()
+
+    # ── Host uptime ───────────────────────────────────────────────────────────
+    host_uptime = time.time() - psutil.boot_time()
+
+    # ── Optimisation recommendations ──────────────────────────────────────────
+    opts = _generate_optimisation_tips(
+        cpu_pct=cpu_pct,
+        cpu_logical=cpu_logical,
+        load_1=load_1,
+        mem_pct=mem_pct,
+        mem_used_gb=mem_used_gb,
+        mem_total_gb=mem_total_gb,
+        swap_total_gb=swap_total_gb,
+        swap_pct=swap_pct,
+        swap_used_gb=swap_used_gb,
+        disk_partitions=disk_partitions,
+        proc_mem_mb=proc_mem_mb,
+        open_fds=open_fds,
+    )
+
+    return SystemStats(
+        cpu_count_logical=cpu_logical,
+        cpu_count_physical=cpu_physical,
+        cpu_usage_pct=round(cpu_pct, 1),
+        load_avg_1m=round(load_1, 2),
+        load_avg_5m=round(load_5, 2),
+        load_avg_15m=round(load_15, 2),
+        memory_total_gb=mem_total_gb,
+        memory_used_gb=mem_used_gb,
+        memory_available_gb=mem_avail_gb,
+        memory_used_pct=round(mem_pct, 1),
+        swap_total_gb=swap_total_gb,
+        swap_used_gb=swap_used_gb,
+        swap_used_pct=round(swap_pct, 1),
+        disks=disk_partitions,
+        process_memory_mb=proc_mem_mb,
+        open_file_descriptors=open_fds,
+        num_threads=num_threads,
+        host_uptime_seconds=round(host_uptime, 1),
+        optimisations=opts,
+    )
+
+
+@app.get("/admin/system", response_model=SystemStats, tags=["system"])
+async def get_system_stats() -> SystemStats:
+    """Return a snapshot of host resource usage (CPU, memory, disk) and optimisation tips.
+
+    The CPU percentage is measured over a 1-second blocking sample, so the
+    endpoint takes at least 1 second to respond.  All other metrics are
+    instantaneous.
+    """
+    try:
+        return await asyncio.get_event_loop().run_in_executor(None, _collect_system_stats)
+    except Exception as exc:
+        logger.exception("get_system_stats failed")
+        raise HTTPException(status_code=500, detail="Internal server error") from exc
 
 
 @app.get("/lineage", response_model=LineageResult, tags=["lineage"])
