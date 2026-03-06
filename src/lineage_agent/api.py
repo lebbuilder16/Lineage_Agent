@@ -1702,6 +1702,27 @@ async def auth_remove_watch(watch_id: int, request: Request):
     return {"deleted": True}
 
 
+@app.post("/notifications/register-fcm", tags=["notifications"])
+async def register_fcm_token(request: Request, body: dict):
+    """
+    Register a Firebase Cloud Messaging token for the authenticated user.
+
+    Body: ``{"fcm_token": "<device-token>"}``
+    Requires X-API-Key header.
+    """
+    user = await _get_current_user(request)
+    fcm_token = body.get("fcm_token", "")
+    if not isinstance(fcm_token, str) or len(fcm_token) < 10:
+        raise HTTPException(status_code=422, detail="Invalid fcm_token")
+
+    from .auth_service import register_fcm_token as _reg_fcm  # noqa: PLC0415
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+    ok = await _reg_fcm(_cache, user["id"], fcm_token)
+    if not ok:
+        raise HTTPException(status_code=500, detail="Failed to register token")
+    return {"registered": True}
+
+
 # ---------------------------------------------------------------------------
 # Token comparison endpoint
 # ---------------------------------------------------------------------------

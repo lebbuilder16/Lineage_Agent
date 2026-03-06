@@ -1,0 +1,40 @@
+{
+  "cli": {
+    "version": ">= 5.9.0",
+    "promptToInstall": false
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "android": {
+        "gradleCommand": ":app:assembleDebug"
+      }
+    },
+    "preview": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://lineage-agent.fly.dev"
+      }
+    },
+    "production": {
+      "android": {
+        "buildType": "aab"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://lineage-agent.fly.dev"
+      }
+    }
+  },
+  "submit": {
+    "production": {
+      "android": {
+        "serviceAccountKeyPath": "./google-play-service-account.json",
+        "track": "internal"
+      }
+    }
+  }
+}

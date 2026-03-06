@@ -1,0 +1,129 @@
+// app/_layout.tsx
+// Layout racine — initialise fonts, QueryClient, SafeArea, Reanimated, push notifications
+
+import "../src/global.css";
+import React, { useEffect, useRef } from "react";
+import { Stack } from "expo-router";
+import { StatusBar } from "expo-status-bar";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import * as SplashScreen from "expo-splash-screen";
+import type { Notifications as ExpNotif } from "expo-notifications";
+import {
+  useFonts,
+  Inter_400Regular,
+  Inter_500Medium,
+  Inter_600SemiBold,
+  Inter_700Bold,
+} from "@expo-google-fonts/inter";
+import { colors } from "@/src/theme/colors";
+import { useAuthStore } from "@/src/store/auth";
+import { useAlertsStore } from "@/src/store/alerts";
+import {
+  registerForPushNotifications,
+  addNotificationReceivedListener,
+  addNotificationResponseListener,
+  clearBadge,
+} from "@/src/lib/pushNotifications";
+
+SplashScreen.preventAutoHideAsync();
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 30_000, // 30s
+      retry: 2,
+    },
+  },
+});
+
+export default function RootLayout() {
+  const [fontsLoaded] = useFonts({
+    Inter_400Regular,
+    Inter_500Medium,
+    Inter_600SemiBold,
+    Inter_700Bold,
+  });
+  const { isAuthenticated } = useAuthStore();
+  const { addAlert } = useAlertsStore();
+
+  // ── Push notifications setup (après connexion)
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    registerForPushNotifications();
+
+    const cleanFg = addNotificationReceivedListener((notification) => {
+      const { title = "", body = "" } = notification.request.content;
+      addAlert({
+        id: notification.request.identifier,
+        type: (notification.request.content.data?.type as any) ?? "info",
+        title,
+        message: body,
+        mint: notification.request.content.data?.mint as string | undefined,
+        timestamp: new Date().toISOString(),
+        read: false,
+      });
+      clearBadge();
+    });
+
+    const cleanTap = addNotificationResponseListener((_response) => {
+      clearBadge();
+    });
+
+    return () => {
+      cleanFg();
+      cleanTap();
+    };
+  }, [isAuthenticated]);
+
+  useEffect(() => {
+    if (fontsLoaded) {
+      SplashScreen.hideAsync();
+    }
+  }, [fontsLoaded]);
+
+  if (!fontsLoaded) return null;
+
+  return (
+    <GestureHandlerRootView style={{ flex: 1, backgroundColor: colors.background.deep }}>
+      <QueryClientProvider client={queryClient}>
+        <StatusBar style="light" backgroundColor={colors.background.deep} />
+        <Stack
+          screenOptions={{
+            headerShown: false,
+            contentStyle: { backgroundColor: colors.background.deep },
+            animation: "fade_from_bottom",
+          }}
+        >
+          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+          <Stack.Screen
+            name="lineage/[mint]"
+            options={{
+              animation: "slide_from_right",
+              presentation: "card",
+            }}
+          />
+          <Stack.Screen
+            name="deployer/[address]"
+            options={{ animation: "slide_from_right" }}
+          />
+          <Stack.Screen
+            name="chat/[mint]"
+            options={{
+              animation: "slide_from_bottom",
+              presentation: "modal",
+            }}
+          />
+          <Stack.Screen
+            name="paywall"
+            options={{
+              animation: "slide_from_bottom",
+              presentation: "modal",
+            }}
+          />
+          <Stack.Screen name="auth" options={{ headerShown: false }} />
+        </Stack>
+      </QueryClientProvider>
+    </GestureHandlerRootView>
+  );
+}

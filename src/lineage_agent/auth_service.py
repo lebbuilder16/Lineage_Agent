@@ -130,6 +130,28 @@ async def verify_api_key(cache, api_key: str) -> dict | None:
         return None
 
 
+async def register_fcm_token(cache, user_id: int, fcm_token: str) -> bool:
+    """
+    Persist a Firebase Cloud Messaging device token for a user.
+
+    Safe to call multiple times — idempotent UPDATE.
+    Returns True on success, False on error.
+    """
+    if not fcm_token or len(fcm_token) < 10:
+        return False
+    try:
+        db = await cache._get_conn()
+        await db.execute(
+            "UPDATE users SET fcm_token = ? WHERE id = ?",
+            (fcm_token, user_id),
+        )
+        await db.commit()
+        return True
+    except Exception:
+        logger.warning("register_fcm_token failed for user_id=%s", user_id, exc_info=True)
+        return False
+
+
 async def get_user_watches(cache, user_id: int) -> list[dict]:
     """Return all web watches for a user (sub_type, value, created_at)."""
     try:

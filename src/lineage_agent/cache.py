@@ -435,10 +435,17 @@ class SQLiteCache:
                 wallet_address TEXT,
                 plan           TEXT NOT NULL DEFAULT 'free',
                 api_key        TEXT UNIQUE NOT NULL,
-                created_at     REAL NOT NULL
+                created_at     REAL NOT NULL,
+                fcm_token      TEXT
             )
             """
         )
+        # Migration: add fcm_token to existing tables that predate this column
+        try:
+            await db.execute("ALTER TABLE users ADD COLUMN fcm_token TEXT")
+            await db.commit()
+        except Exception:
+            pass  # column already exists — safe to ignore
         await db.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_privy ON users(privy_id)"
         )
