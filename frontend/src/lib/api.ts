@@ -710,13 +710,14 @@ export interface AIAnalysis {
   confidence: "low" | "medium" | "high";
   rug_pattern: string;
   verdict_summary: string;
-  narrative: AIAnalysisNarrative;
+  /** Cross-signal integrated analysis (replaces narrative + conviction_chain + operator_hypothesis) */
+  analysis: string;
   key_findings: string[];
-  conviction_chain: string | null;
-  operator_hypothesis: string | null;
   model: string;
   analyzed_at: string;
   parse_error?: boolean;
+  /** @deprecated use analysis */
+  narrative?: { observation: string; pattern?: string | null; risk?: string | null };
 }
 
 export interface AnalyzeForensicBundle {

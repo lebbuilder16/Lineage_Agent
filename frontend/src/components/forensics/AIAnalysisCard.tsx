@@ -80,30 +80,6 @@ const TAG_COLORS: Record<string, string> = {
 
 // ─── sub-components ──────────────────────────────────────────────────────────
 
-function NarrativeRow({
-  label,
-  text,
-  accent,
-}: {
-  label: string;
-  text: string;
-  accent: string;
-}) {
-  return (
-    <div className="grid grid-cols-1 sm:grid-cols-[84px_1fr] gap-x-3 gap-y-0.5 items-start py-1.5 border-b border-zinc-800/60 last:border-0">
-      <span
-        className={cn(
-          "text-[10px] font-bold uppercase tracking-widest mt-0.5",
-          accent
-        )}
-      >
-        {label}
-      </span>
-      <p className="text-xs text-zinc-300 leading-relaxed">{text}</p>
-    </div>
-  );
-}
-
 function MetricPill({
   label,
   value,
@@ -278,24 +254,17 @@ export default function AIAnalysisCard({ analysis, isLoading }: Props) {
         </div>
       )}
 
-      {/* ── narrative ──────────────────────────────────────────────────── */}
-      <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 px-3 py-1.5 mb-3">
-        <NarrativeRow
-          label="Analysis"
-          text={ai.narrative.observation}
-          accent="text-sky-400"
-        />
-        <NarrativeRow
-          label="Attack chain"
-          text={ai.narrative.pattern}
-          accent="text-violet-400"
-        />
-        <NarrativeRow
-          label="Damage"
-          text={ai.narrative.risk}
-          accent="text-red-400"
-        />
-      </div>
+      {/* ── analysis ───────────────────────────────────────────────── */}
+      {(ai.analysis || ai.narrative?.observation) && (
+        <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 px-3 py-2.5 mb-3">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-1.5">
+            Analysis
+          </p>
+          <p className="text-xs text-zinc-300 leading-relaxed">
+            {ai.analysis ?? ai.narrative?.observation}
+          </p>
+        </div>
+      )}
 
       {/* ── key findings ───────────────────────────────────────────────── */}
       {ai.key_findings.length > 0 && (
@@ -325,27 +294,6 @@ export default function AIAnalysisCard({ analysis, isLoading }: Props) {
               );
             })}
           </ul>
-        </div>
-      )}
-
-      {/* ── operator hypothesis ────────────────────────────────────────── */}      {ai.conviction_chain && (
-        <div className="mb-3 rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2">
-          <p className="text-[10px] font-bold uppercase tracking-widest text-amber-500/70 mb-1">
-            Conviction
-          </p>
-          <p className="text-xs text-zinc-300 leading-relaxed">
-            {ai.conviction_chain}
-          </p>
-        </div>
-      )}
-      {ai.operator_hypothesis && (
-        <div className="mb-3 rounded-lg border border-zinc-700/50 bg-zinc-900/60 px-3 py-2">
-          <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-1">
-            Operator Hypothesis
-          </p>
-          <p className="text-xs text-zinc-300 leading-relaxed">
-            {ai.operator_hypothesis}
-          </p>
         </div>
       )}
 
