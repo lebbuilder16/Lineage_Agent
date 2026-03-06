@@ -22,6 +22,7 @@ _CLEANUP_INTERVAL = 6 * 3600       # 6 hours between TTL sweeps
 _VACUUM_INTERVAL = 24 * 3600       # 24 hours between VACUUM runs
 _SOL_FLOWS_TTL_DAYS = 90           # Purge sol_flows older than 90 days
 _EVENTS_TTL_DAYS = 180             # Purge intelligence_events older than 180 days
+_BUNDLE_REPORTS_TTL_DAYS = 30      # Purge bundle_reports older than 30 days
 _CACHE_EXPIRE_BATCH = 1000         # Max rows to delete per batch
 
 _maintenance_task: Optional[asyncio.Task] = None
@@ -56,6 +57,18 @@ async def _cleanup_old_events(db) -> int:
     cutoff = _t.time() - (_EVENTS_TTL_DAYS * 86400)
     cursor = await db.execute(
         "DELETE FROM intelligence_events WHERE recorded_at IS NOT NULL AND recorded_at < ?",
+        (cutoff,),
+    )
+    await db.commit()
+    return cursor.rowcount
+
+
+async def _cleanup_old_bundle_reports(db) -> int:
+    """Delete bundle_reports rows older than _BUNDLE_REPORTS_TTL_DAYS."""
+    import time as _t
+    cutoff = _t.time() - (_BUNDLE_REPORTS_TTL_DAYS * 86400)
+    cursor = await db.execute(
+        "DELETE FROM bundle_reports WHERE recorded_at IS NOT NULL AND recorded_at < ?",
         (cutoff,),
     )
     await db.commit()
@@ -124,9 +137,15 @@ async def _maintenance_loop() -> None:
             except Exception:
                 logger.debug("events cleanup skipped (table may not exist)")
 
+            bundles_deleted = 0
+            try:
+                bundles_deleted = await _cleanup_old_bundle_reports(db)
+            except Exception:
+                logger.debug("bundle_reports cleanup skipped (table may not exist)")
+
             logger.info(
-                "DB maintenance: cache=%d, sol_flows=%d, events=%d rows deleted",
-                cache_deleted, flows_deleted, events_deleted,
+                "DB maintenance: cache=%d, sol_flows=%d, events=%d, bundle_reports=%d rows deleted",
+                cache_deleted, flows_deleted, events_deleted, bundles_deleted,
             )
 
             # WAL checkpoint every cycle
