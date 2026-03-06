@@ -197,13 +197,19 @@ async def detect_lineage(
     # Enrich with on-chain deployer + DAS metadata + Jupiter price — all concurrent.
     # Previously three sequential awaits (~2-4 s each); running them together cuts
     # wall-time to max(deployer, asset, price) ≈ 1-2 s.  (Optimization #1)
+    #
+    # Note: _get_deployer_cached internally calls rpc.get_asset() and populates the
+    # rpc:asset: cache before returning.  _get_asset_cached is therefore run AFTER
+    # _get_deployer_cached to guarantee a cache hit (avoids two concurrent DAS calls
+    # for the same mint).  Jupiter price is independent and runs in parallel.
     await _progress("Resolving deployer & on-chain metadata", 25)
-    _deployer_result, _q_asset_result, _jup_price_result = await asyncio.gather(
+    _deployer_result, _jup_price_result = await asyncio.gather(
         _get_deployer_cached(rpc, mint_address),
-        _get_asset_cached(rpc, mint_address),
         jup.get_price(mint_address),
         return_exceptions=True,
     )
+    # _get_deployer_cached already populated rpc:asset: — this is now a cache hit.
+    _q_asset_result = await _get_asset_cached(rpc, mint_address)
 
     # Apply deployer result
     if not isinstance(_deployer_result, Exception):
@@ -1209,15 +1215,22 @@ async def _get_deployer_cached(
                 ua,
             )
 
-    # --- Signature-walk — always run for timestamp; also resolves deployer ---
+    # --- Signature-walk — only run when needed ---
     # The signature-walk is the ONLY reliable source of the on-chain creation
     # timestamp (blockTime of the oldest tx for the mint account).
     # DAS token_info.created_at is the Helius indexing time, NOT mint creation.
     # DexScreener pairCreatedAt is when the pool was listed (≠ mint creation for
     # graduated PumpFun tokens).  Only the first-ever tx's blockTime is correct.
+    #
+    # Optimisation: when DAS already resolved a verified creator we still need
+    # the timestamp, but we do NOT need the walk to identify the deployer.
+    # With a verified creator the walk timeout is lowered to 4 s (vs 10 s), so
+    # cache-miss candidates that resolved instantly via DAS don't each pay 10 s.
+    # Without any DAS deployer the full 10 s budget is kept for the walk.
+    _sw_timeout = 4.0 if deployer else 10.0
     try:
         _sw_deployer, _sw_ts = await asyncio.wait_for(
-            rpc.get_deployer_and_timestamp(mint), timeout=10.0
+            rpc.get_deployer_and_timestamp(mint), timeout=_sw_timeout
         )
     except (asyncio.TimeoutError, Exception) as _sw_exc:
         logger.warning("Signature-walk failed/timed out for %s: %s", mint, _sw_exc)
