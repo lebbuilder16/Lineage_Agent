@@ -1,7 +1,7 @@
 // app/paywall.tsx
 // Modal paywall freemium — plans Free vs Pro
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -9,6 +9,7 @@ import {
   TouchableOpacity,
   StyleSheet,
   ActivityIndicator,
+  Alert,
 } from "react-native";
 import { router, Stack } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -22,6 +23,15 @@ import * as Haptics from "expo-haptics";
 import { colors } from "@/src/theme/colors";
 import { GlassCard } from "@/src/components/ui/GlassCard";
 import { HapticButton } from "@/src/components/ui/HapticButton";
+import { useAuthStore } from "@/src/store/auth";
+import {
+  fetchCurrentOffering,
+  purchasePackage,
+  restorePurchases,
+  isPremiumActive,
+} from "@/src/lib/purchases";
+import { syncSubscription } from "@/src/lib/api";
+import type { PurchasesPackage, PurchasesOffering } from "react-native-purchases";
 
 // ─────────────────────────────────────────────────────────────
 // Data
@@ -139,17 +149,99 @@ function PlanCard({
 export default function PaywallScreen() {
   const [selectedPlan, setSelectedPlan] = useState<string>("yearly");
   const [loading, setLoading] = useState(false);
+  const [restoring, setRestoring] = useState(false);
+  const [offering, setOffering] = useState<PurchasesOffering | null>(null);
+
+  const { user, upgradeToPro, refreshUser } = useAuthStore();
+
+  // Load RC offering on mount to get real prices
+  useEffect(() => {
+    fetchCurrentOffering().then(setOffering).catch(() => null);
+  }, []);
+
+  /** Find the RC package matching a plan id (monthly / yearly). */
+  const getPackage = (planId: string): PurchasesPackage | undefined => {
+    if (!offering) return undefined;
+    return offering.availablePackages.find((p) =>
+      planId === "monthly"
+        ? p.packageType === "MONTHLY"
+        : p.packageType === "ANNUAL"
+    );
+  };
 
   const handleSubscribe = async () => {
     setLoading(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    // TODO: integrate expo-in-app-purchases
-    // const { results } = await InAppPurchases.purchaseItemAsync(sku);
-    // → validate receipt with backend → setUser with pro: true
-    await new Promise((r) => setTimeout(r, 1500)); // placeholder
-    setLoading(false);
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    router.back();
+
+    try {
+      const pkg = getPackage(selectedPlan);
+
+      if (!pkg) {
+        // RC not configured or no offering loaded — dev fallback
+        if (__DEV__) {
+          upgradeToPro();
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          router.back();
+          return;
+        }
+        Alert.alert("Not available", "Store products are loading, please try again.");
+        setLoading(false);
+        return;
+      }
+
+      const result = await purchasePackage(pkg);
+
+      if (!result.success) {
+        if (!result.cancelled) {
+          Alert.alert("Purchase failed", result.error);
+        }
+        setLoading(false);
+        return;
+      }
+
+      // Optimistic update — instant UI feedback
+      upgradeToPro();
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
+      // Sync plan with backend in background (non-blocking)
+      if (result.customerInfo && user) {
+        syncSubscription(result.customerInfo.originalAppUserId)
+          .then(refreshUser)
+          .catch(() => null);
+      }
+
+      router.back();
+    } catch (e: any) {
+      Alert.alert("Error", e?.message ?? "Something went wrong. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRestore = async () => {
+    setRestoring(true);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    try {
+      const info = await restorePurchases();
+      if (info && isPremiumActive(info)) {
+        upgradeToPro();
+        if (user) {
+          syncSubscription(info.originalAppUserId)
+            .then(refreshUser)
+            .catch(() => null);
+        }
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        Alert.alert("Restored!", "Your Pro subscription has been restored.", [
+          { text: "OK", onPress: () => router.back() },
+        ]);
+      } else {
+        Alert.alert("Nothing to restore", "No active Pro subscription found.");
+      }
+    } catch {
+      Alert.alert("Restore failed", "Please try again.");
+    } finally {
+      setRestoring(false);
+    }
   };
 
   return (
@@ -217,16 +309,24 @@ export default function PaywallScreen() {
             label={loading ? "" : `Start Pro — ${PLANS.find((p) => p.id === selectedPlan)?.price}`}
             onPress={handleSubscribe}
             variant="primary"
-            disabled={loading}
+            disabled={loading || restoring}
             style={styles.cta}
           >
             {loading && <ActivityIndicator color={colors.background.deep} />}
           </HapticButton>
 
           <Text style={styles.legal}>
-            Recurring billing. Cancel anytime. Prices in USD.
+            Recurring billing. Cancel anytime. Prices in USD.{"\n"}
             Managed via Google Play / App Store.
           </Text>
+
+          <TouchableOpacity onPress={handleRestore} disabled={restoring} style={{ marginBottom: 6 }}>
+            {restoring ? (
+              <ActivityIndicator color={colors.text.muted} size="small" />
+            ) : (
+              <Text style={styles.restore}>Restore purchases</Text>
+            )}
+          </TouchableOpacity>
 
           <TouchableOpacity onPress={() => router.back()}>
             <Text style={styles.skip}>Continue with Free</Text>
@@ -327,5 +427,6 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     paddingHorizontal: 16,
   },
+  restore: { color: colors.text.muted, fontSize: 13, textDecorationLine: "underline", paddingVertical: 4 },
   skip: { color: colors.text.secondary, fontSize: 14, paddingVertical: 8 },
 });

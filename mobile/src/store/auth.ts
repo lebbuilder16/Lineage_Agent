@@ -2,7 +2,8 @@
 // Zustand store pour l'état d'authentification et l'utilisateur courant
 
 import { create } from "zustand";
-import { saveApiKey, clearApiKey } from "@/lib/api";
+import { saveApiKey, clearApiKey, getCurrentUser } from "@/lib/api";
+import { logoutFromRevenueCat } from "@/lib/purchases";
 import type { User } from "@/types/api";
 
 interface AuthState {
@@ -11,10 +12,12 @@ interface AuthState {
   isPro: boolean;
 
   setUser: (user: User) => Promise<void>;
+  upgradeToPro: () => void;
+  refreshUser: () => Promise<void>;
   logout: () => Promise<void>;
 }
 
-export const useAuthStore = create<AuthState>((set) => ({
+export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
   isAuthenticated: false,
   isPro: false,
@@ -28,8 +31,26 @@ export const useAuthStore = create<AuthState>((set) => ({
     });
   },
 
+  /** Optimistically mark the user as Pro (called right after successful purchase). */
+  upgradeToPro: () => {
+    const { user } = get();
+    if (!user) return;
+    set({ user: { ...user, plan: "pro" }, isPro: true });
+  },
+
+  /** Re-fetch the user record from the backend to sync plan status. */
+  refreshUser: async () => {
+    try {
+      const user = await getCurrentUser();
+      set({ user, isPro: user.plan === "pro" });
+    } catch {
+      // Non-critical — silently ignore
+    }
+  },
+
   logout: async () => {
     await clearApiKey();
+    await logoutFromRevenueCat();
     set({
       user: null,
       isAuthenticated: false,

@@ -152,6 +152,74 @@ async def register_fcm_token(cache, user_id: int, fcm_token: str) -> bool:
         return False
 
 
+async def upgrade_user_plan(cache, user_id: int, plan: str) -> bool:
+    """
+    Update the ``plan`` column for a user.
+
+    Accepted values: ``'free'``, ``'pro'``.
+    Called by the RevenueCat webhook and the manual restore flow.
+    Returns True on success.
+    """
+    if plan not in ("free", "pro"):
+        logger.warning("upgrade_user_plan: invalid plan %r for user_id=%s", plan, user_id)
+        return False
+    try:
+        db = await cache._get_conn()
+        await db.execute(
+            "UPDATE users SET plan = ? WHERE id = ?",
+            (plan, user_id),
+        )
+        await db.commit()
+        logger.info("upgrade_user_plan: user_id=%s → %s", user_id, plan)
+        return True
+    except Exception:
+        logger.warning("upgrade_user_plan failed for user_id=%s", user_id, exc_info=True)
+        return False
+
+
+async def update_notification_prefs(cache, user_id: int, prefs: dict) -> bool:
+    """
+    Persist notification preferences as a JSON blob in the users table.
+    Accepted keys: ``rug``, ``bundle``, ``insider``, ``zombie`` (all booleans).
+    Returns True on success.
+    """
+    import json as _json
+
+    allowed_keys = {"rug", "bundle", "insider", "zombie"}
+    sanitized = {k: bool(v) for k, v in prefs.items() if k in allowed_keys}
+    try:
+        db = await cache._get_conn()
+        await db.execute(
+            "UPDATE users SET notification_prefs = ? WHERE id = ?",
+            (_json.dumps(sanitized), user_id),
+        )
+        await db.commit()
+        return True
+    except Exception:
+        logger.warning("update_notification_prefs failed for user_id=%s", user_id, exc_info=True)
+        return False
+
+
+async def get_notification_prefs(cache, user_id: int) -> dict:
+    """Return stored notification preferences or sensible defaults."""
+    import json as _json
+
+    defaults = {"rug": True, "bundle": True, "insider": True, "zombie": False}
+    try:
+        db = await cache._get_conn()
+        cursor = await db.execute(
+            "SELECT notification_prefs FROM users WHERE id = ?", (user_id,)
+        )
+        row = await cursor.fetchone()
+        if row and row[0]:
+            stored = _json.loads(row[0])
+            return {**defaults, **stored}
+        return defaults
+    except Exception:
+        logger.warning("get_notification_prefs failed for user_id=%s", user_id, exc_info=True)
+        return defaults
+
+
 async def get_user_watches(cache, user_id: int) -> list[dict]:
     """Return all web watches for a user (sub_type, value, created_at)."""
     try:

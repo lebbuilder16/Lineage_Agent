@@ -19,6 +19,7 @@ import {
 import { colors } from "@/src/theme/colors";
 import { useAuthStore } from "@/src/store/auth";
 import { useAlertsStore } from "@/src/store/alerts";
+import { initRevenueCat, loginToRevenueCat } from "@/src/lib/purchases";
 import {
   registerForPushNotifications,
   addNotificationReceivedListener,
@@ -46,12 +47,19 @@ export default function RootLayout() {
     Inter_600SemiBold,
     Inter_700Bold,
   });
-  const { isAuthenticated } = useAuthStore();
+  const { isAuthenticated, user } = useAuthStore();
   const { addAlert } = useAlertsStore();
 
-  // ── Push notifications setup (après connexion)
+  // ── RevenueCat init + push notifications
   useEffect(() => {
     if (!isAuthenticated) return;
+
+    // Identify user in RevenueCat so purchases are linked
+    if (user?.privy_id) {
+      initRevenueCat(user.privy_id);
+      loginToRevenueCat(user.privy_id);
+    }
+
     registerForPushNotifications();
 
     const cleanFg = addNotificationReceivedListener((notification) => {
@@ -76,7 +84,7 @@ export default function RootLayout() {
       cleanFg();
       cleanTap();
     };
-  }, [isAuthenticated]);
+  }, [isAuthenticated, user?.privy_id]);
 
   useEffect(() => {
     if (fontsLoaded) {

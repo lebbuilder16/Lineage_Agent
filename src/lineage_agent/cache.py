@@ -429,20 +429,26 @@ class SQLiteCache:
         await db.execute(
             """
             CREATE TABLE IF NOT EXISTS users (
-                id             INTEGER PRIMARY KEY AUTOINCREMENT,
-                privy_id       TEXT UNIQUE NOT NULL,
-                email          TEXT,
-                wallet_address TEXT,
-                plan           TEXT NOT NULL DEFAULT 'free',
-                api_key        TEXT UNIQUE NOT NULL,
-                created_at     REAL NOT NULL,
-                fcm_token      TEXT
+                id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                privy_id            TEXT UNIQUE NOT NULL,
+                email               TEXT,
+                wallet_address      TEXT,
+                plan                TEXT NOT NULL DEFAULT 'free',
+                api_key             TEXT UNIQUE NOT NULL,
+                created_at          REAL NOT NULL,
+                fcm_token           TEXT,
+                notification_prefs  TEXT
             )
             """
         )
-        # Migration: add fcm_token to existing tables that predate this column
+        # Migration: add columns to existing tables that predate them
         try:
             await db.execute("ALTER TABLE users ADD COLUMN fcm_token TEXT")
+            await db.commit()
+        except Exception:
+            pass  # column already exists — safe to ignore
+        try:
+            await db.execute("ALTER TABLE users ADD COLUMN notification_prefs TEXT")
             await db.commit()
         except Exception:
             pass  # column already exists — safe to ignore

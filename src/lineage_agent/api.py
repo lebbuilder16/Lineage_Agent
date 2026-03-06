@@ -1724,6 +1724,188 @@ async def register_fcm_token(request: Request, body: dict):
 
 
 # ---------------------------------------------------------------------------
+# Subscription sync  (called by mobile after RevenueCat purchase)
+# ---------------------------------------------------------------------------
+
+@app.post("/auth/sync-plan", tags=["auth"])
+async def sync_plan(request: Request, body: dict):
+    """
+    Sync subscription status with the backend after a RevenueCat purchase.
+
+    The mobile app passes its RevenueCat ``originalAppUserId`` (which equals
+    the Privy ID we registered at SDK init).  We verify entitlements by
+    calling the RevenueCat REST API (if RC_SECRET_KEY is configured) or by
+    trusting the signal and upgrading to Pro.
+
+    Body: ``{"rc_app_user_id": "<string>"}``
+    Returns the updated user record.
+    """
+    import os as _os
+    import httpx as _httpx
+
+    user = await _get_current_user(request)
+    rc_user_id = body.get("rc_app_user_id", "")
+    if not isinstance(rc_user_id, str) or not rc_user_id:
+        raise HTTPException(status_code=422, detail="rc_app_user_id required")
+
+    from .auth_service import upgrade_user_plan as _upgrade  # noqa: PLC0415
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+
+    rc_secret = _os.getenv("REVENUECAT_SECRET_KEY", "")
+    new_plan = "pro"  # default: trust the mobile signal
+
+    if rc_secret:
+        # Verify entitlement with RevenueCat REST API
+        try:
+            async with _httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.get(
+                    f"https://api.revenuecat.com/v1/subscribers/{rc_user_id}",
+                    headers={"Authorization": f"Bearer {rc_secret}"},
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    entitlements = data.get("subscriber", {}).get("entitlements", {})
+                    pro_ent = entitlements.get("pro", {})
+                    # Active entitlement has expires_date > now or is null (lifetime)
+                    from datetime import datetime, timezone as _tz
+                    exp = pro_ent.get("expires_date")
+                    if pro_ent and (
+                        exp is None
+                        or datetime.fromisoformat(exp.replace("Z", "+00:00"))
+                        > datetime.now(_tz.utc)
+                    ):
+                        new_plan = "pro"
+                    else:
+                        new_plan = "free"
+                else:
+                    logger.warning("[sync-plan] RC API returned %s for user %s", resp.status_code, rc_user_id)
+        except Exception:
+            logger.warning("[sync-plan] RC API verification failed — trusting mobile signal", exc_info=True)
+
+    await _upgrade(_cache, user["id"], new_plan)
+
+    # Return refreshed user record
+    from .auth_service import verify_api_key as _verify  # noqa: PLC0415
+    api_key = request.headers.get("X-API-Key", "")
+    refreshed = await _verify(_cache, api_key)
+    if not refreshed:
+        raise HTTPException(status_code=500, detail="Failed to refresh user")
+    return refreshed
+
+
+# ---------------------------------------------------------------------------
+# RevenueCat webhook  (server-to-server subscription events)
+# ---------------------------------------------------------------------------
+
+@app.post("/webhooks/revenuecat", tags=["webhooks"], include_in_schema=False)
+async def revenuecat_webhook(request: Request):
+    """
+    Receive RevenueCat server-to-server events and update user plan accordingly.
+
+    Signature verification: RevenueCat sends ``Authorization: <webhook-auth-key>``
+    header.  Set ``REVENUECAT_WEBHOOK_AUTH_KEY`` env var to enable verification.
+
+    Handled events:
+    - ``INITIAL_PURCHASE``  → upgrade to pro
+    - ``RENEWAL``           → upgrade to pro (idempotent)
+    - ``PRODUCT_CHANGE``    → upgrade to pro
+    - ``CANCELLATION``      → downgrade to free (at period end — RC sends at expiry)
+    - ``EXPIRATION``        → downgrade to free
+    - ``BILLING_ISSUE``     → keep pro (grace period, log warning)
+    """
+    import os as _os
+    import hashlib as _hashlib
+    import hmac as _hmac
+
+    webhook_key = _os.getenv("REVENUECAT_WEBHOOK_AUTH_KEY", "")
+    if webhook_key:
+        auth_header = request.headers.get("Authorization", "")
+        if not _hmac.compare_digest(auth_header, webhook_key):
+            logger.warning("[RC webhook] Invalid auth header — rejected")
+            raise HTTPException(status_code=401, detail="Unauthorized")
+
+    try:
+        payload = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON")
+
+    event = payload.get("event", {})
+    event_type = event.get("type", "")
+    app_user_id = event.get("app_user_id", "")
+    aliases = event.get("aliases", [])
+
+    if not app_user_id:
+        return {"status": "ignored", "reason": "no app_user_id"}
+
+    from .auth_service import upgrade_user_plan as _upgrade  # noqa: PLC0415
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+
+    # Look up user by privy_id (app_user_id = privy_id set at RC init)
+    db = await _cache._get_conn()
+
+    # Try primary app_user_id and all aliases
+    user_row = None
+    for uid in [app_user_id, *aliases]:
+        cursor = await db.execute(
+            "SELECT id FROM users WHERE privy_id = ?", (uid,)
+        )
+        user_row = await cursor.fetchone()
+        if user_row:
+            break
+
+    if not user_row:
+        logger.info("[RC webhook] Unknown app_user_id=%s — ignored", app_user_id)
+        return {"status": "ignored", "reason": "user not found"}
+
+    user_id = user_row[0]
+
+    UPGRADE_EVENTS = {"INITIAL_PURCHASE", "RENEWAL", "PRODUCT_CHANGE", "NON_RENEWING_PURCHASE"}
+    DOWNGRADE_EVENTS = {"CANCELLATION", "EXPIRATION"}
+
+    if event_type in UPGRADE_EVENTS:
+        await _upgrade(_cache, user_id, "pro")
+        logger.info("[RC webhook] %s → upgraded user_id=%s to pro", event_type, user_id)
+    elif event_type in DOWNGRADE_EVENTS:
+        await _upgrade(_cache, user_id, "free")
+        logger.info("[RC webhook] %s → downgraded user_id=%s to free", event_type, user_id)
+    elif event_type == "BILLING_ISSUE":
+        logger.warning("[RC webhook] BILLING_ISSUE for user_id=%s — plan unchanged (grace)", user_id)
+    else:
+        logger.debug("[RC webhook] Unhandled event type=%s", event_type)
+
+    return {"status": "ok", "event_type": event_type}
+
+
+# ---------------------------------------------------------------------------
+# Notification preferences
+# ---------------------------------------------------------------------------
+
+@app.get("/auth/notification-prefs", tags=["auth"])
+async def get_notification_prefs(request: Request):
+    """Return the user's push notification preferences."""
+    user = await _get_current_user(request)
+    from .auth_service import get_notification_prefs as _get_prefs  # noqa: PLC0415
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+    return await _get_prefs(_cache, user["id"])
+
+
+@app.post("/auth/notification-prefs", tags=["auth"])
+async def update_notification_prefs(request: Request, body: dict):
+    """
+    Persist the user's push notification preferences.
+
+    Body: ``{"rug": bool, "bundle": bool, "insider": bool, "zombie": bool}``
+    """
+    user = await _get_current_user(request)
+    from .auth_service import update_notification_prefs as _update_prefs  # noqa: PLC0415
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+    ok = await _update_prefs(_cache, user["id"], body)
+    if not ok:
+        raise HTTPException(status_code=500, detail="Failed to save preferences")
+    return {"saved": True}
+
+
+# ---------------------------------------------------------------------------
 # Token comparison endpoint
 # ---------------------------------------------------------------------------
 

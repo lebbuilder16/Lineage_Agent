@@ -156,3 +156,34 @@ export async function registerFcmToken(fcmToken: string): Promise<void> {
     body: JSON.stringify({ fcm_token: fcmToken }),
   });
 }
+
+// ─── Subscription sync ────────────────────────────────────────────────────────
+export async function syncSubscription(rcAppUserId: string): Promise<User> {
+  return apiFetch<User>("/auth/sync-plan", {
+    method: "POST",
+    authenticated: true,
+    body: JSON.stringify({ rc_app_user_id: rcAppUserId }),
+  });
+}
+
+// ─── Notification preferences ─────────────────────────────────────────────────
+export interface NotificationPrefs {
+  rug: boolean;
+  bundle: boolean;
+  insider: boolean;
+  zombie: boolean;
+}
+
+export async function getNotificationPrefs(): Promise<NotificationPrefs> {
+  return apiFetch<NotificationPrefs>("/auth/notification-prefs", {
+    authenticated: true,
+  });
+}
+
+export async function updateNotificationPrefs(prefs: NotificationPrefs): Promise<void> {
+  await apiFetch<void>("/auth/notification-prefs", {
+    method: "POST",
+    authenticated: true,
+    body: JSON.stringify(prefs),
+  });
+}
