@@ -21,6 +21,15 @@ const PATTERN_LABEL: Record<string, string> = {
   insider_drain: "insider drain",
 };
 
+const DEATH_CLOCK_LABEL: Record<string, string> = {
+  critical: "CRITICAL ⚡",
+  high: "HIGH 🔴",
+  medium: "MEDIUM 🟠",
+  low: "LOW 🟢",
+  first_rug: "FIRST RUG 💀",
+  insufficient_data: "unknown",
+};
+
 function buildTweetText(
   data: LineageResult,
   analysis: AnalyzeResponse | null | undefined,
@@ -37,18 +46,75 @@ function buildTweetText(
   const patternStr =
     pattern && pattern !== "unknown" ? (PATTERN_LABEL[pattern] ?? pattern) : null;
 
-  // trim verdict to fit tweet budget (~90 chars)
-  const shortVerdict = verdict ? (verdict.length > 90 ? verdict.slice(0, 87) + "…" : verdict) : null;
+  // trim verdict to fit tweet budget (~100 chars)
+  const shortVerdict = verdict ? (verdict.length > 100 ? verdict.slice(0, 97) + "…" : verdict) : null;
+
+  // ── Forensic signals ────────────────────────────────────────────────────
+  // Bundle
+  const bundle = data.bundle_report;
+  const bundleTeamCount =
+    (bundle?.confirmed_team_wallets?.length ?? 0) +
+    (bundle?.suspected_team_wallets?.length ?? 0);
+  const solExtracted =
+    bundle?.total_sol_extracted_confirmed ??
+    data.sol_flow?.total_extracted_sol ??
+    null;
+  const usdExtracted = bundle?.total_usd_extracted ?? data.sol_flow?.total_extracted_usd ?? null;
+
+  // Deployer history
+  const rugCount =
+    data.death_clock?.historical_rug_count ??
+    data.deployer_profile?.rug_count ??
+    null;
+  const deathClockRisk = data.death_clock?.risk_level ?? null;
+  const deathClockLabel =
+    deathClockRisk && deathClockRisk !== "insufficient_data"
+      ? (DEATH_CLOCK_LABEL[deathClockRisk] ?? deathClockRisk.toUpperCase())
+      : null;
+
+  // Operator impact (cross-wallet damage)
+  const opImpact = data.operator_impact;
+  const totalOpUsd = opImpact?.estimated_extracted_usd ?? null;
+  const totalOpRugs = opImpact?.total_rug_count ?? null;
+
+  // Factory / liquidity signals
+  const isFactory = data.factory_rhythm?.is_factory ?? false;
+  const significantExtraction = solExtracted != null && solExtracted > 50;
+
+  // ── helpers ─────────────────────────────────────────────────────────────
+  const fmtSol = (n: number) => `${n.toFixed(1)} SOL`;
+  const fmtUsd = (n: number) =>
+    n >= 1_000_000
+      ? `$${(n / 1_000_000).toFixed(1)}M`
+      : n >= 1_000
+      ? `$${Math.round(n / 1_000)}K`
+      : `$${Math.round(n)}`;
 
   // ── Extreme risk (>=85) — confirmed extraction ──────────────────────────
   if (score !== null && score >= 85) {
+    const extractionStr =
+      usdExtracted != null
+        ? `${fmtUsd(usdExtracted)} extracted on-chain`
+        : solExtracted != null
+        ? `${fmtSol(solExtracted)} extracted on-chain`
+        : null;
+
     const lines = [
-      `\u{1F6A8} ser GTFO — ${ticker} is a ${patternStr ?? "rug"} (${score}/100)`,
+      `🚨 ${ticker} — CONFIRMED ${patternStr?.toUpperCase() ?? "RUG"} · ${score}/100`,
       ``,
-      ...(shortVerdict ? [`\u201C${shortVerdict}\u201D`] : []),
-      ...(family > 1 ? [`\u{1F9EC} ${family}-token clone farm. Same operator, different wallets.`] : []),
+      ...(bundleTeamCount > 0
+        ? [`📦 ${bundleTeamCount} coordinated team wallet${bundleTeamCount > 1 ? "s" : ""} confirmed`]
+        : []),
+      ...(extractionStr ? [`💸 ${extractionStr}`] : []),
+      ...(rugCount != null && rugCount > 0
+        ? [`☠️ Deployer: ${rugCount} prior rug${rugCount > 1 ? "s" : ""}`
+            + (totalOpUsd != null ? ` · ${fmtUsd(totalOpUsd)} total damage` : "")]
+        : []),
+      ...(family > 1 ? [`🧬 ${family}-token clone farm · same operator`] : []),
       ``,
-      `receipts on-chain \u{1F447} don\u2019t say we didn\u2019t warn you`,
+      ...(shortVerdict ? [`"${shortVerdict}"`] : []),
+      ``,
+      `receipts on-chain 👇 don't say we didn't warn you`,
       url,
       `#Solana #DYOR #NotYourKeys`,
     ];
@@ -58,13 +124,22 @@ function buildTweetText(
   // ── High risk (75-84) — strong signals ─────────────────────────────────
   if (score !== null && score >= 75) {
     const lines = [
-      `\u26A0\uFE0F ${ticker} flagged ${score}/100 by Lineage Agent`,
+      `⚠️ ${ticker} — HIGH RISK · ${score}/100`,
       ``,
-      ...(patternStr ? [`pattern: ${patternStr}`] : []),
-      ...(shortVerdict ? [`\u201C${shortVerdict}\u201D`] : []),
-      ...(family > 1 ? [`${family} tokens linked to same operator\u2019s ring` ] : []),
+      ...(patternStr ? [`🎭 Pattern: ${patternStr}`] : []),
+      ...(deathClockLabel ? [`⏱️ Death clock: ${deathClockLabel}`] : []),
+      ...(bundleTeamCount > 0
+        ? [`📦 ${bundleTeamCount} suspicious wallet${bundleTeamCount > 1 ? "s" : ""} in launch bundle`]
+        : []),
+      ...(rugCount != null && rugCount > 0
+        ? [`☠️ ${rugCount} prior rug${rugCount > 1 ? "s" : ""} by this deployer`]
+        : []),
+      ...(family > 1
+        ? [`🧬 ${family}-token family · ${confidence}% lineage confidence`]
+        : []),
+      ...(shortVerdict ? [``, `"${shortVerdict}"`] : []),
       ``,
-      `full on-chain forensics \u2192`,
+      `full on-chain forensics →`,
       url,
       `#Solana #MemeCoin #DYOR`,
     ];
@@ -74,14 +149,20 @@ function buildTweetText(
   // ── Medium risk (50-74) — caution ───────────────────────────────────────
   if (score !== null && score >= 50) {
     const lines = [
-      `\u{1F7E1} ${ticker} \u2014 sketchy signals (${score}/100)`,
+      `🟡 ${ticker} — SKETCHY · ${score}/100`,
       ``,
-      ...(patternStr ? [`pattern: ${patternStr}`] : []),
+      ...(patternStr ? [`🎭 ${patternStr}`] : []),
+      ...(rugCount != null && rugCount > 0
+        ? [`🔗 Deployer linked to ${rugCount} previous rug${rugCount > 1 ? "s" : ""}`
+            + (totalOpUsd != null ? ` · ${fmtUsd(totalOpUsd)} total damage` : "")]
+        : []),
+      ...(isFactory ? [`🏭 Factory deployer detected — scripted launches`] : []),
+      ...(significantExtraction ? [`🔴 ${fmtSol(solExtracted!)} moved out of project wallets`] : []),
       ...(family > 1
-        ? [`${family}-token lineage detected \u00B7 ${confidence}% confidence`]
+        ? [`🧬 ${family}-token lineage · ${confidence}% confidence`]
         : []),
       ``,
-      `NFA but do your homework \u{1F447}`,
+      `NFA — do your homework 👇`,
       url,
       `#Solana #DYOR`,
     ];
@@ -89,15 +170,18 @@ function buildTweetText(
   }
 
   // ── Low risk / no score ─────────────────────────────────────────────────
+  const noBundle = !bundle || bundle.overall_verdict === "early_buyers_no_link_proven";
   const lines = [
     score !== null
-      ? `\u2705 ${ticker} scanned clean \u2014 ${score}/100 risk`
-      : `\u{1F50D} Lineage scan: ${ticker}`,
-    ...(family > 1
-      ? [`${family} tokens in family \u00B7 ${confidence}% lineage confidence`]
-      : []),
+      ? `✅ ${ticker} — ${score}/100 · no major red flags`
+      : `🔍 Lineage scan complete: ${ticker}`,
     ``,
-    `still DYOR though \u{1F64F}`,
+    ...(family > 1
+      ? [`🧬 ${family} tokens in family · ${confidence}% lineage confidence`]
+      : [`🧬 Original token — no known clones detected`]),
+    ...(noBundle ? [`📦 No suspicious bundle activity`] : []),
+    ``,
+    `still DYOR though 🙏`,
     url,
     `#Solana #DYOR`,
   ];
