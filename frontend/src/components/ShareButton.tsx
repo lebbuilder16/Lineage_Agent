@@ -124,7 +124,7 @@ function buildTweetText(
       ? `☠️ ${rugCount} prior rug${rugCount > 1 ? "s" : ""}${totalOpUsd != null ? ` · ${fmtUsd(totalOpUsd)} total damage` : ""}`
       : null;
 
-    const bonusLine = zombieAlert ? `💀 Resurrection of $${zombieAlert.original_name.slice(0, 12)}`
+    const bonusLine = zombieAlert ? `💀 Resurrection of $${(zombieAlert.original_name ?? "").slice(0, 12)}`
       : insiderDump ? `🩸 Deployer wallet emptied`
       : coordSell ? `⚡ Coordinated exit confirmed` : null;
 
@@ -146,7 +146,7 @@ function buildTweetText(
       ? `☠️ ${rugCount} prior rug${rugCount > 1 ? "s" : ""}${totalOpUsd != null ? ` · ${fmtUsd(totalOpUsd)} total` : ""}`
       : bundleTeamCount > 0 ? `📦 ${bundleTeamCount} suspicious wallets at launch` : null;
     const f1 = finding1 ? (finding1.length > 80 ? finding1.slice(0, 79) + "…" : finding1) : null;
-    const bonusLine = zombieAlert ? `💀 Resurrection of $${zombieAlert.original_name.slice(0, 12)}`
+    const bonusLine = zombieAlert ? `💀 Resurrection of $${(zombieAlert.original_name ?? "").slice(0, 12)}`
       : insiderDump ? `🩸 Insider dump confirmed` : null;
 
     return assemble(header, [patternLine, f1, deployerLine, bonusLine], hashtags);
