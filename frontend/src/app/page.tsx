@@ -43,6 +43,27 @@ export default function HomePage() {
             Solana Memecoin Intelligence
           </div>
 
+          {/* ── $LNEA token listing banner ─────────────────────── */}
+          <div className="inline-flex flex-wrap items-center justify-center gap-3 rounded-2xl border border-neon/20 bg-neon/5 px-5 py-3 text-sm backdrop-blur-sm">
+            <span className="font-display font-bold text-neon tracking-wide">$LNEA is live on</span>
+            <a
+              href="https://moonshot.com/2R9oFk1D4dH9fE8CQ7TTj7ed6Dsv8F6XpeVmtsLqmoon?ref=gIuUiL"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 rounded-full border border-neon/40 bg-neon/10 px-3 py-1 font-semibold text-neon hover:bg-neon/20 transition-colors"
+            >
+              🌙 Moonshot
+            </a>
+            <a
+              href="https://jup.ag/?sell=2R9oFk1D4dH9fE8CQ7TTj7ed6Dsv8F6XpeVmtsLqmoon"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 rounded-full border border-neon/40 bg-neon/10 px-3 py-1 font-semibold text-neon hover:bg-neon/20 transition-colors"
+            >
+              ⚡ Jupiter
+            </a>
+          </div>
+
           <h1 className="display-heading text-display-xl text-white leading-none">
             PRESENTING
             <br />
