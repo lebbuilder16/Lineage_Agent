@@ -2,13 +2,13 @@
 // Layout racine — initialise fonts, QueryClient, SafeArea, Reanimated, push notifications
 
 import "../src/global.css";
-import React, { useEffect, useRef } from "react";
+import React, { useEffect } from "react";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import * as SplashScreen from "expo-splash-screen";
-import type { Notifications as ExpNotif } from "expo-notifications";
+import { PrivyProvider } from "@privy-io/expo";
 import {
   useFonts,
   Inter_400Regular,
@@ -25,6 +25,8 @@ import {
   addNotificationResponseListener,
   clearBadge,
 } from "@/src/lib/pushNotifications";
+
+const PRIVY_APP_ID = process.env.EXPO_PUBLIC_PRIVY_APP_ID ?? "";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -85,9 +87,10 @@ export default function RootLayout() {
   if (!fontsLoaded) return null;
 
   return (
-    <GestureHandlerRootView style={{ flex: 1, backgroundColor: colors.background.deep }}>
-      <QueryClientProvider client={queryClient}>
-        <StatusBar style="light" backgroundColor={colors.background.deep} />
+    <PrivyProvider appId={PRIVY_APP_ID}>
+      <GestureHandlerRootView style={{ flex: 1, backgroundColor: colors.background.deep }}>
+        <QueryClientProvider client={queryClient}>
+          <StatusBar style="light" backgroundColor={colors.background.deep} />
         <Stack
           screenOptions={{
             headerShown: false,
@@ -123,7 +126,8 @@ export default function RootLayout() {
           />
           <Stack.Screen name="auth" options={{ headerShown: false }} />
         </Stack>
-      </QueryClientProvider>
-    </GestureHandlerRootView>
+        </QueryClientProvider>
+      </GestureHandlerRootView>
+    </PrivyProvider>
   );
 }

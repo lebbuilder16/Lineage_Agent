@@ -67,28 +67,32 @@ function DeathClockCard({ data }: { data: NonNullable<LineageResult["death_clock
 }
 
 function ZombieCard({ data }: { data: NonNullable<LineageResult["zombie_alert"]> }) {
+  const probMap = { confirmed: 0.95, probable: 0.7, possible: 0.45 };
+  const prob = probMap[data.confidence] ?? 0.5;
   return (
     <Section title="🧟 ZOMBIE" accent={colors.accent.warning}>
       <View style={styles.gaugeWrap}>
-        <RiskGauge score={data.zombie_probability ?? 0} size={64} strokeWidth={6} />
+        <RiskGauge score={prob} size={64} strokeWidth={6} />
       </View>
-      <Row label="Prob." value={`${Math.round((data.zombie_probability ?? 0) * 100)}%`} />
-      <Row label="V. before" value={`$${(data.volume_before ?? 0).toLocaleString()}`} />
-      <Row label="V. after" value={`$${(data.volume_after ?? 0).toLocaleString()}`} />
+      <Row label="Confidence" value={data.confidence} />
+      <Row label="Same deployer" value={data.same_deployer ? "Yes ✗" : "No"} />
+      <Row label="Img similarity" value={`${Math.round(data.image_similarity * 100)}%`} />
     </Section>
   );
 }
 
 function BundleCard({ data }: { data: NonNullable<LineageResult["bundle_report"]> }) {
-  const risk = data.bundle_risk_score ?? 0;
+  const totalWallets = data.bundle_wallets?.length ?? 0;
+  const teamWallets = (data.confirmed_team_wallets?.length ?? 0) + (data.suspected_team_wallets?.length ?? 0);
+  const risk = totalWallets > 0 ? teamWallets / totalWallets : 0;
   return (
     <Section title="📦 BUNDLE" accent={colors.accent.ai}>
       <View style={styles.gaugeWrap}>
         <RiskGauge score={risk} size={64} strokeWidth={6} />
       </View>
-      <Row label="Risk score" value={`${Math.round(risk * 100)}%`} />
-      <Row label="Bundles" value={data.bundle_count ?? 0} />
-      <Row label="Suspicious %" value={`${Math.round((data.suspicious_bundle_pct ?? 0) * 100)}%`} />
+      <Row label="Wallets" value={totalWallets} />
+      <Row label="Team linked" value={teamWallets} />
+      <Row label="SOL extracted" value={`${(data.total_sol_extracted_confirmed ?? 0).toFixed(1)}`} />
     </Section>
   );
 }
@@ -96,12 +100,10 @@ function BundleCard({ data }: { data: NonNullable<LineageResult["bundle_report"]
 function OperatorCard({ data }: { data: NonNullable<LineageResult["operator_fingerprint"]> }) {
   return (
     <Section title="🕵️ OPERATOR" accent="#9B8CF7">
-      <Row label="Pattern" value={data.pattern ?? "Unknown"} />
-      <Row label="Wallets" value={data.operator_wallets?.length ?? 0} />
-      <Row label="Chain" value={data.chain ?? "Solana"} />
-      {data.similar_tokens && data.similar_tokens.length > 0 && (
-        <Row label="Similar" value={data.similar_tokens.length} />
-      )}
+      <Row label="Confidence" value={data.confidence} />
+      <Row label="Linked wallets" value={data.linked_wallets?.length ?? 0} />
+      <Row label="Upload svc" value={data.upload_service ?? "Unknown"} />
+      <Row label="Fingerprint" value={data.fingerprint?.slice(0, 8) ?? "—"} />
     </Section>
   );
 }
@@ -115,17 +117,20 @@ function LiquidityCard({ data }: { data: NonNullable<LineageResult["liquidity_ar
       </View>
       <Row label="Authentic" value={`${Math.round(auth * 100)}%`} />
       <Row label="Pools" value={data.pool_count ?? 0} />
-      <Row label="Locked" value={data.is_locked ? "Yes ✓" : "No ✗"} />
+      <Row label="Total liq." value={`$${(data.total_liquidity_usd ?? 0).toLocaleString()}`} />
     </Section>
   );
 }
 
 function FactoryCard({ data }: { data: NonNullable<LineageResult["factory_rhythm"]> }) {
+  const intervalH = data.median_interval_hours ?? 0;
+  const ratePerDay = intervalH > 0 ? (24 / intervalH).toFixed(1) : "?";
   return (
     <Section title="🏭 FACTORY" accent="#FFB547">
-      <Row label="Deploy rate" value={`${data.deploy_rate_per_day?.toFixed(1) ?? "?"}/day`} />
+      <Row label="Deploy rate" value={`${ratePerDay}/day`} />
       <Row label="Regularity" value={`${Math.round((data.regularity_score ?? 0) * 100)}%`} />
-      <Row label="Variants" value={data.template_variants ?? 0} />
+      <Row label="Tokens" value={data.tokens_launched ?? 0} />
+      <Row label="Is factory" value={data.is_factory ? "Yes ⚠" : "No"} />
     </Section>
   );
 }
@@ -137,8 +142,8 @@ function InsiderCard({ data }: { data: NonNullable<LineageResult["insider_sell"]
         <RiskGauge score={data.risk_score ?? 0} size={64} strokeWidth={6} />
       </View>
       <Row label="Risk" value={`${Math.round((data.risk_score ?? 0) * 100)}%`} />
-      <Row label="Wallets" value={data.insider_wallet_count ?? 0} />
-      <Row label="Sold %" value={`${Math.round((data.pct_supply_sold ?? 0) * 100)}%`} />
+      <Row label="Wallets" value={data.wallet_events?.length ?? 0} />
+      <Row label="Deployer exited" value={data.deployer_exited ? "Yes ✗" : "No"} />
       <RiskBadge verdict={data.verdict as any} size="sm" style={{ marginTop: 8 }} />
     </Section>
   );

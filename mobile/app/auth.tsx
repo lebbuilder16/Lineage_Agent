@@ -1,7 +1,7 @@
 // app/auth.tsx
-// Auth screen — connexion via Privy + fallback biométrique
+// Auth screen — connexion via Privy embedded wallet + fallback biométrique
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   View,
   Text,
@@ -23,14 +23,12 @@ import Animated, {
   withSequence,
   withTiming,
 } from "react-native-reanimated";
+import { usePrivy, useLoginWithEmail } from "@privy-io/expo";
 import { loginWithPrivy, getCurrentUser } from "@/src/lib/api";
 import { useAuthStore } from "@/src/store/auth";
 import { GlassCard } from "@/src/components/ui/GlassCard";
 import { HapticButton } from "@/src/components/ui/HapticButton";
 import { colors } from "@/src/theme/colors";
-
-// Clé pour stocker le privy_id simulé en développement
-const DEV_PRIVY_KEY = "dev_privy_id";
 
 function AnimatedOrb() {
   const scale = useSharedValue(1);
@@ -65,8 +63,36 @@ function AnimatedOrb() {
 export default function AuthScreen() {
   const setUser = useAuthStore((s) => s.setUser);
   const [loading, setLoading] = useState(false);
-  const [devPrivyId, setDevPrivyId] = useState("");
   const [hasBiometric, setHasBiometric] = useState(false);
+  const [devPrivyId, setDevPrivyId] = useState("");
+
+  // ── Privy SDK
+  const { logout: privyLogout } = usePrivy();
+  const { loginWithEmail, state: emailState } = useLoginWithEmail({
+    onComplete: async ({ user: privyUser }) => {
+      await _handlePrivyUser(privyUser.id, privyUser.email?.address);
+    },
+    onError: (err) => {
+      Alert.alert("Login failed", err.message ?? "Please try again.");
+      setLoading(false);
+    },
+  });
+
+  const _handlePrivyUser = useCallback(
+    async (privyId: string, email?: string) => {
+      setLoading(true);
+      try {
+        const user = await loginWithPrivy(privyId, undefined, email);
+        await setUser(user);
+        router.replace("/(tabs)");
+      } catch (e: any) {
+        Alert.alert("Connection failed", e.message ?? "Please try again.");
+      } finally {
+        setLoading(false);
+      }
+    },
+    [setUser]
+  );
 
   useEffect(() => {
     checkBiometric();
@@ -77,7 +103,7 @@ export default function AuthScreen() {
     const enrolled = await LocalAuthentication.isEnrolledAsync();
     setHasBiometric(compatible && enrolled);
 
-    // Tenter un re-login biométrique si APIkey déjà stockée
+    // Re-login biométrique si API key déjà stockée
     const existingKey = await SecureStore.getItemAsync("lineage_api_key");
     if (existingKey && compatible && enrolled) {
       const result = await LocalAuthentication.authenticateAsync({
@@ -97,18 +123,20 @@ export default function AuthScreen() {
   };
 
   const handleConnect = async () => {
-    // En production, déclencher le flow Privy SDK natif.
-    // En développement, on simule un privy_id.
-    const privyId = devPrivyId.trim() || `dev_${Date.now()}`;
-
+    if (__DEV__ && devPrivyId.trim()) {
+      // Mode développement : simuler un privy_id direct
+      await _handlePrivyUser(devPrivyId.trim());
+      return;
+    }
+    // Production : déclencher le flow Privy email embedded wallet
+    // (l'UI Privy gère le code OTP en overlay natif)
     setLoading(true);
     try {
-      const user = await loginWithPrivy(privyId, undefined, undefined);
-      await setUser(user);
-      router.replace("/(tabs)");
+      // Pour une app Solana, Privy gère l'embedded wallet Solana automatiquement
+      // après connexion email. Le flow complet est géré par le SDK en sheet native.
+      await loginWithEmail("", { sendCode: false }); // triggers Privy login sheet
     } catch (e: any) {
       Alert.alert("Connection failed", e.message ?? "Please try again.");
-    } finally {
       setLoading(false);
     }
   };

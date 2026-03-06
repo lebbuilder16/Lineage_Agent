@@ -124,15 +124,15 @@ export default function DeployerScreen() {
                     styles.rugPct,
                     {
                       color:
-                        (profile.rug_pull_rate ?? 0) > 0.6
+                        (profile.rug_rate_pct ?? 0) > 60
                           ? colors.accent.danger
-                          : (profile.rug_pull_rate ?? 0) > 0.3
+                          : (profile.rug_rate_pct ?? 0) > 30
                           ? colors.accent.warning
                           : colors.accent.safe,
                     },
                   ]}
                 >
-                  {Math.round((profile.rug_pull_rate ?? 0) * 100)}%
+                  {Math.round(profile.rug_rate_pct ?? 0)}%
                 </Text>
               </View>
               <View style={styles.rugTrack}>
@@ -140,11 +140,11 @@ export default function DeployerScreen() {
                   style={[
                     styles.rugFill,
                     {
-                      width: `${(profile.rug_pull_rate ?? 0) * 100}%` as any,
+                      width: `${Math.min(profile.rug_rate_pct ?? 0, 100)}%` as any,
                       backgroundColor:
-                        (profile.rug_pull_rate ?? 0) > 0.6
+                        (profile.rug_rate_pct ?? 0) > 60
                           ? colors.accent.danger
-                          : (profile.rug_pull_rate ?? 0) > 0.3
+                          : (profile.rug_rate_pct ?? 0) > 30
                           ? colors.accent.warning
                           : colors.accent.safe,
                     },
@@ -159,44 +159,43 @@ export default function DeployerScreen() {
             <Text style={styles.sectionTitle}>ACTIVITY STATS</Text>
             <BarStat
               label="Total tokens deployed"
-              value={profile.total_tokens ?? 0}
-              max={Math.max(profile.total_tokens ?? 1, 20)}
+              value={profile.total_tokens_launched ?? 0}
+              max={Math.max(profile.total_tokens_launched ?? 1, 20)}
               accent={colors.accent.ai}
             />
             <BarStat
               label="Active tokens"
               value={profile.active_tokens ?? 0}
-              max={Math.max(profile.total_tokens ?? 1, 1)}
+              max={Math.max(profile.total_tokens_launched ?? 1, 1)}
               accent={colors.accent.safe}
             />
             <BarStat
-              label="Abandoned tokens"
-              value={profile.abandoned_tokens ?? 0}
-              max={Math.max(profile.total_tokens ?? 1, 1)}
+              label="Rugged tokens"
+              value={profile.rug_count ?? 0}
+              max={Math.max(profile.total_tokens_launched ?? 1, 1)}
               accent={colors.accent.danger}
             />
           </GlassCard>
 
           {/* Risk profile */}
           <GlassCard style={styles.riskCard}>
-            <Text style={styles.sectionTitle}>RISK PROFILE</Text>
+            <Text style={styles.sectionTitle}>NARRATIVES</Text>
             <View style={styles.pillRow}>
-              {profile.risk_flags?.map((flag) => (
-                <View key={flag} style={styles.flagPill}>
-                  <Text style={styles.flagText}>{flag}</Text>
+              {profile.preferred_narrative ? (
+                <View style={styles.flagPill}>
+                  <Text style={styles.flagText}>{profile.preferred_narrative}</Text>
                 </View>
-              ))}
-              {(!profile.risk_flags || profile.risk_flags.length === 0) && (
-                <Text style={styles.noFlagsText}>No risk flags detected ✓</Text>
+              ) : (
+                <Text style={styles.noFlagsText}>No preferred narrative</Text>
               )}
             </View>
           </GlassCard>
 
           {/* Known tokens */}
-          {profile.known_tokens && profile.known_tokens.length > 0 && (
+          {profile.tokens && profile.tokens.length > 0 && (
             <View>
               <Text style={styles.sectionHeader}>DEPLOYED TOKENS</Text>
-              {profile.known_tokens.slice(0, 10).map((t: any) => (
+              {profile.tokens.slice(0, 10).map((t) => (
                 <TouchableOpacity
                   key={t.mint}
                   onPress={() => router.push(`/lineage/${t.mint}`)}
@@ -205,11 +204,13 @@ export default function DeployerScreen() {
                   <GlassCard style={styles.tokenCard}>
                     <View style={styles.tokenRowInner}>
                       <View style={{ flex: 1 }}>
-                        <Text style={styles.tokenName}>{t.name ?? t.symbol}</Text>
+                        <Text style={styles.tokenName}>{t.name || t.symbol}</Text>
                         <Text style={styles.tokenMint}>{abbreviate(t.mint)}</Text>
                       </View>
-                      {t.verdict && (
-                        <RiskBadge verdict={t.verdict} size="sm" />
+                      {t.rugged_at && (
+                        <View style={[styles.flagPill, { borderColor: colors.accent.danger }]}>
+                          <Text style={[styles.flagText, { color: colors.accent.danger }]}>RUGGED</Text>
+                        </View>
                       )}
                       <Text style={styles.chevron}>›</Text>
                     </View>
