@@ -78,6 +78,7 @@ export interface LineageResult {
   operator_impact?: OperatorImpactReport | null;
   sol_flow?: SolFlowReport | null;
   cartel_report?: CartelReport | null;
+  insider_sell?: InsiderSellReport | null;
   bundle_report?: BundleExtractionReport | null;
 }
 
@@ -351,6 +352,33 @@ export type BundleOverallVerdict =
   | "suspected_team_extraction"
   | "coordinated_dump_unknown_team"
   | "early_buyers_no_link_proven";
+
+/* ---------- Initiative 4: Insider Sell / Silent Drain -------------- */
+
+export interface InsiderSellEvent {
+  wallet: string;
+  role: "deployer" | "linked";
+  balance_now: number;
+  exited: boolean;
+}
+
+export interface InsiderSellReport {
+  mint: string;
+  sell_pressure_1h: number | null;
+  sell_pressure_6h: number | null;
+  sell_pressure_24h: number | null;
+  price_change_1h: number | null;
+  price_change_6h: number | null;
+  price_change_24h: number | null;
+  volume_spike_ratio: number | null;
+  deployer_exited: boolean | null;
+  wallet_events: InsiderSellEvent[];
+  flags: string[];
+  risk_score: number;
+  verdict: "clean" | "suspicious" | "insider_dump";
+}
+
+/* ---------- Initiative 5: Bundle Extraction ------------------------- */
 
 export interface BundleExtractionReport {
   mint: string;
