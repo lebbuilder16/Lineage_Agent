@@ -30,6 +30,32 @@ const DEATH_CLOCK_LABEL: Record<string, string> = {
   insufficient_data: "unknown",
 };
 
+// Contextual hashtag per rug pattern (in addition to #Solana #DYOR)
+const PATTERN_HASHTAG: Record<string, string> = {
+  classic_rug: "#RugPull",
+  slow_rug: "#SlowRug",
+  pump_dump: "#PumpAndDump",
+  coordinated_bundle: "#BundleDump",
+  factory_jito_bundle: "#JitoBundle",
+  serial_clone: "#CloneFarm",
+  insider_drain: "#InsiderDrain",
+};
+
+/** Strip AI-prefixes like "[FINANCIAL] ", "[COORDINATION] " etc. from key_findings entries. */
+function stripFindingPrefix(s: string): string {
+  return s.replace(/^\[[A-Z_]+\]\s*/, "");
+}
+
+/**
+ * Return the first sentence of a string, truncated to maxLen chars.
+ * Falls back to a hard truncation if no sentence boundary is found.
+ */
+function firstSentence(s: string, maxLen = 140): string {
+  const end = s.search(/[.!?]/);
+  const sentence = end !== -1 ? s.slice(0, end + 1) : s;
+  return sentence.length > maxLen ? sentence.slice(0, maxLen - 1) + "…" : sentence;
+}
+
 function buildTweetText(
   data: LineageResult,
   analysis: AnalyzeResponse | null | undefined,
@@ -40,17 +66,28 @@ function buildTweetText(
   const ai = analysis?.ai_analysis;
   const score = ai?.risk_score ?? null;
   const pattern = ai?.rug_pattern ?? null;
-  const verdict = ai?.verdict_summary ?? null;
   const family = data.family_size ?? 1;
   const confidence = Math.round(data.confidence * 100);
   const patternStr =
     pattern && pattern !== "unknown" ? (PATTERN_LABEL[pattern] ?? pattern) : null;
+  const patternHashtag =
+    pattern && pattern !== "unknown" ? (PATTERN_HASHTAG[pattern] ?? null) : null;
 
-  // trim verdict to fit tweet budget (~100 chars)
-  const shortVerdict = verdict ? (verdict.length > 100 ? verdict.slice(0, 97) + "…" : verdict) : null;
+  // ── AI-specific signals (token-contextual) ───────────────────────────────
+  const keyFindings: string[] = ai?.key_findings ?? [];
+  // Take up to 2 most incriminating findings, stripped of their prefix
+  const finding1 = keyFindings[0] ? stripFindingPrefix(keyFindings[0]) : null;
+  const finding2 = keyFindings[1] ? stripFindingPrefix(keyFindings[1]) : null;
+  // conviction_chain: first sentence only, used as contextual footer
+  const convictionFooter = ai?.conviction_chain
+    ? firstSentence(ai.conviction_chain, 140)
+    : null;
+  // operator_hypothesis: first sentence, used instead of generic deployer line when available
+  const opHypo = ai?.operator_hypothesis
+    ? firstSentence(ai.operator_hypothesis, 120)
+    : null;
 
-  // ── Forensic signals ────────────────────────────────────────────────────
-  // Bundle
+  // ── Forensic on-chain signals ────────────────────────────────────────────
   const bundle = data.bundle_report;
   const bundleTeamCount =
     (bundle?.confirmed_team_wallets?.length ?? 0) +
@@ -75,11 +112,14 @@ function buildTweetText(
   // Operator impact (cross-wallet damage)
   const opImpact = data.operator_impact;
   const totalOpUsd = opImpact?.estimated_extracted_usd ?? null;
-  const totalOpRugs = opImpact?.total_rug_count ?? null;
 
-  // Factory / liquidity signals
+  // Additional signals
   const isFactory = data.factory_rhythm?.is_factory ?? false;
   const significantExtraction = solExtracted != null && solExtracted > 50;
+  const zombieAlert = data.zombie_alert ?? null;
+  const insiderDump = data.insider_sell?.verdict === "insider_dump";
+  const coordSell = bundle?.coordinated_sell_detected ?? false;
+  const crossChain = (data.sol_flow?.cross_chain_exits?.length ?? 0) > 0;
 
   // ── helpers ─────────────────────────────────────────────────────────────
   const fmtSol = (n: number) => `${n.toFixed(1)} SOL`;
@@ -99,72 +139,110 @@ function buildTweetText(
         ? `${fmtSol(solExtracted)} extracted on-chain`
         : null;
 
+    // Deployer line: prefer operator hypothesis (token-specific) over generic rug count
+    const deployerLine = opHypo
+      ? `🕵️ ${opHypo}`
+      : rugCount != null && rugCount > 0
+        ? `☠️ Deployer: ${rugCount} prior rug${rugCount > 1 ? "s" : ""}` +
+          (totalOpUsd != null ? ` · ${fmtUsd(totalOpUsd)} total damage` : "")
+        : null;
+
+    // Footer: conviction_chain first sentence (token-specific) or fallback
+    const footer = convictionFooter ?? "receipts on-chain — don't say we didn't warn you";
+
     const lines = [
       `🚨 ${ticker} — CONFIRMED ${patternStr?.toUpperCase() ?? "RUG"} · ${score}/100`,
       ``,
-      ...(bundleTeamCount > 0
+      // AI key findings (most incriminating, token-specific)
+      ...(finding1 ? [`→ ${finding1}`] : []),
+      ...(finding2 ? [`→ ${finding2}`] : []),
+      // On-chain extraction figures
+      ...(extractionStr && !finding1 ? [`💸 ${extractionStr}`] : []),
+      ...(extractionStr && finding1 ? [`💸 ${extractionStr}`] : []),
+      // Coordinated sell / cross-chain exit
+      ...(coordSell ? [`⚡ Coordinated sell: multiple wallets exited within 5 slots`] : []),
+      ...(crossChain ? [`🌉 Cross-chain exit detected`] : []),
+      // Bundle team wallets (only if not already covered by finding lines)
+      ...(bundleTeamCount > 0 && !finding1
         ? [`📦 ${bundleTeamCount} coordinated team wallet${bundleTeamCount > 1 ? "s" : ""} confirmed`]
         : []),
-      ...(extractionStr ? [`💸 ${extractionStr}`] : []),
-      ...(rugCount != null && rugCount > 0
-        ? [`☠️ Deployer: ${rugCount} prior rug${rugCount > 1 ? "s" : ""}`
-            + (totalOpUsd != null ? ` · ${fmtUsd(totalOpUsd)} total damage` : "")]
-        : []),
+      // Deployer line
+      ...(deployerLine ? [deployerLine] : []),
+      // Clone family
       ...(family > 1 ? [`🧬 ${family}-token clone farm · same operator`] : []),
+      // Zombie resurrection
+      ...(zombieAlert
+        ? [`💀 Resurrection of previously rugged $${zombieAlert.original_name} detected`]
+        : []),
+      // Insider dump
+      ...(insiderDump ? [`🩸 Deployer wallet confirmed emptied (insider dump)`] : []),
       ``,
-      ...(shortVerdict ? [`"${shortVerdict}"`] : []),
-      ``,
-      `receipts on-chain 👇 don't say we didn't warn you`,
+      footer,
       url,
-      `#Solana #DYOR #NotYourKeys`,
+      `#Solana #DYOR${patternHashtag ? ` ${patternHashtag}` : " #NotYourKeys"}`,
     ];
     return encodeURIComponent(lines.join("\n"));
   }
 
   // ── High risk (75-84) — strong signals ─────────────────────────────────
   if (score !== null && score >= 75) {
+    const footer = convictionFooter ?? "full on-chain forensics →";
+
     const lines = [
       `⚠️ ${ticker} — HIGH RISK · ${score}/100`,
       ``,
       ...(patternStr ? [`🎭 Pattern: ${patternStr}`] : []),
-      ...(deathClockLabel ? [`⏱️ Death clock: ${deathClockLabel}`] : []),
-      ...(bundleTeamCount > 0
-        ? [`📦 ${bundleTeamCount} suspicious wallet${bundleTeamCount > 1 ? "s" : ""} in launch bundle`]
+      // AI findings take priority over generic signals
+      ...(finding1 ? [`→ ${finding1}`] : [
+        ...(deathClockLabel ? [`⏱️ Death clock: ${deathClockLabel}`] : []),
+        ...(bundleTeamCount > 0
+          ? [`📦 ${bundleTeamCount} suspicious wallet${bundleTeamCount > 1 ? "s" : ""} in launch bundle`]
+          : []),
+        ...(rugCount != null && rugCount > 0
+          ? [`☠️ ${rugCount} prior rug${rugCount > 1 ? "s" : ""} by this deployer`]
+          : []),
+      ]),
+      ...(finding2 ? [`→ ${finding2}`] : []),
+      ...(finding1 && deathClockLabel ? [`⏱️ Death clock: ${deathClockLabel}`] : []),
+      ...(zombieAlert
+        ? [`💀 Resurrection of $${zombieAlert.original_name} detected`]
         : []),
-      ...(rugCount != null && rugCount > 0
-        ? [`☠️ ${rugCount} prior rug${rugCount > 1 ? "s" : ""} by this deployer`]
-        : []),
+      ...(insiderDump ? [`🩸 Insider dump confirmed`] : []),
       ...(family > 1
         ? [`🧬 ${family}-token family · ${confidence}% lineage confidence`]
         : []),
-      ...(shortVerdict ? [``, `"${shortVerdict}"`] : []),
       ``,
-      `full on-chain forensics →`,
+      footer,
       url,
-      `#Solana #MemeCoin #DYOR`,
+      `#Solana #MemeCoin #DYOR${patternHashtag ? ` ${patternHashtag}` : ""}`,
     ];
     return encodeURIComponent(lines.join("\n"));
   }
 
   // ── Medium risk (50-74) — caution ───────────────────────────────────────
   if (score !== null && score >= 50) {
+    const footer = convictionFooter ?? "NFA — do your homework 👇";
+
     const lines = [
       `🟡 ${ticker} — SKETCHY · ${score}/100`,
       ``,
       ...(patternStr ? [`🎭 ${patternStr}`] : []),
-      ...(rugCount != null && rugCount > 0
-        ? [`🔗 Deployer linked to ${rugCount} previous rug${rugCount > 1 ? "s" : ""}`
-            + (totalOpUsd != null ? ` · ${fmtUsd(totalOpUsd)} total damage` : "")]
-        : []),
-      ...(isFactory ? [`🏭 Factory deployer detected — scripted launches`] : []),
-      ...(significantExtraction ? [`🔴 ${fmtSol(solExtracted!)} moved out of project wallets`] : []),
+      ...(finding1 ? [`→ ${finding1}`] : [
+        ...(rugCount != null && rugCount > 0
+          ? [`🔗 Deployer linked to ${rugCount} previous rug${rugCount > 1 ? "s" : ""}` +
+              (totalOpUsd != null ? ` · ${fmtUsd(totalOpUsd)} total damage` : "")]
+          : []),
+        ...(isFactory ? [`🏭 Factory deployer detected — scripted launches`] : []),
+        ...(significantExtraction ? [`🔴 ${fmtSol(solExtracted!)} moved out of project wallets`] : []),
+      ]),
+      ...(finding2 ? [`→ ${finding2}`] : []),
       ...(family > 1
         ? [`🧬 ${family}-token lineage · ${confidence}% confidence`]
         : []),
       ``,
-      `NFA — do your homework 👇`,
+      footer,
       url,
-      `#Solana #DYOR`,
+      `#Solana #DYOR${patternHashtag ? ` ${patternHashtag}` : ""}`,
     ];
     return encodeURIComponent(lines.join("\n"));
   }
