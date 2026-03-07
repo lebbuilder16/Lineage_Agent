@@ -44,6 +44,8 @@ from .alert_service import set_bot_app
 from .data_sources._clients import list_subscriptions, subscribe_alert, unsubscribe_alert
 from .lineage_detector import detect_lineage, search_tokens
 from .ai_analyst import analyze_token
+from .bundle_tracker_service import get_cached_bundle_report
+from .sol_flow_service import get_sol_flow_report
 
 # Base58 validation regex (same as in api.py)
 _BASE58_RE = re.compile(r"^[1-9A-HJ-NP-Za-km-z]{32,44}$")
@@ -168,11 +170,34 @@ async def _run_lineage_analysis(
         parse_mode="HTML",
     )
 
-    # Step 2 — AI
+    # Fetch bundle + SOL flow concurrently (fast DB reads) — same data the web
+    # path uses, so both paths share the same Claude inputs and cached result.
+    bundle_result, sol_flow_result = await asyncio.gather(
+        get_cached_bundle_report(mint),
+        get_sol_flow_report(mint),
+        return_exceptions=True,
+    )
+    if isinstance(bundle_result, Exception):
+        bundle_result = None
+    if isinstance(sol_flow_result, Exception):
+        sol_flow_result = None
+
+    # Step 2 — AI (pass cache so result is shared with the web endpoint)
+    try:
+        from .data_sources._clients import cache as _cache  # noqa: PLC0415
+    except Exception:
+        _cache = None
+
     try:
         ai_result = await asyncio.wait_for(
-            analyze_token(mint, lineage_result=lineage_result),
-            timeout=30.0,
+            analyze_token(
+                mint,
+                lineage_result=lineage_result,
+                bundle_report=bundle_result,
+                sol_flow_report=sol_flow_result,
+                cache=_cache,
+            ),
+            timeout=45.0,
         )
     except asyncio.TimeoutError:
         logger.warning("AI analysis timed out for %s", mint)

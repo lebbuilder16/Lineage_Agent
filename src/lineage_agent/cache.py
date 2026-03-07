@@ -429,29 +429,16 @@ class SQLiteCache:
         await db.execute(
             """
             CREATE TABLE IF NOT EXISTS users (
-                id                  INTEGER PRIMARY KEY AUTOINCREMENT,
-                privy_id            TEXT UNIQUE NOT NULL,
-                email               TEXT,
-                wallet_address      TEXT,
-                plan                TEXT NOT NULL DEFAULT 'free',
-                api_key             TEXT UNIQUE NOT NULL,
-                created_at          REAL NOT NULL,
-                fcm_token           TEXT,
-                notification_prefs  TEXT
+                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                privy_id       TEXT UNIQUE NOT NULL,
+                email          TEXT,
+                wallet_address TEXT,
+                plan           TEXT NOT NULL DEFAULT 'free',
+                api_key        TEXT UNIQUE NOT NULL,
+                created_at     REAL NOT NULL
             )
             """
         )
-        # Migration: add columns to existing tables that predate them
-        try:
-            await db.execute("ALTER TABLE users ADD COLUMN fcm_token TEXT")
-            await db.commit()
-        except Exception:
-            pass  # column already exists — safe to ignore
-        try:
-            await db.execute("ALTER TABLE users ADD COLUMN notification_prefs TEXT")
-            await db.commit()
-        except Exception:
-            pass  # column already exists — safe to ignore
         await db.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_privy ON users(privy_id)"
         )
@@ -480,33 +467,6 @@ class SQLiteCache:
         )
         await db.execute(
             "CREATE INDEX IF NOT EXISTS idx_uw_user ON user_watches(user_id)"
-        )
-
-        # scan_history: per-user token scan snapshots for evolution tracking
-        await db.execute(
-            """
-            CREATE TABLE IF NOT EXISTS scan_history (
-                id            INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-                mint          TEXT NOT NULL,
-                scanned_at    REAL NOT NULL,
-                risk_score    INTEGER NOT NULL DEFAULT 0,
-                flags_json    TEXT NOT NULL DEFAULT '[]',
-                family_size   INTEGER NOT NULL DEFAULT 0,
-                rug_count     INTEGER NOT NULL DEFAULT 0,
-                snapshot_json TEXT NOT NULL DEFAULT '{}'
-            )
-            """
-        )
-        await db.execute(
-            "CREATE INDEX IF NOT EXISTS idx_sh_user_mint "
-            "ON scan_history(user_id, mint)"
-        )
-        await db.execute(
-            "CREATE INDEX IF NOT EXISTS idx_sh_mint ON scan_history(mint)"
-        )
-        await db.execute(
-            "CREATE INDEX IF NOT EXISTS idx_sh_scanned_at ON scan_history(scanned_at)"
         )
 
         await db.commit()

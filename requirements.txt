@@ -18,8 +18,6 @@ python-louvain>=0.16
 anthropic>=0.40.0,<1.0
 json-repair>=0.30.0
 sse-starlette>=2.0.0
-# Firebase Admin push (optional — required only when FIREBASE_SERVICE_ACCOUNT_JSON is set)
-google-auth>=2.38.0
 # Dev / Testing
 arq>=0.25
 

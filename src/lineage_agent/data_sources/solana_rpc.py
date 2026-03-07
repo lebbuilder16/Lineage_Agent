@@ -231,38 +231,34 @@ class SolanaRpcClient:
 
         Returns ``{signature, slot, blockTime, feePayer}`` or ``None``.
         """
-        # ── 1. Estimate target slot directly (O(2) vs O(28) binary search) ──────
-        # Solana average: ~2.5 slots/second.  We fetch the current slot and its
-        # blockTime once, then estimate the migration slot from the timestamp delta.
-        # One verification call confirms accuracy; if off by > 500 slots we fall
-        # back to a bounded 8-step binary search to correct the estimate.
-        _AVG_SLOTS_PER_SEC = 2.5
+        # ── 1. Binary search ─────────────────────────────────────────────────
         current_slot = await self._call("getSlot", [{"commitment": "finalized"}])
         if not current_slot:
             return None
-        current_bt = await self._call("getBlockTime", [current_slot])
-        if current_bt is None:
-            return None
-        slot_delta = int((pair_ts - current_bt) * _AVG_SLOTS_PER_SEC)
-        target_slot = max(0, current_slot + slot_delta)
-
-        # Verify and refine: up to 8 corrections (vs 28 before) if estimate drifts
-        for _ in range(8):
-            if abs(target_slot - current_slot) > 50_000_000:
+        low: int = current_slot - 50_000_000
+        high: int = current_slot
+        for _ in range(28):
+            if high - low <= 100:
                 break
-            bt = await self._call("getBlockTime", [target_slot])
+            mid = (low + high) // 2
+            bt = await self._call("getBlockTime", [mid])
             if bt is None:
-                # Skipped slot — nudge forward
-                target_slot += 1
+                # Skipped slot — advance until we find a valid one
+                for d in range(1, 50):
+                    bt = await self._call("getBlockTime", [mid + d])
+                    if bt:
+                        mid += d
+                        break
+            if bt is None:
+                high = mid - 50
                 continue
-            error_s = bt - pair_ts
-            if abs(error_s) <= 4:  # within 4 seconds (~10 slots) — good enough
-                break
-            correction = int(error_s * _AVG_SLOTS_PER_SEC)
-            target_slot = max(0, target_slot - correction)
-
+            if bt > pair_ts:
+                high = mid
+            else:
+                low = mid
+        target_slot = (low + high) // 2
         logger.debug(
-            "[pair_pivot] slot estimation done: target_slot=%d for %s",
+            "[pair_pivot] binary search done: target_slot=%d for %s",
             target_slot, mint[:16],
         )
 

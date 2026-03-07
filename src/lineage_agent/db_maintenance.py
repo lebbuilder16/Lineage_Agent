@@ -62,21 +62,6 @@ async def _cleanup_old_events(db) -> int:
     return cursor.rowcount
 
 
-async def _cleanup_old_scan_history(db) -> int:
-    """Delete scan_history rows older than 90 days (covers Pro plan retention ceiling)."""
-    import time as _t
-    cutoff = _t.time() - (90 * 86400)
-    try:
-        cursor = await db.execute(
-            "DELETE FROM scan_history WHERE scanned_at < ?",
-            (cutoff,),
-        )
-        await db.commit()
-        return cursor.rowcount
-    except Exception:
-        return 0  # table may not exist on old instances
-
-
 async def _wal_checkpoint(db) -> None:
     """Force a WAL checkpoint to keep the WAL file from growing unbounded."""
     await db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
@@ -139,15 +124,9 @@ async def _maintenance_loop() -> None:
             except Exception:
                 logger.debug("events cleanup skipped (table may not exist)")
 
-            scan_history_deleted = 0
-            try:
-                scan_history_deleted = await _cleanup_old_scan_history(db)
-            except Exception:
-                logger.debug("scan_history cleanup skipped (table may not exist)")
-
             logger.info(
-                "DB maintenance: cache=%d, sol_flows=%d, events=%d, scan_history=%d rows deleted",
-                cache_deleted, flows_deleted, events_deleted, scan_history_deleted,
+                "DB maintenance: cache=%d, sol_flows=%d, events=%d rows deleted",
+                cache_deleted, flows_deleted, events_deleted,
             )
 
             # WAL checkpoint every cycle

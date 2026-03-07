@@ -241,15 +241,13 @@ export default function OverviewTab({
       {expanded && (
         <div className="space-y-3">
 
-          {/* Analysis */}
-          {(ai.analysis || ai.narrative?.observation) && (
-            <div className={SECTION}>
-              <p className={LABEL}>Analysis</p>
-              <p className="text-xs text-zinc-300 leading-relaxed">
-                {ai.analysis ?? ai.narrative?.observation}
-              </p>
-            </div>
-          )}
+          {/* Reasoning Trail */}
+          <div className={SECTION}>
+            <p className={LABEL}>Reasoning Trail</p>
+            <ReasoningRow step={1} label="What we see" text={ai.narrative.observation} accent="text-sky-400" borderColor="border-sky-500/30" />
+            <ReasoningRow step={2} label="What it means" text={ai.narrative.pattern} accent="text-violet-400" borderColor="border-violet-500/30" />
+            <ReasoningRow step={3} label="What&apos;s at risk" text={ai.narrative.risk} accent="text-red-400" borderColor="border-red-500/30" isLast />
+          </div>
 
           {/* Key Evidence */}
           {allFindings.length > 0 && (
@@ -287,7 +285,22 @@ export default function OverviewTab({
           )}
 
           {/* Conviction */}
+          {ai.conviction_chain && (
+            <div className={SECTION}>
+              <p className={LABEL}>Conviction</p>
+              <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2.5">
+                <p className="text-xs text-zinc-300 leading-relaxed">{ai.conviction_chain}</p>
+              </div>
+            </div>
+          )}
+
           {/* Operator Profile */}
+          {ai.operator_hypothesis && (
+            <div className={SECTION}>
+              <p className={LABEL}>Operator Profile</p>
+              <p className="text-xs text-zinc-300 leading-relaxed">{ai.operator_hypothesis}</p>
+            </div>
+          )}
 
         </div>
       )}
@@ -349,6 +362,47 @@ function SignalCard({
         <p className={cn("text-sm font-semibold tabular-nums leading-tight", c.value)}>
           {signal.value}
         </p>
+      </div>
+    </div>
+  );
+}
+
+/* ── ReasoningRow ───────────────────────────────────────────────────── */
+
+function ReasoningRow({
+  step,
+  label,
+  text,
+  accent,
+  borderColor,
+  isLast = false,
+}: {
+  step: number;
+  label: string;
+  text: string;
+  accent: string;
+  borderColor: string;
+  isLast?: boolean;
+}) {
+  return (
+    <div className="flex gap-4 py-3 border-b last:border-0 border-zinc-800/50">
+      {/* Step indicator + connector */}
+      <div className="flex flex-col items-center shrink-0 w-8">
+        <div className={cn(
+          "flex h-6 w-6 items-center justify-center rounded-full border text-[10px] font-bold",
+          borderColor,
+          accent,
+        )}>
+          {step}
+        </div>
+        {!isLast && <div className="flex-1 w-px bg-zinc-800/80 mt-1" />}
+      </div>
+      {/* Content */}
+      <div className="flex-1 pb-1">
+        <p className={cn("text-[10px] font-bold uppercase tracking-widest mb-1.5", accent)}>
+          {label}
+        </p>
+        <p className="text-xs text-zinc-300 leading-relaxed">{text}</p>
       </div>
     </div>
   );

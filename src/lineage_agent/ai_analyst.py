@@ -65,7 +65,7 @@ After analysing the data, call the forensic_report tool with your findings.
 ANALYSIS SCOPE — READ CAREFULLY:
 Your analysis target is EXCLUSIVELY the token labelled "TOKEN BEING ANALYZED" at the top of the data.
 Root tokens, clones, and derivatives are BACKGROUND CONTEXT to help you understand the operator's pattern \
-— do NOT score or diagnose them. risk_score, verdict_summary, analysis, and key_findings must \
+— do NOT score or diagnose them. risk_score, verdict_summary, conviction_chain, and all findings must \
 reflect the QUERY TOKEN's specific on-chain situation, not the family as a whole.
 
 Scoring guide:
@@ -84,40 +84,21 @@ NEVER reproduce raw technical notation in any output field. Specific prohibition
   - NO bare numbers without explaining what they mean in context
 Instead, interpret every signal and state what it implies in plain English:
   BAD:  "HHI=1.0, LOW_VOLUME_HIGH_LIQ, insider_sell verdict=clean, rug_count=0, total_tokens=0"
-  GOOD: "All liquidity sits in a single pool, making it trivially easy for the deployer to drain. \
-Trading volume is unusually low relative to liquidity, suggesting artificial depth. No insider \
-wallet sales were detected. This deployer has no confirmed rug history, though that does not \
-rule out an early-stage operation."
+  GOOD: "All liquidity sits in a single pool — this makes it trivially easy for the deployer to \
+drain it in one transaction. Trading volume is unusually low relative to the liquidity size, \
+suggesting artificial depth rather than genuine market activity. No insider wallet sales were \
+detected at analysis time. This deployer has no confirmed rug history on record, though the \
+absence of history does not rule out an early-stage operation."
 Quantities and dollar amounts are encouraged when they add weight: \
 "extracted 14 SOL (~$2,800)" is clear; "total_extracted_sol=14" is not.
 
-CROSS-SIGNAL INTEGRATION — THE CORE REQUIREMENT:
-The `analysis` field must synthesise signals from DIFFERENT data sources into one coherent argument. \
-Each sentence must draw connections across at least two independent evidence categories \
-(e.g., capital flow + identity fingerprint, deployment timing + cartel ring membership). \
-NEVER write one sentence per signal type as if they were independent. \
-The goal is to show HOW the signals reinforce each other and what they collectively prove about intent. \
-Structure: (1) operator identity and how they organised; \
-(2) how staging connected to accumulation and then to extraction; \
-(3) where extracted capital ended up and through what intermediaries; \
-(4) specific residual danger for current holders, naming the weakest assumption.
-
-The `key_findings` must each be a DISCRETE NEW fact not already in `analysis`. \
-They are on-chain proof points — specific numbers, wallet addresses, time windows — \
-that underpin the reasoning in `analysis`. They do NOT repeat what `analysis` says. \
-Pre-computed labels (bundle verdict, insider_sell verdict) are WEAK HINTS only. \
-Reason from raw numbers first, validate against labels second. \
-If signals conflict, name the conflict explicitly in `analysis`.
-
-ON-CHAIN EVIDENCE IS THE ONLY TRUTH:
-Ignore ALL social signals — token name, community narrative, influencer endorsements, price momentum, \
-or anything that belongs to the hype layer. A token with a patriotic name, a viral meme, or a \
-10× price surge is NOT safe if the on-chain data says otherwise. Conversely, a token with an \
-unfashionable name or no community presence is NOT suspicious if the on-chain data is clean. \
-Your verdict must stand entirely on ledger proof: wallet flows, timing, deployment patterns, \
-cartel links, and extraction traces. \
-If the hype narrative contradicts the on-chain evidence, explicitly call it out — \
-state that the social story does not match what the blockchain actually records.\
+Reasoning rules:
+- Ground every inference in named data points — cite the specific number or signal.
+- Do NOT repeat the same fact across narrative, key_findings, and conviction_chain — each adds a new layer.
+- Pre-computed labels (bundle verdict, insider_sell verdict) are WEAK HINTS only. \
+Reason from raw numbers first, validate against labels second.
+- If signals conflict, explicitly address the conflict in conviction_chain.
+- conviction_chain is mandatory — if data is sparse, state what the data cannot confirm and why.\
 """
 
 
@@ -147,43 +128,48 @@ _FORENSIC_TOOL = {
             },
             "verdict_summary": {
                 "type": "string",
-                "description": "ONE sentence, max 20 words: headline CONCLUSION about the QUERY TOKEN — what the actor DID and what it proves. Plain English only.",
+                "description": "ONE sentence, max 20 words: headline CONCLUSION about the QUERY TOKEN — stating what the actor DID to it and what it proves. Plain English only — no field names, no key=value notation.",
             },
-            "analysis": {
-                "type": "string",
-                "description": (
-                    "4-6 sentences of cross-signal forensic analysis integrating ALL evidence into one coherent argument. "
-                    "MANDATORY structure: "
-                    "(1) Operator identity and coordination setup — who they are and how they organised across wallets or rings. "
-                    "(2) Attack mechanism — how pre-launch staging enabled accumulation and then triggered extraction. "
-                    "(3) Capital destination — where the SOL went, through which intermediaries, and to which final addresses. "
-                    "(4) Residual risk — specific danger for anyone still holding, with the weakest assumption named explicitly. "
-                    "EACH sentence must draw a connection across at least two independent evidence categories "
-                    "(e.g., 'The same fingerprint that links this deployer to the 9-wallet cartel ring also appears on the factory wallet that pre-funded the bundle wallets'). "
-                    "NEVER list one signal per sentence in isolation. "
-                    "Do NOT repeat any fact already stated in key_findings — those are the proof points; this is the argument."
-                ),
+            "narrative": {
+                "type": "object",
+                "properties": {
+                    "observation": {
+                        "type": "string",
+                        "description": "2-3 sentences synthesising convergent red flags. Explain what the COMBINATION implies about intent. Name 3+ corroborating signals. Written in plain investor-friendly English — no technical labels, no raw flag names, no key=value.",
+                    },
+                    "pattern": {
+                        "type": "string",
+                        "description": "2-3 sentences: causal attack chain in temporal order (staging → accumulation → exit → destination). Each step causally linked. Describe each step in plain language an ordinary investor can follow.",
+                    },
+                    "risk": {
+                        "type": "string",
+                        "description": "2 sentences: (1) quantify damage in plain terms (e.g. how much SOL was extracted, estimated dollar value, share of supply); (2) residual risk. Explain what the numbers mean — do not copy them as raw key=value.",
+                    },
+                },
+                "required": ["observation", "pattern", "risk"],
             },
             "key_findings": {
                 "type": "array",
                 "items": {"type": "string"},
-                "description": (
-                    "3-5 discrete on-chain proof points underpinning the analysis, most incriminating first. "
-                    "Each starts with a tag: [EXIT], [COORDINATION], [DEPLOYMENT], [FINANCIAL], [TIMING], or [IDENTITY]. "
-                    "Each item must be ONE specific fact with its precise on-chain measurement (amount, count, address, time window). "
-                    "These are the raw evidence; the reasoning belongs in `analysis`. "
-                    "Do NOT repeat facts across items."
-                ),
+                "description": "3-6 findings, most incriminating first. Each starts with [DEPLOYMENT], [FINANCIAL], [COORDINATION], [IDENTITY], [TIMING], or [EXIT]. Each finding must be written in plain English accessible to a non-technical investor — no system field names, no key=value notation.",
             },
             "wallet_classifications": {
                 "type": "object",
                 "description": "wallet_prefix (12 chars) → team_wallet|bundle_wallet|cash_out|cex_deposit|burner|clone_deployer|unknown.",
                 "additionalProperties": {"type": "string"},
             },
+            "conviction_chain": {
+                "type": "string",
+                "description": "2-3 sentences anchored to the QUERY TOKEN: 3+ independent converging signals, logical chain, confidence-weighted verdict, weakest assumption called out. Plain English throughout — translate every signal into its real-world meaning for a non-technical reader.",
+            },
+            "operator_hypothesis": {
+                "type": ["string", "null"],
+                "description": "3 sentences: (1) WHO via fingerprint; (2) WHAT playbook vs prior ops; (3) distinguishing factor from legit. Null if insufficient data. Written in plain English accessible to a non-technical investor.",
+            },
         },
         "required": [
             "risk_score", "confidence", "rug_pattern", "verdict_summary",
-            "analysis", "key_findings", "wallet_classifications",
+            "narrative", "key_findings", "wallet_classifications", "conviction_chain",
         ],
     },
 }
@@ -1263,9 +1249,15 @@ def _rule_based_fallback(
         "confidence":   "low",
         "rug_pattern":  "unknown",
         "verdict_summary": "Automated rule-based analysis (AI temporarily unavailable).",
-        "analysis": "Score derived from bundle verdict, SOL flow, and lineage signals. AI narrative unavailable — treat this score as a preliminary indicator only.",
+        "narrative": {
+            "observation": "Score derived from bundle verdict, SOL flow, and lineage signals.",
+            "pattern":     None,
+            "risk":        "AI narrative unavailable — treat this score as a preliminary indicator only.",
+        },
         "key_findings":          findings or ["[CAVEAT] Insufficient data for rule-based scoring."],
         "wallet_classifications": {},
+        "conviction_chain":       None,
+        "operator_hypothesis":   None,
         "is_fallback":           True,
     }
 
@@ -1310,14 +1302,16 @@ def _build_unified_response(
 
     # ── AI analysis (Claude output, clean) ───────────────────────────────
     ai_analysis = {
-        "risk_score":      ai_result.get("risk_score"),
-        "confidence":      ai_result.get("confidence"),
-        "rug_pattern":     ai_result.get("rug_pattern"),
-        "verdict_summary": ai_result.get("verdict_summary"),
-        "analysis":        ai_result.get("analysis"),
-        "key_findings":    ai_result.get("key_findings", []),
-        "model":           ai_result.get("model"),
-        "analyzed_at":     ai_result.get("analyzed_at"),
+        "risk_score":          ai_result.get("risk_score"),
+        "confidence":          ai_result.get("confidence"),
+        "rug_pattern":         ai_result.get("rug_pattern"),
+        "verdict_summary":     ai_result.get("verdict_summary"),
+        "narrative":           ai_result.get("narrative"),
+        "key_findings":        ai_result.get("key_findings", []),
+        "conviction_chain":    ai_result.get("conviction_chain"),
+        "operator_hypothesis": ai_result.get("operator_hypothesis"),
+        "model":               ai_result.get("model"),
+        "analyzed_at":         ai_result.get("analyzed_at"),
     }
     if ai_result.get("parse_error"):
         ai_analysis["parse_error"] = True
@@ -1562,91 +1556,14 @@ def _parse_response(raw: str, mint: str) -> dict:
         "confidence": "low",
         "rug_pattern": "unknown",
         "verdict_summary": "Analysis failed — could not parse AI response.",
-        "analysis": raw[:400],
+        "narrative": {
+            "observation": raw[:400],
+            "pattern": None,
+            "risk": None,
+        },
         "key_findings": [],
         "wallet_classifications": {},
+        "conviction_chain": None,
+        "operator_hypothesis": None,
         "parse_error": True,
     }
-
-
-# ---------------------------------------------------------------------------
-# Scan evolution narrative (used by /history/{mint}/delta?narrate=true)
-# ---------------------------------------------------------------------------
-
-_DELTA_SYSTEM = """\
-You are a Solana token forensics analyst writing a brief evolution summary for an investor.
-Given the before/after snapshot delta of a token's risk profile, write 1-2 plain English
-sentences that explain what changed and why it matters.
-Be direct and concrete. Name specific flags if relevant. No technical jargon.
-"""
-
-
-async def delta_narrative(delta: "Any") -> str:
-    """
-    Generate a 1-2 sentence plain English narrative of scan evolution.
-
-    Used for the share tweet evolution mode. Keeps cost low by using Haiku.
-    Returns a fallback string if the AI call fails rather than raising.
-    """
-    try:
-        client = _get_client()
-    except Exception as exc:
-        logger.warning("[delta_narrative] AI client unavailable: %s", exc)
-        return _fallback_delta_narrative(delta)
-
-    new_flags: list[str] = getattr(delta, "new_flags", [])
-    resolved_flags: list[str] = getattr(delta, "resolved_flags", [])
-    risk_delta: int = getattr(delta, "risk_score_delta", 0)
-    trend: str = getattr(delta, "trend", "stable")
-    prev: Any = getattr(delta, "previous_scan", None)
-    curr: Any = getattr(delta, "current_scan", None)
-    prev_score = getattr(prev, "risk_score", 0) if prev else 0
-    curr_score = getattr(curr, "risk_score", 0) if curr else 0
-    rug_delta: int = getattr(delta, "rug_count_delta", 0)
-    scan_number: int = getattr(delta, "scan_number", 2)
-
-    prompt = (
-        f"Token scan #{scan_number}.\n"
-        f"Risk score: {prev_score} → {curr_score} ({risk_delta:+d}). Trend: {trend}.\n"
-        f"New flags since last scan: {', '.join(new_flags) if new_flags else 'none'}.\n"
-        f"Resolved flags: {', '.join(resolved_flags) if resolved_flags else 'none'}.\n"
-        f"Deployer rug count change: {rug_delta:+d}.\n"
-        "Write 1-2 plain English sentences summarising what changed and what it means for current holders."
-    )
-
-    try:
-        message = await client.messages.create(
-            model=_MODEL,  # always Haiku — low cost, fast
-            max_tokens=120,
-            temperature=0,
-            system=_DELTA_SYSTEM,
-            messages=[{"role": "user", "content": prompt}],
-            timeout=15.0,
-        )
-        for block in message.content:
-            if getattr(block, "type", None) == "text":
-                return block.text.strip()
-    except Exception as exc:
-        logger.warning("[delta_narrative] AI call failed: %s", exc)
-
-    return _fallback_delta_narrative(delta)
-
-
-def _fallback_delta_narrative(delta: "Any") -> str:
-    """Rule-based fallback narrative when LLM is unavailable."""
-    trend = getattr(delta, "trend", "stable")
-    risk_delta = getattr(delta, "risk_score_delta", 0)
-    new_flags: list[str] = getattr(delta, "new_flags", [])
-    resolved_flags: list[str] = getattr(delta, "resolved_flags", [])
-
-    if trend == "worsening":
-        parts = [f"Risk increased by {risk_delta} points since the last scan."]
-        if new_flags:
-            parts.append(f"New warning signals detected: {', '.join(new_flags)}.")
-        return " ".join(parts)
-    elif trend == "improving":
-        parts = [f"Risk decreased by {abs(risk_delta)} points since the last scan."]
-        if resolved_flags:
-            parts.append(f"Previously flagged signals now resolved: {', '.join(resolved_flags)}.")
-        return " ".join(parts)
-    return "No significant changes detected since the last scan."

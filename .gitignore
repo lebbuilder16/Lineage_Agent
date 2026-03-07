@@ -43,16 +43,3 @@ docker-compose.override.yml
 # Misc
 *.log
 data/
-
-# Mobile — Credentials (never commit)
-mobile/google-services.json
-mobile/google-play-service-account.json
-mobile/.env.local
-mobile/.env.*.local
-
-# Mobile — Build artifacts
-mobile/.expo/
-mobile/android/
-mobile/ios/
-mobile/node_modules/
-mobile/.turbo/
