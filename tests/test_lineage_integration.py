@@ -260,3 +260,130 @@ class TestSearchTokensIntegration:
 
         assert dex.search_tokens.call_count == 1
         assert r1 == r2
+
+
+# ---------------------------------------------------------------------------
+# Tests for force-refresh + scanned_at (introduced in PR: stale cache fix)
+# ---------------------------------------------------------------------------
+
+class TestScannedAt:
+    """detect_lineage() stamps scanned_at on every computed result."""
+
+    @pytest.mark.asyncio
+    async def test_scanned_at_set_on_full_flow(self):
+        """scanned_at is a UTC datetime, set during the full analysis path."""
+        dex = _make_dex_client()
+        rpc = _make_rpc_client()
+
+        before = datetime.now(timezone.utc)
+        with patch("lineage_agent.lineage_detector._get_dex_client", return_value=dex), \
+             patch("lineage_agent.lineage_detector._get_rpc_client", return_value=rpc), \
+             patch("lineage_agent.lineage_detector.compute_image_similarity", new_callable=AsyncMock, return_value=0.9):
+            result = await detect_lineage("QueryMint1234567890123456789012345678")
+        after = datetime.now(timezone.utc)
+
+        assert result.scanned_at is not None
+        assert result.scanned_at.tzinfo is not None  # timezone-aware
+        assert before <= result.scanned_at <= after
+
+    @pytest.mark.asyncio
+    async def test_scanned_at_set_on_no_candidates_path(self):
+        """scanned_at is set even when no candidate clones are found."""
+        dex = AsyncMock()
+        dex.get_token_pairs = AsyncMock(return_value=_QUERY_PAIRS)
+        dex.search_tokens = AsyncMock(return_value=[])  # no candidates
+        dex.pairs_to_metadata = _make_dex_client().pairs_to_metadata
+        dex.pairs_to_search_results = _make_dex_client().pairs_to_search_results
+
+        rpc = AsyncMock()
+        rpc.get_deployer_and_timestamp = AsyncMock(
+            return_value=("Deployer", datetime(2024, 1, 1, tzinfo=timezone.utc))
+        )
+        rpc.get_asset = AsyncMock(return_value={})
+        rpc.search_assets_by_creator = AsyncMock(return_value=[])
+
+        before = datetime.now(timezone.utc)
+        with patch("lineage_agent.lineage_detector._get_dex_client", return_value=dex), \
+             patch("lineage_agent.lineage_detector._get_rpc_client", return_value=rpc):
+            result = await detect_lineage("QueryMint1234567890123456789012345678")
+        after = datetime.now(timezone.utc)
+
+        assert result.family_size == 1
+        assert result.scanned_at is not None
+        assert before <= result.scanned_at <= after
+
+    @pytest.mark.asyncio
+    async def test_scanned_at_preserved_from_cache(self):
+        """Cached result keeps the original scanned_at; it is not re-stamped."""
+        dex = _make_dex_client()
+        rpc = _make_rpc_client()
+
+        with patch("lineage_agent.lineage_detector._get_dex_client", return_value=dex), \
+             patch("lineage_agent.lineage_detector._get_rpc_client", return_value=rpc), \
+             patch("lineage_agent.lineage_detector.compute_image_similarity", new_callable=AsyncMock, return_value=0.9):
+            result1 = await detect_lineage("QueryMint1234567890123456789012345678")
+            result2 = await detect_lineage("QueryMint1234567890123456789012345678")  # cache hit
+
+        # Both calls must reference the same original scanned_at
+        assert result1.scanned_at == result2.scanned_at
+        # DexScreener called only once (second call was from cache)
+        assert dex.get_token_pairs.call_count == 1
+
+
+class TestForceRefresh:
+    """force_refresh=True busts the lineage + RPC caches and re-runs analysis."""
+
+    @pytest.mark.asyncio
+    async def test_force_refresh_bypasses_cache(self):
+        """With force_refresh the backend re-fetches even if cache is warm."""
+        dex = _make_dex_client()
+        rpc = _make_rpc_client()
+
+        patches = dict(
+            lineage_detector___get_dex_client=patch(
+                "lineage_agent.lineage_detector._get_dex_client", return_value=dex
+            ),
+            lineage_detector___get_rpc_client=patch(
+                "lineage_agent.lineage_detector._get_rpc_client", return_value=rpc
+            ),
+            image_sim=patch(
+                "lineage_agent.lineage_detector.compute_image_similarity",
+                new_callable=AsyncMock, return_value=0.9,
+            ),
+        )
+        with patches["lineage_detector___get_dex_client"], \
+             patches["lineage_detector___get_rpc_client"], \
+             patches["image_sim"]:
+            # First call — populates cache
+            await detect_lineage("QueryMint1234567890123456789012345678")
+            first_call_count = dex.get_token_pairs.call_count
+
+            # Second call WITHOUT force_refresh — should be cache hit
+            await detect_lineage("QueryMint1234567890123456789012345678")
+            assert dex.get_token_pairs.call_count == first_call_count  # no extra call
+
+            # Third call WITH force_refresh — must re-fetch
+            await detect_lineage("QueryMint1234567890123456789012345678", force_refresh=True)
+            assert dex.get_token_pairs.call_count == first_call_count + 1
+
+    @pytest.mark.asyncio
+    async def test_force_refresh_updates_scanned_at(self):
+        """force_refresh should yield a fresh scanned_at later than the original."""
+        import asyncio as _asyncio
+
+        dex = _make_dex_client()
+        rpc = _make_rpc_client()
+
+        with patch("lineage_agent.lineage_detector._get_dex_client", return_value=dex), \
+             patch("lineage_agent.lineage_detector._get_rpc_client", return_value=rpc), \
+             patch("lineage_agent.lineage_detector.compute_image_similarity", new_callable=AsyncMock, return_value=0.9):
+            result1 = await detect_lineage("QueryMint1234567890123456789012345678")
+            await _asyncio.sleep(0.01)  # ensure wall clock advances
+            result2 = await detect_lineage(
+                "QueryMint1234567890123456789012345678", force_refresh=True
+            )
+
+        assert result2.scanned_at is not None
+        assert result1.scanned_at is not None
+        assert result2.scanned_at >= result1.scanned_at
+

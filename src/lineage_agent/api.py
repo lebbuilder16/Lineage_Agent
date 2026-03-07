@@ -522,7 +522,7 @@ async def ws_lineage(websocket: WebSocket):
             })
             await websocket.close()
             return
-        await websocket.send_json({"done": True, "result": result.model_dump()})
+        await websocket.send_json({"done": True, "result": result.model_dump(mode="json")})
 
     except WebSocketDisconnect:
         logger.info("WebSocket client disconnected during lineage analysis")

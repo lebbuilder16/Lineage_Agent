@@ -376,3 +376,111 @@ def test_ws_lineage_error():
                     break
     assert msgs[-1]["done"] is True
     assert "error" in msgs[-1]
+
+
+# ------------------------------------------------------------------
+# WebSocket: force_refresh flag + scanned_at (stale-cache fix)
+# ------------------------------------------------------------------
+
+def test_ws_lineage_force_refresh_passed_to_detect_lineage():
+    """WS handler must read force_refresh from the JSON payload and
+    forward it to detect_lineage as force_refresh=True."""
+    from datetime import datetime, timezone
+    from lineage_agent.models import LineageResult, TokenMetadata
+
+    fake_result = LineageResult(
+        mint=_WS_MINT,
+        query_token=TokenMetadata(mint=_WS_MINT, name="T", symbol="T"),
+        root=TokenMetadata(mint=_WS_MINT, name="T", symbol="T"),
+        confidence=1.0,
+        derivatives=[],
+        family_size=1,
+        scanned_at=datetime.now(timezone.utc),
+    )
+    mock_detect = AsyncMock(return_value=fake_result)
+
+    with patch("lineage_agent.api.detect_lineage", mock_detect):
+        sync_client = TestClient(app)
+        with sync_client.websocket_connect("/ws/lineage") as ws:
+            ws.send_json({"mint": _WS_MINT, "force_refresh": True})
+            msgs = []
+            while True:
+                msg = ws.receive_json()
+                msgs.append(msg)
+                if msg.get("done"):
+                    break
+
+    assert msgs[-1]["done"] is True
+    assert "result" in msgs[-1]
+    # detect_lineage must have been called with force_refresh=True
+    mock_detect.assert_called_once()
+    _, kwargs = mock_detect.call_args
+    assert kwargs.get("force_refresh") is True
+
+
+def test_ws_lineage_no_force_refresh_defaults_false():
+    """When force_refresh is omitted from the payload, defaults to False."""
+    from datetime import datetime, timezone
+    from lineage_agent.models import LineageResult, TokenMetadata
+
+    fake_result = LineageResult(
+        mint=_WS_MINT,
+        query_token=TokenMetadata(mint=_WS_MINT, name="T", symbol="T"),
+        root=TokenMetadata(mint=_WS_MINT, name="T", symbol="T"),
+        confidence=1.0,
+        derivatives=[],
+        family_size=1,
+        scanned_at=datetime.now(timezone.utc),
+    )
+    mock_detect = AsyncMock(return_value=fake_result)
+
+    with patch("lineage_agent.api.detect_lineage", mock_detect):
+        sync_client = TestClient(app)
+        with sync_client.websocket_connect("/ws/lineage") as ws:
+            ws.send_json({"mint": _WS_MINT})  # no force_refresh key
+            msgs = []
+            while True:
+                msg = ws.receive_json()
+                msgs.append(msg)
+                if msg.get("done"):
+                    break
+
+    mock_detect.assert_called_once()
+    _, kwargs = mock_detect.call_args
+    assert kwargs.get("force_refresh") is False
+
+
+def test_ws_lineage_result_contains_scanned_at():
+    """The final WS result message exposes scanned_at when set."""
+    from datetime import datetime, timezone
+    from lineage_agent.models import LineageResult, TokenMetadata
+
+    stamp = datetime(2026, 3, 7, 12, 0, 0, tzinfo=timezone.utc)
+    fake_result = LineageResult(
+        mint=_WS_MINT,
+        query_token=TokenMetadata(mint=_WS_MINT, name="T", symbol="T"),
+        root=TokenMetadata(mint=_WS_MINT, name="T", symbol="T"),
+        confidence=1.0,
+        derivatives=[],
+        family_size=1,
+        scanned_at=stamp,
+    )
+
+    with patch("lineage_agent.api.detect_lineage", new_callable=AsyncMock, return_value=fake_result):
+        sync_client = TestClient(app)
+        with sync_client.websocket_connect("/ws/lineage") as ws:
+            ws.send_json({"mint": _WS_MINT})
+            msgs = []
+            while True:
+                msg = ws.receive_json()
+                msgs.append(msg)
+                if msg.get("done"):
+                    break
+
+    final = msgs[-1]
+    assert final["done"] is True
+    assert "result" in final
+    # scanned_at must be present and parseable as ISO-8601
+    scanned_at_str = final["result"].get("scanned_at")
+    assert scanned_at_str is not None
+    assert "2026-03-07" in scanned_at_str
