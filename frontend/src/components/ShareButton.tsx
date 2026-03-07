@@ -1,14 +1,19 @@
 "use client";
 
 import { useState } from "react";
-import { Share2, Copy, Check, X } from "lucide-react";
+import { Share2, Copy, Check, X, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import type { LineageResult, AnalyzeResponse } from "@/lib/api";
+import { fetchDeltaWithNarrative, type ScanDelta } from "@/lib/useScanHistory";
 
 interface Props {
   data: LineageResult;
   analysis?: AnalyzeResponse | null;
+  /** When provided, share uses the evolution tweet format (scan #N, risk arrow, LLM narrative). */
+  delta?: ScanDelta | null;
+  /** API key needed to fetch on-demand LLM narrative on share click. */
+  apiKey?: string;
 }
 
 const PATTERN_LABEL: Record<string, string> = {
@@ -178,9 +183,58 @@ function buildTweetText(
   return assemble(header, [familyLine], "#Solana #DYOR");
 }
 
-export function ShareButton({ data, analysis }: Props) {
+function buildEvolutionTweetText(
+  delta: ScanDelta,
+  data: LineageResult,
+  url: string,
+  narrative?: string | null
+): string {
+  const URL_LEN = 23;
+  const BUDGET = 280;
+
+  const token = (data as any).query_token ?? (data as any).root;
+  const rawSymbol = token?.symbol ?? token?.name ?? "?";
+  const ticker = `$${rawSymbol.slice(0, 10)}`;
+
+  const prev = delta.previous_scan;
+  const curr = delta.current_scan;
+  const scoreDelta = delta.risk_score_delta;
+  const scoreDeltaStr = scoreDelta > 0 ? `+${scoreDelta}` : String(scoreDelta);
+  const trendEmoji =
+    delta.trend === "worsening" ? "📈🔴" : delta.trend === "improving" ? "📉🟢" : "➡️";
+
+  const header = `🔄 Scan #${curr.scan_number} ${ticker} | Risk: ${prev.risk_score}→${curr.risk_score} ${trendEmoji} (${scoreDeltaStr})`;
+  const newFlagLine =
+    delta.new_flags.length > 0 ? `🆕 ${delta.new_flags.slice(0, 3).join(" · ")}` : null;
+  const resolvedFlagLine =
+    delta.resolved_flags.length > 0
+      ? `✅ Resolved: ${delta.resolved_flags.slice(0, 2).join(" · ")}`
+      : null;
+  const narrativeLine = narrative
+    ? narrative.length > 100
+      ? narrative.slice(0, 99) + "…"
+      : narrative
+    : null;
+
+  const hashtags = "#Solana #MemeCoin #LineagrMemes";
+  const overhead = 1 + URL_LEN + 1 + hashtags.length;
+  let budget = BUDGET - header.length - overhead;
+  const picked: string[] = [];
+  for (const sig of [newFlagLine, resolvedFlagLine, narrativeLine]) {
+    if (!sig) continue;
+    const cost = 1 + sig.length;
+    if (cost <= budget) {
+      picked.push(sig);
+      budget -= cost;
+    }
+  }
+  return encodeURIComponent([header, ...picked, url, hashtags].join("\n"));
+}
+
+export function ShareButton({ data, analysis, delta, apiKey }: Props) {
   const [copied, setCopied] = useState(false);
   const [open, setOpen] = useState(false);
+  const [narrativeLoading, setNarrativeLoading] = useState(false);
   const isMobile = useIsMobile();
 
   const url = typeof window !== "undefined" ? window.location.href : "";
@@ -190,6 +244,41 @@ export function ShareButton({ data, analysis }: Props) {
   // Farcaster / Warpcast — crypto-native community platform
   const farcasterText = tweetText; // same message, same encoding
   const farcasterUrl = `https://warpcast.com/~/compose?text=${farcasterText}&embeds[]=${encodeURIComponent(url)}`;
+
+  /** Fetch on-demand LLM narrative then open share URL. */
+  const openShareUrl = async (platform: "x" | "farcaster") => {
+    if (delta) {
+      setNarrativeLoading(true);
+      let narrative: string | null = null;
+      try {
+        if (apiKey) {
+          const enriched = await fetchDeltaWithNarrative(delta.mint, apiKey);
+          narrative = enriched?.narrative ?? null;
+        }
+      } catch {
+        // silent — share without narrative
+      } finally {
+        setNarrativeLoading(false);
+      }
+      const evoText = buildEvolutionTweetText(delta, data, url, narrative);
+      if (platform === "x") {
+        window.open(`https://x.com/intent/tweet?text=${evoText}`, "_blank", "noopener,noreferrer");
+      } else {
+        window.open(
+          `https://warpcast.com/~/compose?text=${evoText}&embeds[]=${encodeURIComponent(url)}`,
+          "_blank",
+          "noopener,noreferrer"
+        );
+      }
+    } else {
+      window.open(
+        platform === "x" ? tweetUrl : farcasterUrl,
+        "_blank",
+        "noopener,noreferrer"
+      );
+    }
+    setOpen(false);
+  };
 
   const copyLink = async () => {
     await navigator.clipboard.writeText(url);
@@ -212,8 +301,12 @@ export function ShareButton({ data, analysis }: Props) {
         )}
         aria-label="Share"
       >
-        <Share2 className="h-3.5 w-3.5" />
-        <span className="hidden sm:inline">Share</span>
+        {narrativeLoading ? (
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        ) : (
+          <Share2 className="h-3.5 w-3.5" />
+        )}
+        <span className="hidden sm:inline">{narrativeLoading ? "…" : "Share"}</span>
       </button>
 
       {open && (
@@ -244,15 +337,15 @@ export function ShareButton({ data, analysis }: Props) {
                   <span>{copied ? "Copied!" : "Copy link"}</span>
                 </button>
                 <div className="border-t border-white/5" />
-                <a href={tweetUrl} target="_blank" rel="noopener noreferrer" role="menuitem" onClick={() => setOpen(false)} className="flex items-center gap-3 px-4 py-3.5 text-sm hover:bg-white/5 transition-colors min-h-[52px]">
+                <button onClick={() => openShareUrl("x")} role="menuitem" disabled={narrativeLoading} className="flex w-full items-center gap-3 px-4 py-3.5 text-sm hover:bg-white/5 transition-colors text-left min-h-[52px] disabled:opacity-50">
                   <svg className="h-5 w-5 text-muted-foreground shrink-0" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.402 6.231H2.742l7.737-8.835L1.254 2.25H8.08l4.253 5.622 5.911-5.622Zm-1.161 17.52h1.833L7.084 4.126H5.117z" /></svg>
-                  <span>Share on X</span>
-                </a>
+                  <span>Share on X{delta ? " (evolution)" : ""}</span>
+                </button>
                 <div className="border-t border-white/5" />
-                <a href={farcasterUrl} target="_blank" rel="noopener noreferrer" role="menuitem" onClick={() => setOpen(false)} className="flex items-center gap-3 px-4 py-3.5 text-sm hover:bg-white/5 transition-colors min-h-[52px]">
+                <button onClick={() => openShareUrl("farcaster")} role="menuitem" disabled={narrativeLoading} className="flex w-full items-center gap-3 px-4 py-3.5 text-sm hover:bg-white/5 transition-colors text-left min-h-[52px] disabled:opacity-50">
                   <svg className="h-5 w-5 text-muted-foreground shrink-0" viewBox="0 0 1000 1000" fill="currentColor" aria-hidden="true"><path d="M257.778 155.556H742.222V844.445H671.111V528.889H670.414C662.554 441.677 589.258 373.333 500 373.333C410.742 373.333 337.446 441.677 329.586 528.889H328.889V844.445H257.778V155.556Z" /><path d="M128.889 253.333L157.778 351.111H182.222V746.667C169.949 746.667 160 756.616 160 768.889V795.556H155.556C143.283 795.556 133.333 805.505 133.333 817.778V844.445H382.222V817.778C382.222 805.505 372.273 795.556 360 795.556H355.556V768.889C355.556 756.616 345.606 746.667 333.333 746.667H306.667V253.333H128.889Z" /><path d="M675.556 746.667C663.283 746.667 653.333 756.616 653.333 768.889V795.556H648.889C636.616 795.556 626.667 805.505 626.667 817.778V844.445H875.556V817.778C875.556 805.505 865.606 795.556 853.333 795.556H848.889V768.889C848.889 756.616 838.94 746.667 826.667 746.667V351.111H851.111L880 253.333H702.222V746.667H675.556Z" /></svg>
-                  <span>Share on Farcaster</span>
-                </a>
+                  <span>Share on Farcaster{delta ? " (evolution)" : ""}</span>
+                </button>
               </div>
             </div>
           ) : (
@@ -267,15 +360,15 @@ export function ShareButton({ data, analysis }: Props) {
                 <span>{copied ? "Copied!" : "Copy link"}</span>
               </button>
               <div className="border-t border-white/5" />
-              <a href={tweetUrl} target="_blank" rel="noopener noreferrer" role="menuitem" onClick={() => setOpen(false)} className="flex items-center gap-3 px-3 py-2.5 text-sm hover:bg-white/5 transition-colors">
+              <button onClick={() => openShareUrl("x")} role="menuitem" disabled={narrativeLoading} className="flex w-full items-center gap-3 px-3 py-2.5 text-sm hover:bg-white/5 transition-colors text-left disabled:opacity-50">
                 <svg className="h-4 w-4 text-muted-foreground shrink-0" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.402 6.231H2.742l7.737-8.835L1.254 2.25H8.08l4.253 5.622 5.911-5.622Zm-1.161 17.52h1.833L7.084 4.126H5.117z" /></svg>
-                <span>Share on X</span>
-              </a>
+                <span>Share on X{delta ? " (evolution)" : ""}</span>
+              </button>
               <div className="border-t border-white/5" />
-              <a href={farcasterUrl} target="_blank" rel="noopener noreferrer" role="menuitem" onClick={() => setOpen(false)} className="flex items-center gap-3 px-3 py-2.5 text-sm hover:bg-white/5 transition-colors">
+              <button onClick={() => openShareUrl("farcaster")} role="menuitem" disabled={narrativeLoading} className="flex w-full items-center gap-3 px-3 py-2.5 text-sm hover:bg-white/5 transition-colors text-left disabled:opacity-50">
                 <svg className="h-4 w-4 text-muted-foreground shrink-0" viewBox="0 0 1000 1000" fill="currentColor" aria-hidden="true"><path d="M257.778 155.556H742.222V844.445H671.111V528.889H670.414C662.554 441.677 589.258 373.333 500 373.333C410.742 373.333 337.446 441.677 329.586 528.889H328.889V844.445H257.778V155.556Z" /><path d="M128.889 253.333L157.778 351.111H182.222V746.667C169.949 746.667 160 756.616 160 768.889V795.556H155.556C143.283 795.556 133.333 805.505 133.333 817.778V844.445H382.222V817.778C382.222 805.505 372.273 795.556 360 795.556H355.556V768.889C355.556 756.616 345.606 746.667 333.333 746.667H306.667V253.333H128.889Z" /><path d="M675.556 746.667C663.283 746.667 653.333 756.616 653.333 768.889V795.556H648.889C636.616 795.556 626.667 805.505 626.667 817.778V844.445H875.556V817.778C875.556 805.505 865.606 795.556 853.333 795.556H848.889V768.889C848.889 756.616 838.94 746.667 826.667 746.667V351.111H851.111L880 253.333H702.222V746.667H675.556Z" /></svg>
-                <span>Share on Farcaster</span>
-              </a>
+                <span>Share on Farcaster{delta ? " (evolution)" : ""}</span>
+              </button>
             </div>
           )}
         </>

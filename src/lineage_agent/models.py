@@ -843,3 +843,83 @@ class GlobalStats(BaseModel):
     last_updated: datetime = Field(
         default_factory=lambda: datetime.now(tz=timezone.utc)
     )
+
+
+# ---------------------------------------------------------------------------
+# Scan history & evolution tracking
+# ---------------------------------------------------------------------------
+
+class ScanSnapshot(BaseModel):
+    """Compact representation of a single user-triggered scan for a token."""
+
+    snapshot_id: int = Field(0, description="DB row id")
+    user_id: int = Field(..., description="User who triggered the scan")
+    mint: str = Field(..., description="Solana mint address scanned")
+    scanned_at: datetime = Field(..., description="UTC timestamp of the scan")
+    scan_number: int = Field(1, ge=1, description="1-indexed scan count for this (user, mint) pair")
+
+    # ── Risk summary ───────────────────────────────────────────────────────
+    risk_score: int = Field(0, ge=0, le=100, description="Heuristic risk score 0-100")
+    flags: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Active signal flags at scan time: BUNDLE_CONFIRMED, BUNDLE_SUSPECTED, "
+            "COORDINATED_DUMP, INSIDER_DUMP, INSIDER_SUSPICIOUS, ZOMBIE_ALERT, "
+            "DEATH_CLOCK_CRITICAL, DEATH_CLOCK_HIGH, FACTORY_DETECTED, "
+            "CARTEL_LINKED, SERIAL_RUGGER"
+        ),
+    )
+
+    # ── Key metrics ────────────────────────────────────────────────────────
+    family_size: int = Field(0, description="Total family members at scan time")
+    rug_count: int = Field(0, description="Deployer rug count at scan time")
+    death_clock_risk: str = Field("", description="Death Clock risk_level at scan time")
+    bundle_verdict: str = Field("", description="Bundle overall_verdict at scan time")
+    insider_verdict: str = Field("", description="Insider sell verdict at scan time")
+    zombie_detected: bool = Field(False, description="Zombie alert detected at scan time")
+
+    # ── Token identity ─────────────────────────────────────────────────────
+    token_name: str = Field("", description="Token name at scan time")
+    token_symbol: str = Field("", description="Token symbol at scan time")
+
+
+class ScanDelta(BaseModel):
+    """Evolution between two consecutive scans for the same (user, mint)."""
+
+    mint: str
+    current_scan: ScanSnapshot
+    previous_scan: ScanSnapshot
+    scan_number: int = Field(..., description="Current scan number (≥2)")
+
+    # ── Score evolution ────────────────────────────────────────────────────
+    risk_score_delta: int = Field(
+        description="risk_score change: positive = worsened, negative = improved"
+    )
+    new_flags: list[str] = Field(
+        default_factory=list,
+        description="Flags present in current scan but not in previous",
+    )
+    resolved_flags: list[str] = Field(
+        default_factory=list,
+        description="Flags present in previous scan but absent in current (improvement signal)",
+    )
+
+    # ── Context evolution ──────────────────────────────────────────────────
+    family_size_delta: int = Field(0, description="Change in derivative count")
+    rug_count_delta: int = Field(0, description="Additional rugs by deployer since last scan")
+
+    # ── Verdict ────────────────────────────────────────────────────────────
+    trend: Literal["worsening", "stable", "improving"] = Field(
+        "stable",
+        description=(
+            "worsening: risk_delta>5 or new critical flags; "
+            "improving: risk_delta<-5 or flags resolved; "
+            "stable: otherwise"
+        ),
+    )
+
+    # ── LLM narrative (populated on /history/{mint}/delta?narrate=true) ───
+    narrative: Optional[str] = Field(
+        None,
+        description="1-2 sentence plain-English summary of what changed since the last scan",
+    )

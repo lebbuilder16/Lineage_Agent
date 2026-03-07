@@ -421,7 +421,7 @@ async def get_lineage(
             detail="Invalid Solana mint address. Expected 32-44 base58 characters.",
         )
     try:
-        return await asyncio.wait_for(
+        result = await asyncio.wait_for(
             detect_lineage(mint, force_refresh=force_refresh), timeout=ANALYSIS_TIMEOUT_SECONDS
         )
     except asyncio.TimeoutError:
@@ -435,6 +435,29 @@ async def get_lineage(
         raise HTTPException(
             status_code=500, detail="Internal server error"
         ) from exc
+
+    # ── Scan history: save snapshot for authenticated users (fire-and-forget) ─
+    _api_key = request.headers.get("X-API-Key", "")
+    if _api_key:
+        async def _persist_snapshot() -> None:
+            try:
+                from .data_sources._clients import cache as _cache  # noqa: PLC0415
+                from .scan_history_service import save_snapshot as _save_snap
+                _user = await verify_api_key(_cache, _api_key)
+                if _user:
+                    await _save_snap(
+                        _cache,
+                        _user["id"],
+                        mint,
+                        result,
+                        plan=_user.get("plan", "free"),
+                    )
+            except Exception:
+                logger.debug("Scan history save failed (non-critical)", exc_info=True)
+
+        asyncio.create_task(_persist_snapshot(), name=f"scan_hist:{mint[:8]}")
+
+    return result
 
 
 @app.post(
@@ -1700,6 +1723,81 @@ async def auth_remove_watch(watch_id: int, request: Request):
     if not deleted:
         raise HTTPException(status_code=404, detail="Watch not found")
     return {"deleted": True}
+
+
+# ---------------------------------------------------------------------------
+# Scan history endpoints
+# ---------------------------------------------------------------------------
+
+@app.get("/history/{mint}", tags=["auth"], summary="Scan history snapshots for a token")
+@limiter.limit("30/minute")
+async def get_scan_history(
+    request: Request,
+    mint: str,
+) -> dict:
+    """
+    Return the current user's scan history snapshots for a given mint address,
+    oldest first.  Free plan: up to 3 snapshots.  Pro plan: up to 90 days.
+    Requires X-API-Key header.
+    """
+    if not _BASE58_RE.match(mint):
+        raise HTTPException(status_code=400, detail="Invalid Solana mint address")
+    user = await _get_current_user(request)
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+    from .scan_history_service import get_snapshots as _get_snaps
+    snapshots = await _get_snaps(_cache, user["id"], mint, plan=user.get("plan", "free"))
+    return {
+        "mint": mint,
+        "scan_count": len(snapshots),
+        "plan": user.get("plan", "free"),
+        "snapshots": [s.model_dump() for s in snapshots],
+    }
+
+
+@app.get(
+    "/history/{mint}/delta",
+    tags=["auth"],
+    summary="Evolution delta between the two most recent scans",
+)
+@limiter.limit("20/minute")
+async def get_scan_delta(
+    request: Request,
+    mint: str,
+    narrate: bool = Query(
+        False,
+        description="Generate a 1-2 sentence LLM evolution narrative (used for share content)",
+    ),
+) -> dict:
+    """
+    Return the ScanDelta between the user's two most recent scans for this mint.
+    Pass ``narrate=true`` to generate an LLM narrative for the share tweet.
+    Returns 404 if fewer than 2 scans exist.
+    Requires X-API-Key header.
+    """
+    if not _BASE58_RE.match(mint):
+        raise HTTPException(status_code=400, detail="Invalid Solana mint address")
+    user = await _get_current_user(request)
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+    from .scan_history_service import get_snapshots as _get_snaps, compute_delta as _compute_delta
+
+    snapshots = await _get_snaps(_cache, user["id"], mint, plan=user.get("plan", "free"))
+    if len(snapshots) < 2:
+        raise HTTPException(
+            status_code=404,
+            detail="Not enough scan history — at least 2 scans required to compute a delta.",
+        )
+
+    # Always diff the two most recent scans
+    delta = _compute_delta(snapshots[-2], snapshots[-1])
+
+    if narrate and delta.narrative is None:
+        try:
+            from .ai_analyst import delta_narrative as _delta_narrate  # noqa: PLC0415
+            delta.narrative = await asyncio.wait_for(_delta_narrate(delta), timeout=20.0)
+        except Exception:
+            logger.warning("delta_narrative failed for %s — skipping", mint[:8], exc_info=True)
+
+    return delta.model_dump()
 
 
 @app.post("/notifications/register-fcm", tags=["notifications"])

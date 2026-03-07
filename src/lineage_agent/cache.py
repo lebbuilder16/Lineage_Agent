@@ -482,6 +482,33 @@ class SQLiteCache:
             "CREATE INDEX IF NOT EXISTS idx_uw_user ON user_watches(user_id)"
         )
 
+        # scan_history: per-user token scan snapshots for evolution tracking
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS scan_history (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                mint          TEXT NOT NULL,
+                scanned_at    REAL NOT NULL,
+                risk_score    INTEGER NOT NULL DEFAULT 0,
+                flags_json    TEXT NOT NULL DEFAULT '[]',
+                family_size   INTEGER NOT NULL DEFAULT 0,
+                rug_count     INTEGER NOT NULL DEFAULT 0,
+                snapshot_json TEXT NOT NULL DEFAULT '{}'
+            )
+            """
+        )
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_sh_user_mint "
+            "ON scan_history(user_id, mint)"
+        )
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_sh_mint ON scan_history(mint)"
+        )
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_sh_scanned_at ON scan_history(scanned_at)"
+        )
+
         await db.commit()
         self._initialised = True
 

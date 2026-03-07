@@ -107,7 +107,17 @@ They are on-chain proof points — specific numbers, wallet addresses, time wind
 that underpin the reasoning in `analysis`. They do NOT repeat what `analysis` says. \
 Pre-computed labels (bundle verdict, insider_sell verdict) are WEAK HINTS only. \
 Reason from raw numbers first, validate against labels second. \
-If signals conflict, name the conflict explicitly in `analysis`.\
+If signals conflict, name the conflict explicitly in `analysis`.
+
+ON-CHAIN EVIDENCE IS THE ONLY TRUTH:
+Ignore ALL social signals — token name, community narrative, influencer endorsements, price momentum, \
+or anything that belongs to the hype layer. A token with a patriotic name, a viral meme, or a \
+10× price surge is NOT safe if the on-chain data says otherwise. Conversely, a token with an \
+unfashionable name or no community presence is NOT suspicious if the on-chain data is clean. \
+Your verdict must stand entirely on ledger proof: wallet flows, timing, deployment patterns, \
+cartel links, and extraction traces. \
+If the hype narrative contradicts the on-chain evidence, explicitly call it out — \
+state that the social story does not match what the blockchain actually records.\
 """
 
 
@@ -1557,3 +1567,86 @@ def _parse_response(raw: str, mint: str) -> dict:
         "wallet_classifications": {},
         "parse_error": True,
     }
+
+
+# ---------------------------------------------------------------------------
+# Scan evolution narrative (used by /history/{mint}/delta?narrate=true)
+# ---------------------------------------------------------------------------
+
+_DELTA_SYSTEM = """\
+You are a Solana token forensics analyst writing a brief evolution summary for an investor.
+Given the before/after snapshot delta of a token's risk profile, write 1-2 plain English
+sentences that explain what changed and why it matters.
+Be direct and concrete. Name specific flags if relevant. No technical jargon.
+"""
+
+
+async def delta_narrative(delta: "Any") -> str:
+    """
+    Generate a 1-2 sentence plain English narrative of scan evolution.
+
+    Used for the share tweet evolution mode. Keeps cost low by using Haiku.
+    Returns a fallback string if the AI call fails rather than raising.
+    """
+    try:
+        client = _get_client()
+    except Exception as exc:
+        logger.warning("[delta_narrative] AI client unavailable: %s", exc)
+        return _fallback_delta_narrative(delta)
+
+    new_flags: list[str] = getattr(delta, "new_flags", [])
+    resolved_flags: list[str] = getattr(delta, "resolved_flags", [])
+    risk_delta: int = getattr(delta, "risk_score_delta", 0)
+    trend: str = getattr(delta, "trend", "stable")
+    prev: Any = getattr(delta, "previous_scan", None)
+    curr: Any = getattr(delta, "current_scan", None)
+    prev_score = getattr(prev, "risk_score", 0) if prev else 0
+    curr_score = getattr(curr, "risk_score", 0) if curr else 0
+    rug_delta: int = getattr(delta, "rug_count_delta", 0)
+    scan_number: int = getattr(delta, "scan_number", 2)
+
+    prompt = (
+        f"Token scan #{scan_number}.\n"
+        f"Risk score: {prev_score} → {curr_score} ({risk_delta:+d}). Trend: {trend}.\n"
+        f"New flags since last scan: {', '.join(new_flags) if new_flags else 'none'}.\n"
+        f"Resolved flags: {', '.join(resolved_flags) if resolved_flags else 'none'}.\n"
+        f"Deployer rug count change: {rug_delta:+d}.\n"
+        "Write 1-2 plain English sentences summarising what changed and what it means for current holders."
+    )
+
+    try:
+        message = await client.messages.create(
+            model=_MODEL,  # always Haiku — low cost, fast
+            max_tokens=120,
+            temperature=0,
+            system=_DELTA_SYSTEM,
+            messages=[{"role": "user", "content": prompt}],
+            timeout=15.0,
+        )
+        for block in message.content:
+            if getattr(block, "type", None) == "text":
+                return block.text.strip()
+    except Exception as exc:
+        logger.warning("[delta_narrative] AI call failed: %s", exc)
+
+    return _fallback_delta_narrative(delta)
+
+
+def _fallback_delta_narrative(delta: "Any") -> str:
+    """Rule-based fallback narrative when LLM is unavailable."""
+    trend = getattr(delta, "trend", "stable")
+    risk_delta = getattr(delta, "risk_score_delta", 0)
+    new_flags: list[str] = getattr(delta, "new_flags", [])
+    resolved_flags: list[str] = getattr(delta, "resolved_flags", [])
+
+    if trend == "worsening":
+        parts = [f"Risk increased by {risk_delta} points since the last scan."]
+        if new_flags:
+            parts.append(f"New warning signals detected: {', '.join(new_flags)}.")
+        return " ".join(parts)
+    elif trend == "improving":
+        parts = [f"Risk decreased by {abs(risk_delta)} points since the last scan."]
+        if resolved_flags:
+            parts.append(f"Previously flagged signals now resolved: {', '.join(resolved_flags)}.")
+        return " ".join(parts)
+    return "No significant changes detected since the last scan."
