@@ -24,12 +24,20 @@ import { cn } from "@/lib/utils";
 import { ChatPanel } from "@/components/ChatPanel";
 import BackButton from "@/components/BackButton";
 
+// ── Debug helper (no-op in prod) ──────────────────────────────────────────
+const log = process.env.NODE_ENV === "development"
+  ? (...args: unknown[]) => console.debug("[LineagePage]", ...args)
+  : () => {};
+
 export default function LineagePage() {
   const params = useParams<{ mint: string }>();
   const mint = params.mint;
 
   const { data, isLoading, error, progress, analyze, restoreFromCache } = useLineageWS();
   const { isWatched, updateRiskScore } = useWatchlist();
+
+  // Log state transitions so we can trace in DevTools
+  log("render", { mint: mint?.slice(0, 8), isLoading, hasData: !!data, error: error?.slice(0, 60) });
 
   const {
     steps: analysisSteps,
@@ -44,8 +52,12 @@ export default function LineagePage() {
     if (!mint) return;
     // If a fresh result is cached (e.g. auth-state remount or page refresh),
     // restore it immediately without hitting the network.
+    log("useEffect[mint] — trying cache restore for", mint.slice(0, 8));
     if (!restoreFromCache(mint)) {
+      log("cache miss — calling analyze()");
       analyze(mint);
+    } else {
+      log("cache hit — restored without network call");
     }
   }, [mint, analyze, restoreFromCache]);
 
@@ -78,6 +90,11 @@ export default function LineagePage() {
   /* ── Build tab definitions ────────────────────────────────────────── */
   const tabs: TabDef[] = useMemo(() => {
     if (!data) return [];
+    log("useMemo[tabs] — building tabs from data", {
+      family_size: data.family_size,
+      bundle_verdict: data.bundle_report?.overall_verdict ?? "null",
+      deployer: data.deployer_profile?.address?.slice(0, 8) ?? "null",
+    });
 
     const riskBadge = analysis?.ai_analysis?.risk_score != null
       ? `${analysis.ai_analysis.risk_score}`

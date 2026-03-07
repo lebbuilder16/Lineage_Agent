@@ -92,12 +92,16 @@ export function useLineageWS(): UseLineageWSReturn {
     setIsLoading(true);
     setProgress({ step: "Connecting…", progress: 0 });
 
+    console.debug(`[useLineageWS] analyze() start — mint=${mint.slice(0, 8)} runId=${runId}`);
+
     fetchLineageWithProgress(mint, (evt) => {
       if (runIdRef.current !== runId) return; // stale
+      console.debug(`[useLineageWS] progress — ${evt.step} (${evt.progress}%)`);
       setProgress(evt);
     }, controller.signal)
       .then((result) => {
         if (runIdRef.current !== runId) return;
+        console.debug(`[useLineageWS] WS success — family_size=${result.family_size} bundle=${result.bundle_report?.overall_verdict ?? "null"}`);
         setData(result);
         setProgress({ step: "Done", progress: 100 });
         writeCache(mint, result);
@@ -106,11 +110,13 @@ export function useLineageWS(): UseLineageWSReturn {
         if (runIdRef.current !== runId) return;
         // Ignore intentional abort (user started a new search)
         if (err instanceof DOMException && err.name === "AbortError") return;
+        console.warn(`[useLineageWS] WS failed (${err?.message}), falling back to HTTP`);
         // Fallback to HTTP if WS fails to connect
         try {
           setProgress({ step: "Falling back to HTTP…", progress: 0 });
           const result = await fetchLineage(mint);
           if (runIdRef.current !== runId) return;
+          console.debug(`[useLineageWS] HTTP fallback success — family_size=${result.family_size}`);
           setData(result);
           setProgress({ step: "Done", progress: 100 });
           writeCache(mint, result);
@@ -120,6 +126,7 @@ export function useLineageWS(): UseLineageWSReturn {
             fallbackErr instanceof Error
               ? fallbackErr.message
               : "Unknown error";
+          console.error(`[useLineageWS] HTTP fallback failed:`, fallbackErr);
           setError(msg);
         }
       })

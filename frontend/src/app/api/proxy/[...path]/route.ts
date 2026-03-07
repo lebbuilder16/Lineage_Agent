@@ -68,6 +68,11 @@ async function proxyRequest(
   if (contentType) headers.set("content-type", contentType);
   const accept = req.headers.get("accept");
   if (accept) headers.set("accept", accept);
+  // Forward auth headers so backend can authenticate the request
+  const apiKey = req.headers.get("x-api-key");
+  if (apiKey) headers.set("x-api-key", apiKey);
+  const authorization = req.headers.get("authorization");
+  if (authorization) headers.set("authorization", authorization);
 
   let body: BodyInit | undefined;
   if (method !== "GET" && method !== "DELETE") {

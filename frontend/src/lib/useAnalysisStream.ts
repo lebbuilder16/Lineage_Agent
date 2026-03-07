@@ -84,6 +84,7 @@ export function useAnalysisStream(
       const base = getApiBase();
       const qs = isForce ? "?force_refresh=true" : "";
       const url = `${base}/analyze/${currentMint}/stream${qs}`;
+      console.debug(`[useAnalysisStream] openStream attempt=${attempt} url=${url}`);
       const es = new EventSource(url);
       esRef.current = es;
 
@@ -95,6 +96,7 @@ export function useAnalysisStream(
             ms?: number;
             heuristic?: number;
           };
+          console.debug(`[useAnalysisStream] step event — ${d.step}=${d.status}${d.ms != null ? ` (${d.ms}ms)` : ""}`);
           setSteps((prev) => ({
             ...prev,
             [d.step]: { status: d.status, ms: d.ms, heuristic: d.heuristic },
@@ -107,10 +109,12 @@ export function useAnalysisStream(
       es.addEventListener("complete", (e: MessageEvent) => {
         try {
           const payload = JSON.parse(e.data) as AnalyzeResponse;
+          console.debug(`[useAnalysisStream] complete — risk_score=${payload.ai_analysis?.risk_score} pattern=${payload.ai_analysis?.rug_pattern}`);
           doneRef.current = true;
           setAnalysis(payload);
           setRetryCount(0);
-        } catch {
+        } catch (parseErr) {
+          console.error(`[useAnalysisStream] failed to parse complete payload:`, parseErr);
           setError("Could not decode AI response. Please retry.");
         } finally {
           setLoading(false);
