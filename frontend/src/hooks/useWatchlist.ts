@@ -96,9 +96,17 @@ export function useWatchlist() {
   useEffect(() => {
     setEntries(readStorage());
     const sync = () => setEntries(readStorage());
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === STORAGE_KEY) sync();
+    };
+
     window.addEventListener("lineage:watchlist-changed", sync);
-    window.addEventListener("storage", (e) => { if (e.key === STORAGE_KEY) sync(); });
-    return () => window.removeEventListener("lineage:watchlist-changed", sync);
+    window.addEventListener("storage", onStorage);
+
+    return () => {
+      window.removeEventListener("lineage:watchlist-changed", sync);
+      window.removeEventListener("storage", onStorage);
+    };
   }, []);
 
   const isWatched = useCallback(
@@ -155,7 +163,9 @@ export function useWatchlist() {
   /** Update the stored riskScore for a watched token (no-op if not watched). */
   const updateRiskScore = useCallback((mint: string, riskScore: number) => {
     setEntries((prev) => {
-      if (!prev.some((e) => e.mint === mint)) return prev;
+      const current = prev.find((e) => e.mint === mint);
+      if (!current || current.riskScore === riskScore) return prev;
+
       const next = prev.map((e) => e.mint === mint ? { ...e, riskScore } : e);
       writeStorage(next);
       return next;

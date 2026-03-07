@@ -35,6 +35,7 @@ export default function LineagePage() {
 
   const { data, isLoading, error, progress, analyze, restoreFromCache } = useLineageWS();
   const { isWatched, updateRiskScore } = useWatchlist();
+  const isCurrentMintWatched = mint ? isWatched(mint) : false;
 
   // Log state transitions so we can trace in DevTools
   log("render", { mint: mint?.slice(0, 8), isLoading, hasData: !!data, error: error?.slice(0, 60) });
@@ -64,10 +65,10 @@ export default function LineagePage() {
   // Sync risk score back into the watchlist whenever analysis finishes
   useEffect(() => {
     const score = analysis?.ai_analysis?.risk_score;
-    if (mint && score != null && isWatched(mint)) {
+    if (mint && score != null && isCurrentMintWatched) {
       updateRiskScore(mint, score);
     }
-  }, [mint, analysis?.ai_analysis?.risk_score, isWatched, updateRiskScore]);
+  }, [mint, analysis?.ai_analysis?.risk_score, isCurrentMintWatched, updateRiskScore]);
 
   useEffect(() => {
     // Use the SCANNED token's name for the page title, not the root
