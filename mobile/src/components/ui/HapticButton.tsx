@@ -16,7 +16,7 @@ import Animated, {
   useAnimatedStyle,
   withSpring,
 } from "react-native-reanimated";
-import { colors } from "@/theme/colors";
+import { colors } from "@/src/theme/colors";
 
 type HapticStyle = "light" | "medium" | "heavy";
 

@@ -72,14 +72,22 @@ export default function AuthScreen() {
   // ── Privy SDK
   const { logout: privyLogout } = usePrivy();
   const { sendCode, loginWithCode, state: emailState } = useLoginWithEmail({
-    onComplete: async ({ user: privyUser }) => {
-      await _handlePrivyUser(privyUser.id, privyUser.email?.address);
-    },
     onError: (err) => {
       Alert.alert("Login failed", err.message ?? "Please try again.");
       setLoading(false);
     },
   });
+
+  // Privy v2: onComplete removed — watch emailState.status instead
+  useEffect(() => {
+    if (emailState.status === "done") {
+      const privyUser = (emailState as any).user;
+      if (privyUser?.id) {
+        _handlePrivyUser(privyUser.id, privyUser.email?.address);
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [emailState.status]);
 
   const _handlePrivyUser = useCallback(
     async (privyId: string, email?: string) => {

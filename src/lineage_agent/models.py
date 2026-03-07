@@ -527,6 +527,7 @@ class DeployerProfile(BaseModel):
     """Historical behaviour profile for a deployer wallet."""
 
     address: str
+    chain: str = "Solana"
     total_tokens_launched: int
     rug_count: int
     rug_rate_pct: float = Field(ge=0.0, le=100.0)

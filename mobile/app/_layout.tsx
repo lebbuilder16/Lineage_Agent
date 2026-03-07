@@ -19,6 +19,7 @@ import {
 import { colors } from "@/src/theme/colors";
 import { useAuthStore } from "@/src/store/auth";
 import { useAlertsStore } from "@/src/store/alerts";
+import type { AlertItem } from "@/src/types/api";
 import { initRevenueCat, loginToRevenueCat } from "@/src/lib/purchases";
 import {
   registerForPushNotifications,
@@ -63,13 +64,16 @@ export default function RootLayout() {
     registerForPushNotifications();
 
     const cleanFg = addNotificationReceivedListener((notification) => {
-      const { title = "", body = "" } = notification.request.content;
+      const title = notification.request.content.title ?? "";
+      const body = notification.request.content.body ?? "";
+      const data = notification.request.content.data ?? {};
       addAlert({
         id: notification.request.identifier,
-        type: (notification.request.content.data?.type as any) ?? "info",
-        title,
+        type: (data.type as AlertItem["type"]) ?? "rug",
+        token_name: (data.token_name as string | undefined) ?? title,
+        token_image: (data.token_image as string | undefined) ?? "",
         message: body,
-        mint: notification.request.content.data?.mint as string | undefined,
+        mint: (data.mint as string | undefined) ?? "",
         timestamp: new Date().toISOString(),
         read: false,
       });

@@ -99,7 +99,7 @@ export async function purchasePackage(pkg: PurchasesPackage): Promise<PurchaseRe
 export async function restorePurchases(): Promise<CustomerInfo | null> {
   if (!_isConfigured()) return null;
   try {
-    return await Purchases.restoreSubscriptions();
+    return await Purchases.restorePurchases();
   } catch (e) {
     console.warn("[RC] restorePurchases error:", e);
     return null;
@@ -156,7 +156,7 @@ export async function logoutFromRevenueCat(): Promise<void> {
 
 function _isConfigured(): boolean {
   try {
-    return Purchases.isConfigured();
+    return !!(Purchases as any).isConfigured;
   } catch {
     return false;
   }

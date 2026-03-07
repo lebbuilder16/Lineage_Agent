@@ -125,7 +125,7 @@ function PlanCard({
     <TouchableOpacity onPress={handlePress} activeOpacity={0.85} style={{ flex: 1 }}>
       <Animated.View style={style}>
         <GlassCard
-          style={[styles.planCard, selected && styles.planCardSelected]}
+          style={selected ? [styles.planCard, styles.planCardSelected] : styles.planCard}
           elevated={selected}
           borderColor={selected ? colors.accent.ai : undefined}
         >

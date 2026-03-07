@@ -118,6 +118,7 @@ export interface DeployerTokenSummary {
 
 export interface DeployerProfile {
   address: string;
+  chain?: string;
   total_tokens_launched: number;
   rug_count: number;
   rug_rate_pct: number;

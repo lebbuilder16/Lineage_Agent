@@ -10,7 +10,7 @@ import Animated, {
   Easing,
 } from "react-native-reanimated";
 import Svg, { Circle } from "react-native-svg";
-import { riskColor, riskLevelFromScore } from "@/theme/colors";
+import { riskColor, riskLevelFromScore } from "@/src/theme/colors";
 
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
