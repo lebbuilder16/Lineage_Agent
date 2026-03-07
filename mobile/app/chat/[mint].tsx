@@ -188,7 +188,7 @@ export default function ChatScreen() {
         abortRef.current = new AbortController();
 
         const response = await fetch(url, {
-          signal: abortRef.current.signal,
+          signal: abortRef.current.signal as any,
         });
 
         if (!response.ok || !response.body) throw new Error("Stream failed");

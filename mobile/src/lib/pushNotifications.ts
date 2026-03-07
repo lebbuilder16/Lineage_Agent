@@ -10,7 +10,8 @@ import { registerFcmToken } from "@/src/lib/api";
 // Configuration du gestionnaire de notifications (comportement à l'affichage)
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
-    shouldShowAlert: true,
+    shouldShowBanner: true,
+    shouldShowList: true,
     shouldPlaySound: true,
     shouldSetBadge: true,
   }),
