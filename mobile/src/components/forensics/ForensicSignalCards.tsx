@@ -13,7 +13,7 @@ import { GlassCard } from "@/src/components/ui/GlassCard";
 import { RiskBadge } from "@/src/components/ui/RiskBadge";
 import { RiskGauge } from "@/src/components/ui/RiskGauge";
 import { colors } from "@/src/theme/colors";
-import type { LineageResult } from "@/src/types/api";
+import type { LineageResult, CartelCommunity } from "@/src/types/api";
 import { router } from "expo-router";
 
 // ─────────────────────────────────────────────────────────────
@@ -48,20 +48,30 @@ function Row({ label, value }: { label: string; value: string | number }) {
 // ─────────────────────────────────────────────────────────────
 // Individual signal cards
 // ─────────────────────────────────────────────────────────────
+export const RISK_SCORE: Record<string, number> = {
+  low: 0.1,
+  medium: 0.4,
+  high: 0.7,
+  critical: 0.95,
+  first_rug: 0.9,
+  insufficient_data: 0.2,
+};
+
 function DeathClockCard({ data }: { data: NonNullable<LineageResult["death_clock"]> }) {
-  const died = data.predicted_death
-    ? new Date(data.predicted_death).toLocaleDateString()
+  const score = RISK_SCORE[data.risk_level] ?? 0.2;
+  const window = data.predicted_window_start
+    ? new Date(data.predicted_window_start).toLocaleDateString()
     : "Unknown";
   return (
     <Section title="☠ DEATH CLOCK" accent={colors.accent.danger}>
       <View style={styles.gaugeWrap}>
-        <RiskGauge score={data.confidence ?? 0.5} size={64} strokeWidth={6} />
+        <RiskGauge score={score} size={64} strokeWidth={6} />
       </View>
-      <Row label="Est. death" value={died} />
-      <Row label="Confidence" value={`${Math.round((data.confidence ?? 0) * 100)}%`} />
-      {data.reason && (
-        <Text style={styles.noteText} numberOfLines={3}>{data.reason}</Text>
-      )}
+      <Row label="Risk level" value={data.risk_level.replace("_", " ").toUpperCase()} />
+      <Row label="Est. window" value={window} />
+      {data.confidence_note ? (
+        <Text style={styles.noteText} numberOfLines={3}>{data.confidence_note}</Text>
+      ) : null}
     </Section>
   );
 }
@@ -149,6 +159,39 @@ function InsiderCard({ data }: { data: NonNullable<LineageResult["insider_sell"]
   );
 }
 
+function SolFlowCard({ data }: { data: NonNullable<LineageResult["sol_flow"]> }) {
+  const usd = data.total_extracted_usd != null
+    ? `$${data.total_extracted_usd.toLocaleString(undefined, { maximumFractionDigits: 0 })}`
+    : "—";
+  return (
+    <Section title="💸 SOL FLOW" accent={colors.accent.warning}>
+      <Row label="Extracted SOL" value={`${data.total_extracted_sol.toFixed(2)} SOL`} />
+      <Row label="Extracted USD" value={usd} />
+      <Row label="Hops" value={data.hop_count} />
+      <Row label="Terminal wallets" value={data.terminal_wallets.length} />
+      <Row label="CEX detected" value={data.known_cex_detected ? "Yes ⚠" : "No"} />
+    </Section>
+  );
+}
+
+function CartelCard({ data }: { data: NonNullable<CartelCommunity> }) {
+  const confScore = data.confidence === "high" ? 0.9 : data.confidence === "medium" ? 0.5 : 0.2;
+  return (
+    <Section title="🕸 CARTEL" accent={colors.accent.danger}>
+      <View style={styles.gaugeWrap}>
+        <RiskGauge score={confScore} size={64} strokeWidth={6} />
+      </View>
+      <Row label="Tokens launched" value={data.total_tokens_launched} />
+      <Row label="Total rugs" value={data.total_rugs} />
+      <Row
+        label="Extracted USD"
+        value={`$${data.estimated_extracted_usd.toLocaleString(undefined, { maximumFractionDigits: 0 })}`}
+      />
+      <Row label="Signal" value={data.strongest_signal} />
+    </Section>
+  );
+}
+
 // ─────────────────────────────────────────────────────────────
 // Main component
 // ─────────────────────────────────────────────────────────────
@@ -162,6 +205,8 @@ export function ForensicSignalCards({ result }: { result: LineageResult }) {
   if (result.liquidity_arch) cards.push(<LiquidityCard key="lq" data={result.liquidity_arch} />);
   if (result.factory_rhythm) cards.push(<FactoryCard key="fc" data={result.factory_rhythm} />);
   if (result.insider_sell) cards.push(<InsiderCard key="is" data={result.insider_sell} />);
+  if (result.sol_flow) cards.push(<SolFlowCard key="sf" data={result.sol_flow} />);
+  if (result.cartel_report?.deployer_community) cards.push(<CartelCard key="ct" data={result.cartel_report.deployer_community} />);
 
   if (cards.length === 0) {
     return (

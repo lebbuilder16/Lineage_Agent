@@ -7,6 +7,7 @@ import type {
   TokenSearchResult,
   DeployerProfile,
   GlobalStats,
+  StatsBrief,
   User,
   Watch,
 } from "@/types/api";
@@ -135,6 +136,10 @@ export async function getDeployerProfile(address: string): Promise<DeployerProfi
 
 export async function getGlobalStats(): Promise<GlobalStats> {
   return apiFetch<GlobalStats>("/stats/global");
+}
+
+export async function getStatsBrief(): Promise<StatsBrief> {
+  return apiFetch<StatsBrief>("/stats/brief");
 }
 
 // ─── AI Analysis (streaming via SSE) ──────────────────────────────────────────

@@ -288,10 +288,18 @@ export interface TokenSearchResult {
 }
 
 export interface GlobalStats {
-  total_scanned_24h: number;
-  rug_count_24h: number;
+  tokens_scanned_24h: number;
+  tokens_rugged_24h: number;
+  rug_rate_24h_pct: number;
   active_deployers_24h: number;
   top_narratives: Array<{ narrative: string; count: number }>;
+  db_events_total: number;
+  last_updated: string;
+}
+
+export interface StatsBrief {
+  text: string;
+  generated_at: string;
 }
 
 // Auth

@@ -23,7 +23,8 @@ import Animated, {
   withTiming,
   FadeInDown,
 } from "react-native-reanimated";
-import { getGlobalStats } from "@/src/lib/api";
+import { getGlobalStats, getStatsBrief } from "@/src/lib/api";
+import { Fonts } from "@/src/theme/fonts";
 import { GlassCard } from "@/src/components/ui/GlassCard";
 import { RiskBadge } from "@/src/components/ui/RiskBadge";
 import { TokenImage } from "@/src/components/ui/TokenImage";
@@ -36,6 +37,11 @@ import type { AlertItem } from "@/src/types/api";
 
 function AIBriefCard() {
   const pulse = useSharedValue(0.6);
+  const { data: brief, isLoading } = useQuery({
+    queryKey: ["stats-brief"],
+    queryFn: getStatsBrief,
+    refetchInterval: 120_000,
+  });
 
   useEffect(() => {
     pulse.value = withRepeat(
@@ -53,18 +59,27 @@ function AIBriefCard() {
     transform: [{ scale: 0.9 + pulse.value * 0.1 }],
   }));
 
+  const updatedAgo = brief?.generated_at
+    ? (() => {
+        const diffMs = Date.now() - new Date(brief.generated_at).getTime();
+        const diffMin = Math.floor(diffMs / 60_000);
+        return diffMin < 1 ? "just now" : `${diffMin}m ago`;
+      })()
+    : "—";
+
   return (
     <Animated.View entering={FadeInDown.delay(100).springify()}>
       <GlassCard elevated borderColor={`${colors.accent.ai}40`} style={styles.aiBrief}>
         <View style={styles.aiBriefHeader}>
           <Animated.View style={[styles.aiOrb, orbStyle]} />
           <Text style={styles.aiBriefTitle}>AI Intelligence Brief</Text>
-          <Text style={styles.aiBriefTime}>Updated 2m ago</Text>
+          <Text style={styles.aiBriefTime}>Updated {updatedAgo}</Text>
         </View>
-        <Text style={styles.aiBriefText}>
-          3 coordinated bundle patterns detected in the last 2h. PEPE-family tokens
-          show elevated insider sell pressure. 1 new cartel cluster identified.
-        </Text>
+        {isLoading || !brief ? (
+          <View style={styles.aiBriefSkeleton} />
+        ) : (
+          <Text style={styles.aiBriefText}>{brief.text}</Text>
+        )}
         <TouchableOpacity
           style={styles.aiBriefCta}
           onPress={() => router.push("/chat/latest")}
@@ -132,9 +147,9 @@ function StatsBar() {
 
   return (
     <View style={styles.statsBar}>
-      <StatItem label="Scanned 24h" value={data.total_scanned_24h.toString()} />
+      <StatItem label="Scanned 24h" value={data.tokens_scanned_24h.toString()} />
       <View style={styles.statsDivider} />
-      <StatItem label="Rugs 24h" value={data.rug_count_24h.toString()} danger />
+      <StatItem label="Rugs 24h" value={data.tokens_rugged_24h.toString()} danger />
       <View style={styles.statsDivider} />
       <StatItem label="Active deployers" value={data.active_deployers_24h.toString()} />
     </View>
@@ -231,7 +246,7 @@ const styles = StyleSheet.create({
   headerTitle: {
     color: colors.text.primary,
     fontSize: 20,
-    fontWeight: "700",
+    fontFamily: Fonts.bold,
     letterSpacing: -0.5,
   },
   liveRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 2 },
@@ -262,7 +277,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     color: colors.text.muted,
     fontSize: 11,
-    fontWeight: "700",
+    fontFamily: Fonts.bold,
     letterSpacing: 1.5,
     textTransform: "uppercase",
     marginTop: 20,
@@ -279,7 +294,7 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   statItem: { alignItems: "center" },
-  statValue: { color: colors.text.primary, fontSize: 18, fontWeight: "700" },
+  statValue: { color: colors.text.primary, fontSize: 18, fontFamily: Fonts.bold },
   statLabel: { color: colors.text.muted, fontSize: 10, marginTop: 2 },
   statsDivider: { width: 1, backgroundColor: colors.glass.border },
   aiBrief: { padding: 16, marginBottom: 4 },
@@ -294,7 +309,7 @@ const styles = StyleSheet.create({
   aiBriefTitle: {
     color: colors.accent.ai,
     fontSize: 13,
-    fontWeight: "700",
+    fontFamily: Fonts.bold,
     flex: 1,
   },
   aiBriefTime: { color: colors.text.muted, fontSize: 11 },
@@ -306,6 +321,12 @@ const styles = StyleSheet.create({
   },
   aiBriefCta: { alignSelf: "flex-start" },
   aiBriefCtaText: { color: colors.accent.ai, fontSize: 14, fontWeight: "600" },
+  aiBriefSkeleton: {
+    height: 40,
+    borderRadius: 6,
+    backgroundColor: colors.glass.bg,
+    marginBottom: 12,
+  },
   alertList: { overflow: "hidden" },
   alertRow: {
     flexDirection: "row",

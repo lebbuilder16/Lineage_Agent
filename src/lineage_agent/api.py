@@ -2022,6 +2022,33 @@ async def get_global_stats(request: Request) -> GlobalStats:
         raise HTTPException(status_code=500, detail="Internal server error") from exc
 
 
+# ---------------------------------------------------------------------------
+# /stats/brief  — 2-sentence intelligence summary
+# ---------------------------------------------------------------------------
+@app.get(
+    "/stats/brief",
+    tags=["intelligence"],
+    summary="Human-readable 2-sentence intelligence brief from the last 24 h stats",
+)
+@limiter.limit("60/minute")
+async def get_stats_brief(request: Request) -> dict:
+    """Compose a short English summary from GlobalStats for display in the mobile AI Brief card."""
+    from datetime import datetime, timezone  # noqa: PLC0415
+
+    stats: GlobalStats = await get_global_stats(request)
+
+    top_nar = stats.top_narratives[0].narrative.upper() if stats.top_narratives else "MISC"
+    rug_rate = f"{stats.rug_rate_24h_pct:.1f}"
+
+    text = (
+        f"{stats.tokens_rugged_24h} rug pulls detected in the last 24 h "
+        f"({rug_rate}% rug rate) across {stats.tokens_scanned_24h:,} scanned tokens. "
+        f"Top narrative: {top_nar} — {stats.active_deployers_24h} active deployers tracked."
+    )
+
+    return {"text": text, "generated_at": datetime.now(tz=timezone.utc).isoformat()}
+
+
 if __name__ == "__main__":
     import uvicorn
 

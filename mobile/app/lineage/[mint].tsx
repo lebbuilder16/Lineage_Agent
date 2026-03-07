@@ -25,6 +25,7 @@ import { TokenCardSkeleton } from "@/src/components/ui/SkeletonLoader";
 import { ForensicSignalCards } from "@/src/components/forensics/ForensicSignalCards";
 import { FamilyTreeView } from "@/src/components/lineage/FamilyTreeView";
 import { colors, verdictColor, riskLevelFromScore } from "@/src/theme/colors";
+import { Fonts } from "@/src/theme/fonts";
 import { useAuthStore } from "@/src/store/auth";
 import type { LineageResult } from "@/src/types/api";
 
@@ -256,7 +257,7 @@ export default function LineageDetailScreen() {
 
         {/* Forensic signals */}
         <Text style={styles.sectionTitle}>Forensic Signals</Text>
-        <ForensicSignalCards data={data} />
+        <ForensicSignalCards result={data} />
 
         {/* Deployer info */}
         {data.deployer_profile && (
@@ -304,7 +305,7 @@ const styles = StyleSheet.create({
     textAlign: "center",
     color: colors.text.primary,
     fontSize: 16,
-    fontWeight: "600",
+    fontFamily: Fonts.semiBold,
   },
   scroll: { paddingHorizontal: 16, paddingBottom: 100 },
   loadingHeader: { paddingHorizontal: 16, paddingVertical: 12 },
@@ -320,7 +321,7 @@ const styles = StyleSheet.create({
   },
   tokenHeaderLeft: { flexDirection: "row", flex: 1, gap: 14 },
   tokenHeaderInfo: { flex: 1 },
-  tokenName: { color: colors.text.primary, fontSize: 20, fontWeight: "700" },
+  tokenName: { color: colors.text.primary, fontSize: 20, fontFamily: Fonts.bold },
   tokenSymbol: { color: colors.text.muted, fontSize: 14, marginTop: 2 },
   tokenStats: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 8 },
   tokenMcap: { color: colors.text.primary, fontSize: 14, fontWeight: "600" },
@@ -331,7 +332,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     color: colors.text.muted,
     fontSize: 11,
-    fontWeight: "700",
+    fontFamily: Fonts.bold,
     letterSpacing: 1.5,
     textTransform: "uppercase",
     marginTop: 20,
