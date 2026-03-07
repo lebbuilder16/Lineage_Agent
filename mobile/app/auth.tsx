@@ -65,10 +65,13 @@ export default function AuthScreen() {
   const [loading, setLoading] = useState(false);
   const [hasBiometric, setHasBiometric] = useState(false);
   const [devPrivyId, setDevPrivyId] = useState("");
+  const [email, setEmail] = useState("");
+  const [otpCode, setOtpCode] = useState("");
+  const [otpSent, setOtpSent] = useState(false);
 
   // ── Privy SDK
   const { logout: privyLogout } = usePrivy();
-  const { loginWithEmail, state: emailState } = useLoginWithEmail({
+  const { sendCode, loginWithCode, state: emailState } = useLoginWithEmail({
     onComplete: async ({ user: privyUser }) => {
       await _handlePrivyUser(privyUser.id, privyUser.email?.address);
     },
@@ -124,19 +127,34 @@ export default function AuthScreen() {
 
   const handleConnect = async () => {
     if (__DEV__ && devPrivyId.trim()) {
-      // Mode développement : simuler un privy_id direct
       await _handlePrivyUser(devPrivyId.trim());
       return;
     }
-    // Production : déclencher le flow Privy email embedded wallet
-    // (l'UI Privy gère le code OTP en overlay natif)
     setLoading(true);
     try {
-      // Pour une app Solana, Privy gère l'embedded wallet Solana automatiquement
-      // après connexion email. Le flow complet est géré par le SDK en sheet native.
-      await loginWithEmail("", { sendCode: false }); // triggers Privy login sheet
+      if (!otpSent) {
+        // Étape 1 : envoyer le code OTP à l'adresse email
+        const trimmedEmail = email.trim();
+        if (!trimmedEmail || !trimmedEmail.includes("@")) {
+          Alert.alert("Email invalide", "Veuillez entrer un email valide.");
+          setLoading(false);
+          return;
+        }
+        await sendCode({ email: trimmedEmail });
+        setOtpSent(true);
+      } else {
+        // Étape 2 : vérifier le code OTP
+        const trimmedCode = otpCode.trim();
+        if (!trimmedCode) {
+          Alert.alert("Code requis", "Veuillez entrer le code reçu par email.");
+          setLoading(false);
+          return;
+        }
+        await loginWithCode({ code: trimmedCode });
+      }
     } catch (e: any) {
       Alert.alert("Connection failed", e.message ?? "Please try again.");
+    } finally {
       setLoading(false);
     }
   };
@@ -176,8 +194,50 @@ export default function AuthScreen() {
               </View>
             )}
 
+            {/* Email input */}
+            {!otpSent ? (
+              <View style={styles.inputWrapper}>
+                <TextInput
+                  style={styles.textInput}
+                  placeholder="Email address"
+                  placeholderTextColor={colors.text.muted}
+                  value={email}
+                  onChangeText={setEmail}
+                  autoCapitalize="none"
+                  keyboardType="email-address"
+                  autoComplete="email"
+                  textContentType="emailAddress"
+                  returnKeyType="send"
+                  onSubmitEditing={handleConnect}
+                />
+              </View>
+            ) : (
+              <View style={styles.inputWrapper}>
+                <Text style={styles.otpHint}>Code sent to {email}</Text>
+                <TextInput
+                  style={styles.textInput}
+                  placeholder="Enter OTP code"
+                  placeholderTextColor={colors.text.muted}
+                  value={otpCode}
+                  onChangeText={setOtpCode}
+                  keyboardType="number-pad"
+                  returnKeyType="done"
+                  onSubmitEditing={handleConnect}
+                  autoFocus
+                />
+                <HapticButton
+                  label="Change email"
+                  variant="ghost"
+                  size="sm"
+                  hapticStyle="light"
+                  onPress={() => { setOtpSent(false); setOtpCode(""); }}
+                  style={styles.changeEmailBtn}
+                />
+              </View>
+            )}
+
             <HapticButton
-              label={loading ? "" : "Connect Wallet"}
+              label={loading ? "" : otpSent ? "Verify Code" : "Send Code"}
               hapticStyle="medium"
               onPress={handleConnect}
               disabled={loading}
@@ -265,6 +325,26 @@ const styles = StyleSheet.create({
     padding: 10,
   },
   devTextInput: { color: colors.text.primary, fontSize: 13 },
+  inputWrapper: {
+    marginBottom: 16,
+  },
+  textInput: {
+    backgroundColor: colors.glass.bg,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: colors.glass.border,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    color: colors.text.primary,
+    fontSize: 15,
+  },
+  otpHint: {
+    color: colors.text.muted,
+    fontSize: 12,
+    marginBottom: 8,
+    textAlign: "center",
+  },
+  changeEmailBtn: { marginTop: 8, alignSelf: "center" },
   connectBtn: { width: "100%", height: 52, borderRadius: 14 },
   connectBtnText: { color: colors.background.deep, fontSize: 16, fontWeight: "700" },
   biometricBtn: { marginTop: 12, alignSelf: "center" },
