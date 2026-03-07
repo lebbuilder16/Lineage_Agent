@@ -1,11 +1,9 @@
 "use client";
 
-import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import {
   fetchDeployerProfile,
-  type DeployerProfile,
   type DeployerTokenSummary,
 } from "@/lib/api";
 import BackButton from "@/components/BackButton";

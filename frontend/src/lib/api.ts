@@ -466,8 +466,6 @@ async function fetchJSON<T>(
   path: string,
   timeoutMs: number = DEFAULT_TIMEOUT_MS,
 ): Promise<T> {
-  let lastError: unknown;
-
   // LOG: visible in browser DevTools → Console
   console.debug(`[api] fetchJSON → ${HTTP_API}${path}`);
 
@@ -507,7 +505,6 @@ async function fetchJSON<T>(
 
       return await res.json();
     } catch (err) {
-      lastError = err;
       if (err instanceof ApiError) throw err;
       if (err instanceof DOMException && err.name === "AbortError") {
         throw new ApiError(0, "Request timed out – the backend may be processing a large analysis. Try again.");

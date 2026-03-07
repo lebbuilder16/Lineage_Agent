@@ -1,4 +1,4 @@
-import { renderHook, act } from "@testing-library/react";
+import { renderHook, act, waitFor } from "@testing-library/react";
 import { describe, it, expect, beforeEach } from "vitest";
 import { useWatchlist } from "@/hooks/useWatchlist";
 
@@ -77,14 +77,29 @@ describe("useWatchlist", () => {
     expect(result.current.entries).toHaveLength(0);
   });
 
-  it("persists across hook instances (via localStorage)", () => {
+  it("persists across hook instances (via localStorage)", async () => {
     const { result: r1 } = renderHook(() => useWatchlist());
     act(() => {
       r1.current.add({ mint: "PERSIST", name: "Persisted", symbol: "P" });
     });
     // Simulate new component mount
     const { result: r2 } = renderHook(() => useWatchlist());
-    expect(r2.current.isWatched("PERSIST")).toBe(true);
+    await waitFor(() => {
+      expect(r2.current.isWatched("PERSIST")).toBe(true);
+    });
+  });
+
+  it("syncs updates across mounted hook instances", async () => {
+    const { result: r1 } = renderHook(() => useWatchlist());
+    const { result: r2 } = renderHook(() => useWatchlist());
+
+    act(() => {
+      r1.current.add({ mint: "SYNC", name: "Synced", symbol: "S" });
+    });
+
+    await waitFor(() => {
+      expect(r2.current.isWatched("SYNC")).toBe(true);
+    });
   });
 
   it("caps at 50 entries", () => {

@@ -106,6 +106,7 @@ export function SearchBar({ compact = false }: { compact?: boolean }) {
           <input
             ref={inputRef}
             type="text"
+            role="combobox"
             value={value}
             onChange={(e) => setValue(e.target.value)}
             onFocus={() => setFocused(true)}
@@ -114,6 +115,7 @@ export function SearchBar({ compact = false }: { compact?: boolean }) {
             aria-label="Search for a Solana token by mint address or name"
             aria-autocomplete="list"
             aria-expanded={showDropdown}
+            aria-controls={showDropdown ? "search-suggestions" : undefined}
             aria-activedescendant={activeIdx >= 0 ? `suggestion-${activeIdx}` : undefined}
             autoComplete="off"
             className={cn(
@@ -176,7 +178,7 @@ export function SearchBar({ compact = false }: { compact?: boolean }) {
               Searching...
             </div>
           ) : (
-            <ul role="listbox" className="divide-y divide-white/5">
+            <ul id="search-suggestions" role="listbox" className="divide-y divide-white/5">
               {results.map((token, idx) => (
                 <li
                   key={token.mint}

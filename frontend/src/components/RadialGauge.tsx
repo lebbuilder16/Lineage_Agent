@@ -1,9 +1,8 @@
 "use client";
 
-import { useEffect, useRef as _useRef } from "react";
+import { useEffect, useState } from "react";
 import { motion, useSpring, useTransform, animate } from "framer-motion";
 import { cn } from "@/lib/utils";
-import { useRef, useState } from "react";
 
 interface Props {
   value: number; // 0-100

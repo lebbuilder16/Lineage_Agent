@@ -10,7 +10,7 @@
  * (oldest removed first).
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 export interface WatchlistEntry {
   mint: string;
@@ -21,8 +21,10 @@ export interface WatchlistEntry {
 }
 
 const STORAGE_KEY = "lineage:watchlist";
+const WATCHLIST_CHANGED_EVENT = "lineage:watchlist-changed";
 const MAX_ITEMS = 50;
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "https://lineage-agent.fly.dev";
+let watchlistInstanceCounter = 0;
 
 function readStorage(): WatchlistEntry[] {
   if (typeof window === "undefined") return [];
@@ -34,11 +36,27 @@ function readStorage(): WatchlistEntry[] {
   }
 }
 
-function writeStorage(entries: WatchlistEntry[]): void {
+function notifyWatchlistChanged(sourceId: string): void {
+  if (typeof window === "undefined") return;
+
+  const emit = () => {
+    window.dispatchEvent(new CustomEvent<string>(WATCHLIST_CHANGED_EVENT, { detail: sourceId }));
+  };
+
+  if (typeof queueMicrotask === "function") {
+    queueMicrotask(emit);
+    return;
+  }
+
+  Promise.resolve().then(emit);
+}
+
+function writeStorage(entries: WatchlistEntry[], sourceId: string): void {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
-    // Notify all other useWatchlist instances on the same tab
-    window.dispatchEvent(new Event("lineage:watchlist-changed"));
+    // Notify all other useWatchlist instances on the same tab without
+    // synchronously re-entering state updates from within a state updater.
+    notifyWatchlistChanged(sourceId);
   } catch {
     // quota exceeded — silently ignore
   }
@@ -91,20 +109,31 @@ async function backendRemove(mint: string, apiKey: string): Promise<void> {
 
 export function useWatchlist() {
   const [entries, setEntries] = useState<WatchlistEntry[]>([]);
+  const instanceIdRef = useRef<string>();
+
+  if (!instanceIdRef.current) {
+    watchlistInstanceCounter += 1;
+    instanceIdRef.current = `watchlist-${watchlistInstanceCounter}`;
+  }
 
   // Hydrate from localStorage and keep in sync across instances / tabs
   useEffect(() => {
     setEntries(readStorage());
     const sync = () => setEntries(readStorage());
+    const onWatchlistChanged = (event: Event) => {
+      const sourceId = (event as CustomEvent<string>).detail;
+      if (sourceId === instanceIdRef.current) return;
+      sync();
+    };
     const onStorage = (e: StorageEvent) => {
       if (e.key === STORAGE_KEY) sync();
     };
 
-    window.addEventListener("lineage:watchlist-changed", sync);
+    window.addEventListener(WATCHLIST_CHANGED_EVENT, onWatchlistChanged);
     window.addEventListener("storage", onStorage);
 
     return () => {
-      window.removeEventListener("lineage:watchlist-changed", sync);
+      window.removeEventListener(WATCHLIST_CHANGED_EVENT, onWatchlistChanged);
       window.removeEventListener("storage", onStorage);
     };
   }, []);
@@ -123,7 +152,7 @@ export function useWatchlist() {
           { ...entry, addedAt: Date.now() },
           ...prev,
         ].slice(0, MAX_ITEMS);
-        writeStorage(next);
+        writeStorage(next, instanceIdRef.current!);
         return next;
       });
       // Sync to backend if authenticated
@@ -136,7 +165,7 @@ export function useWatchlist() {
   const remove = useCallback((mint: string) => {
     setEntries((prev) => {
       const next = prev.filter((e) => e.mint !== mint);
-      writeStorage(next);
+      writeStorage(next, instanceIdRef.current!);
       return next;
     });
     // Sync to backend if authenticated
@@ -157,7 +186,7 @@ export function useWatchlist() {
 
   const clear = useCallback(() => {
     setEntries([]);
-    writeStorage([]);
+    writeStorage([], instanceIdRef.current!);
   }, []);
 
   /** Update the stored riskScore for a watched token (no-op if not watched). */
@@ -167,7 +196,7 @@ export function useWatchlist() {
       if (!current || current.riskScore === riskScore) return prev;
 
       const next = prev.map((e) => e.mint === mint ? { ...e, riskScore } : e);
-      writeStorage(next);
+      writeStorage(next, instanceIdRef.current!);
       return next;
     });
   }, []);

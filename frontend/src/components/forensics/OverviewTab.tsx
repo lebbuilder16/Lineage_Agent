@@ -10,7 +10,6 @@ import {
   ChevronDown,
   ChevronUp,
   ShieldAlert,
-  ShieldCheck,
   ShieldQuestion,
   Activity,
   AlertTriangle,
@@ -88,6 +87,13 @@ export default function OverviewTab({
   const [expanded, setExpanded] = useState(false);
 
   const ai = analysis?.ai_analysis;
+  const narrative = ai
+    ? {
+        observation: ai.narrative?.observation ?? ai.analysis ?? ai.verdict_summary,
+        pattern: ai.narrative?.pattern ?? ai.rug_pattern,
+        risk: ai.narrative?.risk ?? ai.verdict_summary,
+      }
+    : null;
   const f = analysis?.forensic;
   const risk = riskLevel(ai?.risk_score ?? null);
   const action = actionFromScore(ai?.risk_score ?? null);
@@ -244,9 +250,9 @@ export default function OverviewTab({
           {/* Reasoning Trail */}
           <div className={SECTION}>
             <p className={LABEL}>Reasoning Trail</p>
-            <ReasoningRow step={1} label="What we see" text={ai.narrative.observation} accent="text-sky-400" borderColor="border-sky-500/30" />
-            <ReasoningRow step={2} label="What it means" text={ai.narrative.pattern} accent="text-violet-400" borderColor="border-violet-500/30" />
-            <ReasoningRow step={3} label="What&apos;s at risk" text={ai.narrative.risk} accent="text-red-400" borderColor="border-red-500/30" isLast />
+            <ReasoningRow step={1} label="What we see" text={narrative?.observation ?? ai.analysis} accent="text-sky-400" borderColor="border-sky-500/30" />
+            <ReasoningRow step={2} label="What it means" text={narrative?.pattern ?? ai.rug_pattern} accent="text-violet-400" borderColor="border-violet-500/30" />
+            <ReasoningRow step={3} label="What&apos;s at risk" text={narrative?.risk ?? ai.verdict_summary} accent="text-red-400" borderColor="border-red-500/30" isLast />
           </div>
 
           {/* Key Evidence */}
@@ -284,21 +290,13 @@ export default function OverviewTab({
             </div>
           )}
 
-          {/* Conviction */}
-          {ai.conviction_chain && (
+          {/* Integrated analysis */}
+          {ai.analysis && (
             <div className={SECTION}>
-              <p className={LABEL}>Conviction</p>
+              <p className={LABEL}>Integrated Analysis</p>
               <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2.5">
-                <p className="text-xs text-zinc-300 leading-relaxed">{ai.conviction_chain}</p>
+                <p className="text-xs text-zinc-300 leading-relaxed">{ai.analysis}</p>
               </div>
-            </div>
-          )}
-
-          {/* Operator Profile */}
-          {ai.operator_hypothesis && (
-            <div className={SECTION}>
-              <p className={LABEL}>Operator Profile</p>
-              <p className="text-xs text-zinc-300 leading-relaxed">{ai.operator_hypothesis}</p>
             </div>
           )}
 

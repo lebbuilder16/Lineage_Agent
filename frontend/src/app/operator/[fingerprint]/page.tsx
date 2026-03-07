@@ -2,10 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
-import {
-  fetchOperatorImpact,
-  type OperatorImpactReport,
-} from "@/lib/api";
+import { fetchOperatorImpact } from "@/lib/api";
 import BackButton from "@/components/BackButton";
 import { cn } from "@/lib/utils";
 

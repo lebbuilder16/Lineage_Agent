@@ -60,6 +60,14 @@ function confidenceBadge(level: AIAnalysis["confidence"]) {
   return map[level] ?? map.low;
 }
 
+function getNarrative(ai: AIAnalysis) {
+  return {
+    observation: ai.narrative?.observation ?? ai.analysis ?? ai.verdict_summary,
+    pattern: ai.narrative?.pattern ?? ai.rug_pattern,
+    risk: ai.narrative?.risk ?? ai.verdict_summary,
+  };
+}
+
 /** Parse [TAG] prefixes from key findings */
 function parseTag(finding: string): { tag: string | null; text: string } {
   const m = finding.match(/^\[([A-Z_]+)\]\s*/);
@@ -192,6 +200,7 @@ export default function AIAnalysisCard({ analysis, isLoading }: Props) {
 
   const f = analysis!.forensic;
   const e = analysis!.evidence;
+  const narrative = getNarrative(ai);
 
   return (
     <div className="w-full rounded-xl border border-zinc-800 bg-zinc-950/70 px-4 py-3 text-sm mb-4">
@@ -282,17 +291,17 @@ export default function AIAnalysisCard({ analysis, isLoading }: Props) {
       <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 px-3 py-1.5 mb-3">
         <NarrativeRow
           label="Analysis"
-          text={ai.narrative.observation}
+          text={narrative.observation}
           accent="text-sky-400"
         />
         <NarrativeRow
           label="Attack chain"
-          text={ai.narrative.pattern}
+          text={narrative.pattern}
           accent="text-violet-400"
         />
         <NarrativeRow
           label="Damage"
-          text={ai.narrative.risk}
+          text={narrative.risk}
           accent="text-red-400"
         />
       </div>
@@ -328,23 +337,14 @@ export default function AIAnalysisCard({ analysis, isLoading }: Props) {
         </div>
       )}
 
-      {/* ── operator hypothesis ────────────────────────────────────────── */}      {ai.conviction_chain && (
-        <div className="mb-3 rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2">
-          <p className="text-[10px] font-bold uppercase tracking-widest text-amber-500/70 mb-1">
-            Conviction
-          </p>
-          <p className="text-xs text-zinc-300 leading-relaxed">
-            {ai.conviction_chain}
-          </p>
-        </div>
-      )}
-      {ai.operator_hypothesis && (
+      {/* ── integrated analysis ────────────────────────────────────────── */}
+      {ai.analysis && (
         <div className="mb-3 rounded-lg border border-zinc-700/50 bg-zinc-900/60 px-3 py-2">
           <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-1">
-            Operator Hypothesis
+            Integrated Analysis
           </p>
           <p className="text-xs text-zinc-300 leading-relaxed">
-            {ai.operator_hypothesis}
+            {ai.analysis}
           </p>
         </div>
       )}
