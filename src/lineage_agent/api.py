@@ -502,6 +502,8 @@ async def ws_lineage(websocket: WebSocket):
             await websocket.close()
             return
 
+        force_refresh: bool = bool(data.get("force_refresh", False))
+
         # Send progress steps while running detect_lineage
         await websocket.send_json({"step": "Starting analysis", "progress": 0})
 
@@ -510,7 +512,7 @@ async def ws_lineage(websocket: WebSocket):
 
         try:
             result = await asyncio.wait_for(
-                detect_lineage(mint, progress_cb=_ws_progress),
+                detect_lineage(mint, progress_cb=_ws_progress, force_refresh=force_refresh),
                 timeout=ANALYSIS_TIMEOUT_SECONDS,
             )
         except asyncio.TimeoutError:

@@ -80,6 +80,8 @@ export interface LineageResult {
   cartel_report?: CartelReport | null;
   insider_sell?: InsiderSellReport | null;
   bundle_report?: BundleExtractionReport | null;
+  /** UTC ISO-8601 timestamp of when this analysis was computed (not when served from cache). */
+  scanned_at?: string | null;
 }
 
 /* ---------- Forensic signal types ----------------------------------- */
@@ -555,8 +557,9 @@ async function fetchJSONPost<T>(
 
 /* ---------- Endpoints ----------------------------------------------- */
 
-export function fetchLineage(mint: string): Promise<LineageResult> {
-  return fetchJSON<LineageResult>(`/lineage?mint=${encodeURIComponent(mint)}`);
+export function fetchLineage(mint: string, forceRefresh?: boolean): Promise<LineageResult> {
+  const url = `/lineage?mint=${encodeURIComponent(mint)}${forceRefresh ? "&force_refresh=true" : ""}`;
+  return fetchJSON<LineageResult>(url);
 }
 
 export function fetchDeployerProfile(address: string): Promise<DeployerProfile> {
@@ -620,6 +623,7 @@ export function fetchLineageWithProgress(
   mint: string,
   onProgress: (event: ProgressEvent) => void,
   signal?: AbortSignal,
+  forceRefresh?: boolean,
 ): Promise<LineageResult> {
   return new Promise((resolve, reject) => {
     const wsBase = API_BASE.replace(/^http/, "ws");
@@ -651,7 +655,7 @@ export function fetchLineageWithProgress(
     }
 
     ws.onopen = () => {
-      ws.send(JSON.stringify({ mint }));
+      ws.send(JSON.stringify({ mint, force_refresh: !!forceRefresh }));
     };
 
     ws.onmessage = (event) => {

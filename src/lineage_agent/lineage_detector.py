@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, Optional
 
 from config import (
@@ -363,6 +363,7 @@ async def detect_lineage(
             derivatives=[],
             family_size=1,
         )
+        result.scanned_at = datetime.now(timezone.utc)
         await _cache_set(f"lineage:v4:{mint_address}", result, ttl=CACHE_TTL_LINEAGE_SECONDS)
         return result
 
@@ -764,7 +765,7 @@ async def detect_lineage(
         # and the next scan reads them instantly.  (Optimization: was 30 s)
         try:
             return await asyncio.wait_for(
-                analyze_bundle(_scan_mint, _scan_deployer, _price),
+                analyze_bundle(_scan_mint, _scan_deployer, _price, force_refresh=force_refresh),
                 timeout=12.0,
             )
         except asyncio.TimeoutError:
@@ -773,7 +774,7 @@ async def detect_lineage(
                 "continuing full analysis in background", _scan_mint[:8],
             )
             asyncio.ensure_future(
-                analyze_bundle(_scan_mint, _scan_deployer, _price)
+                analyze_bundle(_scan_mint, _scan_deployer, _price, force_refresh=force_refresh)
             )
             return None
         except Exception as _be:
@@ -885,6 +886,7 @@ async def detect_lineage(
         )
 
     await _progress("Analysis complete", 100)
+    result.scanned_at = datetime.now(timezone.utc)
     await _cache_set(f"lineage:v4:{mint_address}", result, ttl=CACHE_TTL_LINEAGE_SECONDS)
     return result
 

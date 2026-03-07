@@ -49,8 +49,9 @@ export interface UseLineageWSReturn {
   error: string | null;
   isLoading: boolean;
   progress: ProgressEvent | null;
-  /** Start a full analysis (WS with progress bar → HTTP fallback). */
-  analyze: (mint: string) => void;
+  /** Start a full analysis (WS with progress bar → HTTP fallback).
+   * Pass `forceRefresh=true` to bust all server-side and local caches. */
+  analyze: (mint: string, forceRefresh?: boolean) => void;
   /**
    * Restore cached result for `mint` without hitting the network.
    * Returns `true` if a fresh cache entry was found, `false` otherwise.
@@ -80,11 +81,18 @@ export function useLineageWS(): UseLineageWSReturn {
     return true;
   }, []);
 
-  const analyze = useCallback((mint: string) => {
+  const analyze = useCallback((mint: string, forceRefresh?: boolean) => {
     // Cancel any in-flight WebSocket from a previous call
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
+
+    // Bust local session cache when caller requests a forced refresh
+    if (forceRefresh) {
+      if (typeof window !== "undefined") {
+        sessionStorage.removeItem(cacheKey(mint));
+      }
+    }
 
     const runId = ++runIdRef.current;
     setData(null);
@@ -92,13 +100,13 @@ export function useLineageWS(): UseLineageWSReturn {
     setIsLoading(true);
     setProgress({ step: "Connecting…", progress: 0 });
 
-    console.debug(`[useLineageWS] analyze() start — mint=${mint.slice(0, 8)} runId=${runId}`);
+    console.debug(`[useLineageWS] analyze() start — mint=${mint.slice(0, 8)} runId=${runId} forceRefresh=${!!forceRefresh}`);
 
     fetchLineageWithProgress(mint, (evt) => {
       if (runIdRef.current !== runId) return; // stale
       console.debug(`[useLineageWS] progress — ${evt.step} (${evt.progress}%)`);
       setProgress(evt);
-    }, controller.signal)
+    }, controller.signal, forceRefresh)
       .then((result) => {
         if (runIdRef.current !== runId) return;
         console.debug(`[useLineageWS] WS success — family_size=${result.family_size} bundle=${result.bundle_report?.overall_verdict ?? "null"}`);
@@ -114,7 +122,7 @@ export function useLineageWS(): UseLineageWSReturn {
         // Fallback to HTTP if WS fails to connect
         try {
           setProgress({ step: "Falling back to HTTP…", progress: 0 });
-          const result = await fetchLineage(mint);
+          const result = await fetchLineage(mint, forceRefresh);
           if (runIdRef.current !== runId) return;
           console.debug(`[useLineageWS] HTTP fallback success — family_size=${result.family_size}`);
           setData(result);

@@ -37,12 +37,12 @@ describe("SearchBar", () => {
 
   it("renders the search input", () => {
     render(<SearchBar />);
-    expect(screen.getByRole("textbox")).toBeInTheDocument();
+    expect(screen.getByRole("combobox")).toBeInTheDocument();
   });
 
   it("navigates to lineage page for a mint address", () => {
     render(<SearchBar />);
-    const input = screen.getByRole("textbox");
+    const input = screen.getByRole("combobox");
     // A valid Base58 mint address (44 chars)
     const mint = "So11111111111111111111111111111111111111112";
     fireEvent.change(input, { target: { value: mint } });
@@ -52,7 +52,7 @@ describe("SearchBar", () => {
 
   it("navigates to search page for a non-address query", () => {
     render(<SearchBar />);
-    const input = screen.getByRole("textbox");
+    const input = screen.getByRole("combobox");
     fireEvent.change(input, { target: { value: "pepe" } });
     fireEvent.submit(input.closest("form")!);
     expect(mockPush).toHaveBeenCalledWith("/search?q=pepe");
@@ -60,7 +60,7 @@ describe("SearchBar", () => {
 
   it("does not navigate on empty submit", () => {
     render(<SearchBar />);
-    const input = screen.getByRole("textbox");
+    const input = screen.getByRole("combobox");
     fireEvent.submit(input.closest("form")!);
     expect(mockPush).not.toHaveBeenCalled();
   });
@@ -73,10 +73,10 @@ describe("SearchBar", () => {
     });
     render(<SearchBar />);
     // The Search icon should have animate-pulse class when loading
-    const input = screen.getByRole("textbox");
+    const input = screen.getByRole("combobox");
     fireEvent.change(input, { target: { value: "pepe" } });
     // The icon is present (we just verify no crash during loading)
-    expect(screen.getByRole("textbox")).toBeInTheDocument();
+    expect(screen.getByRole("combobox")).toBeInTheDocument();
   });
 
   it("shows dropdown suggestions when results are returned", () => {
@@ -97,7 +97,7 @@ describe("SearchBar", () => {
       error: null,
     });
     render(<SearchBar />);
-    const input = screen.getByRole("textbox");
+    const input = screen.getByRole("combobox");
     // Focus + type (2+ chars to trigger dropdown)
     fireEvent.focus(input);
     fireEvent.change(input, { target: { value: "pepe" } });
