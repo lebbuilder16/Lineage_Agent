@@ -17,8 +17,8 @@ const MINT = "So11111111111111111111111111111111111111112";
 
 const fakeResult: api.LineageResult = {
   mint: MINT,
-  root: { mint: MINT, name: "Wrapped SOL", symbol: "WSOL" },
-  query_token: { mint: MINT, name: "Wrapped SOL", symbol: "WSOL" },
+  root: { mint: MINT, name: "Wrapped SOL", symbol: "WSOL" } as unknown as api.TokenMetadata,
+  query_token: { mint: MINT, name: "Wrapped SOL", symbol: "WSOL" } as unknown as api.TokenMetadata,
   confidence: 1.0,
   derivatives: [],
   family_size: 1,
@@ -69,7 +69,7 @@ describe("useLineageWS — forceRefresh behaviour", () => {
     mockFetchWS.mockResolvedValue({
       ...fakeResult,
       query_token: { ...fakeResult.query_token!, deployer: "DeployerABC" },
-      bundle_report: { overall_verdict: "clean" } as api.BundleExtractionReport,
+      bundle_report: { overall_verdict: "clean" } as unknown as api.BundleExtractionReport,
     });
   });
 

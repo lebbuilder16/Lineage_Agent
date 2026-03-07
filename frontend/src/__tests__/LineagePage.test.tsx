@@ -63,10 +63,13 @@ const mockUseWatchlist = vi.mocked(useWatchlist);
 
 const MINT = "TESTMINT111111111111111111111111111111111";
 
+import type { TokenMetadata } from "@/lib/api";
+import type { AnalysisStep, StepState } from "@/lib/useAnalysisStream";
+
 const baseResult: LineageResult = {
   mint: MINT,
-  root: { mint: MINT, name: "Test Token", symbol: "TEST" },
-  query_token: { mint: MINT, name: "Test Token", symbol: "TEST" },
+  root: { mint: MINT, name: "Test Token", symbol: "TEST" } as unknown as TokenMetadata,
+  query_token: { mint: MINT, name: "Test Token", symbol: "TEST" } as unknown as TokenMetadata,
   confidence: 0.9,
   derivatives: [],
   family_size: 1,
@@ -90,7 +93,7 @@ function makeHooks(
   });
 
   mockUseAnalysisStream.mockReturnValue({
-    steps: [],
+    steps: {} as Record<AnalysisStep, StepState>,
     analysis: null,
     loading: false,
     error: null,
@@ -99,13 +102,13 @@ function makeHooks(
   });
 
   mockUseWatchlist.mockReturnValue({
-    watchlist: [],
+    entries: [],
     isWatched: vi.fn(() => false),
-    addToWatchlist: vi.fn(),
-    removeFromWatchlist: vi.fn(),
+    add: vi.fn(),
+    remove: vi.fn(),
+    toggle: vi.fn(),
+    clear: vi.fn(),
     updateRiskScore: vi.fn(),
-    totalRiskScore: 0,
-    highRiskCount: 0,
   });
 
   return { analyze, restoreFromCache };

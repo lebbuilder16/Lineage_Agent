@@ -12,10 +12,12 @@ import type { LineageResult, ProgressEvent } from "@/lib/api";
 
 const MINT = "So11111111111111111111111111111111111111112";
 
+import type { TokenMetadata } from "@/lib/api";
+
 const fakeResult: LineageResult = {
   mint: MINT,
-  root: { mint: MINT, name: "Wrapped SOL", symbol: "WSOL" },
-  query_token: { mint: MINT, name: "Wrapped SOL", symbol: "WSOL" },
+  root: { mint: MINT, name: "Wrapped SOL", symbol: "WSOL" } as unknown as TokenMetadata,
+  query_token: { mint: MINT, name: "Wrapped SOL", symbol: "WSOL" } as unknown as TokenMetadata,
   confidence: 1.0,
   derivatives: [],
   family_size: 1,
