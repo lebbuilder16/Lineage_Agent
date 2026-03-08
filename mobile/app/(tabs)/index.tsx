@@ -132,11 +132,11 @@ function StatsBar() {
 
   return (
     <View style={styles.statsBar}>
-      <StatItem label="Scanned 24h" value={data.total_scanned_24h.toString()} />
+      <StatItem label="Scanned 24h" value={(data.total_scanned_24h ?? 0).toString()} />
       <View style={styles.statsDivider} />
-      <StatItem label="Rugs 24h" value={data.rug_count_24h.toString()} danger />
+      <StatItem label="Rugs 24h" value={(data.rug_count_24h ?? 0).toString()} danger />
       <View style={styles.statsDivider} />
-      <StatItem label="Active deployers" value={data.active_deployers_24h.toString()} />
+      <StatItem label="Active deployers" value={(data.active_deployers_24h ?? 0).toString()} />
     </View>
   );
 }

@@ -7,14 +7,22 @@ import Constants from "expo-constants";
 import { Platform } from "react-native";
 import { registerFcmToken } from "@/src/lib/api";
 
-// Configuration du gestionnaire de notifications (comportement à l'affichage)
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: true,
-  }),
-});
+// True when running inside Expo Go rather than a standalone / dev build.
+// Remote push notifications on Android are not supported in Expo Go SDK 53+.
+const isExpoGo = Constants.executionEnvironment === "storeClient";
+
+// setNotificationHandler covers local notifications on all platforms and
+// remote notifications on iOS Expo Go / all dev builds. Skip on Android Expo Go
+// where remote notification APIs are unavailable.
+if (!(Platform.OS === "android" && isExpoGo)) {
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowAlert: true,
+      shouldPlaySound: true,
+      shouldSetBadge: true,
+    }),
+  });
+}
 
 /**
  * Demande la permission de notifications, récupère le token Expo/FCM
@@ -24,6 +32,13 @@ Notifications.setNotificationHandler({
  * Ne lance pas d'exception — logs les erreurs silencieusement.
  */
 export async function registerForPushNotifications(): Promise<string | null> {
+  if (Platform.OS === "android" && isExpoGo) {
+    console.warn(
+      "[Push] Skipped — Android remote notifications are not supported in Expo Go (SDK 53+). Use a development build."
+    );
+    return null;
+  }
+
   if (!Device.isDevice) {
     console.warn("[Push] Skipped — not a physical device");
     return null;

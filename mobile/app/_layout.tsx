@@ -1,6 +1,7 @@
 // app/_layout.tsx
 // Layout racine — initialise fonts, QueryClient, SafeArea, Reanimated, push notifications
 
+import "../src/polyfills";
 import "../src/global.css";
 import React, { useEffect } from "react";
 import { Stack } from "expo-router";
