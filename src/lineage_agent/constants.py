@@ -100,6 +100,10 @@ SKIP_PROGRAMS: frozenset[str] = frozenset({
     # Launchpad programs
     "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBymtzbm",    # PumpFun Program
     "TSLvdd1pWpHVjahSpsvCXUbgwsL3JAcvokwaKt1eokM",     # PumpFun Authority
+    "Ce6TQqeHC9p8KetsN6JsjHK7UTZk7nasjjnr7XxXp9F1",    # PumpFun Fee / Moonshot Fee-Authority
+    "MoonCVVNZFSYkqNXP6bxHLPL6QQJiMEfzPWlVMMf9Ly",    # Moonshot Program
+    "4wTV81rvZBKW8vFJX9PMwn5n46sYr6HfkWMqJjpPbZ6M",    # LetsBonk Program
+    "DEXYosS6oEGvk8uCDayvwEZz4qEyDJRf9nFgYCaqPMTm",    # Believe / Degen Launchpad
     # MEV / Infrastructure
     "96gYZGLnJYVFmbjzopPSU6QiEV5fGqZNyN9nmNhvrZU5",    # Jito Tip Account
     # Meteora

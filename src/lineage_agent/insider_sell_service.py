@@ -45,8 +45,34 @@ _PRICE_CRASH_SUSPICIOUS   = -30.0  # % — notable price fall
 _PRICE_CRASH_SEVERE       = -50.0  # % — severe price fall
 _VOLUME_SPIKE_THRESHOLD   = 3.0    # 1 h vol > 3× avg hourly vol
 
+# Bonding curve launchpads: on these platforms the deployer never holds tokens
+# (the curve PDA holds them). A zero deployer balance is expected, NOT a sign
+# of an insider dump.
+_BONDING_CURVE_DEX_IDS: frozenset[str] = frozenset({
+    "pump-fun",    # PumpFun (DexScreener dexId)
+    "moonshot",    # Moonshot (DexScreener dexId)
+    "letsbonk",    # LetsBonk
+})
+
 
 # ── Public entry point ────────────────────────────────────────────────────
+
+def _detect_bonding_curve(pairs: list[dict[str, Any]]) -> bool:
+    """Return True if any Solana pair was created on a bonding curve launchpad.
+
+    On bonding curve platforms (Moonshot, PumpFun, LetsBonk) the deployer
+    wallet never holds tokens directly — the curve PDA is the sole holder.
+    A zero deployer token balance is therefore expected from genesis and must
+    NOT be interpreted as an insider dump.
+    """
+    for p in pairs:
+        if (p.get("chainId") or "").lower() != "solana":
+            continue
+        dex = (p.get("dexId") or "").lower()
+        if dex in _BONDING_CURVE_DEX_IDS:
+            return True
+    return False
+
 
 async def analyze_insider_sell(
     mint: str,
@@ -73,13 +99,18 @@ async def analyze_insider_sell(
     """
     report = InsiderSellReport(mint=mint)
 
+    # Detect bonding curve early — affects whether deployer balance is meaningful.
+    is_bonding_curve = _detect_bonding_curve(pairs)
+
     # ── Step 1: Market signals from DexScreener ───────────────────────────
     _fill_market_signals(report, pairs)
 
     # ── Step 2: On-chain balance snapshots ───────────────────────────────
-    # Check deployer + up to 3 linked wallets; fire in parallel.
+    # On bonding curve platforms the deployer never holds tokens (the curve PDA
+    # does), so a zero balance is expected and must not be flagged as DEPLOYER_EXITED.
+    # Skip the balance check entirely in that case to avoid false positives.
     wallets_to_check: list[tuple[str, str]] = []   # (wallet, role)
-    if deployer:
+    if deployer and not is_bonding_curve:
         wallets_to_check.append((deployer, "deployer"))
     for lw in (linked_wallets or [])[:3]:
         if lw and lw != deployer:

@@ -73,7 +73,9 @@ KNOWN_LABELS: dict[str, tuple[str, str]] = {
     # PumpFun: widely confirmed program ID (every on-chain meme on Solana)
     "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBymtzbm":  ("PumpFun Program",      "launchpad"),
     "TSLvdd1pWpHVjahSpsvCXUbgwsL3JAcvokwaKt1eokM":   ("PumpFun Authority",    "launchpad"),  # RPC: ACCOUNT 0.72 SOL ✓
-    "Ce6TQqeHC9p8KetsN6JsjHK7UTZk7nasjjnr7XxXp9F1":  ("PumpFun Fee",          "launchpad"),  # RPC: ACCOUNT 0.17 SOL ✓
+    "Ce6TQqeHC9p8KetsN6JsjHK7UTZk7nasjjnr7XxXp9F1":  ("Moonshot Fee",         "launchpad"),  # Moonshot fee/authority (mislabeled as PumpFun Fee)
+    "MoonCVVNZFSYkqNXP6bxHLPL6QQJiMEfzPWlVMMf9Ly":   ("Moonshot Program",     "launchpad"),  # Moonshot.fun program
+    "4wTV81rvZBKW8vFJX9PMwn5n46sYr6HfkWMqJjpPbZ6M":  ("LetsBonk Program",     "launchpad"),
     "DEXYosS6oEGvk8uCDayvwEZz4qEyDJRf9nFgYCaqPMTm":  ("Believe / Degen",     "launchpad"),  # RPC: PROGRAM ✓
 
     # ── MEV / Jito ────────────────────────────────────────────────────────
