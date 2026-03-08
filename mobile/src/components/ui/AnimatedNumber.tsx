@@ -20,7 +20,6 @@ interface AnimatedNumberProps {
   color?: string;
   fontSize?: number;
   fontWeight?: "400" | "500" | "600" | "700";
-  formatter?: (n: number) => string;
 }
 
 export function AnimatedNumber({
@@ -29,7 +28,6 @@ export function AnimatedNumber({
   color = colors.text.primary,
   fontSize = 16,
   fontWeight = "600",
-  formatter = (n) => Math.floor(n).toLocaleString(),
 }: AnimatedNumberProps) {
   const sv = useSharedValue(0);
 
@@ -40,10 +38,13 @@ export function AnimatedNumber({
     });
   }, [value]);
 
-  const animatedProps = useAnimatedProps(() => ({
-    text: formatter(sv.value),
-    defaultValue: formatter(sv.value),
-  }));
+  const animatedProps = useAnimatedProps(() => {
+    "worklet";
+    // toLocaleString is not available on the UI thread; format manually
+    const n = Math.floor(sv.value);
+    const text = n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    return { text, defaultValue: text };
+  });
 
   return (
     <AnimatedTextInput

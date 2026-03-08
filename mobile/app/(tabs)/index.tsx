@@ -205,7 +205,6 @@ function StatsBar() {
           value={data.total_scanned_24h ?? 0}
           fontSize={18}
           fontWeight="700"
-          formatter={(n) => Math.floor(n).toLocaleString()}
         />
         <Text style={styles.statLabel}>Scanned 24h</Text>
       </View>
