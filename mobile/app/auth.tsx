@@ -71,13 +71,8 @@ export default function AuthScreen() {
   const [otpSent, setOtpSent] = useState(false);
 
   // ── Privy SDK
-  const { logout: privyLogout } = usePrivy();
-  const { sendCode, loginWithCode, state: emailState } = useLoginWithEmail({
-    onError: (err) => {
-      Alert.alert("Login failed", err.message ?? "Please try again.");
-      setLoading(false);
-    },
-  });
+  usePrivy(); // keep provider context active
+  const { sendCode, loginWithCode, state: emailState } = useLoginWithEmail();
 
   // Privy v2: onComplete removed — watch emailState.status instead
   useEffect(() => {
@@ -139,33 +134,42 @@ export default function AuthScreen() {
       await _handlePrivyUser(devPrivyId.trim());
       return;
     }
+
     setLoading(true);
-    try {
-      if (!otpSent) {
-        // Étape 1 : envoyer le code OTP à l'adresse email
-        const trimmedEmail = email.trim();
-        if (!trimmedEmail || !trimmedEmail.includes("@")) {
-          Alert.alert("Email invalide", "Veuillez entrer un email valide.");
-          setLoading(false);
-          return;
-        }
+
+    if (!otpSent) {
+      // Step 1: send OTP to email
+      const trimmedEmail = email.trim();
+      if (!trimmedEmail || !trimmedEmail.includes("@")) {
+        Alert.alert("Invalid email", "Please enter a valid email address.");
+        setLoading(false);
+        return;
+      }
+      try {
         await sendCode({ email: trimmedEmail });
         setOtpSent(true);
         toast.info("Code sent! Check your email.");
-      } else {
-        // Étape 2 : vérifier le code OTP
-        const trimmedCode = otpCode.trim();
-        if (!trimmedCode) {
-          Alert.alert("Code requis", "Veuillez entrer le code reçu par email.");
-          setLoading(false);
-          return;
-        }
-        await loginWithCode({ code: trimmedCode });
+      } catch (e: any) {
+        Alert.alert("Connection failed", e.message ?? "Please try again.");
+      } finally {
+        setLoading(false);
       }
-    } catch (e: any) {
-      Alert.alert("Connection failed", e.message ?? "Please try again.");
-    } finally {
-      setLoading(false);
+    } else {
+      // Step 2: verify OTP — keep loading=true on success so _handlePrivyUser
+      // (triggered via emailState effect) takes over without a loading flicker.
+      const trimmedCode = otpCode.trim();
+      if (!trimmedCode) {
+        Alert.alert("Code required", "Please enter the code from your email.");
+        setLoading(false);
+        return;
+      }
+      try {
+        await loginWithCode({ code: trimmedCode });
+        // loading stays true — _handlePrivyUser will reset it after navigation
+      } catch (e: any) {
+        Alert.alert("Connection failed", e.message ?? "Please try again.");
+        setLoading(false);
+      }
     }
   };
 
@@ -185,9 +189,9 @@ export default function AuthScreen() {
         {/* Auth card */}
         <Animated.View entering={FadeInDown.delay(300).springify()}>
           <GlassCard elevated style={styles.authCard}>
-            <Text style={styles.cardTitle}>Connect your wallet</Text>
+            <Text style={styles.cardTitle}>Sign in to Lineage</Text>
             <Text style={styles.cardSub}>
-              Your Solana wallet is your identity. No password required.
+              Enter your email — we'll send you a one-time sign-in code.
             </Text>
 
             {/* Dev mode input — removed in production build */}
