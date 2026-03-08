@@ -20,4 +20,11 @@ config.resolver.mainFields = ["react-native", "browser", "main", "module"];
 // Use browser export condition so packages like jose resolve to browser dist
 config.resolver.unstable_conditionNames = ["browser", "require", "default"];
 
+// Redirect Node.js 'crypto' to a React Native shim so uuid v9+ works in Expo Go.
+// uuid/dist/rng.js does require('crypto').randomFillSync which doesn't exist in RN.
+config.resolver.extraNodeModules = {
+  ...(config.resolver.extraNodeModules ?? {}),
+  crypto: path.resolve(__dirname, "crypto-rn-shim.js"),
+};
+
 module.exports = withNativeWind(config, { input: "./src/global.css" });
