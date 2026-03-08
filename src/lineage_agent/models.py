@@ -140,9 +140,6 @@ class LineageResult(BaseModel):
     bundle_report: Optional["BundleExtractionReport"] = Field(
         None, description="Bundle wallet forensic analysis — pre+post sell behavior with verified extraction (Initiative 5)"
     )
-    scanned_at: Optional[datetime] = Field(
-        None, description="UTC timestamp of when this analysis was computed (not when served from cache)"
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -527,7 +524,6 @@ class DeployerProfile(BaseModel):
     """Historical behaviour profile for a deployer wallet."""
 
     address: str
-    chain: str = "Solana"
     total_tokens_launched: int
     rug_count: int
     rug_rate_pct: float = Field(ge=0.0, le=100.0)
