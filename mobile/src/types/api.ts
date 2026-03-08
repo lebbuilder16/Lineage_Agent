@@ -323,3 +323,43 @@ export interface AlertItem {
   timestamp: string;
   read: boolean;
 }
+
+// ─── Scan history ─────────────────────────────────────────────────────────────
+
+export interface ScanSnapshot {
+  snapshot_id: number;
+  user_id: number;
+  mint: string;
+  scanned_at: string; // ISO datetime
+  scan_number: number;
+  risk_score: number;
+  flags: string[];
+  family_size: number;
+  rug_count: number;
+  death_clock_risk: string;
+  bundle_verdict: string;
+  insider_verdict: string;
+  zombie_detected: boolean;
+  token_name: string;
+  token_symbol: string;
+}
+
+export interface ScanDelta {
+  mint: string;
+  current_scan: ScanSnapshot;
+  previous_scan: ScanSnapshot;
+  scan_number: number;
+  risk_score_delta: number;
+  new_flags: string[];
+  resolved_flags: string[];
+  family_size_delta: number;
+  rug_count_delta: number;
+  trend: "worsening" | "stable" | "improving";
+  narrative: string | null;
+}
+
+export interface ScanHistory {
+  scan_count: number;
+  plan: "free" | "pro";
+  snapshots: ScanSnapshot[];
+}

@@ -325,6 +325,7 @@ export default function ChatScreen() {
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
+            style={styles.quickPromptsContainer}
             contentContainerStyle={styles.quickPrompts}
           >
             {QUICK_PROMPTS.map((p) => (
@@ -443,6 +444,7 @@ const styles = StyleSheet.create({
 
   // Quick prompts
   quickPrompts: { paddingHorizontal: 16, paddingVertical: 8, gap: 8 },
+  quickPromptsContainer: { minHeight: 52 },
   quickPill: {
     backgroundColor: colors.glass.bg,
     borderWidth: 1,

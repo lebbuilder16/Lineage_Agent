@@ -9,6 +9,8 @@ import type {
   GlobalStats,
   User,
   Watch,
+  ScanHistory,
+  ScanDelta,
 } from "@/types/api";
 
 const API_KEY_STORAGE_KEY = "lineage_api_key";
@@ -186,4 +188,26 @@ export async function updateNotificationPrefs(prefs: NotificationPrefs): Promise
     authenticated: true,
     body: JSON.stringify(prefs),
   });
+}
+
+// ─── Scan history ─────────────────────────────────────────────────────────────
+
+export async function getScanHistory(mint: string): Promise<ScanHistory> {
+  return apiFetch<ScanHistory>(`/history/${encodeURIComponent(mint)}`, {
+    authenticated: true,
+  });
+}
+
+/**
+ * Returns the delta between the last two scans, or null if < 2 scans exist.
+ */
+export async function getScanDelta(mint: string): Promise<ScanDelta | null> {
+  try {
+    return await apiFetch<ScanDelta>(`/history/${encodeURIComponent(mint)}/delta`, {
+      authenticated: true,
+    });
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) return null;
+    throw err;
+  }
 }

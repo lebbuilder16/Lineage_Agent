@@ -15,7 +15,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, router } from "expo-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import Animated, { FadeIn, FadeInDown } from "react-native-reanimated";
-import { getLineage, addWatch } from "@/src/lib/api";
+import { getLineage, addWatch, getScanHistory, getScanDelta } from "@/src/lib/api";
 import { GlassCard } from "@/src/components/ui/GlassCard";
 import { RiskBadge } from "@/src/components/ui/RiskBadge";
 import { RiskGauge } from "@/src/components/ui/RiskGauge";
@@ -24,9 +24,11 @@ import { HapticButton } from "@/src/components/ui/HapticButton";
 import { TokenCardSkeleton } from "@/src/components/ui/SkeletonLoader";
 import { ForensicSignalCards } from "@/src/components/forensics/ForensicSignalCards";
 import { FamilyTreeView } from "@/src/components/lineage/FamilyTreeView";
+import { ScanTimeline } from "@/src/components/lineage/ScanTimeline";
+import { ScanDeltaPanel } from "@/src/components/lineage/ScanDeltaPanel";
 import { colors, verdictColor, riskLevelFromScore } from "@/src/theme/colors";
 import { useAuthStore } from "@/src/store/auth";
-import type { LineageResult } from "@/src/types/api";
+import type { LineageResult, ScanSnapshot, ScanDelta } from "@/src/types/api";
 
 function formatMcap(v: number | null) {
   if (!v) return "—";
@@ -180,6 +182,7 @@ function calculateRiskScore(data: LineageResult): number {
 
 export default function LineageDetailScreen() {
   const { mint } = useLocalSearchParams<{ mint: string }>();
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["lineage", mint],
@@ -187,6 +190,22 @@ export default function LineageDetailScreen() {
     enabled: !!mint,
     staleTime: 30_000,
   });
+
+  const { data: historyData } = useQuery({
+    queryKey: ["scan-history", mint],
+    queryFn: () => getScanHistory(mint),
+    enabled: !!mint && isAuthenticated,
+    staleTime: 60_000,
+  });
+
+  const { data: delta } = useQuery({
+    queryKey: ["scan-delta", mint],
+    queryFn: () => getScanDelta(mint),
+    enabled: !!mint && isAuthenticated,
+    staleTime: 60_000,
+  });
+
+  const snapshots: ScanSnapshot[] = historyData?.snapshots ?? [];
 
   if (isLoading) {
     return (
@@ -253,6 +272,19 @@ export default function LineageDetailScreen() {
             <Text style={styles.treeMetaText}>{data.family_size} members · Confidence {Math.round(data.confidence * 100)}%</Text>
           </View>
         </GlassCard>
+
+        {/* Scan history timeline */}
+        {snapshots.length > 0 && (
+          <ScanTimeline snapshots={snapshots} />
+        )}
+
+        {/* Scan delta evolution */}
+        {delta && (
+          <>
+            <Text style={styles.sectionTitle}>Evolution</Text>
+            <ScanDeltaPanel delta={delta} />
+          </>
+        )}
 
         {/* Forensic signals */}
         <Text style={styles.sectionTitle}>Forensic Signals</Text>
