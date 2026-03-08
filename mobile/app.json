@@ -56,15 +56,17 @@
           "image": "./assets/images/splash.png",
           "imageWidth": 200
         }
-      ]
+      ],
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true
     },
     "extra": {
       "eas": {
-        "projectId": "YOUR_EAS_PROJECT_ID"
-      }
+        "projectId": "TODO-run-npx-eas-init"
+      },
+      "router": {}
     }
   }
 }

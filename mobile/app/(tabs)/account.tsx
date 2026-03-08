@@ -247,9 +247,9 @@ export default function AccountScreen() {
         {/* More */}
         <Text style={styles.sectionTitle}>More</Text>
         <GlassCard style={styles.settingsCard}>
-          <MenuRow label="Privacy Policy" onPress={() => {}} />
+          <MenuRow label="Privacy Policy" onPress={() => Linking.openURL("https://lineageagent.io/privacy")} />
           <View style={styles.separator} />
-          <MenuRow label="Terms of Service" onPress={() => {}} />
+          <MenuRow label="Terms of Service" onPress={() => Linking.openURL("https://lineageagent.io/terms")} />
           <View style={styles.separator} />
           <MenuRow label={`Version ${Constants.expoConfig?.version ?? "1.0.0"}`} onPress={() => {}} />
         </GlassCard>

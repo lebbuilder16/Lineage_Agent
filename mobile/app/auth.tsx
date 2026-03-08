@@ -25,6 +25,7 @@ import Animated, {
 } from "react-native-reanimated";
 import { usePrivy, useLoginWithEmail } from "@privy-io/expo";
 import { loginWithPrivy, getCurrentUser } from "@/src/lib/api";
+import { toast } from "@/src/lib/toast";
 import { useAuthStore } from "@/src/store/auth";
 import { GlassCard } from "@/src/components/ui/GlassCard";
 import { HapticButton } from "@/src/components/ui/HapticButton";
@@ -150,6 +151,7 @@ export default function AuthScreen() {
         }
         await sendCode({ email: trimmedEmail });
         setOtpSent(true);
+        toast.info("Code sent! Check your email.");
       } else {
         // Étape 2 : vérifier le code OTP
         const trimmedCode = otpCode.trim();
@@ -251,11 +253,7 @@ export default function AuthScreen() {
               disabled={loading}
               style={styles.connectBtn}
             >
-              {loading ? (
-                <ActivityIndicator color={colors.background.deep} />
-              ) : (
-                <Text style={styles.connectBtnText}>Connect Wallet</Text>
-              )}
+              {loading && <ActivityIndicator color={colors.background.deep} />}
             </HapticButton>
 
             {hasBiometric && (

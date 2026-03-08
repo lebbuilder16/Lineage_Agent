@@ -13,7 +13,7 @@ import {
   Pressable,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
 import Animated, {
   useSharedValue,
@@ -26,6 +26,7 @@ import Animated, {
 import { getGlobalStats, getStatsBrief } from "@/src/lib/api";
 import { Fonts } from "@/src/theme/fonts";
 import { GlassCard } from "@/src/components/ui/GlassCard";
+import { HapticButton } from "@/src/components/ui/HapticButton";
 import { RiskBadge } from "@/src/components/ui/RiskBadge";
 import { TokenImage } from "@/src/components/ui/TokenImage";
 import { AlertCardSkeleton } from "@/src/components/ui/SkeletonLoader";
@@ -170,12 +171,19 @@ function StatItem({ label, value, danger = false }: { label: string; value: stri
 export default function HomeFeedScreen() {
   const alerts = useAlertsStore((s) => s.alerts);
   const [refreshing, setRefreshing] = React.useState(false);
+  const queryClient = useQueryClient();
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await new Promise((r) => setTimeout(r, 1000));
-    setRefreshing(false);
-  }, []);
+    try {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["global-stats"] }),
+        queryClient.invalidateQueries({ queryKey: ["stats-brief"] }),
+      ]);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [queryClient]);
 
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
@@ -218,11 +226,20 @@ export default function HomeFeedScreen() {
         <Text style={styles.sectionTitle}>Live Alerts</Text>
         <GlassCard style={styles.alertList}>
           {alerts.length === 0 ? (
-            <>
-              <AlertCardSkeleton />
-              <AlertCardSkeleton />
-              <AlertCardSkeleton />
-            </>
+            <Animated.View entering={FadeInDown} style={styles.emptyAlerts}>
+              <Text style={styles.emptyAlertsIcon}>◎</Text>
+              <Text style={styles.emptyAlertsTitle}>No live alerts yet</Text>
+              <Text style={styles.emptyAlertsSub}>
+                Add tokens to your watchlist to receive real-time alerts
+              </Text>
+              <HapticButton
+                label="Search tokens"
+                variant="ghost"
+                size="sm"
+                onPress={() => router.push("/(tabs)/search")}
+                style={{ marginTop: 12 }}
+              />
+            </Animated.View>
           ) : (
             alerts.slice(0, 20).map((alert, i) => (
               <AlertRow key={alert.id} item={alert} index={i} />
@@ -341,4 +358,8 @@ const styles = StyleSheet.create({
   alertContent: { flex: 1 },
   alertName: { color: colors.text.primary, fontSize: 13, fontWeight: "600" },
   alertMsg: { color: colors.text.muted, fontSize: 11, marginTop: 2 },
+  emptyAlerts: { alignItems: "center", paddingVertical: 32, paddingHorizontal: 20 },
+  emptyAlertsIcon: { fontSize: 40, marginBottom: 8 },
+  emptyAlertsTitle: { color: colors.text.primary, fontSize: 16, fontWeight: "600" },
+  emptyAlertsSub: { color: colors.text.muted, fontSize: 13, textAlign: "center", marginTop: 6, lineHeight: 18 },
 });

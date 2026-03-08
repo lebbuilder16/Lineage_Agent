@@ -15,5 +15,9 @@ config.resolver.blockList = [
   ...(Array.isArray(config.resolver.blockList) ? config.resolver.blockList : []),
   new RegExp(rnPatchDir.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
 ];
+// Prefer browser/react-native distributions over Node.js ones (fixes jose zlib etc.)
+config.resolver.mainFields = ["react-native", "browser", "main", "module"];
+// Use browser export condition so packages like jose resolve to browser dist
+config.resolver.unstable_conditionNames = ["browser", "require", "default"];
 
 module.exports = withNativeWind(config, { input: "./src/global.css" });

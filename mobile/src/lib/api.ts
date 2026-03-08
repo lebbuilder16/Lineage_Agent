@@ -17,8 +17,9 @@ const API_KEY_STORAGE_KEY = "lineage_api_key";
 // ─── Configuration ────────────────────────────────────────────────────────────
 // Pointer sur le backend FastAPI. En dev: localhost ou tunnel ngrok.
 // En prod: l'URL Fly.io déployée.
-const BASE_URL =
-  process.env.EXPO_PUBLIC_API_URL ?? "https://api.lineageagent.io";
+const BASE_URL = (
+  process.env.EXPO_PUBLIC_API_URL ?? "https://lineage-agent.fly.dev"
+).replace(/\/$/, "");
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 

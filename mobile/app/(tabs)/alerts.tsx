@@ -151,6 +151,13 @@ export default function AlertsScreen() {
             <Text style={styles.emptySub}>
               Add tokens to your watchlist to start receiving alerts
             </Text>
+            <HapticButton
+              label="Go to Watchlist"
+              variant="ghost"
+              size="sm"
+              onPress={() => router.push("/(tabs)/watchlist")}
+              style={{ marginTop: 16 }}
+            />
           </Animated.View>
         }
       />

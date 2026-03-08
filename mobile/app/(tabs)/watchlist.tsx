@@ -16,6 +16,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
 import Animated, { FadeIn, FadeInDown, SlideOutRight } from "react-native-reanimated";
 import { getWatches, removeWatch } from "@/src/lib/api";
+import { toast } from "@/src/lib/toast";
 import { GlassCard } from "@/src/components/ui/GlassCard";
 import { HapticButton } from "@/src/components/ui/HapticButton";
 import { colors } from "@/src/theme/colors";
@@ -83,7 +84,10 @@ export default function WatchlistScreen() {
 
   const removeMutation = useMutation({
     mutationFn: removeWatch,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["watches"] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["watches"] });
+      toast.success("Removed from watchlist");
+    },
   });
 
   const renderItem = useCallback(
@@ -140,6 +144,13 @@ export default function WatchlistScreen() {
               <Text style={styles.emptySub}>
                 Open any token and tap "Track" to add it here
               </Text>
+              <HapticButton
+                label="Search tokens"
+                variant="ghost"
+                size="sm"
+                onPress={() => router.push("/(tabs)/search")}
+                style={{ marginTop: 16 }}
+              />
             </Animated.View>
           ) : null
         }

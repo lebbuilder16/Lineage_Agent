@@ -54,7 +54,7 @@ function BarStat({
 // ─────────────────────────────────────────────────────────────
 export default function DeployerScreen() {
   const { address } = useLocalSearchParams<{ address: string }>();
-  const { data: profile, isLoading, error } = useQuery({
+  const { data: profile, isLoading, error, refetch } = useQuery({
     queryKey: ["deployer", address],
     queryFn: () => getDeployerProfile(address!),
     enabled: !!address,
@@ -95,7 +95,10 @@ export default function DeployerScreen() {
       {!!error && (
         <View style={styles.errorWrap}>
           <Text style={styles.errorText}>Failed to load deployer profile</Text>
-          <HapticButton label="Go Back" onPress={() => router.back()} variant="secondary" />
+          <View style={{ flexDirection: "row", gap: 10 }}>
+            <HapticButton label="Retry" onPress={() => refetch()} variant="primary" size="sm" />
+            <HapticButton label="Go Back" onPress={() => router.back()} variant="secondary" size="sm" />
+          </View>
         </View>
       )}
 
