@@ -25,7 +25,6 @@ import Animated, {
 } from "react-native-reanimated";
 import { usePrivy, useLoginWithEmail } from "@privy-io/expo";
 import { loginWithPrivy, getCurrentUser } from "@/src/lib/api";
-import { toast } from "@/src/lib/toast";
 import { useAuthStore } from "@/src/store/auth";
 import { GlassCard } from "@/src/components/ui/GlassCard";
 import { HapticButton } from "@/src/components/ui/HapticButton";
@@ -66,24 +65,18 @@ export default function AuthScreen() {
   const [loading, setLoading] = useState(false);
   const [hasBiometric, setHasBiometric] = useState(false);
   const [devPrivyId, setDevPrivyId] = useState("");
-  const [email, setEmail] = useState("");
-  const [otpCode, setOtpCode] = useState("");
-  const [otpSent, setOtpSent] = useState(false);
 
   // ── Privy SDK
-  usePrivy(); // keep provider context active
-  const { sendCode, loginWithCode, state: emailState } = useLoginWithEmail();
-
-  // Privy v2: onComplete removed — watch emailState.status instead
-  useEffect(() => {
-    if (emailState.status === "done") {
-      const privyUser = (emailState as any).user;
-      if (privyUser?.id) {
-        _handlePrivyUser(privyUser.id, privyUser.email?.address);
-      }
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [emailState.status]);
+  const { logout: privyLogout } = usePrivy();
+  const { loginWithEmail, state: emailState } = useLoginWithEmail({
+    onComplete: async ({ user: privyUser }) => {
+      await _handlePrivyUser(privyUser.id, privyUser.email?.address);
+    },
+    onError: (err) => {
+      Alert.alert("Login failed", err.message ?? "Please try again.");
+      setLoading(false);
+    },
+  });
 
   const _handlePrivyUser = useCallback(
     async (privyId: string, email?: string) => {
@@ -131,45 +124,20 @@ export default function AuthScreen() {
 
   const handleConnect = async () => {
     if (__DEV__ && devPrivyId.trim()) {
+      // Mode développement : simuler un privy_id direct
       await _handlePrivyUser(devPrivyId.trim());
       return;
     }
-
+    // Production : déclencher le flow Privy email embedded wallet
+    // (l'UI Privy gère le code OTP en overlay natif)
     setLoading(true);
-
-    if (!otpSent) {
-      // Step 1: send OTP to email
-      const trimmedEmail = email.trim();
-      if (!trimmedEmail || !trimmedEmail.includes("@")) {
-        Alert.alert("Invalid email", "Please enter a valid email address.");
-        setLoading(false);
-        return;
-      }
-      try {
-        await sendCode({ email: trimmedEmail });
-        setOtpSent(true);
-        toast.info("Code sent! Check your email.");
-      } catch (e: any) {
-        Alert.alert("Connection failed", e.message ?? "Please try again.");
-      } finally {
-        setLoading(false);
-      }
-    } else {
-      // Step 2: verify OTP — keep loading=true on success so _handlePrivyUser
-      // (triggered via emailState effect) takes over without a loading flicker.
-      const trimmedCode = otpCode.trim();
-      if (!trimmedCode) {
-        Alert.alert("Code required", "Please enter the code from your email.");
-        setLoading(false);
-        return;
-      }
-      try {
-        await loginWithCode({ code: trimmedCode });
-        // loading stays true — _handlePrivyUser will reset it after navigation
-      } catch (e: any) {
-        Alert.alert("Connection failed", e.message ?? "Please try again.");
-        setLoading(false);
-      }
+    try {
+      // Pour une app Solana, Privy gère l'embedded wallet Solana automatiquement
+      // après connexion email. Le flow complet est géré par le SDK en sheet native.
+      await loginWithEmail("", { sendCode: false }); // triggers Privy login sheet
+    } catch (e: any) {
+      Alert.alert("Connection failed", e.message ?? "Please try again.");
+      setLoading(false);
     }
   };
 
@@ -189,9 +157,9 @@ export default function AuthScreen() {
         {/* Auth card */}
         <Animated.View entering={FadeInDown.delay(300).springify()}>
           <GlassCard elevated style={styles.authCard}>
-            <Text style={styles.cardTitle}>Sign in to Lineage</Text>
+            <Text style={styles.cardTitle}>Connect your wallet</Text>
             <Text style={styles.cardSub}>
-              Enter your email — we'll send you a one-time sign-in code.
+              Your Solana wallet is your identity. No password required.
             </Text>
 
             {/* Dev mode input — removed in production build */}
@@ -208,56 +176,18 @@ export default function AuthScreen() {
               </View>
             )}
 
-            {/* Email input */}
-            {!otpSent ? (
-              <View style={styles.inputWrapper}>
-                <TextInput
-                  style={styles.textInput}
-                  placeholder="Email address"
-                  placeholderTextColor={colors.text.muted}
-                  value={email}
-                  onChangeText={setEmail}
-                  autoCapitalize="none"
-                  keyboardType="email-address"
-                  autoComplete="email"
-                  textContentType="emailAddress"
-                  returnKeyType="send"
-                  onSubmitEditing={handleConnect}
-                />
-              </View>
-            ) : (
-              <View style={styles.inputWrapper}>
-                <Text style={styles.otpHint}>Code sent to {email}</Text>
-                <TextInput
-                  style={styles.textInput}
-                  placeholder="Enter OTP code"
-                  placeholderTextColor={colors.text.muted}
-                  value={otpCode}
-                  onChangeText={setOtpCode}
-                  keyboardType="number-pad"
-                  returnKeyType="done"
-                  onSubmitEditing={handleConnect}
-                  autoFocus
-                />
-                <HapticButton
-                  label="Change email"
-                  variant="ghost"
-                  size="sm"
-                  hapticStyle="light"
-                  onPress={() => { setOtpSent(false); setOtpCode(""); }}
-                  style={styles.changeEmailBtn}
-                />
-              </View>
-            )}
-
             <HapticButton
-              label={loading ? "" : otpSent ? "Verify Code" : "Send Code"}
+              label={loading ? "" : "Connect Wallet"}
               hapticStyle="medium"
               onPress={handleConnect}
               disabled={loading}
               style={styles.connectBtn}
             >
-              {loading && <ActivityIndicator color={colors.background.deep} />}
+              {loading ? (
+                <ActivityIndicator color={colors.background.deep} />
+              ) : (
+                <Text style={styles.connectBtnText}>Connect Wallet</Text>
+              )}
             </HapticButton>
 
             {hasBiometric && (
@@ -335,26 +265,6 @@ const styles = StyleSheet.create({
     padding: 10,
   },
   devTextInput: { color: colors.text.primary, fontSize: 13 },
-  inputWrapper: {
-    marginBottom: 16,
-  },
-  textInput: {
-    backgroundColor: colors.glass.bg,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: colors.glass.border,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    color: colors.text.primary,
-    fontSize: 15,
-  },
-  otpHint: {
-    color: colors.text.muted,
-    fontSize: 12,
-    marginBottom: 8,
-    textAlign: "center",
-  },
-  changeEmailBtn: { marginTop: 8, alignSelf: "center" },
   connectBtn: { width: "100%", height: 52, borderRadius: 14 },
   connectBtnText: { color: colors.background.deep, fontSize: 16, fontWeight: "700" },
   biometricBtn: { marginTop: 12, alignSelf: "center" },

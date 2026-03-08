@@ -13,7 +13,7 @@ import {
   Pressable,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { router } from "expo-router";
 import Animated, {
   useSharedValue,
@@ -23,10 +23,8 @@ import Animated, {
   withTiming,
   FadeInDown,
 } from "react-native-reanimated";
-import { getGlobalStats, getStatsBrief } from "@/src/lib/api";
-import { Fonts } from "@/src/theme/fonts";
+import { getGlobalStats } from "@/src/lib/api";
 import { GlassCard } from "@/src/components/ui/GlassCard";
-import { HapticButton } from "@/src/components/ui/HapticButton";
 import { RiskBadge } from "@/src/components/ui/RiskBadge";
 import { TokenImage } from "@/src/components/ui/TokenImage";
 import { AlertCardSkeleton } from "@/src/components/ui/SkeletonLoader";
@@ -38,11 +36,6 @@ import type { AlertItem } from "@/src/types/api";
 
 function AIBriefCard() {
   const pulse = useSharedValue(0.6);
-  const { data: brief, isLoading } = useQuery({
-    queryKey: ["stats-brief"],
-    queryFn: getStatsBrief,
-    refetchInterval: 120_000,
-  });
 
   useEffect(() => {
     pulse.value = withRepeat(
@@ -60,27 +53,18 @@ function AIBriefCard() {
     transform: [{ scale: 0.9 + pulse.value * 0.1 }],
   }));
 
-  const updatedAgo = brief?.generated_at
-    ? (() => {
-        const diffMs = Date.now() - new Date(brief.generated_at).getTime();
-        const diffMin = Math.floor(diffMs / 60_000);
-        return diffMin < 1 ? "just now" : `${diffMin}m ago`;
-      })()
-    : "—";
-
   return (
     <Animated.View entering={FadeInDown.delay(100).springify()}>
       <GlassCard elevated borderColor={`${colors.accent.ai}40`} style={styles.aiBrief}>
         <View style={styles.aiBriefHeader}>
           <Animated.View style={[styles.aiOrb, orbStyle]} />
           <Text style={styles.aiBriefTitle}>AI Intelligence Brief</Text>
-          <Text style={styles.aiBriefTime}>Updated {updatedAgo}</Text>
+          <Text style={styles.aiBriefTime}>Updated 2m ago</Text>
         </View>
-        {isLoading || !brief ? (
-          <View style={styles.aiBriefSkeleton} />
-        ) : (
-          <Text style={styles.aiBriefText}>{brief.text}</Text>
-        )}
+        <Text style={styles.aiBriefText}>
+          3 coordinated bundle patterns detected in the last 2h. PEPE-family tokens
+          show elevated insider sell pressure. 1 new cartel cluster identified.
+        </Text>
         <TouchableOpacity
           style={styles.aiBriefCta}
           onPress={() => router.push("/chat/latest")}
@@ -110,7 +94,7 @@ const ALERT_LABELS: Record<AlertItem["type"], string> = {
   death_clock: "DEATH CLOCK",
 };
 
-const AlertRow = React.memo(function AlertRow({ item, index }: { item: AlertItem; index: number }) {
+function AlertRow({ item, index }: { item: AlertItem; index: number }) {
   const color = ALERT_COLORS[item.type];
   return (
     <Animated.View entering={FadeInDown.delay(index * 60).springify()}>
@@ -118,8 +102,6 @@ const AlertRow = React.memo(function AlertRow({ item, index }: { item: AlertItem
         style={styles.alertRow}
         onPress={() => router.push(`/lineage/${item.mint}`)}
         activeOpacity={0.7}
-        accessibilityRole="button"
-        accessibilityLabel={`${ALERT_LABELS[item.type]} alert for ${item.token_name}`}
       >
         <View style={[styles.alertDot, { backgroundColor: color }]} />
         <TokenImage uri={item.token_image} size={32} symbol={item.token_name} borderRadius={8} />
@@ -135,7 +117,7 @@ const AlertRow = React.memo(function AlertRow({ item, index }: { item: AlertItem
       </TouchableOpacity>
     </Animated.View>
   );
-});
+}
 
 // ─── Stats Bar ────────────────────────────────────────────────────────────────
 
@@ -150,42 +132,35 @@ function StatsBar() {
 
   return (
     <View style={styles.statsBar}>
-      <StatItem label="Scanned 24h" value={data.tokens_scanned_24h.toString()} />
+      <StatItem label="Scanned 24h" value={data.total_scanned_24h.toString()} />
       <View style={styles.statsDivider} />
-      <StatItem label="Rugs 24h" value={data.tokens_rugged_24h.toString()} danger />
+      <StatItem label="Rugs 24h" value={data.rug_count_24h.toString()} danger />
       <View style={styles.statsDivider} />
       <StatItem label="Active deployers" value={data.active_deployers_24h.toString()} />
     </View>
   );
 }
 
-const StatItem = React.memo(function StatItem({ label, value, danger = false }: { label: string; value: string; danger?: boolean }) {
+function StatItem({ label, value, danger = false }: { label: string; value: string; danger?: boolean }) {
   return (
     <View style={styles.statItem}>
       <Text style={[styles.statValue, danger && { color: colors.accent.danger }]}>{value}</Text>
       <Text style={styles.statLabel}>{label}</Text>
     </View>
   );
-});
+}
 
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
 export default function HomeFeedScreen() {
   const alerts = useAlertsStore((s) => s.alerts);
   const [refreshing, setRefreshing] = React.useState(false);
-  const queryClient = useQueryClient();
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    try {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["global-stats"] }),
-        queryClient.invalidateQueries({ queryKey: ["stats-brief"] }),
-      ]);
-    } finally {
-      setRefreshing(false);
-    }
-  }, [queryClient]);
+    await new Promise((r) => setTimeout(r, 1000));
+    setRefreshing(false);
+  }, []);
 
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
@@ -228,20 +203,11 @@ export default function HomeFeedScreen() {
         <Text style={styles.sectionTitle}>Live Alerts</Text>
         <GlassCard style={styles.alertList}>
           {alerts.length === 0 ? (
-            <Animated.View entering={FadeInDown} style={styles.emptyAlerts}>
-              <Text style={styles.emptyAlertsIcon}>◎</Text>
-              <Text style={styles.emptyAlertsTitle}>No live alerts yet</Text>
-              <Text style={styles.emptyAlertsSub}>
-                Add tokens to your watchlist to receive real-time alerts
-              </Text>
-              <HapticButton
-                label="Search tokens"
-                variant="ghost"
-                size="sm"
-                onPress={() => router.push("/(tabs)/search")}
-                style={{ marginTop: 12 }}
-              />
-            </Animated.View>
+            <>
+              <AlertCardSkeleton />
+              <AlertCardSkeleton />
+              <AlertCardSkeleton />
+            </>
           ) : (
             alerts.slice(0, 20).map((alert, i) => (
               <AlertRow key={alert.id} item={alert} index={i} />
@@ -265,7 +231,7 @@ const styles = StyleSheet.create({
   headerTitle: {
     color: colors.text.primary,
     fontSize: 20,
-    fontFamily: Fonts.bold,
+    fontWeight: "700",
     letterSpacing: -0.5,
   },
   liveRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 2 },
@@ -296,7 +262,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     color: colors.text.muted,
     fontSize: 11,
-    fontFamily: Fonts.bold,
+    fontWeight: "700",
     letterSpacing: 1.5,
     textTransform: "uppercase",
     marginTop: 20,
@@ -313,7 +279,7 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   statItem: { alignItems: "center" },
-  statValue: { color: colors.text.primary, fontSize: 18, fontFamily: Fonts.bold },
+  statValue: { color: colors.text.primary, fontSize: 18, fontWeight: "700" },
   statLabel: { color: colors.text.muted, fontSize: 10, marginTop: 2 },
   statsDivider: { width: 1, backgroundColor: colors.glass.border },
   aiBrief: { padding: 16, marginBottom: 4 },
@@ -328,7 +294,7 @@ const styles = StyleSheet.create({
   aiBriefTitle: {
     color: colors.accent.ai,
     fontSize: 13,
-    fontFamily: Fonts.bold,
+    fontWeight: "700",
     flex: 1,
   },
   aiBriefTime: { color: colors.text.muted, fontSize: 11 },
@@ -340,12 +306,6 @@ const styles = StyleSheet.create({
   },
   aiBriefCta: { alignSelf: "flex-start" },
   aiBriefCtaText: { color: colors.accent.ai, fontSize: 14, fontWeight: "600" },
-  aiBriefSkeleton: {
-    height: 40,
-    borderRadius: 6,
-    backgroundColor: colors.glass.bg,
-    marginBottom: 12,
-  },
   alertList: { overflow: "hidden" },
   alertRow: {
     flexDirection: "row",
@@ -360,8 +320,4 @@ const styles = StyleSheet.create({
   alertContent: { flex: 1 },
   alertName: { color: colors.text.primary, fontSize: 13, fontWeight: "600" },
   alertMsg: { color: colors.text.muted, fontSize: 11, marginTop: 2 },
-  emptyAlerts: { alignItems: "center", paddingVertical: 32, paddingHorizontal: 20 },
-  emptyAlertsIcon: { fontSize: 40, marginBottom: 8 },
-  emptyAlertsTitle: { color: colors.text.primary, fontSize: 16, fontWeight: "600" },
-  emptyAlertsSub: { color: colors.text.muted, fontSize: 13, textAlign: "center", marginTop: 6, lineHeight: 18 },
 });

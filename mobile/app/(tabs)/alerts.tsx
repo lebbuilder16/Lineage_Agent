@@ -47,9 +47,6 @@ function AlertFilterChip({
     <TouchableOpacity
       style={[styles.chip, active && styles.chipActive]}
       onPress={onPress}
-      accessibilityRole="radio"
-      accessibilityState={{ selected: active }}
-      accessibilityLabel={`Filter by ${label}`}
     >
       <Text style={[styles.chipText, active && styles.chipTextActive]}>
         {label}
@@ -58,7 +55,7 @@ function AlertFilterChip({
   );
 }
 
-const AlertCard = React.memo(function AlertCard({ item, index }: { item: AlertItem; index: number }) {
+function AlertCard({ item, index }: { item: AlertItem; index: number }) {
   const color = TYPE_COLOR[item.type];
   return (
     <Animated.View entering={FadeInDown.delay(index * 40).springify()}>
@@ -69,9 +66,6 @@ const AlertCard = React.memo(function AlertCard({ item, index }: { item: AlertIt
           router.push(`/lineage/${item.mint}`);
         }}
         activeOpacity={0.75}
-        accessibilityRole="button"
-        accessibilityLabel={`${TYPE_LABEL[item.type]} alert for ${item.token_name}${item.read ? "" : ", unread"}`}
-        accessibilityHint="Opens token lineage"
       >
         <View style={[styles.alertIcon, { backgroundColor: `${color}20` }]}>
           <View style={[styles.alertDot, { backgroundColor: color }]} />
@@ -95,7 +89,7 @@ const AlertCard = React.memo(function AlertCard({ item, index }: { item: AlertIt
       </TouchableOpacity>
     </Animated.View>
   );
-});
+}
 
 type FilterType = "all" | AlertItem["type"];
 
@@ -157,13 +151,6 @@ export default function AlertsScreen() {
             <Text style={styles.emptySub}>
               Add tokens to your watchlist to start receiving alerts
             </Text>
-            <HapticButton
-              label="Go to Watchlist"
-              variant="ghost"
-              size="sm"
-              onPress={() => router.push("/(tabs)/watchlist")}
-              style={{ marginTop: 16 }}
-            />
           </Animated.View>
         }
       />

@@ -42,125 +42,6 @@ interface Message {
   streaming?: boolean;
 }
 
-// ─────────────────────────────────────────────────────────────
-// Markdown renderer (lightweight — no extra deps)
-// ─────────────────────────────────────────────────────────────
-type InlineToken =
-  | { kind: "text"; content: string }
-  | { kind: "bold"; content: string }
-  | { kind: "italic"; content: string }
-  | { kind: "code"; content: string };
-
-function parseInline(raw: string): InlineToken[] {
-  const tokens: InlineToken[] = [];
-  // Combined pattern: **bold**, *italic*, `code`
-  const re = /(\*\*(.+?)\*\*|\*(.+?)\*|`([^`]+)`)/g;
-  let last = 0;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(raw)) !== null) {
-    if (m.index > last) tokens.push({ kind: "text", content: raw.slice(last, m.index) });
-    if (m[2] !== undefined) tokens.push({ kind: "bold", content: m[2] });
-    else if (m[3] !== undefined) tokens.push({ kind: "italic", content: m[3] });
-    else if (m[4] !== undefined) tokens.push({ kind: "code", content: m[4] });
-    last = m.index + m[0].length;
-  }
-  if (last < raw.length) tokens.push({ kind: "text", content: raw.slice(last) });
-  return tokens;
-}
-
-function InlineParts({ raw, baseStyle }: { raw: string; baseStyle: object }) {
-  const tokens = parseInline(raw);
-  return (
-    <>
-      {tokens.map((t, i) => {
-        if (t.kind === "bold")
-          return <Text key={i} style={[baseStyle, { fontWeight: "800" }]}>{t.content}</Text>;
-        if (t.kind === "italic")
-          return <Text key={i} style={[baseStyle, { fontStyle: "italic" }]}>{t.content}</Text>;
-        if (t.kind === "code")
-          return (
-            <Text key={i} style={[baseStyle, mdStyles.inlineCode]}>{t.content}</Text>
-          );
-        return <Text key={i} style={baseStyle}>{t.content}</Text>;
-      })}
-    </>
-  );
-}
-
-function MarkdownText({ text, textStyle }: { text: string; textStyle: object }) {
-  const lines = text.split("\n");
-  return (
-    <View style={{ gap: 4 }}>
-      {lines.map((line, i) => {
-        // Heading
-        const h3 = line.match(/^###\s+(.*)/);
-        const h2 = line.match(/^##\s+(.*)/);
-        const h1 = line.match(/^#\s+(.*)/);
-        if (h1 || h2 || h3) {
-          const level = h1 ? 1 : h2 ? 2 : 3;
-          const content = (h1 ?? h2 ?? h3)![1];
-          const fontSize = level === 1 ? 18 : level === 2 ? 16 : 14;
-          return (
-            <Text key={i} style={[textStyle, { fontWeight: "800", fontSize, marginTop: 6 }]}>
-              <InlineParts raw={content} baseStyle={[textStyle, { fontWeight: "800", fontSize }]} />
-            </Text>
-          );
-        }
-        // Bullet list
-        const bullet = line.match(/^[-*]\s+(.*)/);
-        if (bullet) {
-          return (
-            <View key={i} style={mdStyles.bulletRow}>
-              <Text style={[textStyle, mdStyles.bulletDot]}>•</Text>
-              <Text style={[textStyle, { flex: 1 }]}>
-                <InlineParts raw={bullet[1]} baseStyle={textStyle} />
-              </Text>
-            </View>
-          );
-        }
-        // Blockquote
-        const quote = line.match(/^>\s+(.*)/);
-        if (quote) {
-          return (
-            <View key={i} style={mdStyles.quoteBar}>
-              <Text style={[textStyle, mdStyles.quoteText]}>
-                <InlineParts raw={quote[1]} baseStyle={[textStyle, mdStyles.quoteText]} />
-              </Text>
-            </View>
-          );
-        }
-        // Blank line
-        if (line.trim() === "") return <View key={i} style={{ height: 4 }} />;
-        // Normal paragraph
-        return (
-          <Text key={i} style={textStyle}>
-            <InlineParts raw={line} baseStyle={textStyle} />
-          </Text>
-        );
-      })}
-    </View>
-  );
-}
-
-const mdStyles = StyleSheet.create({
-  inlineCode: {
-    fontFamily: "monospace",
-    backgroundColor: "rgba(255,255,255,0.12)",
-    paddingHorizontal: 4,
-    borderRadius: 4,
-    fontSize: 12,
-  },
-  bulletRow: { flexDirection: "row", gap: 6, alignItems: "flex-start" },
-  bulletDot: { marginTop: 2, minWidth: 12 },
-  quoteBar: {
-    borderLeftWidth: 3,
-    borderLeftColor: colors.accent.ai,
-    paddingLeft: 8,
-    paddingVertical: 2,
-  },
-  quoteText: { color: colors.text.secondary, fontStyle: "italic" },
-});
-
 // Suggestions rapides
 const QUICK_PROMPTS = [
   "Is this token a rug?",
@@ -225,15 +106,11 @@ function Bubble({ msg }: { msg: Message }) {
       <View style={[styles.bubble, isUser ? styles.bubbleUser : styles.bubbleAI]}>
         {msg.streaming && msg.text === "" ? (
           <TypingDots />
-        ) : isUser ? (
-          <Text style={styles.bubbleUserText}>
-            {msg.text}
-          </Text>
         ) : (
-          <MarkdownText text={msg.text} textStyle={styles.bubbleAIText} />
-        )}
-        {msg.streaming && msg.text !== "" && (
-          <Text style={{ color: colors.accent.ai }}>▌</Text>
+          <Text style={isUser ? styles.bubbleUserText : styles.bubbleAIText}>
+            {msg.text}
+            {msg.streaming && <Text style={{ color: colors.accent.ai }}>▌</Text>}
+          </Text>
         )}
       </View>
     </Animated.View>
@@ -311,7 +188,7 @@ export default function ChatScreen() {
         abortRef.current = new AbortController();
 
         const response = await fetch(url, {
-          signal: abortRef.current.signal as any,
+          signal: abortRef.current.signal,
         });
 
         if (!response.ok || !response.body) throw new Error("Stream failed");
@@ -383,8 +260,8 @@ export default function ChatScreen() {
     setIsStreaming(false);
   };
 
-  // ── Auth gate (Pro no longer required — all authenticated users can use AI analysis)
-  if (!isAuthenticated) {
+  // ── Premium gate
+  if (!isAuthenticated || !isPro) {
     return (
       <SafeAreaView style={styles.safe}>
         <Stack.Screen
