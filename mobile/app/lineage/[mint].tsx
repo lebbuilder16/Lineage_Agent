@@ -281,7 +281,7 @@ export default function LineageDetailScreen() {
 
         {/* Forensic signals */}
         <Text style={styles.sectionTitle}>Forensic Signals</Text>
-        <ForensicSignalCards result={data} />
+        <ForensicSignalCards result={data} onRefresh={refetch} />
 
         {/* Deployer info */}
         {data.deployer_profile && (

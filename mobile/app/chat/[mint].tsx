@@ -383,8 +383,8 @@ export default function ChatScreen() {
     setIsStreaming(false);
   };
 
-  // ── Premium gate
-  if (!isAuthenticated || !isPro) {
+  // ── Auth gate (Pro no longer required — all authenticated users can use AI analysis)
+  if (!isAuthenticated) {
     return (
       <SafeAreaView style={styles.safe}>
         <Stack.Screen

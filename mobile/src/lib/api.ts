@@ -174,6 +174,18 @@ export function getChatStreamUrl(mint: string, query?: string): string {
   return query ? `${base}?q=${encodeURIComponent(query)}` : base;
 }
 
+// ─── Bundle & SOL Flow ───────────────────────────────────────────────────────
+
+/** Trigger (or retrieve cached) bundle wallet forensic analysis for a mint. */
+export async function getBundleReport(mint: string): Promise<import("@/types/api").BundleExtractionReport> {
+  return apiFetch(`/bundle/${encodeURIComponent(mint)}`);
+}
+
+/** Trigger (or retrieve cached) post-rug SOL capital flow trace for a mint. */
+export async function getSolTrace(mint: string): Promise<import("@/types/api").SolFlowReport> {
+  return apiFetch(`/lineage/${encodeURIComponent(mint)}/sol-trace`);
+}
+
 // ─── Push notification registration ──────────────────────────────────────────
 export async function registerFcmToken(fcmToken: string): Promise<void> {
   await apiFetch<void>("/notifications/register-fcm", {
