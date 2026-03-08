@@ -14,7 +14,6 @@ import {
   Platform,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import Constants from "expo-constants";
 import { router } from "expo-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { GlassCard } from "@/src/components/ui/GlassCard";
@@ -247,11 +246,11 @@ export default function AccountScreen() {
         {/* More */}
         <Text style={styles.sectionTitle}>More</Text>
         <GlassCard style={styles.settingsCard}>
-          <MenuRow label="Privacy Policy" onPress={() => Linking.openURL("https://lineageagent.io/privacy")} />
+          <MenuRow label="Privacy Policy" onPress={() => {}} />
           <View style={styles.separator} />
-          <MenuRow label="Terms of Service" onPress={() => Linking.openURL("https://lineageagent.io/terms")} />
+          <MenuRow label="Terms of Service" onPress={() => {}} />
           <View style={styles.separator} />
-          <MenuRow label={`Version ${Constants.expoConfig?.version ?? "1.0.0"}`} onPress={() => {}} />
+          <MenuRow label="Version 1.0.0" onPress={() => {}} />
         </GlassCard>
 
         <View style={styles.logoutWrap}>

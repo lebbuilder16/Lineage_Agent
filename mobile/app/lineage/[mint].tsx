@@ -16,7 +16,6 @@ import { useLocalSearchParams, router } from "expo-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import Animated, { FadeIn, FadeInDown } from "react-native-reanimated";
 import { getLineage, addWatch } from "@/src/lib/api";
-import { toast } from "@/src/lib/toast";
 import { GlassCard } from "@/src/components/ui/GlassCard";
 import { RiskBadge } from "@/src/components/ui/RiskBadge";
 import { RiskGauge } from "@/src/components/ui/RiskGauge";
@@ -26,7 +25,6 @@ import { TokenCardSkeleton } from "@/src/components/ui/SkeletonLoader";
 import { ForensicSignalCards } from "@/src/components/forensics/ForensicSignalCards";
 import { FamilyTreeView } from "@/src/components/lineage/FamilyTreeView";
 import { colors, verdictColor, riskLevelFromScore } from "@/src/theme/colors";
-import { Fonts } from "@/src/theme/fonts";
 import { useAuthStore } from "@/src/store/auth";
 import type { LineageResult } from "@/src/types/api";
 
@@ -47,10 +45,7 @@ function TokenHeader({ data }: { data: LineageResult }) {
 
   const watchMutation = useMutation({
     mutationFn: () => addWatch({ mint: data.mint, label: token?.name ?? data.mint }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["watches"] });
-      toast.success("Added to watchlist!");
-    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["watches"] }),
   });
 
   const handleShare = async () => {
@@ -105,10 +100,7 @@ function QuickActions({ mint, name }: { mint: string; name?: string }) {
 
   const watchMutation = useMutation({
     mutationFn: () => addWatch({ mint, label: name ?? mint }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["watches"] });
-      toast.success("Added to watchlist!");
-    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["watches"] }),
   });
 
   return (
@@ -120,7 +112,6 @@ function QuickActions({ mint, name }: { mint: string; name?: string }) {
         hapticStyle="medium"
         onPress={() => router.push(`/chat/${mint}`)}
         style={styles.actionBtn}
-        accessibilityLabel="Open AI Analysis chat"
       />
       {isAuthenticated && (
         <HapticButton
@@ -130,7 +121,6 @@ function QuickActions({ mint, name }: { mint: string; name?: string }) {
           onPress={() => watchMutation.mutate()}
           disabled={watchMutation.isPending || watchMutation.isSuccess}
           style={styles.actionBtn}
-          accessibilityLabel={watchMutation.isSuccess ? "Already tracking this token" : "Add token to watchlist"}
         />
       )}
       <HapticButton
@@ -143,7 +133,6 @@ function QuickActions({ mint, name }: { mint: string; name?: string }) {
           });
         }}
         style={styles.actionBtn}
-        accessibilityLabel="Share token analysis"
       />
     </View>
   );
@@ -192,7 +181,7 @@ function calculateRiskScore(data: LineageResult): number {
 export default function LineageDetailScreen() {
   const { mint } = useLocalSearchParams<{ mint: string }>();
 
-  const { data, isLoading, error, refetch } = useQuery({
+  const { data, isLoading, error } = useQuery({
     queryKey: ["lineage", mint],
     queryFn: () => getLineage(mint),
     enabled: !!mint,
@@ -225,20 +214,6 @@ export default function LineageDetailScreen() {
         <View style={styles.errorState}>
           <Text style={styles.errorText}>Failed to load lineage data.</Text>
           <Text style={styles.errorMint}>{mint}</Text>
-          <View style={{ flexDirection: "row", gap: 10, marginTop: 16 }}>
-            <HapticButton
-              label="Retry"
-              variant="secondary"
-              size="sm"
-              onPress={() => refetch()}
-            />
-            <HapticButton
-              label="Back"
-              variant="ghost"
-              size="sm"
-              onPress={() => router.back()}
-            />
-          </View>
         </View>
       </SafeAreaView>
     );
@@ -281,7 +256,7 @@ export default function LineageDetailScreen() {
 
         {/* Forensic signals */}
         <Text style={styles.sectionTitle}>Forensic Signals</Text>
-        <ForensicSignalCards result={data} onRefresh={refetch} />
+        <ForensicSignalCards result={data} />
 
         {/* Deployer info */}
         {data.deployer_profile && (
@@ -329,7 +304,7 @@ const styles = StyleSheet.create({
     textAlign: "center",
     color: colors.text.primary,
     fontSize: 16,
-    fontFamily: Fonts.semiBold,
+    fontWeight: "600",
   },
   scroll: { paddingHorizontal: 16, paddingBottom: 100 },
   loadingHeader: { paddingHorizontal: 16, paddingVertical: 12 },
@@ -345,7 +320,7 @@ const styles = StyleSheet.create({
   },
   tokenHeaderLeft: { flexDirection: "row", flex: 1, gap: 14 },
   tokenHeaderInfo: { flex: 1 },
-  tokenName: { color: colors.text.primary, fontSize: 20, fontFamily: Fonts.bold },
+  tokenName: { color: colors.text.primary, fontSize: 20, fontWeight: "700" },
   tokenSymbol: { color: colors.text.muted, fontSize: 14, marginTop: 2 },
   tokenStats: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 8 },
   tokenMcap: { color: colors.text.primary, fontSize: 14, fontWeight: "600" },
@@ -356,7 +331,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     color: colors.text.muted,
     fontSize: 11,
-    fontFamily: Fonts.bold,
+    fontWeight: "700",
     letterSpacing: 1.5,
     textTransform: "uppercase",
     marginTop: 20,

@@ -1,23 +1,20 @@
 // src/components/forensics/ForensicSignalCards.tsx
 // Cartes de signaux forensiques scrollables horizontalement
 
-import React, { useState } from "react";
+import React from "react";
 import {
   View,
   Text,
   ScrollView,
   StyleSheet,
   Pressable,
-  ActivityIndicator,
-  TouchableOpacity,
 } from "react-native";
 import { GlassCard } from "@/src/components/ui/GlassCard";
 import { RiskBadge } from "@/src/components/ui/RiskBadge";
 import { RiskGauge } from "@/src/components/ui/RiskGauge";
 import { colors } from "@/src/theme/colors";
-import type { LineageResult, CartelCommunity } from "@/src/types/api";
+import type { LineageResult } from "@/src/types/api";
 import { router } from "expo-router";
-import { getBundleReport, getSolTrace } from "@/src/lib/api";
 
 // ─────────────────────────────────────────────────────────────
 // Helpers
@@ -51,30 +48,22 @@ function Row({ label, value }: { label: string; value: string | number }) {
 // ─────────────────────────────────────────────────────────────
 // Individual signal cards
 // ─────────────────────────────────────────────────────────────
-export const RISK_SCORE: Record<string, number> = {
-  low: 0.1,
-  medium: 0.4,
-  high: 0.7,
-  critical: 0.95,
-  first_rug: 0.9,
-  insufficient_data: 0.2,
-};
-
 function DeathClockCard({ data }: { data: NonNullable<LineageResult["death_clock"]> }) {
-  const score = RISK_SCORE[data.risk_level] ?? 0.2;
-  const window = data.predicted_window_start
+  const died = data.predicted_window_start
     ? new Date(data.predicted_window_start).toLocaleDateString()
     : "Unknown";
+  const confidenceMap: Record<string, number> = { low: 0.25, medium: 0.6, high: 0.9 };
+  const confidenceScore = confidenceMap[data.confidence_level] ?? 0.5;
   return (
     <Section title="☠ DEATH CLOCK" accent={colors.accent.danger}>
       <View style={styles.gaugeWrap}>
-        <RiskGauge score={score} size={64} strokeWidth={6} />
+        <RiskGauge score={confidenceScore} size={64} strokeWidth={6} />
       </View>
-      <Row label="Risk level" value={data.risk_level.replace("_", " ").toUpperCase()} />
-      <Row label="Est. window" value={window} />
-      {data.confidence_note ? (
+      <Row label="Est. death" value={died} />
+      <Row label="Confidence" value={data.confidence_level} />
+      {data.confidence_note && (
         <Text style={styles.noteText} numberOfLines={3}>{data.confidence_note}</Text>
-      ) : null}
+      )}
     </Section>
   );
 }
@@ -157,177 +146,41 @@ function InsiderCard({ data }: { data: NonNullable<LineageResult["insider_sell"]
       <Row label="Risk" value={`${Math.round((data.risk_score ?? 0) * 100)}%`} />
       <Row label="Wallets" value={data.wallet_events?.length ?? 0} />
       <Row label="Deployer exited" value={data.deployer_exited ? "Yes ✗" : "No"} />
-      <View style={{ marginTop: 8 }}>
-        <RiskBadge label={String(data.verdict ?? "")} verdict={data.verdict as any} size="sm" />
-      </View>
+      <RiskBadge verdict={data.verdict as any} size="sm" style={{ marginTop: 8 }} />
     </Section>
-  );
-}
-
-function SolFlowCard({ data }: { data: NonNullable<LineageResult["sol_flow"]> }) {
-  const usd = data.total_extracted_usd != null
-    ? `$${data.total_extracted_usd.toLocaleString(undefined, { maximumFractionDigits: 0 })}`
-    : "—";
-  return (
-    <Section title="💸 SOL FLOW" accent={colors.accent.warning}>
-      <Row label="Extracted SOL" value={`${data.total_extracted_sol.toFixed(2)} SOL`} />
-      <Row label="Extracted USD" value={usd} />
-      <Row label="Hops" value={data.hop_count} />
-      <Row label="Terminal wallets" value={data.terminal_wallets.length} />
-      <Row label="CEX detected" value={data.known_cex_detected ? "Yes ⚠" : "No"} />
-    </Section>
-  );
-}
-
-function CartelCard({ data }: { data: NonNullable<CartelCommunity> }) {
-  const confScore = data.confidence === "high" ? 0.9 : data.confidence === "medium" ? 0.5 : 0.2;
-  return (
-    <Section title="🕸 CARTEL" accent={colors.accent.danger}>
-      <View style={styles.gaugeWrap}>
-        <RiskGauge score={confScore} size={64} strokeWidth={6} />
-      </View>
-      <Row label="Tokens launched" value={data.total_tokens_launched} />
-      <Row label="Total rugs" value={data.total_rugs} />
-      <Row
-        label="Extracted USD"
-        value={`$${data.estimated_extracted_usd.toLocaleString(undefined, { maximumFractionDigits: 0 })}`}
-      />
-      <Row label="Signal" value={data.strongest_signal} />
-    </Section>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────
-// Pending / null-state cards (analysis not yet complete)
-// ─────────────────────────────────────────────────────────────
-function PendingCard({
-  title,
-  accent,
-  onTrigger,
-}: {
-  title: string;
-  accent: string;
-  onTrigger: () => Promise<void>;
-}) {
-  const [loading, setLoading] = useState(false);
-  const [done, setDone] = useState(false);
-
-  const trigger = async () => {
-    if (loading) return;
-    setLoading(true);
-    try {
-      await onTrigger();
-      setDone(true);
-    } catch {
-      // silently ignore — result will appear on next lineage refresh
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <GlassCard style={[styles.card, { borderColor: accent }]}>
-      <Text style={[styles.cardTitle, { color: accent }]}>{title}</Text>
-      <View style={styles.pendingBody}>
-        {loading ? (
-          <ActivityIndicator color={accent} size="small" />
-        ) : (
-          <Text style={styles.pendingIcon}>{done ? "✓" : "⏳"}</Text>
-        )}
-        <Text style={styles.pendingText}>
-          {done ? "Analysis queued\nRefresh for results" : "Not yet analyzed"}
-        </Text>
-      </View>
-      {!done && (
-        <TouchableOpacity
-          onPress={trigger}
-          style={[styles.triggerBtn, { borderColor: accent }]}
-          accessibilityLabel={`Trigger ${title} analysis`}
-        >
-          <Text style={[styles.triggerTxt, { color: accent }]}>
-            {loading ? "Running…" : "Run Analysis"}
-          </Text>
-        </TouchableOpacity>
-      )}
-    </GlassCard>
   );
 }
 
 // ─────────────────────────────────────────────────────────────
 // Main component
 // ─────────────────────────────────────────────────────────────
-export function ForensicSignalCards({
-  result,
-  onRefresh,
-}: {
-  result: LineageResult;
-  onRefresh?: () => void;
-}) {
+export function ForensicSignalCards({ result }: { result: LineageResult }) {
   const cards: React.ReactNode[] = [];
 
   if (result.death_clock) cards.push(<DeathClockCard key="dc" data={result.death_clock} />);
   if (result.zombie_alert) cards.push(<ZombieCard key="zb" data={result.zombie_alert} />);
-
-  // Bundle: show real card when available, pending card otherwise
-  if (result.bundle_report) {
-    cards.push(<BundleCard key="bd" data={result.bundle_report} />);
-  } else {
-    cards.push(
-      <PendingCard
-        key="bd-pending"
-        title="📦 BUNDLE"
-        accent={colors.accent.ai}
-        onTrigger={async () => {
-          await getBundleReport(result.mint);
-          onRefresh?.();
-        }}
-      />,
-    );
-  }
-
+  if (result.bundle_report) cards.push(<BundleCard key="bd" data={result.bundle_report} />);
   if (result.operator_fingerprint) cards.push(<OperatorCard key="op" data={result.operator_fingerprint} />);
   if (result.liquidity_arch) cards.push(<LiquidityCard key="lq" data={result.liquidity_arch} />);
   if (result.factory_rhythm) cards.push(<FactoryCard key="fc" data={result.factory_rhythm} />);
   if (result.insider_sell) cards.push(<InsiderCard key="is" data={result.insider_sell} />);
 
-  // SOL Flow: show real card when available, pending card otherwise
-  if (result.sol_flow) {
-    cards.push(<SolFlowCard key="sf" data={result.sol_flow} />);
-  } else {
-    cards.push(
-      <PendingCard
-        key="sf-pending"
-        title="💸 SOL FLOW"
-        accent={colors.accent.warning}
-        onTrigger={async () => {
-          await getSolTrace(result.mint);
-          onRefresh?.();
-        }}
-      />,
+  if (cards.length === 0) {
+    return (
+      <View style={styles.empty}>
+        <Text style={styles.emptyText}>No forensic signals detected</Text>
+      </View>
     );
   }
 
-  if (result.cartel_report?.deployer_community) cards.push(<CartelCard key="ct" data={result.cartel_report.deployer_community} />);
-
-  const hasRealSignals = cards.some((c) => {
-    // A "real" signal is one that isn't a pending card
-    const k = (c as React.ReactElement).key;
-    return typeof k === "string" && !k.endsWith("-pending");
-  });
-
   return (
-    <View>
-      {!hasRealSignals && (
-        <Text style={styles.emptyHint}>Analysis in progress — tap cards to trigger</Text>
-      )}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.scroll}
-      >
-        {cards}
-      </ScrollView>
-    </View>
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      contentContainerStyle={styles.scroll}
+    >
+      {cards}
+    </ScrollView>
   );
 }
 
@@ -354,23 +207,4 @@ const styles = StyleSheet.create({
   noteText: { color: colors.text.secondary, fontSize: 10, marginTop: 6, lineHeight: 14 },
   empty: { alignItems: "center", padding: 24 },
   emptyText: { color: colors.text.muted, fontSize: 13 },
-  emptyHint: {
-    color: colors.text.muted,
-    fontSize: 11,
-    textAlign: "center",
-    paddingHorizontal: 16,
-    paddingBottom: 6,
-  },
-  pendingBody: { alignItems: "center", paddingVertical: 12, gap: 6 },
-  pendingIcon: { fontSize: 22 },
-  pendingText: { color: colors.text.muted, fontSize: 10, textAlign: "center", lineHeight: 15 },
-  triggerBtn: {
-    marginTop: 8,
-    borderWidth: 1,
-    borderRadius: 8,
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    alignItems: "center",
-  },
-  triggerTxt: { fontSize: 11, fontWeight: "700" },
 });
