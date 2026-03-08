@@ -17,7 +17,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { GlassCard } from "@/src/components/ui/GlassCard";
 import { RiskBadge } from "@/src/components/ui/RiskBadge";
 import { HapticButton } from "@/src/components/ui/HapticButton";
-import { SkeletonLoader } from "@/src/components/ui/SkeletonLoader";
+import { Skeleton } from "@/src/components/ui/SkeletonLoader";
 import { colors } from "@/src/theme/colors";
 import { getDeployerProfile } from "@/src/lib/api";
 
@@ -87,7 +87,7 @@ export default function DeployerScreen() {
       {isLoading && (
         <ScrollView contentContainerStyle={styles.content}>
           {[...Array(4)].map((_, i) => (
-            <SkeletonLoader key={i} width="100%" height={80} borderRadius={12} style={{ marginBottom: 12 }} />
+            <Skeleton key={i} width="100%" height={80} borderRadius={12} style={{ marginBottom: 12 }} />
           ))}
         </ScrollView>
       )}
