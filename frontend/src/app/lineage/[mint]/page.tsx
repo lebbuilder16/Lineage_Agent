@@ -19,7 +19,7 @@ import LineageTab from "@/components/forensics/LineageTab";
 import DeployerTab from "@/components/forensics/DeployerTab";
 import { formatSol } from "@/lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
-import { AlertCircle, RefreshCw, RotateCcw, Clock } from "lucide-react";
+import { AlertCircle, RefreshCw, RotateCcw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ChatPanel } from "@/components/ChatPanel";
 import BackButton from "@/components/BackButton";
@@ -29,30 +29,12 @@ const log = process.env.NODE_ENV === "development"
   ? (...args: unknown[]) => console.debug("[LineagePage]", ...args)
   : () => {};
 
-function formatScannedAgo(iso: string | null | undefined): string | null {
-  if (!iso) return null;
-  try {
-    const diffMs = Date.now() - new Date(iso).getTime();
-    if (diffMs < 0) return null;
-    const diffSec = Math.floor(diffMs / 1000);
-    if (diffSec < 60) return `${diffSec}s ago`;
-    const diffMin = Math.floor(diffSec / 60);
-    if (diffMin < 60) return `${diffMin}m ago`;
-    const diffH = Math.floor(diffMin / 60);
-    if (diffH < 24) return `${diffH}h ago`;
-    return `${Math.floor(diffH / 24)}d ago`;
-  } catch {
-    return null;
-  }
-}
-
 export default function LineagePage() {
   const params = useParams<{ mint: string }>();
   const mint = params.mint;
 
   const { data, isLoading, error, progress, analyze, restoreFromCache } = useLineageWS();
   const { isWatched, updateRiskScore } = useWatchlist();
-  const isCurrentMintWatched = mint ? isWatched(mint) : false;
 
   // Log state transitions so we can trace in DevTools
   log("render", { mint: mint?.slice(0, 8), isLoading, hasData: !!data, error: error?.slice(0, 60) });
@@ -82,10 +64,10 @@ export default function LineagePage() {
   // Sync risk score back into the watchlist whenever analysis finishes
   useEffect(() => {
     const score = analysis?.ai_analysis?.risk_score;
-    if (mint && score != null && isCurrentMintWatched) {
+    if (mint && score != null && isWatched(mint)) {
       updateRiskScore(mint, score);
     }
-  }, [mint, analysis?.ai_analysis?.risk_score, isCurrentMintWatched, updateRiskScore]);
+  }, [mint, analysis?.ai_analysis?.risk_score, isWatched, updateRiskScore]);
 
   useEffect(() => {
     // Use the SCANNED token's name for the page title, not the root
@@ -316,30 +298,6 @@ export default function LineagePage() {
                   showLabel
                 />
               </div>
-            </div>
-
-            {/* Scan age + Refresh data button */}
-            <div className="flex items-center justify-between gap-3 px-1">
-              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <Clock className="h-3.5 w-3.5 shrink-0" />
-                <span>
-                  {formatScannedAgo(data.scanned_at)
-                    ? `Last scanned: ${formatScannedAgo(data.scanned_at)}`
-                    : "Last scanned: unknown"}
-                </span>
-              </div>
-              <button
-                onClick={() => mint && analyze(mint, true)}
-                disabled={isLoading}
-                className={cn(
-                  "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium",
-                  "border-border text-muted-foreground hover:border-neon/40 hover:text-neon",
-                  "transition-colors disabled:opacity-40 disabled:cursor-not-allowed",
-                )}
-              >
-                <RefreshCw className={cn("h-3 w-3", isLoading && "animate-spin")} />
-                Refresh data
-              </button>
             </div>
 
             {/* AI analysis progress — shown while stream is running */}
