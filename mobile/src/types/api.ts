@@ -291,7 +291,13 @@ export interface GlobalStats {
   total_scanned_24h: number;
   rug_count_24h: number;
   active_deployers_24h: number;
+  rug_rate_24h_pct?: number;
   top_narratives: Array<{ narrative: string; count: number }>;
+}
+
+export interface StatsBrief {
+  summary: string;
+  generated_at: string;
 }
 
 // Auth
@@ -322,6 +328,7 @@ export interface AlertItem {
   message: string;
   timestamp: string;
   read: boolean;
+  risk_score?: number; // 0.0–1.0, optionnel pour compat rétro
 }
 
 // ─── Scan history ─────────────────────────────────────────────────────────────

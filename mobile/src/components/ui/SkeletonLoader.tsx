@@ -9,6 +9,7 @@ import Animated, {
   withRepeat,
   withSequence,
   withTiming,
+  Easing,
 } from "react-native-reanimated";
 
 interface SkeletonProps {
@@ -86,3 +87,89 @@ const skeletonStyles = StyleSheet.create({
     marginBottom: 2,
   },
 });
+
+// ─── Shimmer Skeleton ─────────────────────────────────────────────────────────
+// Variante avec un reflet qui se déplace de gauche à droite.
+
+interface ShimmerSkeletonProps {
+  width?: number | string;
+  height?: number;
+  borderRadius?: number;
+  style?: ViewStyle;
+}
+
+export function ShimmerSkeleton({
+  width = "100%",
+  height = 16,
+  borderRadius = 8,
+  style,
+}: ShimmerSkeletonProps) {
+  const translateX = useSharedValue(-200);
+
+  useEffect(() => {
+    translateX.value = withRepeat(
+      withTiming(400, { duration: 1200, easing: Easing.inOut(Easing.ease) }),
+      -1,
+      false
+    );
+  }, []);
+
+  const shimmerStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: translateX.value }],
+  }));
+
+  return (
+    <View
+      style={[
+        {
+          width: width as any,
+          height,
+          borderRadius,
+          backgroundColor: "rgba(255,255,255,0.07)",
+          overflow: "hidden",
+        },
+        style,
+      ]}
+    >
+      <Animated.View
+        style={[
+          {
+            position: "absolute",
+            top: 0,
+            bottom: 0,
+            width: 120,
+            backgroundColor: "rgba(255,255,255,0.13)",
+          },
+          shimmerStyle,
+        ]}
+      />
+    </View>
+  );
+}
+
+// ─── AI Brief Skeleton ────────────────────────────────────────────────────────
+
+export function AIBriefSkeleton() {
+  return (
+    <View style={{ gap: 8, paddingVertical: 4 }}>
+      <ShimmerSkeleton width="100%" height={13} />
+      <ShimmerSkeleton width="85%" height={13} />
+      <ShimmerSkeleton width="60%" height={13} />
+      <ShimmerSkeleton width="40%" height={10} style={{ marginTop: 4 }} />
+    </View>
+  );
+}
+
+// ─── Stats Bar Skeleton ───────────────────────────────────────────────────────
+
+export function StatsBarSkeleton() {
+  return (
+    <View style={{ flexDirection: "row", gap: 12, alignItems: "center" }}>
+      <ShimmerSkeleton width={undefined} height={36} borderRadius={8} style={{ flex: 1 }} />
+      <View style={{ width: 1, height: 28, backgroundColor: "rgba(255,255,255,0.08)" }} />
+      <ShimmerSkeleton width={undefined} height={36} borderRadius={8} style={{ flex: 1 }} />
+      <View style={{ width: 1, height: 28, backgroundColor: "rgba(255,255,255,0.08)" }} />
+      <ShimmerSkeleton width={undefined} height={36} borderRadius={8} style={{ flex: 1 }} />
+    </View>
+  );
+}

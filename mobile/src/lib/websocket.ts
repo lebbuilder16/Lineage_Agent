@@ -15,6 +15,19 @@ const MAX_RETRIES = 10;
 
 type LiveAlertsSocket = WebSocket & { ping?: () => void };
 
+// ─── Connection state pub/sub ──────────────────────────────────────────────────
+export type WsConnectionState = "connected" | "reconnecting" | "offline";
+
+let connectionState: WsConnectionState = "offline";
+const stateSubscribers = new Set<(s: WsConnectionState) => void>();
+
+function setConnectionState(s: WsConnectionState) {
+  if (connectionState === s) return;
+  connectionState = s;
+  stateSubscribers.forEach((fn) => fn(s));
+}
+
+// ─── Socket state ──────────────────────────────────────────────────────────────
 let socket: LiveAlertsSocket | null = null;
 let retryCount = 0;
 let backoffMs = INITIAL_BACKOFF_MS;
@@ -38,6 +51,7 @@ function connect() {
     nextSocket.onopen = () => {
       retryCount = 0;
       backoffMs = INITIAL_BACKOFF_MS;
+      setConnectionState("connected");
     };
 
     nextSocket.onmessage = (event) => {
@@ -54,6 +68,7 @@ function connect() {
           message: msg.message ?? "",
           timestamp: msg.timestamp ?? new Date().toISOString(),
           read: false,
+          risk_score: msg.risk_score,
         };
 
         useAlertsStore.getState().addAlert(alert);
@@ -78,8 +93,12 @@ function connect() {
 }
 
 function scheduleReconnect() {
-  if (stopped || retryCount >= MAX_RETRIES) return;
+  if (stopped || retryCount >= MAX_RETRIES) {
+    setConnectionState("offline");
+    return;
+  }
 
+  setConnectionState("reconnecting");
   retryCount += 1;
   backoffMs = Math.min(backoffMs * 2, MAX_BACKOFF_MS);
   retryTimer = setTimeout(connect, backoffMs);
@@ -101,5 +120,15 @@ export const liveAlerts = {
     clearRetryTimer();
     socket?.close();
     socket = null;
+    setConnectionState("offline");
+  },
+
+  getState(): WsConnectionState {
+    return connectionState;
+  },
+
+  subscribe(fn: (s: WsConnectionState) => void): () => void {
+    stateSubscribers.add(fn);
+    return () => stateSubscribers.delete(fn);
   },
 };

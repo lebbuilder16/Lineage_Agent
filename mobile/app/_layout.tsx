@@ -19,6 +19,7 @@ import {
   Inter_600SemiBold,
   Inter_700Bold,
 } from "@expo-google-fonts/inter";
+import FlashMessage from "react-native-flash-message";
 import { colors } from "@/src/theme/colors";
 import { useAuthStore } from "@/src/store/auth";
 import { useAlertsStore } from "@/src/store/alerts";
@@ -143,6 +144,7 @@ export default function RootLayout() {
           <Stack.Screen name="auth" options={{ headerShown: false }} />
           <Stack.Screen name="onboarding" options={{ headerShown: false, animation: "fade" }} />
         </Stack>
+          <FlashMessage position="top" />
         </QueryClientProvider>
       </GestureHandlerRootView>
     </PrivyProvider>
