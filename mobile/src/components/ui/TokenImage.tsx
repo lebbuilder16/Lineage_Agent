@@ -4,7 +4,7 @@
 import React, { useState } from "react";
 import { View, Text, StyleSheet } from "react-native";
 import { Image } from "expo-image";
-import { colors } from "@/src/theme/colors";
+import { colors } from "@/theme/colors";
 
 interface TokenImageProps {
   uri: string;

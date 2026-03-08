@@ -16,7 +16,7 @@ import Animated, {
   useAnimatedStyle,
   withSpring,
 } from "react-native-reanimated";
-import { colors } from "@/src/theme/colors";
+import { colors } from "@/theme/colors";
 
 type HapticStyle = "light" | "medium" | "heavy";
 
@@ -80,9 +80,6 @@ export function HapticButton({
       onPress={handlePress}
       disabled={disabled}
       activeOpacity={1}
-      accessibilityRole="button"
-      accessibilityLabel={rest.accessibilityLabel ?? label}
-      accessibilityState={{ disabled: !!disabled }}
       {...rest}
     >
       {children ?? (

@@ -2,19 +2,18 @@
 // Badge coloré affichant le niveau de risque ou un verdict
 
 import React from "react";
-import { View, Text, StyleSheet, ViewStyle } from "react-native";
-import { riskColor, verdictColor } from "@/src/theme/colors";
+import { View, Text, StyleSheet } from "react-native";
+import { riskColor, verdictColor } from "@/theme/colors";
 
 interface RiskBadgeProps {
-  label?: string;
+  label: string;
   /** Si fourni, utilise la palette "risk" ; sinon utilise "verdict" */
   riskLevel?: string;
   verdict?: string;
   size?: "sm" | "md" | "lg";
-  style?: ViewStyle;
 }
 
-export function RiskBadge({ label, riskLevel, verdict, size = "md", style }: RiskBadgeProps) {
+export function RiskBadge({ label, riskLevel, verdict, size = "md" }: RiskBadgeProps) {
   const color = riskLevel
     ? riskColor(riskLevel)
     : verdict
@@ -35,11 +34,10 @@ export function RiskBadge({ label, riskLevel, verdict, size = "md", style }: Ris
           paddingHorizontal: paddingH,
           paddingVertical: paddingV,
         },
-        style,
       ]}
     >
       <Text style={[styles.text, { color, fontSize: textSize }]}>
-        {(label ?? "").toUpperCase()}
+        {label.toUpperCase()}
       </Text>
     </View>
   );

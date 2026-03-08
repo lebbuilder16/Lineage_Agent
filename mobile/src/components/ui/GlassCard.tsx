@@ -2,13 +2,13 @@
 // Card glassmorphique de base — réutilisée partout dans l'app
 
 import React from "react";
-import { View, ViewStyle, StyleSheet, StyleProp } from "react-native";
+import { View, ViewStyle, StyleSheet } from "react-native";
 import { BlurView } from "expo-blur";
-import { colors } from "@/src/theme/colors";
+import { colors } from "@/theme/colors";
 
 interface GlassCardProps {
   children: React.ReactNode;
-  style?: StyleProp<ViewStyle>;
+  style?: ViewStyle;
   elevated?: boolean;
   noBorder?: boolean;
   borderColor?: string;
