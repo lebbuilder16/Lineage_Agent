@@ -7,7 +7,6 @@ import type {
   TokenSearchResult,
   DeployerProfile,
   GlobalStats,
-  StatsBrief,
   User,
   Watch,
 } from "@/types/api";
@@ -17,9 +16,8 @@ const API_KEY_STORAGE_KEY = "lineage_api_key";
 // ─── Configuration ────────────────────────────────────────────────────────────
 // Pointer sur le backend FastAPI. En dev: localhost ou tunnel ngrok.
 // En prod: l'URL Fly.io déployée.
-const BASE_URL = (
-  process.env.EXPO_PUBLIC_API_URL ?? "https://lineage-agent.fly.dev"
-).replace(/\/$/, "");
+const BASE_URL =
+  process.env.EXPO_PUBLIC_API_URL ?? "https://api.lineageagent.io";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -33,12 +31,6 @@ export async function saveApiKey(key: string): Promise<void> {
 
 export async function clearApiKey(): Promise<void> {
   await SecureStore.deleteItemAsync(API_KEY_STORAGE_KEY);
-}
-
-// 401 handler — registered once from root layout to trigger logout & redirect
-let _unauthorizedHandler: (() => void) | null = null;
-export function registerUnauthorizedHandler(fn: (() => void) | null): void {
-  _unauthorizedHandler = fn;
 }
 
 interface FetchOptions extends RequestInit {
@@ -68,9 +60,6 @@ async function apiFetch<T>(
   });
 
   if (!response.ok) {
-    if (response.status === 401) {
-      _unauthorizedHandler?.();
-    }
     const text = await response.text().catch(() => response.statusText);
     throw new ApiError(response.status, text);
   }
@@ -136,17 +125,6 @@ export async function searchTokens(query: string): Promise<TokenSearchResult[]> 
   return apiFetch<TokenSearchResult[]>(`/search?q=${encodeURIComponent(query)}`);
 }
 
-/** Paginated search — offset-based, page size 20. Use with useInfiniteQuery. */
-export async function searchTokensPaginated(
-  query: string,
-  offset = 0,
-  limit = 20,
-): Promise<TokenSearchResult[]> {
-  return apiFetch<TokenSearchResult[]>(
-    `/search?q=${encodeURIComponent(query)}&offset=${offset}&limit=${limit}`,
-  );
-}
-
 // ─── Deployer ─────────────────────────────────────────────────────────────────
 
 export async function getDeployerProfile(address: string): Promise<DeployerProfile> {
@@ -159,10 +137,6 @@ export async function getGlobalStats(): Promise<GlobalStats> {
   return apiFetch<GlobalStats>("/stats/global");
 }
 
-export async function getStatsBrief(): Promise<StatsBrief> {
-  return apiFetch<StatsBrief>("/stats/brief");
-}
-
 // ─── AI Analysis (streaming via SSE) ──────────────────────────────────────────
 // Retourne l'URL SSE + un EventSource-compatible (géré côté hook)
 export function getAnalysisStreamUrl(mint: string): string {
@@ -172,18 +146,6 @@ export function getAnalysisStreamUrl(mint: string): string {
 export function getChatStreamUrl(mint: string, query?: string): string {
   const base = `${BASE_URL}/chat/${encodeURIComponent(mint)}`;
   return query ? `${base}?q=${encodeURIComponent(query)}` : base;
-}
-
-// ─── Bundle & SOL Flow ───────────────────────────────────────────────────────
-
-/** Trigger (or retrieve cached) bundle wallet forensic analysis for a mint. */
-export async function getBundleReport(mint: string): Promise<import("@/types/api").BundleExtractionReport> {
-  return apiFetch(`/bundle/${encodeURIComponent(mint)}`);
-}
-
-/** Trigger (or retrieve cached) post-rug SOL capital flow trace for a mint. */
-export async function getSolTrace(mint: string): Promise<import("@/types/api").SolFlowReport> {
-  return apiFetch(`/lineage/${encodeURIComponent(mint)}/sol-trace`);
 }
 
 // ─── Push notification registration ──────────────────────────────────────────

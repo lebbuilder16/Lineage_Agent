@@ -9,17 +9,11 @@ import { registerFcmToken } from "@/src/lib/api";
 
 // Configuration du gestionnaire de notifications (comportement à l'affichage)
 Notifications.setNotificationHandler({
-  handleNotification: async (notification) => {
-    const type = notification.request.content.data?.type as string | undefined;
-    // Only play sound for high-severity alerts
-    const needsSound = type === "rug" || type === "death_clock";
-    return {
-      shouldShowBanner: true,
-      shouldShowList: true,
-      shouldPlaySound: needsSound,
-      shouldSetBadge: true,
-    };
-  },
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: true,
+  }),
 });
 
 /**

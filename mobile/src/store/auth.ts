@@ -4,7 +4,6 @@
 import { create } from "zustand";
 import { saveApiKey, clearApiKey, getCurrentUser } from "@/lib/api";
 import { logoutFromRevenueCat } from "@/lib/purchases";
-import { sentrySetUser } from "@/lib/sentry";
 import type { User } from "@/types/api";
 
 interface AuthState {
@@ -30,7 +29,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       isAuthenticated: true,
       isPro: user.plan === "pro",
     });
-    sentrySetUser({ id: user.privy_id, email: user.email });
   },
 
   /** Optimistically mark the user as Pro (called right after successful purchase). */
@@ -53,7 +51,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   logout: async () => {
     await clearApiKey();
     await logoutFromRevenueCat();
-    sentrySetUser(null);
     set({
       user: null,
       isAuthenticated: false,

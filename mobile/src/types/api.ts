@@ -118,7 +118,6 @@ export interface DeployerTokenSummary {
 
 export interface DeployerProfile {
   address: string;
-  chain?: string;
   total_tokens_launched: number;
   rug_count: number;
   rug_rate_pct: number;
@@ -289,18 +288,10 @@ export interface TokenSearchResult {
 }
 
 export interface GlobalStats {
-  tokens_scanned_24h: number;
-  tokens_rugged_24h: number;
-  rug_rate_24h_pct: number;
+  total_scanned_24h: number;
+  rug_count_24h: number;
   active_deployers_24h: number;
   top_narratives: Array<{ narrative: string; count: number }>;
-  db_events_total: number;
-  last_updated: string;
-}
-
-export interface StatsBrief {
-  text: string;
-  generated_at: string;
 }
 
 // Auth
