@@ -37,7 +37,7 @@ export function RiskBadge({ label, riskLevel, verdict, size = "md" }: RiskBadgeP
       ]}
     >
       <Text style={[styles.text, { color, fontSize: textSize }]}>
-        {label.toUpperCase()}
+        {(label ?? "").toUpperCase()}
       </Text>
     </View>
   );

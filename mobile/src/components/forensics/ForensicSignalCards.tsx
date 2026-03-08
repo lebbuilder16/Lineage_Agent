@@ -146,7 +146,7 @@ function InsiderCard({ data }: { data: NonNullable<LineageResult["insider_sell"]
       <Row label="Risk" value={`${Math.round((data.risk_score ?? 0) * 100)}%`} />
       <Row label="Wallets" value={data.wallet_events?.length ?? 0} />
       <Row label="Deployer exited" value={data.deployer_exited ? "Yes ✗" : "No"} />
-      <RiskBadge verdict={data.verdict as any} size="sm" style={{ marginTop: 8 }} />
+      <RiskBadge label={data.verdict ?? ""} verdict={data.verdict as any} size="sm" />
     </Section>
   );
 }
