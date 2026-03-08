@@ -23,7 +23,7 @@ import { colors } from "@/src/theme/colors";
 import type { Watch } from "@/src/types/api";
 import { useAuthStore } from "@/src/store/auth";
 
-function WatchRow({ item, onRemove }: { item: Watch; onRemove: (id: number) => void }) {
+const WatchRow = React.memo(function WatchRow({ item, onRemove }: { item: Watch; onRemove: (id: number) => void }) {
   const isMint = !!item.mint;
   const addr = (item.mint ?? item.deployer) as string;
 
@@ -66,7 +66,7 @@ function WatchRow({ item, onRemove }: { item: Watch; onRemove: (id: number) => v
       </TouchableOpacity>
     </Animated.View>
   );
-}
+});
 
 function RoleTag({ type }: { type: "token" | "deployer" }) {
   const color = type === "token" ? colors.accent.safe : colors.accent.ai;
@@ -95,11 +95,17 @@ export default function WatchlistScreen() {
     },
   });
 
+  // Stable reference — React.memo(WatchRow) needs this not to change every render
+  const handleRemove = useCallback(
+    (id: number) => removeMutation.mutate(id),
+    [removeMutation.mutate],
+  );
+
   const renderItem = useCallback(
     ({ item }: ListRenderItemInfo<Watch>) => (
-      <WatchRow item={item} onRemove={(id) => removeMutation.mutate(id)} />
+      <WatchRow item={item} onRemove={handleRemove} />
     ),
-    [removeMutation]
+    [handleRemove]
   );
 
   if (!isAuthenticated) {

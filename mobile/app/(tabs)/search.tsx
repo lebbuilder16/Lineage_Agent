@@ -3,6 +3,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   FlatList,
   ListRenderItemInfo,
   ScrollView,
@@ -13,18 +14,19 @@ import {
   View,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { router } from "expo-router";
 import Animated, { FadeIn, FadeInDown } from "react-native-reanimated";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { TokenCardSkeleton } from "@/src/components/ui/SkeletonLoader";
 import { TokenImage } from "@/src/components/ui/TokenImage";
-import { getGlobalStats, searchTokens } from "@/src/lib/api";
+import { getGlobalStats, searchTokensPaginated } from "@/src/lib/api";
 import { colors } from "@/src/theme/colors";
 import type { TokenSearchResult } from "@/src/types/api";
 
 const RECENT_KEY = "recent_searches";
 const MAX_RECENT = 10;
+const PAGE_SIZE = 20;
 
 async function loadRecent(): Promise<string[]> {
   try {
@@ -62,13 +64,21 @@ function formatMcap(value: number | null): string {
   return `$${value.toFixed(0)}`;
 }
 
-function TokenCard({ item, index }: { item: TokenSearchResult; index: number }) {
+const TokenCard = React.memo(function TokenCard({
+  item,
+  index,
+}: {
+  item: TokenSearchResult;
+  index: number;
+}) {
   return (
-    <Animated.View entering={FadeInDown.delay(index * 40).springify()}>
+    <Animated.View entering={FadeInDown.delay(Math.min(index, 12) * 40).springify()}>
       <TouchableOpacity
         activeOpacity={0.7}
         onPress={() => router.push(`/lineage/${item.mint}`)}
         style={styles.tokenCard}
+        accessibilityRole="button"
+        accessibilityLabel={`View ${item.name || item.symbol} token lineage`}
       >
         <TokenImage uri={item.image_uri} size={48} symbol={item.symbol} />
         <View style={styles.tokenInfo}>
@@ -86,7 +96,7 @@ function TokenCard({ item, index }: { item: TokenSearchResult; index: number }) 
       </TouchableOpacity>
     </Animated.View>
   );
-}
+});
 
 export default function SearchScreen() {
   const [query, setQuery] = useState("");
@@ -129,16 +139,30 @@ export default function SearchScreen() {
     clearRecent().then(() => setRecentSearches([]));
   }, []);
 
-  const { data, isFetching, isLoading } = useQuery({
+  const {
+    data: searchData,
+    fetchNextPage,
+    hasNextPage,
+    isFetching,
+    isLoading,
+    isFetchingNextPage,
+  } = useInfiniteQuery({
     queryKey: ["search", debouncedQuery],
-    queryFn: async () => {
-      await saveRecent(debouncedQuery);
-      refreshRecent();
-      return searchTokens(debouncedQuery);
+    queryFn: async ({ pageParam }) => {
+      if ((pageParam as number) === 0) {
+        await saveRecent(debouncedQuery);
+        refreshRecent();
+      }
+      return searchTokensPaginated(debouncedQuery, pageParam as number, PAGE_SIZE);
     },
+    getNextPageParam: (lastPage, allPages) =>
+      lastPage.length === PAGE_SIZE ? allPages.length * PAGE_SIZE : undefined,
+    initialPageParam: 0,
     enabled: debouncedQuery.length >= 2,
     staleTime: 10_000,
   });
+
+  const results = searchData?.pages.flat() ?? [];
 
   const renderItem = useCallback(
     ({ item, index }: ListRenderItemInfo<TokenSearchResult>) => (
@@ -242,14 +266,23 @@ export default function SearchScreen() {
       ) : (
         <FlatList
           contentContainerStyle={styles.list}
-          data={data ?? []}
+          data={results}
           keyExtractor={(item) => item.mint}
           keyboardShouldPersistTaps="handled"
+          onEndReached={() => { if (hasNextPage && !isFetchingNextPage) fetchNextPage(); }}
+          onEndReachedThreshold={0.3}
+          ListFooterComponent={
+            isFetchingNextPage
+              ? <ActivityIndicator color={colors.accent.ai} style={{ paddingVertical: 16 }} />
+              : null
+          }
           ListEmptyComponent={
-            <Animated.View entering={FadeIn} style={styles.empty}>
-              <Text style={styles.emptyIcon}>◎</Text>
-              <Text style={styles.emptyText}>No tokens found for "{debouncedQuery}"</Text>
-            </Animated.View>
+            !isLoading ? (
+              <Animated.View entering={FadeIn} style={styles.empty}>
+                <Text style={styles.emptyIcon}>◎</Text>
+                <Text style={styles.emptyText}>No tokens found for "{debouncedQuery}"</Text>
+              </Animated.View>
+            ) : null
           }
           renderItem={renderItem}
           showsVerticalScrollIndicator={false}

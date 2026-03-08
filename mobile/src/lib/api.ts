@@ -35,6 +35,12 @@ export async function clearApiKey(): Promise<void> {
   await SecureStore.deleteItemAsync(API_KEY_STORAGE_KEY);
 }
 
+// 401 handler — registered once from root layout to trigger logout & redirect
+let _unauthorizedHandler: (() => void) | null = null;
+export function registerUnauthorizedHandler(fn: (() => void) | null): void {
+  _unauthorizedHandler = fn;
+}
+
 interface FetchOptions extends RequestInit {
   authenticated?: boolean;
 }
@@ -62,6 +68,9 @@ async function apiFetch<T>(
   });
 
   if (!response.ok) {
+    if (response.status === 401) {
+      _unauthorizedHandler?.();
+    }
     const text = await response.text().catch(() => response.statusText);
     throw new ApiError(response.status, text);
   }
@@ -125,6 +134,17 @@ export async function getLineage(mint: string): Promise<LineageResult> {
 
 export async function searchTokens(query: string): Promise<TokenSearchResult[]> {
   return apiFetch<TokenSearchResult[]>(`/search?q=${encodeURIComponent(query)}`);
+}
+
+/** Paginated search — offset-based, page size 20. Use with useInfiniteQuery. */
+export async function searchTokensPaginated(
+  query: string,
+  offset = 0,
+  limit = 20,
+): Promise<TokenSearchResult[]> {
+  return apiFetch<TokenSearchResult[]>(
+    `/search?q=${encodeURIComponent(query)}&offset=${offset}&limit=${limit}`,
+  );
 }
 
 // ─── Deployer ─────────────────────────────────────────────────────────────────

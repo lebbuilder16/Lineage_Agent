@@ -110,7 +110,7 @@ const ALERT_LABELS: Record<AlertItem["type"], string> = {
   death_clock: "DEATH CLOCK",
 };
 
-function AlertRow({ item, index }: { item: AlertItem; index: number }) {
+const AlertRow = React.memo(function AlertRow({ item, index }: { item: AlertItem; index: number }) {
   const color = ALERT_COLORS[item.type];
   return (
     <Animated.View entering={FadeInDown.delay(index * 60).springify()}>
@@ -118,6 +118,8 @@ function AlertRow({ item, index }: { item: AlertItem; index: number }) {
         style={styles.alertRow}
         onPress={() => router.push(`/lineage/${item.mint}`)}
         activeOpacity={0.7}
+        accessibilityRole="button"
+        accessibilityLabel={`${ALERT_LABELS[item.type]} alert for ${item.token_name}`}
       >
         <View style={[styles.alertDot, { backgroundColor: color }]} />
         <TokenImage uri={item.token_image} size={32} symbol={item.token_name} borderRadius={8} />
@@ -133,7 +135,7 @@ function AlertRow({ item, index }: { item: AlertItem; index: number }) {
       </TouchableOpacity>
     </Animated.View>
   );
-}
+});
 
 // ─── Stats Bar ────────────────────────────────────────────────────────────────
 
@@ -157,14 +159,14 @@ function StatsBar() {
   );
 }
 
-function StatItem({ label, value, danger = false }: { label: string; value: string; danger?: boolean }) {
+const StatItem = React.memo(function StatItem({ label, value, danger = false }: { label: string; value: string; danger?: boolean }) {
   return (
     <View style={styles.statItem}>
       <Text style={[styles.statValue, danger && { color: colors.accent.danger }]}>{value}</Text>
       <Text style={styles.statLabel}>{label}</Text>
     </View>
   );
-}
+});
 
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 

@@ -35,6 +35,7 @@ import FlashMessage from "react-native-flash-message";
 import { initRevenueCat, loginToRevenueCat } from "@/src/lib/purchases";
 import { liveAlerts } from "@/src/lib/websocket";
 import { initSentry } from "@/src/lib/sentry";
+import { registerUnauthorizedHandler } from "@/src/lib/api";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { ONBOARDING_KEY } from "./onboarding";
 import {
@@ -78,6 +79,16 @@ export default function RootLayout() {
   });
   const { isAuthenticated, user } = useAuthStore();
   const { addAlert } = useAlertsStore();
+
+  // Register 401 handler — logs the user out automatically on auth failures
+  useEffect(() => {
+    registerUnauthorizedHandler(() => {
+      const { isAuthenticated, logout } = useAuthStore.getState();
+      if (!isAuthenticated) return;
+      logout().then(() => router.replace("/auth"));
+    });
+    return () => registerUnauthorizedHandler(null);
+  }, []);
 
   // ── RevenueCat init + push notifications
   useEffect(() => {

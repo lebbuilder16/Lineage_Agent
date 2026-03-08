@@ -1,0 +1,22 @@
+appId: com.lineage.agent
+---
+# Flow: Onboarding — verify 3 slides then reach auth screen
+
+- launchApp:
+    clearState: true
+
+# Slide 1: Detect Rug Pulls
+- assertVisible: "Detect Rug Pulls"
+- tapOn: "Next"
+
+# Slide 2: Real-Time Alerts
+- assertVisible: "Real-Time Alerts"
+- tapOn: "Next"
+
+# Slide 3: Chat With the AI
+- assertVisible: "Chat With the AI"
+- tapOn: "Get Started"
+
+# Should land on auth screen
+- assertVisible:
+    id: "auth-screen"

@@ -58,7 +58,7 @@ function AlertFilterChip({
   );
 }
 
-function AlertCard({ item, index }: { item: AlertItem; index: number }) {
+const AlertCard = React.memo(function AlertCard({ item, index }: { item: AlertItem; index: number }) {
   const color = TYPE_COLOR[item.type];
   return (
     <Animated.View entering={FadeInDown.delay(index * 40).springify()}>
@@ -95,7 +95,7 @@ function AlertCard({ item, index }: { item: AlertItem; index: number }) {
       </TouchableOpacity>
     </Animated.View>
   );
-}
+});
 
 type FilterType = "all" | AlertItem["type"];
 

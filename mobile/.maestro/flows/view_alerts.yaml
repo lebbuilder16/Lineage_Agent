@@ -1,0 +1,13 @@
+appId: com.lineage.agent
+---
+# Flow: Alerts tab — verify list renders or empty state is shown
+
+- launchApp
+
+# Navigate to Alerts tab
+- tapOn:
+    text: "Alerts"
+
+# Either the list or empty state must be visible
+- assertTrue:
+    condition: ${visible("alerts-list") || visible("No alerts yet")}
