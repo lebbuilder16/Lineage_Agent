@@ -47,6 +47,9 @@ function AlertFilterChip({
     <TouchableOpacity
       style={[styles.chip, active && styles.chipActive]}
       onPress={onPress}
+      accessibilityRole="radio"
+      accessibilityState={{ selected: active }}
+      accessibilityLabel={`Filter by ${label}`}
     >
       <Text style={[styles.chipText, active && styles.chipTextActive]}>
         {label}
@@ -66,6 +69,9 @@ function AlertCard({ item, index }: { item: AlertItem; index: number }) {
           router.push(`/lineage/${item.mint}`);
         }}
         activeOpacity={0.75}
+        accessibilityRole="button"
+        accessibilityLabel={`${TYPE_LABEL[item.type]} alert for ${item.token_name}${item.read ? "" : ", unread"}`}
+        accessibilityHint="Opens token lineage"
       >
         <View style={[styles.alertIcon, { backgroundColor: `${color}20` }]}>
           <View style={[styles.alertDot, { backgroundColor: color }]} />

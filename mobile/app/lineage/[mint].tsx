@@ -120,6 +120,7 @@ function QuickActions({ mint, name }: { mint: string; name?: string }) {
         hapticStyle="medium"
         onPress={() => router.push(`/chat/${mint}`)}
         style={styles.actionBtn}
+        accessibilityLabel="Open AI Analysis chat"
       />
       {isAuthenticated && (
         <HapticButton
@@ -129,6 +130,7 @@ function QuickActions({ mint, name }: { mint: string; name?: string }) {
           onPress={() => watchMutation.mutate()}
           disabled={watchMutation.isPending || watchMutation.isSuccess}
           style={styles.actionBtn}
+          accessibilityLabel={watchMutation.isSuccess ? "Already tracking this token" : "Add token to watchlist"}
         />
       )}
       <HapticButton
@@ -141,6 +143,7 @@ function QuickActions({ mint, name }: { mint: string; name?: string }) {
           });
         }}
         style={styles.actionBtn}
+        accessibilityLabel="Share token analysis"
       />
     </View>
   );

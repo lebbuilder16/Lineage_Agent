@@ -1,7 +1,7 @@
 // app/deployer/[address].tsx
 // Profil d'un déployeur — taux de rug, historique, tokens liés
 
-import React from "react";
+import React, { useState } from "react";
 import {
   View,
   Text,
@@ -54,6 +54,7 @@ function BarStat({
 // ─────────────────────────────────────────────────────────────
 export default function DeployerScreen() {
   const { address } = useLocalSearchParams<{ address: string }>();
+  const [visibleCount, setVisibleCount] = useState(10);
   const { data: profile, isLoading, error, refetch } = useQuery({
     queryKey: ["deployer", address],
     queryFn: () => getDeployerProfile(address!),
@@ -198,11 +199,13 @@ export default function DeployerScreen() {
           {profile.tokens && profile.tokens.length > 0 && (
             <View>
               <Text style={styles.sectionHeader}>DEPLOYED TOKENS</Text>
-              {profile.tokens.slice(0, 10).map((t) => (
+              {profile.tokens.slice(0, visibleCount).map((t) => (
                 <TouchableOpacity
                   key={t.mint}
                   onPress={() => router.push(`/lineage/${t.mint}`)}
                   style={styles.tokenRow}
+                  accessibilityLabel={`View lineage of token ${t.name || t.symbol}`}
+                  accessibilityRole="button"
                 >
                   <GlassCard style={styles.tokenCard}>
                     <View style={styles.tokenRowInner}>
@@ -220,6 +223,18 @@ export default function DeployerScreen() {
                   </GlassCard>
                 </TouchableOpacity>
               ))}
+              {visibleCount < profile.tokens.length && (
+                <TouchableOpacity
+                  onPress={() => setVisibleCount((n) => n + 10)}
+                  style={styles.loadMoreBtn}
+                  accessibilityLabel="Load more tokens"
+                  accessibilityRole="button"
+                >
+                  <Text style={styles.loadMoreText}>
+                    Load more ({profile.tokens.length - visibleCount} remaining)
+                  </Text>
+                </TouchableOpacity>
+              )}
             </View>
           )}
         </ScrollView>
@@ -299,4 +314,14 @@ const styles = StyleSheet.create({
   tokenName: { color: colors.text.primary, fontSize: 14, fontWeight: "600" },
   tokenMint: { color: colors.text.muted, fontSize: 11, fontFamily: "monospace", marginTop: 2 },
   chevron: { color: colors.text.muted, fontSize: 20 },
+  loadMoreBtn: {
+    alignItems: "center",
+    paddingVertical: 14,
+    marginTop: 4,
+    borderWidth: 1,
+    borderColor: colors.glass.border,
+    borderRadius: 12,
+    backgroundColor: colors.glass.bg,
+  },
+  loadMoreText: { color: colors.accent.ai, fontSize: 14, fontWeight: "600" },
 });

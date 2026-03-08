@@ -3,12 +3,20 @@
 
 import "../src/polyfills";
 import "../src/global.css";
-import React, { useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Stack, router } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { AppState, AppStateStatus } from "react-native";
+import { AppState, AppStateStatus, StyleSheet } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient } from "@tanstack/react-query";
+import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
+import { createAsyncStoragePersister } from "@tanstack/query-async-storage-persister";
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withTiming,
+  runOnJS,
+} from "react-native-reanimated";
 import * as SplashScreen from "expo-splash-screen";
 import { PrivyProvider } from "@privy-io/expo";
 import {
@@ -46,11 +54,22 @@ const queryClient = new QueryClient({
     queries: {
       staleTime: 30_000, // 30s
       retry: 2,
+      gcTime: 1000 * 60 * 60 * 24, // 24h — needed for persistence
     },
   },
 });
 
+const asyncStoragePersister = createAsyncStoragePersister({
+  storage: AsyncStorage,
+  throttleTime: 3_000,
+  key: "rq-offline-cache",
+});
+
 export default function RootLayout() {
+  const [splashDone, setSplashDone] = useState(false);
+  const splashOpacity = useSharedValue(1);
+  const splashStyle = useAnimatedStyle(() => ({ opacity: splashOpacity.value }));
+
   const [fontsLoaded] = useFonts({
     Inter_400Regular,
     Inter_500Medium,
@@ -114,6 +133,10 @@ export default function RootLayout() {
       AsyncStorage.getItem(ONBOARDING_KEY).then((val) => {
         if (!val) router.replace("/onboarding");
       });
+      // Fade out the splash overlay to reveal the app
+      splashOpacity.value = withTiming(0, { duration: 600 }, () => {
+        runOnJS(setSplashDone)(true);
+      });
     }
   }, [fontsLoaded]);
 
@@ -129,10 +152,15 @@ export default function RootLayout() {
     return () => sub.remove();
   }, []);
 
-  if (!fontsLoaded) return null;
-
   return (
-    <QueryClientProvider client={queryClient}>
+    <PersistQueryClientProvider
+      client={queryClient}
+      persistOptions={{
+        persister: asyncStoragePersister,
+        maxAge: 1000 * 60 * 60 * 24, // 24h
+        buster: "v1",
+      }}
+    >
       <PrivyProvider appId={PRIVY_APP_ID}>
         <GestureHandlerRootView style={{ flex: 1, backgroundColor: colors.background.deep }}>
           <StatusBar style="light" backgroundColor={colors.background.deep} />
@@ -172,11 +200,26 @@ export default function RootLayout() {
               />
               <Stack.Screen name="auth" options={{ headerShown: false }} />
               <Stack.Screen name="onboarding" options={{ headerShown: false, animation: "fade" }} />
+              <Stack.Screen name="+not-found" options={{ headerShown: false }} />
             </Stack>
           </ErrorBoundary>
           <FlashMessage position="top" />
         </GestureHandlerRootView>
       </PrivyProvider>
-    </QueryClientProvider>
+      {/* Animated splash fade-out overlay */}
+      {!splashDone && (
+        <Animated.View
+          pointerEvents="none"
+          style={[StyleSheet.absoluteFill, splashStyle, styles.splashOverlay]}
+        />
+      )}
+    </PersistQueryClientProvider>
   );
 }
+
+const styles = StyleSheet.create({
+  splashOverlay: {
+    backgroundColor: "#0A0A0F",
+    zIndex: 9999,
+  },
+});

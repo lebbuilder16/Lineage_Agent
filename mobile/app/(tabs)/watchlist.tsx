@@ -40,6 +40,9 @@ function WatchRow({ item, onRemove }: { item: Watch; onRemove: (id: number) => v
             : router.push(`/deployer/${addr}`)
         }
         activeOpacity={0.7}
+        accessibilityRole="button"
+        accessibilityLabel={`View ${isMint ? "lineage" : "deployer profile"} for ${item.label || addr.slice(0, 8)}`}
+        accessibilityHint={isMint ? "Opens token lineage" : "Opens deployer profile"}
       >
         <View style={[styles.watchIcon, { backgroundColor: isMint ? `${colors.accent.safe}20` : `${colors.accent.ai}20` }]}>
           <Text style={{ fontSize: 16 }}>{isMint ? "◈" : "◉"}</Text>
@@ -55,6 +58,8 @@ function WatchRow({ item, onRemove }: { item: Watch; onRemove: (id: number) => v
           style={styles.removeBtn}
           onPress={() => onRemove(item.id)}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          accessibilityRole="button"
+          accessibilityLabel={`Remove ${item.label || "watch"} from watchlist`}
         >
           <Text style={styles.removeTxt}>✕</Text>
         </TouchableOpacity>

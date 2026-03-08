@@ -80,6 +80,9 @@ export function HapticButton({
       onPress={handlePress}
       disabled={disabled}
       activeOpacity={1}
+      accessibilityRole="button"
+      accessibilityLabel={rest.accessibilityLabel ?? label}
+      accessibilityState={{ disabled: !!disabled }}
       {...rest}
     >
       {children ?? (
