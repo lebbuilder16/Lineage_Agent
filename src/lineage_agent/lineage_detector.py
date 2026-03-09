@@ -95,13 +95,48 @@ _LAUNCHPAD_MINT_SUFFIXES: dict[str, tuple[str, ...]] = {
 def classify_market_context(
     asset: Optional[dict[str, Any]],
     pairs: list[dict[str, Any]],
+    *,
+    mint_address: str = "",
 ) -> dict[str, Any]:
     """Classify the token's market context from launchpad metadata and pairs.
 
-    This is intentionally conservative: it only returns a strong launchpad stage
-    when a known launchpad authority/creator is observed.
+    Detection order (strongest signal first):
+
+    1. **dexId check** — DexScreener sets ``dexId`` to the launchpad name
+       (``"moonshot"``, ``"pumpfun"``, ``"letsbonk"``, ``"believe"``) for
+       bonding-curve pairs.  This is independent of DAS metadata and fires
+       even when ``getAsset`` returns ``{}``.  If ALL Solana pairs are
+       bonding-curve pairs → immediately return LAUNCHPAD_CURVE_ONLY.
+
+    2. **DAS authority / creator** — check ``authorities[]`` and ``creators[]``
+       against ``LAUNCHPAD_PROGRAMS`` (strong/moderate evidence).
+
+    3. **Heuristic signals** — content-host URL patterns + mint address suffix.
     """
+    from .constants import BONDING_CURVE_LAUNCHPAD_PLATFORMS  # local import avoids circularity
+
     solana_pairs = [p for p in pairs if (p.get("chainId") or "").lower() == "solana"]
+
+    # ── Step 0: dexId — most reliable signal, independent of DAS ──────────────
+    # DexScreener sets dexId to the launchpad name for bonding-curve pairs.
+    # If ALL Solana pairs are on bonding-curve platforms the token has NOT
+    # graduated to a real AMM/CLMM DEX yet.
+    if solana_pairs:
+        dex_ids = {(p.get("dexId") or "").lower() for p in solana_pairs}
+        bonding_ids = dex_ids & BONDING_CURVE_LAUNCHPAD_PLATFORMS
+        if bonding_ids and dex_ids.issubset(BONDING_CURVE_LAUNCHPAD_PLATFORMS):
+            platform_from_dex = next(iter(bonding_ids))
+            return {
+                "launch_platform": platform_from_dex,
+                "lifecycle_stage": LifecycleStage.LAUNCHPAD_CURVE_ONLY,
+                "market_surface": MarketSurface.LAUNCHPAD_CURVE_ONLY,
+                "evidence_level": EvidenceLevel.STRONG,
+                "reason_codes": ["bonding_curve_dexid_confirmed"],
+            }
+        # Mixed (some bonding-curve + some real DEX pairs): token graduated.
+        # Fall through to DAS-based detection to determine platform context.
+
+    # ── Steps 1-3: DAS-based detection ────────────────────────────────────────
     authorities = asset.get("authorities") or [] if asset else []
     creators = asset.get("creators") or [] if asset else []
     authority_addrs = [a.get("address") for a in authorities if a.get("address")]
@@ -119,7 +154,9 @@ def classify_market_context(
             reason_codes.append("launchpad_creator_matched")
 
     if not platform:
-        platform, heuristic_evidence, heuristic_reasons = _infer_launchpad_from_asset_signals(asset)
+        platform, heuristic_evidence, heuristic_reasons = _infer_launchpad_from_asset_signals(
+            asset, mint_address=mint_address
+        )
         if platform:
             evidence = heuristic_evidence
             reason_codes.extend(heuristic_reasons)
@@ -162,13 +199,22 @@ def classify_market_context(
 
 def _infer_launchpad_from_asset_signals(
     asset: Optional[dict[str, Any]],
+    *,
+    mint_address: str = "",
 ) -> tuple[Optional[str], EvidenceLevel, list[str]]:
-    if not asset:
+    """Infer launchpad platform from asset content URLs and mint address suffix.
+
+    ``mint_address`` is accepted explicitly so that suffix detection works
+    even when ``asset`` is ``{}`` (DAS returned nothing).  The ``asset["id"]``
+    field is used as fallback when ``mint_address`` is not provided.
+    """
+    if not asset and not mint_address:
         return None, EvidenceLevel.WEAK, []
 
     signal_reasons: list[str] = []
     signal_strength = 0
-    mint = str(asset.get("id") or "").strip().lower()
+    _asset_id = (asset.get("id") or "") if asset else ""
+    mint = (_asset_id or mint_address).strip().lower()
     content = asset.get("content") or {}
     links = content.get("links") or {}
     urls: list[str] = []
@@ -511,7 +557,7 @@ async def detect_lineage(
                 )
                 if _resolved and _resolved not in _NON_DEPLOYER_AUTHORITIES:
                     query_meta.deployer = _resolved
-            _market_ctx = classify_market_context(_q_asset, pairs)
+            _market_ctx = classify_market_context(_q_asset, pairs, mint_address=mint_address)
             query_meta.launch_platform = _market_ctx["launch_platform"]
             query_meta.lifecycle_stage = _market_ctx["lifecycle_stage"]
             query_meta.market_surface = _market_ctx["market_surface"]
@@ -1418,7 +1464,6 @@ _NON_DEPLOYER_AUTHORITIES: frozenset[str] = frozenset({
     # Moonshot (Moonshot.fun)
     "MoonCVVNZFSYkqNXP6bxHLPL6QQJiMEfzPWlVMMf9Ly",     # Moonshot program
     "Ce6TQqeHC9p8KetsN6JsjHK7UTZk7nasjjnr7XxXp9F1",    # Moonshot fee/authority
-    "7rtiKSUDLBm59b1SBmD9oajcP8xE64vAGSMbAN5CXy1q",    # Moonshot relay / session signer
     # LetsBonk
     "4wTV81rvZBKW8vFJX9PMwn5n46sYr6HfkWMqJjpPbZ6M",     # LetsBonk program
     # Believe / Degen

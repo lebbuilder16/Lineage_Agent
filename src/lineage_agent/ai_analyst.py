@@ -99,6 +99,9 @@ Scoring guide:
 - 75-89:  Strong indicators, high suspicion — at least 2 hard signals + supporting context
 - 50-74:  Moderate risk — concerning signals but could have alternative explanations
 - <50:    Low risk or insufficient data
+- Pre-DEX bonding-curve tokens (not yet on any DEX): MUST score ≤ 40 unless bundle \
+coordination or SOL extraction is directly evidenced. Zero deployer balance and absent \
+DEX pools are NOT proof of wrongdoing on a pre-DEX token.
 
 OUTPUT LANGUAGE — MANDATORY — NO EXCEPTIONS:
 The people reading your report are ordinary investors, NOT developers or engineers.
@@ -215,6 +218,12 @@ def _heuristic_score(
     Used to pick the model (Haiku vs Sonnet) AND injected into the prompt
     as a weak signal. Covers 13 independent signals.
     """
+    # Pre-DEX bonding-curve tokens: no forensic signal is valid.
+    # Return a low baseline so the model selector stays on Haiku and the
+    # prompt receives a non-inflating pre-score anchor.
+    if _is_launchpad_pre_dex_context(lineage):
+        return 10
+
     score = 0
 
     # ── Bundle signals ────────────────────────────────────────────────────
@@ -1087,11 +1096,12 @@ def _sanity_check(
 
     if _is_launchpad_pre_dex_context(lineage) and not _has_pre_dex_extraction_proof(bundle, sol_flow):
         if result.get("risk_score") is not None:
-            result["risk_score"] = min(result["risk_score"], 60)
+            result["risk_score"] = min(result["risk_score"], 40)  # hard cap: no DEX = no DEX rug
         result["confidence"] = "low"
         result["rug_pattern"] = "unknown"
         result["verdict_summary"] = (
-            "Pre-DEX launchpad token; current data does not prove a DEX rug or deployer cash-out."
+            "Token is still trading on its launchpad bonding curve and has not graduated "
+            "to a DEX. No liquidity rug or deployer cash-out is provable from current data."
         )
         findings = result.get("key_findings") or []
         prefix = "[CAVEAT] Token is still in launchpad / pre-DEX context; no DEX-liquidity rug is proven from current evidence."
