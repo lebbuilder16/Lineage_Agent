@@ -17,7 +17,19 @@ import logging
 import time
 from typing import Any, Optional
 
+from config import FORENSIC_CACHE_VERSION
+
 logger = logging.getLogger(__name__)
+
+_AI_CACHE_PREFIX = f"ai:{FORENSIC_CACHE_VERSION}"
+
+
+def _current_ai_cache_key(mint: str) -> str:
+    return f"{_AI_CACHE_PREFIX}:{mint}"
+
+
+def _legacy_ai_cache_key(mint: str) -> str:
+    return f"ai:v3:{mint}"
 
 
 class TTLCache:
@@ -63,6 +75,13 @@ class TTLCache:
     def invalidate(self, key: str) -> None:
         """Remove a specific key."""
         self._store.pop(key, None)
+
+    def invalidate_prefix(self, prefix: str) -> int:
+        """Remove all keys that start with ``prefix`` and return the count."""
+        matching_keys = [key for key in self._store if key.startswith(prefix)]
+        for key in matching_keys:
+            self._store.pop(key, None)
+        return len(matching_keys)
 
     def clear(self) -> None:
         """Drop all cached entries."""
@@ -134,6 +153,9 @@ class TTLCache:
     async def sol_flows_query(self, mint: str) -> list[dict]:
         return []
 
+    async def sol_flows_delete(self, mint: str) -> None:
+        return None
+
     async def sol_flows_query_by_from(self, from_address: str) -> list[dict]:
         return []
 
@@ -157,6 +179,9 @@ class TTLCache:
         pass
 
     async def bundle_report_query(self, mint: str, max_age_seconds: float = 86400.0) -> Optional[str]:
+        return None
+
+    async def bundle_report_delete(self, mint: str) -> None:
         return None
 
     # Stubs for community_lookup (no-ops without SQLite)
@@ -676,6 +701,20 @@ class SQLiteCache:
         except Exception:
             logger.warning("SQLite cache clear failed", exc_info=True)
 
+    async def invalidate_prefix(self, prefix: str) -> int:
+        """Delete all cache keys that start with ``prefix`` and return the count."""
+        try:
+            db = await self._get_conn()
+            cursor = await db.execute(
+                "DELETE FROM cache WHERE key LIKE ?",
+                (f"{prefix}%",),
+            )
+            await db.commit()
+            return cursor.rowcount or 0
+        except Exception:
+            logger.warning("SQLite cache prefix invalidate failed for %s", prefix, exc_info=True)
+            return 0
+
     async def purge_expired(self) -> int:
         """Delete expired entries. Returns number of rows removed."""
         try:
@@ -736,8 +775,9 @@ class SQLiteCache:
             # P0-C: invalidate stale AI analysis whenever a token is confirmed rugged
             mint_val = kwargs.get("mint")
             if kwargs.get("event_type") == "token_rugged" and mint_val:
-                await self.invalidate(f"ai:v3:{mint_val}")
-                logger.debug("[cache] invalidated ai:v3:%s after token_rugged event", mint_val[:12])
+                await self.invalidate(_current_ai_cache_key(mint_val))
+                await self.invalidate(_legacy_ai_cache_key(mint_val))
+                logger.debug("[cache] invalidated AI cache for %s after token_rugged event", mint_val[:12])
 
         except Exception:
             logger.warning("intelligence_events insert failed", exc_info=True)
@@ -899,6 +939,15 @@ class SQLiteCache:
             logger.warning("sol_flows_query failed", exc_info=True)
             return []
 
+    async def sol_flows_delete(self, mint: str) -> None:
+        """Delete all SOL flow edges for a mint address."""
+        try:
+            db = await self._get_conn()
+            await db.execute("DELETE FROM sol_flows WHERE mint = ?", (mint,))
+            await db.commit()
+        except Exception:
+            logger.warning("sol_flows_delete failed for %s", mint, exc_info=True)
+
     async def sol_flows_query_by_from(self, from_address: str) -> list[dict]:
         """Return all SOL flow edges originating from a wallet."""
         try:
@@ -1030,6 +1079,15 @@ class SQLiteCache:
         except Exception:
             logger.warning("bundle_report_query failed for %s", mint, exc_info=True)
             return None
+
+    async def bundle_report_delete(self, mint: str) -> None:
+        """Delete a cached bundle report for *mint*."""
+        try:
+            db = await self._get_conn()
+            await db.execute("DELETE FROM bundle_reports WHERE mint = ?", (mint,))
+            await db.commit()
+        except Exception:
+            logger.warning("bundle_report_delete failed for %s", mint, exc_info=True)
 
     # ------------------------------------------------------------------
     # Community lookup (cartel community_id → sample wallet)

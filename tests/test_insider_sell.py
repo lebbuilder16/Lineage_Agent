@@ -105,6 +105,18 @@ class TestFillMarketSignals:
         assert r.applicability.value == "not_applicable"
         assert "market_signals_not_applicable_for_non_dex_surface" in r.reason_codes
 
+    def test_market_signals_do_not_infer_dex_when_pair_inference_disabled(self):
+        pair = _make_pair()
+        r = InsiderSellReport(mint=MINT)
+        _fill_market_signals(
+            r,
+            [pair],
+            market_surface=MarketSurface.NO_MARKET_OBSERVED,
+            infer_from_pairs=False,
+        )
+        assert r.sell_pressure_24h is None
+        assert r.applicability.value == "not_applicable"
+
 
 # ---------------------------------------------------------------------------
 # _apply_flags
@@ -282,6 +294,25 @@ class TestAnalyzeInsiderSellLaunchpadContext:
                 launch_platform="moonshot",
                 lifecycle_stage=LifecycleStage.LAUNCHPAD_CURVE_ONLY,
                 market_surface=MarketSurface.LAUNCHPAD_CURVE_ONLY,
+            )
+
+        assert report.deployer_exited is False
+        assert report.verdict == "clean"
+        assert "DEPLOYER_EXITED" not in report.flags
+        assert report.wallet_events[0].balance_context == "zero_balance_expected_by_protocol"
+
+    @pytest.mark.asyncio
+    async def test_migration_pending_zero_balance_not_marked_as_exit(self, rpc):
+        with patch.object(rpc, "get_wallet_token_balance", new_callable=AsyncMock, return_value=0.0):
+            report = await analyze_insider_sell(
+                mint=MINT,
+                deployer=DEPLOYER,
+                linked_wallets=[],
+                pairs=[_make_pair()],
+                rpc=rpc,
+                launch_platform="moonshot",
+                lifecycle_stage=LifecycleStage.MIGRATION_PENDING,
+                market_surface=MarketSurface.CONFLICTING,
             )
 
         assert report.deployer_exited is False

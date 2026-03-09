@@ -15,6 +15,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from lineage_agent.ai_analyst import (
+    _build_unified_response,
     _build_prompt,
     _compute_timing_fingerprint,
     _extract_deployer,
@@ -412,6 +413,98 @@ class TestAnalyzeToken:
         assert result is not None
         assert result.get("parse_error") is True
 
+    @pytest.mark.asyncio
+    async def test_uses_versioned_ai_cache_key(self):
+        payload = {
+            "risk_score": 42,
+            "confidence": "low",
+            "rug_pattern": "unknown",
+            "verdict_summary": "Test",
+            "narrative": {"observation": "obs", "pattern": "pat", "risk": "risk"},
+            "key_findings": [],
+            "wallet_classifications": {},
+            "conviction_chain": "chain",
+            "operator_hypothesis": "hyp",
+        }
+        mock_response = self._make_mock_response(payload)
+        mock_client = AsyncMock()
+        mock_client.messages.create = AsyncMock(return_value=mock_response)
+        cache = MagicMock()
+        cache.get = MagicMock(return_value=None)
+        cache.set = MagicMock(return_value=None)
+
+        with patch("lineage_agent.ai_analyst._get_client", return_value=mock_client):
+            lineage = _ns(
+                root=_ns(name="TestToken", symbol="TST", deployer="A" * 44, created_at="2025-01-01"),
+                query_is_root=True,
+                derivatives=[],
+                confidence=0.9,
+                zombie_alert=None,
+                death_clock=None,
+                deployer_profile=None,
+            )
+            await analyze_token(MINT, lineage_result=lineage, cache=cache)
+
+        cache_key = cache.get.call_args.args[0]
+        assert cache_key.startswith("ai:forensic-v2:")
+
+    @pytest.mark.asyncio
+    async def test_deployer_history_excludes_unproven_rugs(self):
+        payload = {
+            "risk_score": 42,
+            "confidence": "low",
+            "rug_pattern": "unknown",
+            "verdict_summary": "Test",
+            "narrative": {"observation": "obs", "pattern": "pat", "risk": "risk"},
+            "key_findings": [],
+            "wallet_classifications": {},
+            "conviction_chain": "chain",
+            "operator_hypothesis": "hyp",
+        }
+        mock_response = self._make_mock_response(payload)
+        mock_client = AsyncMock()
+        mock_client.messages.create = AsyncMock(return_value=mock_response)
+        cache = MagicMock()
+        cache.get = MagicMock(return_value=None)
+        cache.set = MagicMock(return_value=None)
+        cache.query_events = AsyncMock(return_value=[
+            {
+                "mint": "A" * 32,
+                "name": "Unproven",
+                "rugged_at": "2025-01-01T00:00:00+00:00",
+                "mcap_usd": 1000,
+                "rug_mechanism": "unproven_abandonment",
+                "evidence_level": "weak",
+            },
+            {
+                "mint": "B" * 32,
+                "name": "Confirmed",
+                "rugged_at": "2025-01-02T00:00:00+00:00",
+                "mcap_usd": 2000,
+                "rug_mechanism": "dex_liquidity_rug",
+                "evidence_level": "strong",
+            },
+        ])
+
+        with patch("lineage_agent.ai_analyst._get_client", return_value=mock_client), patch(
+            "lineage_agent.ai_analyst.normalize_legacy_rug_events",
+            new=AsyncMock(return_value=1),
+        ):
+            lineage = _ns(
+                root=_ns(name="TestToken", symbol="TST", deployer="A" * 44, created_at="2025-01-01"),
+                query_is_root=True,
+                derivatives=[],
+                confidence=0.9,
+                zombie_alert=None,
+                death_clock=None,
+                deployer_profile=None,
+            )
+            await analyze_token(MINT, lineage_result=lineage, cache=cache)
+
+        prompt = mock_client.messages.create.await_args.kwargs["messages"][0]["content"]
+        assert "Confirmed" in prompt
+        assert "Unproven" not in prompt
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # get_cached_bundle_report in bundle_tracker_service
@@ -439,6 +532,59 @@ class TestGetCachedBundleReport:
             from lineage_agent.bundle_tracker_service import get_cached_bundle_report
             result = await get_cached_bundle_report(MINT)
         assert result is None
+
+    @pytest.mark.asyncio
+    async def test_force_refresh_bypasses_cache_and_deletes_stale_report(self):
+        with patch(
+            "lineage_agent.bundle_tracker_service.bundle_report_delete",
+            new_callable=AsyncMock,
+        ) as mock_delete, patch(
+            "lineage_agent.bundle_tracker_service.bundle_report_query",
+            new_callable=AsyncMock,
+        ) as mock_query:
+            from lineage_agent.bundle_tracker_service import get_cached_bundle_report
+            result = await get_cached_bundle_report(MINT, force_refresh=True)
+        assert result is None
+        mock_delete.assert_awaited_once_with(MINT)
+        mock_query.assert_not_called()
+
+
+class TestBuildUnifiedResponse:
+    def test_pre_dex_context_hides_dex_market_fields(self):
+        query_token = _ns(
+            mint=MINT,
+            name="MoonshotToken",
+            symbol="MOON",
+            image_uri="",
+            deployer="D" * 44,
+            created_at=None,
+            market_cap_usd=12345.0,
+            liquidity_usd=456.0,
+            dex_url="https://dex.example/token",
+            launch_platform="moonshot",
+            lifecycle_stage="migration_pending",
+            market_surface="conflicting",
+            evidence_level="moderate",
+        )
+        lineage = _ns(
+            query_token=query_token,
+            root=query_token,
+            derivatives=[_ns(mint="Clone1", name="Clone", symbol="CLN", generation=1, deployer="X" * 44, created_at=None, market_cap_usd=999.0, evidence=_ns(composite_score=0.8))],
+        )
+        ai_result = {
+            "risk_score": 25,
+            "confidence": "low",
+            "key_findings": [],
+        }
+
+        response = _build_unified_response(MINT, ai_result, lineage=lineage)
+
+        assert response["token"]["market_cap_usd"] is None
+        assert response["token"]["liquidity_usd"] is None
+        assert response["token"]["dex_url"] == ""
+        assert response["token"]["data_context"] == "pre_dex_or_unconfirmed_market_surface"
+        assert response["evidence"]["clone_tokens"][0]["market_cap_usd"] is None
+        assert response["ai_analysis"]["key_findings"][0].startswith("[CAVEAT]")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -713,7 +859,7 @@ class TestComputeTimingFingerprint:
 # ─────────────────────────────────────────────────────────────────────────────
 
 class TestGatherBehavioralSignals:
-    def _make_cache(self, phash_rows=None, cluster_rows=None, timing_rows=None):
+    def _make_cache(self, phash_rows=None, cluster_rows=None, created_rows=None, rugged_rows=None):
         """Build an AsyncMock cache that returns preset rows per query."""
         cache = AsyncMock()
 
@@ -722,8 +868,10 @@ class TestGatherBehavioralSignals:
                 return phash_rows or []
             if "phash = ?" in where:
                 return cluster_rows or []
-            if "created_at IS NOT NULL" in where:
-                return timing_rows or []
+            if "event_type = 'token_rugged'" in where:
+                return rugged_rows or []
+            if "event_type = 'token_created'" in where and "created_at IS NOT NULL" in where:
+                return created_rows or []
             return []
 
         cache.query_events = _query_events
@@ -741,7 +889,15 @@ class TestGatherBehavioralSignals:
         cache = self._make_cache(
             phash_rows=[{"phash": "abc123"}],
             cluster_rows=[
-                {"mint": "OTHER111111", "name": "CloneToken", "deployer": "DEP111", "created_at": "2026-01-01", "rugged_at": "2026-01-02"},
+                {"mint": "OTHER111111", "name": "CloneToken", "deployer": "DEP111", "created_at": "2026-01-01"},
+            ],
+            rugged_rows=[
+                {
+                    "mint": "OTHER111111",
+                    "rugged_at": "2026-01-02",
+                    "rug_mechanism": "dex_liquidity_rug",
+                    "evidence_level": "strong",
+                }
             ],
         )
         result = await _gather_behavioral_signals(MINT, None, cache)
@@ -777,11 +933,28 @@ class TestGatherBehavioralSignals:
             root=_ns(deployer="DEPLOYER_ABC_123"),
             query_token=None,
         )
-        timing_rows = [
-            {"created_at": "2026-01-01T14:00:00+00:00", "rugged_at": "2026-01-01T16:00:00+00:00"},
-            {"created_at": "2026-01-02T14:00:00+00:00", "rugged_at": "2026-01-02T17:00:00+00:00"},
-        ]
-        cache = self._make_cache(timing_rows=timing_rows)
+        cache = self._make_cache(
+            created_rows=[
+                {"mint": "MINT_A", "created_at": "2026-01-01T14:00:00+00:00"},
+                {"mint": "MINT_B", "created_at": "2026-01-02T14:00:00+00:00"},
+            ],
+            rugged_rows=[
+                {
+                    "mint": "MINT_A",
+                    "created_at": "2026-01-01T14:00:00+00:00",
+                    "rugged_at": "2026-01-01T16:00:00+00:00",
+                    "rug_mechanism": "dex_liquidity_rug",
+                    "evidence_level": "strong",
+                },
+                {
+                    "mint": "MINT_B",
+                    "created_at": "2026-01-02T14:00:00+00:00",
+                    "rugged_at": "2026-01-02T17:00:00+00:00",
+                    "rug_mechanism": "pre_dex_extraction_rug",
+                    "evidence_level": "strong",
+                },
+            ],
+        )
         result = await _gather_behavioral_signals(MINT, lineage, cache)
         assert "timing_pattern" in result
         tp = result["timing_pattern"]

@@ -6,7 +6,7 @@ These tests use FastAPI's TestClient with mocked external services
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from httpx import AsyncClient, ASGITransport
@@ -484,3 +484,98 @@ def test_ws_lineage_result_contains_scanned_at():
     scanned_at_str = final["result"].get("scanned_at")
     assert scanned_at_str is not None
     assert "2026-03-07" in scanned_at_str
+
+
+@pytest.mark.anyio
+async def test_analyze_force_refresh_is_forwarded_to_detect_lineage(client):
+    fake_lineage = LineageResult(
+        mint=_WS_MINT,
+        query_token=TokenMetadata(mint=_WS_MINT, name="Token", symbol="TKN"),
+        root=TokenMetadata(mint=_WS_MINT, name="Token", symbol="TKN"),
+        confidence=0.9,
+        derivatives=[],
+        family_size=1,
+    )
+    mock_detect = AsyncMock(return_value=fake_lineage)
+
+    with patch("lineage_agent.api.detect_lineage", mock_detect), patch(
+        "lineage_agent.api.get_sol_flow_report",
+        new_callable=AsyncMock,
+        return_value=None,
+    ), patch(
+        "lineage_agent.bundle_tracker_service.get_cached_bundle_report",
+        new_callable=AsyncMock,
+        return_value=None,
+    ), patch(
+        "lineage_agent.ai_analyst.analyze_token",
+        new_callable=AsyncMock,
+        return_value={"risk_score": 12, "confidence": "low", "key_findings": []},
+    ), patch(
+        "lineage_agent.ai_analyst._build_unified_response",
+        return_value={"mint": _WS_MINT, "risk_score": 12},
+    ):
+        resp = await client.get(f"/analyze/{_WS_MINT}", params={"force_refresh": True})
+
+    assert resp.status_code == 200
+    _, kwargs = mock_detect.call_args
+    assert kwargs.get("force_refresh") is True
+
+
+@pytest.mark.anyio
+async def test_analyze_force_refresh_recomputes_bundle_and_sol_flow(client):
+    fake_lineage = LineageResult(
+        mint=_WS_MINT,
+        query_token=TokenMetadata(
+            mint=_WS_MINT,
+            name="Token",
+            symbol="TKN",
+            deployer="D" * 44,
+            launch_platform="moonshot",
+            lifecycle_stage="migration_pending",
+            market_surface="conflicting",
+        ),
+        root=TokenMetadata(mint=_WS_MINT, name="Token", symbol="TKN", deployer="D" * 44),
+        confidence=0.9,
+        derivatives=[],
+        family_size=1,
+    )
+    fake_bundle = MagicMock()
+    fake_bundle.overall_verdict = "confirmed_team_extraction"
+    fake_bundle.confirmed_team_wallets = ["W" * 44]
+    fake_bundle.suspected_team_wallets = []
+    fake_bundle.coordinated_dump_wallets = []
+    fake_sol = MagicMock()
+
+    with patch("lineage_agent.api.detect_lineage", new_callable=AsyncMock, return_value=fake_lineage) as mock_detect, patch(
+        "lineage_agent.api._load_analyze_supporting_reports",
+        new_callable=AsyncMock,
+        return_value=(fake_bundle, fake_sol),
+    ) as mock_support, patch(
+        "lineage_agent.ai_analyst.analyze_token",
+        new_callable=AsyncMock,
+        return_value={"risk_score": 12, "confidence": "low", "key_findings": []},
+    ), patch(
+        "lineage_agent.ai_analyst._build_unified_response",
+        return_value={"mint": _WS_MINT, "risk_score": 12},
+    ):
+        resp = await client.get(f"/analyze/{_WS_MINT}", params={"force_refresh": True})
+
+    assert resp.status_code == 200
+    mock_detect.assert_awaited_once()
+    mock_support.assert_awaited_once()
+    support_args, support_kwargs = mock_support.call_args
+    assert support_args[0] == _WS_MINT
+    assert support_kwargs["force_refresh"] is True
+
+
+@pytest.mark.anyio
+async def test_purge_legacy_forensic_cache_namespaces_uses_prefix_deletes():
+    with patch(
+        "lineage_agent.api.cache_delete_prefix",
+        new=AsyncMock(side_effect=[2, 3]),
+    ) as mock_delete:
+        from lineage_agent.api import _purge_legacy_forensic_cache_namespaces
+        await _purge_legacy_forensic_cache_namespaces()
+
+    assert mock_delete.await_args_list[0].args[0] == "ai:v3:"
+    assert mock_delete.await_args_list[1].args[0] == "lineage:v4:"

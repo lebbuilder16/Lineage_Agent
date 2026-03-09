@@ -177,6 +177,40 @@ async def test_get_global_stats_filters_unconfirmed_negative_outcomes_from_confi
     assert result.negative_outcome_rate_24h_pct == pytest.approx(100.0, rel=0.01)
 
 
+@pytest.mark.asyncio
+async def test_get_global_stats_normalizes_legacy_rugs_before_confirmed_count():
+    created = [_created_row("MINT1", "DEP1", "pepe")]
+    rugged_queries = [
+        [{"mint": "MINT1", "rug_mechanism": None, "evidence_level": None}],
+        [{"mint": "MINT1", "rug_mechanism": "dex_liquidity_rug", "evidence_level": "strong"}],
+    ]
+
+    async def mock_event_query(where, params, columns, limit=None):
+        if "token_rugged" in where:
+            return rugged_queries.pop(0)
+        if "COUNT(*)" in columns:
+            return [{"cnt": 5}]
+        if "narrative" in columns and "narrative IS NOT NULL" in where:
+            return created
+        return created
+
+    with patch("lineage_agent.data_sources._clients.event_query", side_effect=mock_event_query), patch(
+        "lineage_agent.api.normalize_legacy_rug_events", new=AsyncMock(return_value=1)
+    ) as mock_normalize:
+        import lineage_agent.api as api_mod
+        api_mod._stats_cache = None
+        from lineage_agent.api import get_global_stats
+        from fastapi import Request
+        req = MagicMock(spec=Request)
+        req.app = MagicMock()
+        result = await get_global_stats.__wrapped__(req)
+
+    mock_normalize.assert_awaited_once_with(mints=["MINT1"])
+    assert result.tokens_rugged_24h == 1
+    assert result.tokens_negative_outcomes_24h == 1
+    assert result.rug_rate_24h_pct == pytest.approx(100.0, rel=0.01)
+
+
 # ---------------------------------------------------------------------------
 # GlobalStats model serialisation
 # ---------------------------------------------------------------------------

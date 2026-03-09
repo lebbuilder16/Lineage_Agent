@@ -15,6 +15,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from lineage_agent.cache import SQLiteCache
+from lineage_agent.constants import estimate_extraction_rate
 from lineage_agent.models import (
     BundleExtractionReport,
     EvidenceLevel,
@@ -584,6 +585,30 @@ class TestSolFlowReport:
         assert result.flows[0].amount_sol == pytest.approx(5.0)
         assert result.total_extracted_sol == pytest.approx(5.0)
 
+    @pytest.mark.asyncio
+    async def test_force_refresh_clears_seeded_flows(self, cache):
+        mint = "FlowRefreshMint" + "Y" * 29
+        flows = [
+            {
+                "mint": mint,
+                "from_address": _DEPLOYER_A,
+                "to_address": _DEPLOYER_B,
+                "amount_lamports": 2_000_000_000,
+                "signature": "sig-refresh-1" + "X" * 70,
+                "slot": 100123,
+                "block_time": int(_NOW.timestamp()),
+                "hop": 0,
+            }
+        ]
+        await cache.sol_flow_insert_batch(flows)
+
+        from lineage_agent.sol_flow_service import get_sol_flow_report
+        refreshed = await get_sol_flow_report(mint, force_refresh=True)
+        rows = await cache.sol_flows_query(mint)
+
+        assert refreshed is None
+        assert rows == []
+
 
 # ── Cartel Report (DB read path) ─────────────────────────────────────────────
 
@@ -624,6 +649,71 @@ class TestCartelReport:
             assert c.total_tokens_launched >= 3
             assert c.confidence in ("high", "medium", "low")
 
+    @pytest.mark.asyncio
+    async def test_counts_only_confirmed_rugs_for_community(self, cache):
+        wallet_a = "CartelConfirmedA" + "X" * 28
+        wallet_b = "CartelConfirmedB" + "X" * 28
+        mint_a = "CartelMintA" + "X" * 31
+        mint_b = "CartelMintB" + "X" * 31
+
+        await cache.cartel_edge_upsert(
+            wallet_a=wallet_a,
+            wallet_b=wallet_b,
+            signal_type="dna_match",
+            signal_strength=0.95,
+            evidence={"fingerprint": "abc"},
+        )
+        await cache.insert_event(
+            event_type="token_created",
+            mint=mint_a,
+            deployer=wallet_a,
+            name="A",
+            symbol="A",
+            narrative="meme",
+            mcap_usd=10_000,
+            created_at=_NOW.isoformat(),
+        )
+        await cache.insert_event(
+            event_type="token_created",
+            mint=mint_b,
+            deployer=wallet_b,
+            name="B",
+            symbol="B",
+            narrative="meme",
+            mcap_usd=20_000,
+            created_at=_NOW.isoformat(),
+        )
+        await cache.insert_event(
+            event_type="token_rugged",
+            mint=mint_a,
+            deployer=wallet_a,
+            rugged_at=_NOW.isoformat(),
+            mcap_usd=10_000,
+            rug_mechanism=RugMechanism.DEX_LIQUIDITY_RUG.value,
+            evidence_level=EvidenceLevel.STRONG.value,
+        )
+        await cache.insert_event(
+            event_type="token_rugged",
+            mint=mint_b,
+            deployer=wallet_b,
+            rugged_at=_NOW.isoformat(),
+            mcap_usd=20_000,
+            rug_mechanism=RugMechanism.UNPROVEN_ABANDONMENT.value,
+            evidence_level=EvidenceLevel.WEAK.value,
+        )
+
+        from lineage_agent.cartel_service import compute_cartel_report
+        result = await compute_cartel_report(mint_a, wallet_a)
+
+        assert result is not None
+        assert result.deployer_community is not None
+        community = result.deployer_community
+        assert community.total_rugs == 1
+        assert community.estimated_extracted_usd == pytest.approx(
+            10_000 * estimate_extraction_rate(10_000),
+            rel=0.001,
+        )
+
 
 # ── Operator Fingerprint (unit logic) ────────────────────────────────────────
 
@@ -641,3 +731,66 @@ class TestOperatorFingerprint:
             ("mint1", _DEPLOYER_A, "https://arweave.net/abc123"),
         ])
         assert result is None  # need ≥ 2 entries
+
+    @pytest.mark.asyncio
+    async def test_linked_wallet_tokens_do_not_mark_unproven_rugs_as_confirmed(self, cache, monkeypatch):
+        wallet_a = "DNAWalletA" + "X" * 33
+        wallet_b = "DNAWalletB" + "X" * 33
+        mint_a = "DNAMintA" + "X" * 35
+        mint_b = "DNAMintB" + "X" * 35
+
+        await cache.insert_event(
+            event_type="token_created",
+            mint=mint_a,
+            deployer=wallet_a,
+            name="TokenA",
+            symbol="TA",
+            narrative="meme",
+            mcap_usd=10_000,
+            created_at=_NOW.isoformat(),
+        )
+        await cache.insert_event(
+            event_type="token_created",
+            mint=mint_b,
+            deployer=wallet_b,
+            name="TokenB",
+            symbol="TB",
+            narrative="meme",
+            mcap_usd=12_000,
+            created_at=_NOW.isoformat(),
+        )
+        await cache.insert_event(
+            event_type="token_rugged",
+            mint=mint_a,
+            deployer=wallet_a,
+            rugged_at=_NOW.isoformat(),
+            rug_mechanism=RugMechanism.UNPROVEN_ABANDONMENT.value,
+            evidence_level=EvidenceLevel.WEAK.value,
+        )
+        await cache.insert_event(
+            event_type="token_rugged",
+            mint=mint_b,
+            deployer=wallet_b,
+            rugged_at=_NOW.isoformat(),
+            rug_mechanism=RugMechanism.DEX_LIQUIDITY_RUG.value,
+            evidence_level=EvidenceLevel.STRONG.value,
+        )
+
+        async def _fake_fp(mint: str, uri: str):
+            return ("shared-fp", "shared description")
+
+        monkeypatch.setattr("lineage_agent.metadata_dna_service._get_fingerprint", _fake_fp)
+
+        from lineage_agent.metadata_dna_service import build_operator_fingerprint
+        result = await build_operator_fingerprint([
+            (mint_a, wallet_a, "https://arweave.net/a"),
+            (mint_b, wallet_b, "https://arweave.net/b"),
+        ])
+
+        assert result is not None
+        tokens_a = result.linked_wallet_tokens[wallet_a]
+        tokens_b = result.linked_wallet_tokens[wallet_b]
+        assert tokens_a[0].rug_mechanism == RugMechanism.UNPROVEN_ABANDONMENT.value
+        assert tokens_a[0].rugged_at is None
+        assert tokens_b[0].rug_mechanism == RugMechanism.DEX_LIQUIDITY_RUG.value
+        assert tokens_b[0].rugged_at is not None

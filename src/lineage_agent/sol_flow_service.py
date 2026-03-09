@@ -21,6 +21,7 @@ from .data_sources._clients import (
     get_jup_client,
     get_rpc_client,
     sol_flow_insert_batch,
+    sol_flows_delete,
     sol_flows_query,
 )
 from .bridge_tracker import CrossChainExit, detect_bridge_exits
@@ -131,9 +132,12 @@ async def _enrich_partial(flows: list[dict], rpc) -> dict:
         return {}
 
 
-async def get_sol_flow_report(mint: str) -> Optional[SolFlowReport]:
+async def get_sol_flow_report(mint: str, *, force_refresh: bool = False) -> Optional[SolFlowReport]:
     """Return a pre-computed SolFlowReport from DB if available."""
     try:
+        if force_refresh:
+            await sol_flows_delete(mint)
+            return None
         rows = await sol_flows_query(mint)
         if not rows:
             return None

@@ -40,6 +40,19 @@ class TestTTLCache:
         cache = TTLCache(default_ttl=60)
         cache.invalidate("nonexistent")  # should not raise
 
+    def test_invalidate_prefix(self):
+        cache = TTLCache(default_ttl=60)
+        cache.set("ai:v3:one", 1)
+        cache.set("ai:v3:two", 2)
+        cache.set("ai:forensic-v2:three", 3)
+
+        removed = cache.invalidate_prefix("ai:v3:")
+
+        assert removed == 2
+        assert cache.get("ai:v3:one") is None
+        assert cache.get("ai:v3:two") is None
+        assert cache.get("ai:forensic-v2:three") == 3
+
     def test_clear(self):
         cache = TTLCache(default_ttl=60)
         cache.set("a", 1)

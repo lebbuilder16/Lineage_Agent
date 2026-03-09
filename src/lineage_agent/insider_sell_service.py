@@ -88,8 +88,14 @@ async def analyze_insider_sell(
     )
 
     inferred_market_surface = market_surface
+    allow_pair_inference = (
+        not launch_platform
+        and lifecycle_stage == LifecycleStage.UNKNOWN
+        and inferred_market_surface == MarketSurface.NO_MARKET_OBSERVED
+    )
     if (
-        inferred_market_surface == MarketSurface.NO_MARKET_OBSERVED
+        allow_pair_inference
+        and inferred_market_surface == MarketSurface.NO_MARKET_OBSERVED
         and any((p.get("chainId") or "").lower() == "solana" for p in pairs)
     ):
         inferred_market_surface = MarketSurface.DEX_POOL_OBSERVED
@@ -98,7 +104,12 @@ async def analyze_insider_sell(
             report.lifecycle_stage = LifecycleStage.DEX_LISTED
 
     # ── Step 1: Market signals from DexScreener ───────────────────────────
-    _fill_market_signals(report, pairs, market_surface=inferred_market_surface)
+    _fill_market_signals(
+        report,
+        pairs,
+        market_surface=inferred_market_surface,
+        infer_from_pairs=allow_pair_inference,
+    )
 
     # ── Step 2: On-chain balance snapshots ───────────────────────────────
     # Check deployer + up to 3 linked wallets; fire in parallel.
@@ -148,10 +159,11 @@ def _fill_market_signals(
     pairs: list[dict[str, Any]],
     *,
     market_surface: MarketSurface = MarketSurface.NO_MARKET_OBSERVED,
+    infer_from_pairs: bool = True,
 ) -> None:
     """Aggregate txns, priceChange, and volume across all Solana pairs."""
     solana = [p for p in pairs if (p.get("chainId") or "").lower() == "solana"]
-    if market_surface == MarketSurface.NO_MARKET_OBSERVED and solana:
+    if market_surface == MarketSurface.NO_MARKET_OBSERVED and solana and infer_from_pairs:
         market_surface = MarketSurface.DEX_POOL_OBSERVED
 
     if market_surface != MarketSurface.DEX_POOL_OBSERVED:
@@ -230,7 +242,7 @@ async def _fetch_balance(
         )
         zero_balance_expected = (
             role == "deployer"
-            and lifecycle_stage == LifecycleStage.LAUNCHPAD_CURVE_ONLY
+            and lifecycle_stage != LifecycleStage.DEX_LISTED
             and (launch_platform or "") in BONDING_CURVE_LAUNCHPAD_PLATFORMS
             and balance == 0.0
         )
@@ -333,7 +345,10 @@ def _compute_risk_score(report: InsiderSellReport) -> float:
 
 
 def _compute_verdict(report: InsiderSellReport) -> str:
-    if report.lifecycle_stage == LifecycleStage.LAUNCHPAD_CURVE_ONLY:
+    if report.lifecycle_stage in (
+        LifecycleStage.LAUNCHPAD_CURVE_ONLY,
+        LifecycleStage.MIGRATION_PENDING,
+    ):
         return "clean"
     if "INSIDER_DUMP_CONFIRMED" in report.flags:
         return "insider_dump"

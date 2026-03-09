@@ -31,7 +31,8 @@ from .data_sources._clients import (
     get_img_client,
     operator_mapping_upsert,
 )
-from .models import DeployerTokenSummary, OperatorFingerprint
+from .models import DeployerTokenSummary, EvidenceLevel, OperatorFingerprint, RugMechanism
+from .rug_detector import normalize_legacy_rug_events
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +75,24 @@ _SERVICE_PATTERNS: list[tuple[str, str]] = [
     (r"pump\.fun/", "pumpfun"),
     (r"bafkreia?[a-z0-9]{50,}", "ipfs"),  # IPFS CIDv1 inline
 ]
+
+_CONFIRMED_EVIDENCE_LEVELS = {EvidenceLevel.MODERATE.value, EvidenceLevel.STRONG.value}
+_CONFIRMED_RUG_MECHANISMS = {
+    RugMechanism.DEX_LIQUIDITY_RUG.value,
+    RugMechanism.PRE_DEX_EXTRACTION_RUG.value,
+}
+
+
+def _is_confirmed_linked_wallet_rug(row: dict) -> bool:
+    mechanism = (row.get("rug_mechanism") or "").strip()
+    evidence_level = (row.get("evidence_level") or "").strip()
+    if not mechanism:
+        return True
+    if mechanism not in _CONFIRMED_RUG_MECHANISMS:
+        return False
+    if not evidence_level:
+        return True
+    return evidence_level in _CONFIRMED_EVIDENCE_LEVELS
 
 
 async def build_operator_fingerprint(
@@ -197,16 +216,22 @@ async def _fetch_linked_wallet_tokens(
                 limit=limit_per_wallet,
                 order_by="recorded_at DESC",
             )
+            mints = [row.get("mint", "") for row in rows if row.get("mint")]
+            rugged_map: dict[str, dict] = {}
+            if mints:
+                await normalize_legacy_rug_events(mints=mints)
+                placeholders = ",".join("?" for _ in mints)
+                rugged_rows = await event_query(
+                    where=f"event_type = 'token_rugged' AND mint IN ({placeholders})",
+                    params=tuple(mints),
+                    columns="mint, rugged_at, rug_mechanism, evidence_level",
+                    limit=len(mints),
+                )
+                rugged_map = {row.get("mint", ""): row for row in rugged_rows if row.get("mint")}
             tokens = []
             for row in rows:
-                # Fetch rug status for this mint
-                rug_rows = await event_query(
-                    where="event_type = 'token_rugged' AND mint = ?",
-                    params=(row.get("mint", ""),),
-                    columns="rugged_at",
-                    limit=1,
-                )
-                rugged_at_raw = rug_rows[0].get("rugged_at") if rug_rows else None
+                rug_row = rugged_map.get(row.get("mint", ""), {})
+                rugged_at_raw = rug_row.get("rugged_at") if _is_confirmed_linked_wallet_rug(rug_row) else None
                 from datetime import datetime, timezone
 
                 def _parse(v: object):  # noqa: ANN202
@@ -224,6 +249,8 @@ async def _fetch_linked_wallet_tokens(
                     symbol=row.get("symbol") or "",
                     created_at=_parse(row.get("created_at")),
                     rugged_at=_parse(rugged_at_raw),
+                    rug_mechanism=(rug_row.get("rug_mechanism") if rug_row else None),
+                    evidence_level=(rug_row.get("evidence_level") if rug_row else None),
                     mcap_usd=row.get("mcap_usd"),
                     narrative=row.get("narrative") or "",
                 ))

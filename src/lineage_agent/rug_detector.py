@@ -237,7 +237,13 @@ def _classify_pre_dex_extraction(
 def _is_pre_dex_context(token_meta: object) -> bool:
     stage = _norm_enumish(_field_value(token_meta, "lifecycle_stage"))
     surface = _norm_enumish(_field_value(token_meta, "market_surface"))
-    return stage == LifecycleStage.LAUNCHPAD_CURVE_ONLY.value or surface == MarketSurface.LAUNCHPAD_CURVE_ONLY.value
+    return (
+        stage in {
+            LifecycleStage.LAUNCHPAD_CURVE_ONLY.value,
+            LifecycleStage.MIGRATION_PENDING.value,
+        }
+        or surface == MarketSurface.LAUNCHPAD_CURVE_ONLY.value
+    )
 
 
 async def persist_pre_dex_extraction_rug(

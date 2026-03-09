@@ -16,6 +16,7 @@ from typing import Any, Awaitable, Callable, Optional
 
 from config import (
     CACHE_TTL_LINEAGE_SECONDS,
+    FORENSIC_CACHE_VERSION,
     IMAGE_SIMILARITY_THRESHOLD,
     MAX_CONCURRENT_RPC,
     MAX_DERIVATIVES,
@@ -82,6 +83,14 @@ _WEIGHTS = {
     "temporal": WEIGHT_TEMPORAL,
 }
 
+_LAUNCHPAD_CONTENT_HOSTS: dict[str, tuple[str, ...]] = {
+    "moonshot": ("moonshot.com",),
+}
+
+_LAUNCHPAD_MINT_SUFFIXES: dict[str, tuple[str, ...]] = {
+    "moonshot": ("moon",),
+}
+
 
 def classify_market_context(
     asset: Optional[dict[str, Any]],
@@ -109,14 +118,21 @@ def classify_market_context(
             evidence = EvidenceLevel.MODERATE
             reason_codes.append("launchpad_creator_matched")
 
+    if not platform:
+        platform, heuristic_evidence, heuristic_reasons = _infer_launchpad_from_asset_signals(asset)
+        if platform:
+            evidence = heuristic_evidence
+            reason_codes.extend(heuristic_reasons)
+
     if platform and solana_pairs:
-        reason_codes.append("dex_pair_observed")
+        pair_context = _classify_launchpad_pair_context(solana_pairs)
+        reason_codes.extend(pair_context["reason_codes"])
         return {
             "launch_platform": platform,
-            "lifecycle_stage": LifecycleStage.DEX_LISTED,
-            "market_surface": MarketSurface.DEX_POOL_OBSERVED,
-            "evidence_level": evidence,
-            "reason_codes": reason_codes,
+            "lifecycle_stage": pair_context["lifecycle_stage"],
+            "market_surface": pair_context["market_surface"],
+            "evidence_level": pair_context["evidence_level"] or evidence,
+            "reason_codes": list(dict.fromkeys(reason_codes)),
         }
     if platform:
         reason_codes.append("launchpad_curve_only")
@@ -144,12 +160,150 @@ def classify_market_context(
     }
 
 
+def _infer_launchpad_from_asset_signals(
+    asset: Optional[dict[str, Any]],
+) -> tuple[Optional[str], EvidenceLevel, list[str]]:
+    if not asset:
+        return None, EvidenceLevel.WEAK, []
+
+    signal_reasons: list[str] = []
+    signal_strength = 0
+    mint = str(asset.get("id") or "").strip().lower()
+    content = asset.get("content") or {}
+    links = content.get("links") or {}
+    urls: list[str] = []
+
+    for value in (links.get("image"), content.get("json_uri")):
+        if isinstance(value, str) and value:
+            urls.append(value)
+
+    for file_entry in content.get("files") or []:
+        uri = file_entry.get("uri") if isinstance(file_entry, dict) else None
+        if isinstance(uri, str) and uri:
+            urls.append(uri)
+
+    for platform, hosts in _LAUNCHPAD_CONTENT_HOSTS.items():
+        if any(host in url.lower() for host in hosts for url in urls):
+            signal_reasons.append(f"launchpad_{platform}_content_host")
+            signal_strength += 1
+            if mint.endswith(_LAUNCHPAD_MINT_SUFFIXES.get(platform, ())):
+                signal_reasons.append(f"launchpad_{platform}_mint_suffix")
+                signal_strength += 1
+            evidence = EvidenceLevel.STRONG if signal_strength >= 2 else EvidenceLevel.MODERATE
+            return platform, evidence, signal_reasons
+
+    for platform, suffixes in _LAUNCHPAD_MINT_SUFFIXES.items():
+        if mint.endswith(suffixes):
+            return platform, EvidenceLevel.WEAK, [f"launchpad_{platform}_mint_suffix"]
+
+    return None, EvidenceLevel.WEAK, []
+
+
+def _classify_launchpad_pair_context(
+    solana_pairs: list[dict[str, Any]],
+) -> dict[str, Any]:
+    now = datetime.now(timezone.utc)
+    reason_codes = ["dex_pair_observed"]
+    oldest_pair_at: Optional[datetime] = None
+    has_live_market_activity = False
+
+    for pair in solana_pairs:
+        created_at = _pair_created_at(pair)
+        if created_at is not None and (oldest_pair_at is None or created_at < oldest_pair_at):
+            oldest_pair_at = created_at
+
+        liq_usd = _pair_liquidity_usd(pair)
+        volume_24h = _pair_volume_24h(pair)
+        txns_24h = _pair_txn_count_24h(pair)
+        if liq_usd >= 100.0 or volume_24h > 0.0 or txns_24h > 0:
+            has_live_market_activity = True
+
+    if has_live_market_activity:
+        reason_codes.append("dex_pair_market_activity_observed")
+        return {
+            "lifecycle_stage": LifecycleStage.DEX_LISTED,
+            "market_surface": MarketSurface.DEX_POOL_OBSERVED,
+            "evidence_level": EvidenceLevel.STRONG,
+            "reason_codes": reason_codes,
+        }
+
+    if oldest_pair_at is not None and (now - oldest_pair_at).total_seconds() >= 24 * 3600:
+        reason_codes.append("dex_pair_historical_listing_observed")
+        return {
+            "lifecycle_stage": LifecycleStage.DEX_LISTED,
+            "market_surface": MarketSurface.DEX_POOL_OBSERVED,
+            "evidence_level": EvidenceLevel.MODERATE,
+            "reason_codes": reason_codes,
+        }
+
+    reason_codes.append("dex_pair_unconfirmed_for_migration")
+    if oldest_pair_at is not None:
+        reason_codes.append("recent_pair_observed")
+    return {
+        "lifecycle_stage": LifecycleStage.MIGRATION_PENDING,
+        "market_surface": MarketSurface.CONFLICTING,
+        "evidence_level": EvidenceLevel.MODERATE,
+        "reason_codes": reason_codes,
+    }
+
+
+def _pair_created_at(pair: dict[str, Any]) -> Optional[datetime]:
+    raw = pair.get("pairCreatedAt")
+    if not raw:
+        return None
+    try:
+        return datetime.fromtimestamp(float(raw) / 1000, tz=timezone.utc)
+    except (TypeError, ValueError, OSError):
+        return None
+
+
+def _pair_liquidity_usd(pair: dict[str, Any]) -> float:
+    liquidity = pair.get("liquidity") or {}
+    try:
+        return float(liquidity.get("usd") or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _pair_volume_24h(pair: dict[str, Any]) -> float:
+    volume = pair.get("volume") or {}
+    try:
+        return float(volume.get("h24") or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _pair_txn_count_24h(pair: dict[str, Any]) -> int:
+    txns = pair.get("txns") or {}
+    h24 = txns.get("h24") or {}
+    try:
+        buys = int(h24.get("buys") or 0)
+    except (TypeError, ValueError):
+        buys = 0
+    try:
+        sells = int(h24.get("sells") or 0)
+    except (TypeError, ValueError):
+        sells = 0
+    return buys + sells
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
 
 ProgressCallback = Optional[Callable[[str, int], Awaitable[None]]]
+
+_LINEAGE_CACHE_PREFIX = f"lineage:{FORENSIC_CACHE_VERSION}"
+_LEGACY_LINEAGE_CACHE_PREFIX = "lineage:v4"
+
+
+def _lineage_cache_key(mint: str) -> str:
+    return f"{_LINEAGE_CACHE_PREFIX}:{mint}"
+
+
+def _legacy_lineage_cache_key(mint: str) -> str:
+    return f"{_LEGACY_LINEAGE_CACHE_PREFIX}:{mint}"
 
 
 async def get_cached_lineage_report(mint: str) -> Optional[LineageResult]:
@@ -159,7 +313,7 @@ async def get_cached_lineage_report(mint: str) -> Optional[LineageResult]:
     Suitable for fast endpoints that only enrich existing results.
     """
     try:
-        cached = await _cache_get(f"lineage:v4:{mint}")
+        cached = await _cache_get(_lineage_cache_key(mint))
         if cached is None:
             return None
         if isinstance(cached, LineageResult):
@@ -212,13 +366,14 @@ async def detect_lineage(
     # Force-refresh: delete stale lineage + deployer-timestamp caches so the
     # full pipeline re-runs with the latest on-chain data.
     if force_refresh:
-        await _cache_delete(f"lineage:v4:{mint_address}")
+        await _cache_delete(_lineage_cache_key(mint_address))
+        await _cache_delete(_legacy_lineage_cache_key(mint_address))
         await _cache_delete(f"rpc:deployer:v4:{mint_address}")
         await _cache_delete(f"rpc:asset:{mint_address}")
         logger.info("[force_refresh] cleared lineage + RPC caches for %s", mint_address)
 
     # Check cache first
-    cached = await _cache_get(f"lineage:v4:{mint_address}")
+    cached = await _cache_get(_lineage_cache_key(mint_address))
     if cached is not None:
         # SQLite cache returns dicts (JSON-deserialized); convert back to model
         if isinstance(cached, dict):
@@ -233,7 +388,7 @@ async def detect_lineage(
                         "Busting stale confidence=0/Unknown lineage cache for %s",
                         mint_address,
                     )
-                    await _cache_delete(f"lineage:v4:{mint_address}")
+                    await _cache_delete(_lineage_cache_key(mint_address))
                 else:
                     return cached_result
             except Exception:
@@ -242,7 +397,7 @@ async def detect_lineage(
                     "Dropping stale/invalid cached lineage for %s (schema mismatch)",
                     mint_address,
                 )
-                await _cache_delete(f"lineage:v4:{mint_address}")
+                await _cache_delete(_lineage_cache_key(mint_address))
         elif isinstance(cached, LineageResult):
             return cached
         else:
@@ -345,7 +500,7 @@ async def detect_lineage(
             derivatives=[],
             family_size=1,
         )
-        await _cache_set(f"lineage:v4:{mint_address}", result, ttl=CACHE_TTL_LINEAGE_SECONDS)
+        await _cache_set(_lineage_cache_key(mint_address), result, ttl=CACHE_TTL_LINEAGE_SECONDS)
         return result
 
     # --- Step 2: Search for similar tokens (multi-strategy, all concurrent) ---
@@ -436,7 +591,7 @@ async def detect_lineage(
             family_size=1,
         )
         result.scanned_at = datetime.now(timezone.utc)
-        await _cache_set(f"lineage:v4:{mint_address}", result, ttl=CACHE_TTL_LINEAGE_SECONDS)
+        await _cache_set(_lineage_cache_key(mint_address), result, ttl=CACHE_TTL_LINEAGE_SECONDS)
         return result
 
     # --- Step 3 & 4: Enrich candidates and score them ---
@@ -975,7 +1130,7 @@ async def detect_lineage(
 
     await _progress("Analysis complete", 100)
     result.scanned_at = datetime.now(timezone.utc)
-    await _cache_set(f"lineage:v4:{mint_address}", result, ttl=CACHE_TTL_LINEAGE_SECONDS)
+    await _cache_set(_lineage_cache_key(mint_address), result, ttl=CACHE_TTL_LINEAGE_SECONDS)
     return result
 
 

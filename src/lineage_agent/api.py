@@ -54,9 +54,11 @@ from config import (
 )
 from .circuit_breaker import get_all_statuses as cb_statuses
 from .data_sources._clients import close_clients, init_clients, get_rpc_client
+from .data_sources._clients import cache_delete_prefix
 from .lineage_detector import (
     bootstrap_deployer_history,
     detect_lineage,
+    get_cached_lineage_report,
     search_tokens,
 )
 from .alert_service import (
@@ -67,6 +69,7 @@ from .alert_service import (
 )
 from .deployer_service import compute_deployer_profile
 from .operator_impact_service import compute_operator_impact
+from .rug_detector import normalize_legacy_rug_events
 from .sol_flow_service import get_sol_flow_report, trace_sol_flow
 from .lineage_detector import resolve_deployer as _resolve_deployer
 from .cartel_service import compute_cartel_report, run_cartel_sweep
@@ -138,6 +141,17 @@ _BASE58_RE = re.compile(r"^[1-9A-HJ-NP-Za-km-z]{32,44}$")
 
 
 _cartel_sweep_task: Optional[asyncio.Task] = None
+
+
+async def _purge_legacy_forensic_cache_namespaces() -> None:
+    purged_ai = await cache_delete_prefix("ai:v3:")
+    purged_lineage = await cache_delete_prefix("lineage:v4:")
+    if purged_ai or purged_lineage:
+        logger.info(
+            "Purged legacy forensic cache namespaces: ai:v3=%d lineage:v4=%d",
+            purged_ai,
+            purged_lineage,
+        )
 
 
 async def _cartel_sweep_loop() -> None:
@@ -230,6 +244,7 @@ async def lifespan(application: FastAPI):
         )
     logger.info("Starting up – initialising HTTP clients …")
     await init_clients()
+    await _purge_legacy_forensic_cache_namespaces()
     schedule_rug_sweep()
     _schedule_alert_sweep()
     _schedule_cartel_sweep()
@@ -321,6 +336,64 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
 
 
 app.add_middleware(RequestIdMiddleware)
+
+
+def _analysis_deployer_from_lineage(lineage_res: Optional[LineageResult]) -> str:
+    if lineage_res is None:
+        return ""
+    query_token = getattr(lineage_res, "query_token", None) or getattr(lineage_res, "root", None)
+    return getattr(query_token, "deployer", "") or ""
+
+
+def _bundle_seed_wallets(bundle_report: Optional[BundleExtractionReport], deployer: str) -> list[str]:
+    if bundle_report is None:
+        return []
+    if getattr(bundle_report, "overall_verdict", None) not in (
+        "confirmed_team_extraction",
+        "suspected_team_extraction",
+        "coordinated_dump_unknown_team",
+    ):
+        return []
+    return [
+        wallet
+        for wallet in (
+            (getattr(bundle_report, "confirmed_team_wallets", []) or [])
+            + (getattr(bundle_report, "suspected_team_wallets", []) or [])
+            + (getattr(bundle_report, "coordinated_dump_wallets", []) or [])
+        )
+        if wallet and wallet != deployer
+    ][:12]
+
+
+async def _load_analyze_supporting_reports(
+    mint: str,
+    lineage_res: Optional[LineageResult],
+    *,
+    force_refresh: bool,
+) -> tuple[Optional[BundleExtractionReport], Optional[SolFlowReport]]:
+    from .bundle_tracker_service import analyze_bundle, get_cached_bundle_report
+
+    if not force_refresh:
+        return await asyncio.gather(
+            get_cached_bundle_report(mint),
+            get_sol_flow_report(mint),
+        )
+
+    deployer = _analysis_deployer_from_lineage(lineage_res)
+    if not deployer:
+        bundle_res, sol_flow_res = await asyncio.gather(
+            get_cached_bundle_report(mint, force_refresh=True),
+            get_sol_flow_report(mint, force_refresh=True),
+        )
+        return bundle_res, sol_flow_res
+
+    bundle_res = await analyze_bundle(mint, deployer, force_refresh=True)
+    sol_flow_res = await trace_sol_flow(
+        mint,
+        deployer,
+        extra_seed_wallets=_bundle_seed_wallets(bundle_res, deployer),
+    )
+    return bundle_res, sol_flow_res
 
 
 # ---------------------------------------------------------------------------
@@ -1278,27 +1351,32 @@ async def get_ai_analysis(
         raise HTTPException(status_code=400, detail="Invalid Solana mint address")
 
     from .ai_analyst import analyze_token, _build_unified_response
-    from .bundle_tracker_service import get_cached_bundle_report
 
-    # detect_lineage handles its own cache (instant if cached, RPC fallback if not)
-    # sol_flow + bundle are pure DB reads — all run concurrently
-    lineage_res, sol_flow_res, bundle_res = await asyncio.gather(
-        asyncio.wait_for(detect_lineage(mint), timeout=55.0),
-        get_sol_flow_report(mint),
-        get_cached_bundle_report(mint),
-        return_exceptions=True,
-    )
-    # Graceful degradation: treat any exception as missing data
+    try:
+        lineage_res = await asyncio.wait_for(
+            detect_lineage(mint, force_refresh=force_refresh),
+            timeout=55.0,
+        )
+    except Exception as exc:
+        lineage_res = exc
+
     if isinstance(lineage_res, Exception):
         logger.warning("[analyze] lineage cache read failed for %s: %s", mint[:12], lineage_res)
         lineage_res = None
-    if isinstance(sol_flow_res, Exception):
-        sol_flow_res = None
-    if isinstance(bundle_res, Exception):
+
+    try:
+        bundle_res, sol_flow_res = await _load_analyze_supporting_reports(
+            mint,
+            lineage_res,
+            force_refresh=force_refresh,
+        )
+    except Exception as exc:
+        logger.warning("[analyze] supporting report refresh failed for %s: %s", mint[:12], exc)
         bundle_res = None
+        sol_flow_res = None
 
     # Fire-and-forget bundle analysis if not yet cached — next /analyze call will have it
-    if bundle_res is None and lineage_res is not None:
+    if bundle_res is None and lineage_res is not None and not force_refresh:
         try:
             from .bundle_tracker_service import analyze_bundle as _ab
             _deployer_for_bundle = ""
@@ -1382,7 +1460,6 @@ async def stream_ai_analysis(
         import json as _json
         import time as _time
         from .ai_analyst import analyze_token as _analyze_token, _build_unified_response as _bur, _heuristic_score
-        from .bundle_tracker_service import get_cached_bundle_report as _gcbr
         from .sol_flow_service import get_sol_flow_report as _gsfr
 
         def _evt(event: str, data: dict) -> dict:
@@ -1392,23 +1469,29 @@ async def stream_ai_analysis(
         yield _evt("step", {"step": "lineage", "status": "running"})
         _t0 = _time.monotonic()
         try:
-            lineage_res = await asyncio.wait_for(detect_lineage(mint), timeout=55.0)
+            lineage_res = await asyncio.wait_for(
+                detect_lineage(mint, force_refresh=force_refresh),
+                timeout=55.0,
+            )
         except Exception as _e:
             logger.warning("[stream] lineage failed for %s: %s", mint[:12], _e)
             lineage_res = None
         yield _evt("step", {"step": "lineage", "status": "done", "ms": int((_time.monotonic() - _t0) * 1000)})
 
-        # 2. Bundle + SOL flow concurrently (fast DB reads)
+        # 2. Bundle + SOL flow
         yield _evt("step", {"step": "bundle", "status": "running"})
         yield _evt("step", {"step": "sol_flow", "status": "running"})
         _t1 = _time.monotonic()
-        _bundle_res, _sol_res = await asyncio.gather(
-            _gcbr(mint), _gsfr(mint), return_exceptions=True,
-        )
-        if isinstance(_bundle_res, Exception):
+        try:
+            _bundle_res, _sol_res = await _load_analyze_supporting_reports(
+                mint,
+                lineage_res,
+                force_refresh=force_refresh,
+            )
+        except Exception as _support_exc:
+            logger.warning("[stream] supporting reports failed for %s: %s", mint[:12], _support_exc)
             _bundle_res = None
-        if isinstance(_sol_res,   Exception):
-            _sol_res   = None
+            _sol_res = None
         _data_ms = int((_time.monotonic() - _t1) * 1000)
         yield _evt("step", {"step": "bundle",   "status": "done", "ms": _data_ms})
         yield _evt("step", {"step": "sol_flow", "status": "done", "ms": _data_ms})
@@ -1531,8 +1614,9 @@ async def forensic_chat(
             context_parts: list[str] = []
             try:
                 from .data_sources._clients import cache as _cache  # noqa: PLC0415
+                from .ai_analyst import build_ai_cache_key  # noqa: PLC0415
                 # Try cached AI analysis first
-                _ai_key = f"ai:v3:{mint}"
+                _ai_key = build_ai_cache_key(mint)
                 _ai_cached = _cache.get(_ai_key)
                 if hasattr(_ai_cached, "__await__"):
                     _ai_cached = await _ai_cached
@@ -1553,10 +1637,7 @@ async def forensic_chat(
                         context_parts.append("CONVICTION CHAIN:\n" + "\n".join(f"- {c}" for c in _chain))
 
                 # Try cached lineage for token metadata
-                _lin_key = f"lineage:{mint}"
-                _lin_cached = _cache.get(_lin_key)
-                if hasattr(_lin_cached, "__await__"):
-                    _lin_cached = await _lin_cached
+                _lin_cached = await get_cached_lineage_report(mint)
                 if hasattr(_lin_cached, "root") and _lin_cached.root:
                     root = _lin_cached.root
                     context_parts.append(
@@ -2000,6 +2081,19 @@ async def get_global_stats(request: Request) -> GlobalStats:
                 columns="narrative",
             ),
         )
+
+        legacy_rug_mints = [
+            row.get("mint", "")
+            for row in rugged_rows
+            if row.get("mint") and not row.get("rug_mechanism")
+        ]
+        if legacy_rug_mints:
+            await normalize_legacy_rug_events(mints=legacy_rug_mints)
+            rugged_rows = await _eq(
+                where="event_type = 'token_rugged' AND rugged_at >= ?",
+                params=(cutoff,),
+                columns="mint, rug_mechanism, evidence_level",
+            )
 
         tokens_scanned = len(created_rows)
         tokens_negative_outcomes = len(rugged_rows)

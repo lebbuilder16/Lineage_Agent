@@ -27,7 +27,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from .data_sources.solana_rpc import SolanaRpcClient
-from .data_sources._clients import get_rpc_client, bundle_report_insert, bundle_report_query, cartel_edge_upsert
+from .data_sources._clients import get_rpc_client, bundle_report_delete, bundle_report_insert, bundle_report_query, cartel_edge_upsert
 from .constants import SKIP_PROGRAMS
 from .models import (
     BundleWalletVerdict,
@@ -219,13 +219,16 @@ async def analyze_bundle(
     return report
 
 
-async def get_cached_bundle_report(mint: str) -> Optional[BundleExtractionReport]:
+async def get_cached_bundle_report(mint: str, *, force_refresh: bool = False) -> Optional[BundleExtractionReport]:
     """Return a cached ``BundleExtractionReport`` from the DB, or ``None``.
 
     Pure DB read – never triggers RPC calls.  Suitable for fast endpoints that
     only want to enrich existing results (e.g. the AI analyst).
     """
     try:
+        if force_refresh:
+            await bundle_report_delete(mint)
+            return None
         cached_json = await bundle_report_query(mint)
         if cached_json:
             data = json.loads(cached_json)

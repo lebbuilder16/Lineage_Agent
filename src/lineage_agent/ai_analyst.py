@@ -18,6 +18,10 @@ import statistics
 from datetime import datetime, timezone
 from typing import Any, Optional
 
+from config import FORENSIC_CACHE_VERSION
+from .models import EvidenceLevel, RugMechanism
+from .rug_detector import normalize_legacy_rug_events
+
 logger = logging.getLogger(__name__)
 
 # Model selection — override via ANTHROPIC_MODEL env var
@@ -26,11 +30,33 @@ _MODEL = os.getenv("ANTHROPIC_MODEL", "claude-haiku-4-5")
 _MODEL_SONNET = os.getenv("ANTHROPIC_MODEL_SONNET", "claude-sonnet-4-6")
 _MAX_TOKENS = 2500  # tool_use generates cleaner output, needs fewer tokens
 _TIMEOUT = 55.0  # seconds — must be < Fly machine timeout (60s) to surface proper error
+_AI_CACHE_PREFIX = f"ai:{FORENSIC_CACHE_VERSION}"
+_CONFIRMED_EVIDENCE_LEVELS = {EvidenceLevel.MODERATE.value, EvidenceLevel.STRONG.value}
+_CONFIRMED_RUG_MECHANISMS = {
+    RugMechanism.DEX_LIQUIDITY_RUG.value,
+    RugMechanism.PRE_DEX_EXTRACTION_RUG.value,
+}
 
 
 # ── Lazy client (avoids import error when API key not set) ────────────────────
 
 _client = None
+
+
+def build_ai_cache_key(mint: str) -> str:
+    return f"{_AI_CACHE_PREFIX}:{mint}"
+
+
+def _is_confirmed_ai_rug_row(row: dict[str, Any]) -> bool:
+    mechanism = str(row.get("rug_mechanism") or "").strip().lower()
+    evidence_level = str(row.get("evidence_level") or "").strip().lower()
+    if not mechanism:
+        return True
+    if mechanism not in _CONFIRMED_RUG_MECHANISMS:
+        return False
+    if not evidence_level:
+        return True
+    return evidence_level in _CONFIRMED_EVIDENCE_LEVELS
 
 
 def _get_client():
@@ -301,7 +327,7 @@ async def analyze_token(
     from config import CACHE_TTL_AI_SECONDS  # local import to avoid circular dep
 
     # ── P0-B: cache check ────────────────────────────────────────────────────
-    cache_key = f"ai:v3:{mint}"
+    cache_key = build_ai_cache_key(mint)
     if cache and not force_refresh:
         _cget = cache.get(cache_key)
         cached = (await _cget) if inspect.isawaitable(_cget) else _cget
@@ -315,13 +341,17 @@ async def analyze_token(
         deployer = _extract_deployer(lineage_result)
         if deployer:
             try:
-                deployer_history = await cache.query_events(
+                await normalize_legacy_rug_events(deployer=deployer)
+                deployer_history_rows = await cache.query_events(
                     where="deployer = ? AND event_type = 'token_rugged'",
                     params=(deployer,),
-                    columns="mint, name, rugged_at, mcap_usd",
+                    columns="mint, name, rugged_at, mcap_usd, rug_mechanism, evidence_level",
                     limit=5,
                     order_by="recorded_at DESC",
                 )
+                deployer_history = [
+                    row for row in deployer_history_rows if _is_confirmed_ai_rug_row(row)
+                ][:5]
             except Exception:
                 pass  # history unavailable — continue without it
 
@@ -1197,7 +1227,7 @@ async def _gather_behavioral_signals(
     # ── Signal 1: phash cluster ───────────────────────────────────────────
     try:
         phash_rows = await cache.query_events(
-            where="mint = ? AND phash IS NOT NULL",
+            where="event_type = 'token_created' AND mint = ? AND phash IS NOT NULL",
             params=(mint,),
             columns="phash",
             limit=1,
@@ -1206,14 +1236,39 @@ async def _gather_behavioral_signals(
             phash = phash_rows[0].get("phash")
             if phash:
                 cluster = await cache.query_events(
-                    where="phash = ? AND mint != ?",
+                    where="event_type = 'token_created' AND phash = ? AND mint != ?",
                     params=(phash, mint),
-                    columns="mint, name, deployer, created_at, rugged_at",
+                    columns="mint, name, deployer, created_at",
                     limit=10,
                     order_by="recorded_at DESC",
                 )
                 if cluster:
-                    rugged = [r for r in cluster if r.get("rugged_at")]
+                    cluster_mints = [str(row.get("mint") or "") for row in cluster if row.get("mint")]
+                    rug_map: dict[str, dict[str, Any]] = {}
+                    if cluster_mints:
+                        await normalize_legacy_rug_events(mints=cluster_mints)
+                        placeholders = ",".join("?" for _ in cluster_mints)
+                        rugged_rows = await cache.query_events(
+                            where=f"event_type = 'token_rugged' AND mint IN ({placeholders})",
+                            params=tuple(cluster_mints),
+                            columns="mint, rugged_at, rug_mechanism, evidence_level",
+                            limit=len(cluster_mints),
+                        )
+                        rug_map = {
+                            str(row.get("mint") or ""): row
+                            for row in rugged_rows
+                            if row.get("mint") and _is_confirmed_ai_rug_row(row)
+                        }
+
+                    def _cluster_row_is_rugged(row: dict[str, Any]) -> bool:
+                        mint_value = str(row.get("mint") or "")
+                        if mint_value and rug_map.get(mint_value):
+                            return True
+                        if row.get("rugged_at"):
+                            return _is_confirmed_ai_rug_row(row)
+                        return False
+
+                    rugged = [r for r in cluster if _cluster_row_is_rugged(r)]
                     signals["phash_cluster"] = {
                         "phash": phash,
                         "total_reuses": len(cluster),
@@ -1223,7 +1278,7 @@ async def _gather_behavioral_signals(
                                 "name": r.get("name") or "?",
                                 "mint": str(r.get("mint") or "")[:12],
                                 "deployer": str(r.get("deployer") or "")[:12],
-                                "rugged": bool(r.get("rugged_at")),
+                                "rugged": _cluster_row_is_rugged(r),
                             }
                             for r in cluster[:5]
                         ],
@@ -1254,13 +1309,46 @@ async def _gather_behavioral_signals(
     try:
         deployer = _extract_deployer(lineage)
         if deployer:
-            timing_rows = await cache.query_events(
-                where="deployer = ? AND created_at IS NOT NULL",
+            created_rows = await cache.query_events(
+                where="deployer = ? AND event_type = 'token_created' AND created_at IS NOT NULL",
                 params=(deployer,),
-                columns="created_at, rugged_at",
+                columns="mint, created_at",
                 limit=20,
                 order_by="recorded_at DESC",
             )
+            await normalize_legacy_rug_events(deployer=deployer)
+            rugged_rows = await cache.query_events(
+                where="deployer = ? AND event_type = 'token_rugged' AND rugged_at IS NOT NULL AND created_at IS NOT NULL",
+                params=(deployer,),
+                columns="mint, created_at, rugged_at, rug_mechanism, evidence_level",
+                limit=20,
+                order_by="recorded_at DESC",
+            )
+            confirmed_rug_rows = {
+                str(row.get("mint") or ""): row
+                for row in rugged_rows
+                if row.get("mint") and _is_confirmed_ai_rug_row(row)
+            }
+            if any(row.get("mint") for row in created_rows):
+                timing_rows = [
+                    {
+                        "mint": row.get("mint"),
+                        "created_at": row.get("created_at"),
+                        "rugged_at": (
+                            (confirmed_rug_rows.get(str(row.get("mint") or "")) or {}).get("rugged_at")
+                            or row.get("rugged_at")
+                        ),
+                    }
+                    for row in created_rows
+                ]
+            else:
+                timing_rows = [
+                    {
+                        "created_at": row.get("created_at"),
+                        "rugged_at": row.get("rugged_at"),
+                    }
+                    for row in created_rows
+                ]
             timing = _compute_timing_fingerprint(timing_rows)
             if timing:
                 signals["timing_pattern"] = timing
@@ -1417,23 +1505,28 @@ def _build_unified_response(
 
     # ── Token identity ────────────────────────────────────────────────────
     token: dict = {"mint": mint}
+    query_token = None
     if lineage:
-        qt = getattr(lineage, "query_token", None) or getattr(lineage, "root", None)
-        if qt:
+        query_token = getattr(lineage, "query_token", None) or getattr(lineage, "root", None)
+        if query_token:
             token = {
                 "mint": mint,
-                "name": getattr(qt, "name", "") or "",
-                "symbol": getattr(qt, "symbol", "") or "",
-                "image_uri": getattr(qt, "image_uri", "") or "",
-                "deployer": getattr(qt, "deployer", "") or "",
+                "name": getattr(query_token, "name", "") or "",
+                "symbol": getattr(query_token, "symbol", "") or "",
+                "image_uri": getattr(query_token, "image_uri", "") or "",
+                "deployer": getattr(query_token, "deployer", "") or "",
                 "created_at": (
-                    qt.created_at.isoformat()
-                    if getattr(qt, "created_at", None)
+                    query_token.created_at.isoformat()
+                    if getattr(query_token, "created_at", None)
                     else None
                 ),
-                "market_cap_usd": getattr(qt, "market_cap_usd", None),
-                "liquidity_usd": getattr(qt, "liquidity_usd", None),
-                "dex_url": getattr(qt, "dex_url", "") or "",
+                "market_cap_usd": getattr(query_token, "market_cap_usd", None),
+                "liquidity_usd": getattr(query_token, "liquidity_usd", None),
+                "dex_url": getattr(query_token, "dex_url", "") or "",
+                "launch_platform": getattr(query_token, "launch_platform", None),
+                "lifecycle_stage": _norm_enumish(getattr(query_token, "lifecycle_stage", None)) or None,
+                "market_surface": _norm_enumish(getattr(query_token, "market_surface", None)) or None,
+                "context_evidence": _norm_enumish(getattr(query_token, "evidence_level", None)) or None,
             }
 
     # ── AI analysis (Claude output, clean) ───────────────────────────────
@@ -1598,12 +1691,38 @@ def _build_unified_response(
                 "market_cap_usd": getattr(root, "market_cap_usd", None),
             }
 
-    return {
+    response = {
         "token":       token,
         "ai_analysis": ai_analysis,
         "forensic":    forensic,
         "evidence":    evidence,
     }
+    return _sanitize_unified_response(response, lineage=lineage)
+
+
+def _sanitize_unified_response(response: dict, *, lineage: Optional[Any]) -> dict:
+    if not _is_launchpad_pre_dex_context(lineage):
+        return response
+
+    token = response.get("token") or {}
+    token["market_cap_usd"] = None
+    token["liquidity_usd"] = None
+    token["dex_url"] = ""
+    token["data_context"] = "pre_dex_or_unconfirmed_market_surface"
+
+    evidence = response.get("evidence") or {}
+    for clone in evidence.get("clone_tokens", []) or []:
+        clone["market_cap_usd"] = None
+    root_token = evidence.get("root_token")
+    if isinstance(root_token, dict):
+        root_token["market_cap_usd"] = None
+
+    ai_analysis = response.get("ai_analysis") or {}
+    findings = list(ai_analysis.get("key_findings") or [])
+    caveat = "[CAVEAT] DexScreener market-cap, liquidity, and listing fields are hidden because this token is still pre-DEX or its migration status is not confirmed."
+    if caveat not in findings:
+        ai_analysis["key_findings"] = [caveat] + findings
+    return response
 
 
 # ── Response parsing ──────────────────────────────────────────────────────────

@@ -167,6 +167,14 @@ async def cache_delete(key: str) -> None:
         await result
 
 
+async def cache_delete_prefix(prefix: str) -> int:
+    """Invalidate all cache entries whose keys start with ``prefix``."""
+    result = cache.invalidate_prefix(prefix)
+    if asyncio.iscoroutine(result):
+        return await result
+    return int(result or 0)
+
+
 # ---------------------------------------------------------------------------
 # Intelligence event helpers (forensic data store)
 # ---------------------------------------------------------------------------
@@ -254,6 +262,11 @@ async def sol_flows_query(mint: str) -> list[dict]:
     return await cache.sol_flows_query(mint)
 
 
+async def sol_flows_delete(mint: str) -> None:
+    """Delete all SOL flows for a mint."""
+    await cache.sol_flows_delete(mint)
+
+
 async def sol_flows_query_by_from(from_address: str) -> list[dict]:
     """Return all SOL flows originating from a wallet."""
     return await cache.sol_flows_query_by_from(from_address)
@@ -293,6 +306,11 @@ async def bundle_report_insert(mint: str, deployer: str, report_json: str) -> No
 async def bundle_report_query(mint: str, max_age_seconds: float = 86400.0):
     """Return cached bundle report JSON if fresh, else None."""
     return await cache.bundle_report_query(mint, max_age_seconds)
+
+
+async def bundle_report_delete(mint: str) -> None:
+    """Delete cached bundle report JSON for a mint."""
+    await cache.bundle_report_delete(mint)
 
 
 # ---------------------------------------------------------------------------

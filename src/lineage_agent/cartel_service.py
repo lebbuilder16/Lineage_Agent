@@ -42,7 +42,8 @@ from .data_sources._clients import (
     operator_mapping_query_all,
     sol_flows_query_by_from,
 )
-from .models import CartelCommunity, CartelEdge, CartelReport
+from .models import CartelCommunity, CartelEdge, CartelReport, EvidenceLevel, RugMechanism
+from .rug_detector import normalize_legacy_rug_events
 from .utils import parse_datetime
 
 logger = logging.getLogger(__name__)
@@ -53,6 +54,23 @@ _TIMING_SYNC_WINDOW_SECONDS = 1800   # 30 minutes
 _PHASH_HAMMING_THRESHOLD = 8         # out of 64 bits → ≥ 87.5% similarity
 _MIN_TRANSFER_SOL = 0.1              # minimum SOL transfer to count as signal
 _COMMUNITY_TIMEOUT = 15.0
+_CONFIRMED_EVIDENCE_LEVELS = {EvidenceLevel.MODERATE.value, EvidenceLevel.STRONG.value}
+_EXTRACTION_COMPATIBLE_MECHANISMS = {
+    RugMechanism.DEX_LIQUIDITY_RUG.value,
+    RugMechanism.PRE_DEX_EXTRACTION_RUG.value,
+}
+
+
+def _is_confirmed_cartel_rug(row: dict) -> bool:
+    mechanism = (row.get("rug_mechanism") or "").strip()
+    evidence_level = (row.get("evidence_level") or "").strip()
+    if not mechanism:
+        return True
+    if mechanism not in _EXTRACTION_COMPATIBLE_MECHANISMS:
+        return False
+    if not evidence_level:
+        return True
+    return evidence_level in _CONFIRMED_EVIDENCE_LEVELS
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -500,17 +518,19 @@ async def _build_report(mint: str, deployer: str) -> Optional[CartelReport]:
     total_rugs = 0
     estimated_extracted = 0.0
     if mints:
+        await normalize_legacy_rug_events(mints=mints)
         rug_ph = ",".join("?" for _ in mints)
         rugged_rows = await event_query(
             f"event_type = 'token_rugged' AND mint IN ({rug_ph})",
             params=tuple(mints),
-            columns="mint, mcap_usd",
+            columns="mint, mcap_usd, rug_mechanism, evidence_level",
             limit=2000,
         )
-        total_rugs = len(rugged_rows)
+        confirmed_rugged_rows = [row for row in rugged_rows if _is_confirmed_cartel_rug(row)]
+        total_rugs = len(confirmed_rugged_rows)
         estimated_extracted = sum(
             (r.get("mcap_usd") or 0.0) * estimate_extraction_rate(r.get("mcap_usd"))
-            for r in rugged_rows
+            for r in confirmed_rugged_rows
         )
 
     # Earliest activity

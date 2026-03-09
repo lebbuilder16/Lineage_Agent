@@ -207,3 +207,89 @@ class TestClassifyMarketContext:
         result = classify_market_context(None, [{"chainId": "solana"}])
         assert result["lifecycle_stage"] == LifecycleStage.DEX_LISTED
         assert result["market_surface"] == MarketSurface.DEX_POOL_OBSERVED
+
+    def test_launchpad_recent_pair_without_market_activity_is_migration_pending(self):
+        now_ms = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
+        asset = {
+            "authorities": [{"address": "MoonCVVNZFSYkqNXP6bxHLPL6QQJiMEfzPWlVMMf9Ly"}],
+            "creators": [],
+        }
+        result = classify_market_context(
+            asset,
+            [{
+                "chainId": "solana",
+                "pairCreatedAt": now_ms,
+                "liquidity": {"usd": 0},
+                "volume": {"h24": 0},
+                "txns": {"h24": {"buys": 0, "sells": 0}},
+            }],
+        )
+        assert result["launch_platform"] == "moonshot"
+        assert result["lifecycle_stage"] == LifecycleStage.MIGRATION_PENDING
+        assert result["market_surface"] == MarketSurface.CONFLICTING
+        assert "dex_pair_unconfirmed_for_migration" in result["reason_codes"]
+
+    def test_launchpad_pair_with_market_activity_is_dex_listed(self):
+        asset = {
+            "authorities": [{"address": "MoonCVVNZFSYkqNXP6bxHLPL6QQJiMEfzPWlVMMf9Ly"}],
+            "creators": [],
+        }
+        result = classify_market_context(
+            asset,
+            [{
+                "chainId": "solana",
+                "liquidity": {"usd": 2500},
+                "volume": {"h24": 1250},
+                "txns": {"h24": {"buys": 3, "sells": 2}},
+            }],
+        )
+        assert result["lifecycle_stage"] == LifecycleStage.DEX_LISTED
+        assert result["market_surface"] == MarketSurface.DEX_POOL_OBSERVED
+        assert "dex_pair_market_activity_observed" in result["reason_codes"]
+
+    def test_moonshot_content_host_and_suffix_infer_launchpad_without_authority(self):
+        asset = {
+            "id": "2R9oFk1D4dH9fE8CQ7TTj7ed6Dsv8F6XpeVmtsLqmoon",
+            "authorities": [],
+            "creators": [],
+            "content": {
+                "links": {"image": "https://cdn.moonshot.com/token-image.jpg"},
+                "json_uri": "https://api.moonshot.com/metadata.json",
+            },
+        }
+
+        result = classify_market_context(asset, [])
+
+        assert result["launch_platform"] == "moonshot"
+        assert result["lifecycle_stage"] == LifecycleStage.LAUNCHPAD_CURVE_ONLY
+        assert result["market_surface"] == MarketSurface.LAUNCHPAD_CURVE_ONLY
+        assert getattr(result["evidence_level"], "value", result["evidence_level"]) == "strong"
+        assert "launchpad_moonshot_content_host" in result["reason_codes"]
+        assert "launchpad_moonshot_mint_suffix" in result["reason_codes"]
+
+    def test_moonshot_content_host_uses_launchpad_pair_context(self):
+        now_ms = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
+        asset = {
+            "id": "2R9oFk1D4dH9fE8CQ7TTj7ed6Dsv8F6XpeVmtsLqmoon",
+            "authorities": [],
+            "creators": [],
+            "content": {
+                "links": {"image": "https://cdn.moonshot.com/token-image.jpg"},
+            },
+        }
+
+        result = classify_market_context(
+            asset,
+            [{
+                "chainId": "solana",
+                "pairCreatedAt": now_ms,
+                "liquidity": {"usd": 0},
+                "volume": {"h24": 0},
+                "txns": {"h24": {"buys": 0, "sells": 0}},
+            }],
+        )
+
+        assert result["launch_platform"] == "moonshot"
+        assert result["lifecycle_stage"] == LifecycleStage.MIGRATION_PENDING
+        assert result["market_surface"] == MarketSurface.CONFLICTING
+        assert "dex_pair_unconfirmed_for_migration" in result["reason_codes"]
