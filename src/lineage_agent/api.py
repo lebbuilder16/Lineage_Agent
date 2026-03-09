@@ -1575,15 +1575,15 @@ class ChatRequest(BaseModel):
 
 _CHAT_SYSTEM = """\
 You are a Solana blockchain forensics detective embedded in the Lineage Agent platform.
-The user is analysing a specific token. You have access to the forensic report already
-computed for this token (provided below under FORENSIC CONTEXT).
+On-chain data for the queried token has been fetched and is provided under FORENSIC CONTEXT.
 
 RULES:
 - Answer ONLY about the analysed token and its on-chain data.
 - Cite specific numbers and addresses from the context when relevant.
 - Be concise but complete — bullet points are welcome.
-- If the context does not contain enough information to answer, say so honestly.
-- NEVER fabricate on-chain data.
+- If the context contains TOKEN/DEPLOYER/PLATFORM lines, answer directly from those fields — do NOT say you cannot find the data.
+- If the context says "No on-chain data loaded yet", tell the user to trigger a full scan first (via the Analyze button or the /analyze endpoint) and then retry the chat.
+- NEVER fabricate on-chain data (addresses, balances, timestamps).
 - Keep responses tight: 2–4 sentences or a short bullet list. No padding.
 """
 
@@ -1656,22 +1656,73 @@ async def forensic_chat(
                     if _chain:
                         context_parts.append("CONVICTION CHAIN:\n" + "\n".join(f"- {c}" for c in _chain))
 
+                # Always expose the mint address so the AI can reference it directly
+                context_parts.append(f"MINT ADDRESS: {mint}")
+
                 # Try cached lineage for token metadata
                 _lin_cached = await get_cached_lineage_report(mint)
-                if hasattr(_lin_cached, "root") and _lin_cached.root:
-                    root = _lin_cached.root
-                    context_parts.append(
-                        f"TOKEN: {getattr(root, 'name', '?')} ({getattr(root, 'symbol', '?')}) | "
-                        f"Deployer: {getattr(root, 'deployer', 'N/A')} | "
-                        f"MCap: ${getattr(root, 'market_cap_usd', None) or 'N/A'}"
+                # If no cache, trigger a live detect_lineage fetch (with timeout)
+                if _lin_cached is None:
+                    try:
+                        logger.info("[chat] no lineage cache for %s — triggering detect_lineage", mint[:12])
+                        _lin_cached = await asyncio.wait_for(
+                            detect_lineage(mint),
+                            timeout=30.0,
+                        )
+                    except Exception as _ld_exc:
+                        logger.warning("[chat] live detect_lineage failed for %s: %s", mint[:12], _ld_exc)
+                        _lin_cached = None
+
+                # Prefer query_token (most recently enriched) then fall back to root
+                _token_node = None
+                if _lin_cached is not None:
+                    _token_node = (
+                        getattr(_lin_cached, "query_token", None)
+                        or getattr(_lin_cached, "root", None)
                     )
+                if _token_node:
+                    _deployer_addr = getattr(_token_node, "deployer", None) or "N/A"
+                    context_parts.append(
+                        f"TOKEN: {getattr(_token_node, 'name', '?')} ({getattr(_token_node, 'symbol', '?')}) | "
+                        f"DEPLOYER: {_deployer_addr} | "
+                        f"MCap: ${getattr(_token_node, 'market_cap_usd', None) or 'N/A'}"
+                    )
+                    _platform = getattr(_token_node, "launch_platform", None)
+                    _stage = getattr(_token_node, "lifecycle_stage", None)
+                    _created = getattr(_token_node, "created_at", None)
+                    if _platform:
+                        context_parts.append(f"LAUNCH PLATFORM: {_platform}")
+                    if _stage:
+                        context_parts.append(f"LIFECYCLE STAGE: {getattr(_stage, 'value', _stage)}")
+                    if _created:
+                        context_parts.append(f"CREATED AT: {_created}")
                     if getattr(_lin_cached, "derivatives", None):
                         context_parts.append(f"FAMILY SIZE: {_lin_cached.family_size} tokens")
+                    _deployer_profile = getattr(_lin_cached, "deployer_profile", None)
+                    if _deployer_profile:
+                        context_parts.append(
+                            f"DEPLOYER PROFILE: {getattr(_deployer_profile, 'total_tokens_launched', '?')} tokens launched | "
+                            f"Rug rate: {getattr(_deployer_profile, 'rug_rate_pct', 'N/A')}% | "
+                            f"Confirmed rugs: {getattr(_deployer_profile, 'confirmed_rug_count', 'N/A')}"
+                        )
             except Exception as _ctx_exc:
                 logger.warning("[chat] context fetch failed: %s", _ctx_exc)
 
-            forensic_context = "\n\n".join(context_parts) if context_parts else "No cached analysis available for this token."
-            _chat_context_cache[mint] = (_time.monotonic(), forensic_context)
+            # Build the final context string
+            # "More than just MINT ADDRESS" = we have real on-chain data
+            _has_real_data = len(context_parts) > 1
+            if _has_real_data:
+                forensic_context = "\n\n".join(context_parts)
+            else:
+                forensic_context = (
+                    f"MINT ADDRESS: {mint}\n\n"
+                    "No on-chain data loaded yet. "
+                    "The token may be very new or the on-chain fetch timed out."
+                )
+            # Only cache when we actually have data — no-data results should be retried
+            if _has_real_data:
+                _chat_context_cache[mint] = (_time.monotonic(), forensic_context)
+            # Intentionally NOT caching no-data results so next message retries freely
 
         system_with_ctx = f"{_CHAT_SYSTEM}\n\n---\nFORENSIC CONTEXT FOR {mint}:\n{forensic_context}\n---"
 
