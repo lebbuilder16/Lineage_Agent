@@ -58,6 +58,9 @@ KNOWN_LABELS: dict[str, tuple[str, str]] = {
     "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8": ("Raydium AMM V4",        "dex"),
     "5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1": ("Raydium Authority",     "dex"),
     "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK": ("Raydium CLMM",          "dex"),
+    "CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C": ("Raydium CPMM",          "dex"),
+    "WLHv2UAZm6z4KyaaELi5pjdbJh6RESMva1Rnn8pJVVh":  ("Raydium Launchpad Auth","launchpad"),
+    "LanMV9sAd7wArD6GNnABFhv4Vf8W4N9xCRbTPgP3czj":  ("Raydium Launchpad",    "launchpad"),
     "LBUZKhRxPF3XUpBCjp4YzTKgLLjeyegsnkragy77ohVb": ("Meteora DLMM",          "dex"),  # meteora.ag docs
     "Eo7WjKq67rjJQDd1d4Gcd9EjPi4TnVABPuT14i8AK2qP": ("Meteora Dynamic AMM",  "dex"),  # meteora.ag docs
     "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc":  ("Orca Whirlpool",        "dex"),

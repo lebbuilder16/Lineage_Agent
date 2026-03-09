@@ -123,6 +123,9 @@ LAUNCHPAD_PROGRAMS: dict[str, str] = {
     "4wTV81rvZBKW8vFJX9PMwn5n46sYr6HfkWMqJjpPbZ6M": "letsbonk",
     # Believe / Degen
     "DEXYosS6oEGvk8uCDayvwEZz4qEyDJRf9nFgYCaqPMTm": "believe",
+    # Raydium Launchpad (2025)
+    "WLHv2UAZm6z4KyaaELi5pjdbJh6RESMva1Rnn8pJVVh": "raydiumlaunchpad",  # Launchpad authority
+    "LanMV9sAd7wArD6GNnABFhv4Vf8W4N9xCRbTPgP3czj": "raydiumlaunchpad",  # Launchpad program
 }
 
 BONDING_CURVE_LAUNCHPAD_PLATFORMS: frozenset[str] = frozenset({
@@ -130,6 +133,7 @@ BONDING_CURVE_LAUNCHPAD_PLATFORMS: frozenset[str] = frozenset({
     "moonshot",
     "letsbonk",
     "believe",
+    "raydiumlaunchpad",
 })
 
 # ---------------------------------------------------------------------------
