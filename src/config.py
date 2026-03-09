@@ -129,7 +129,7 @@ RUG_LIQUIDITY_THRESHOLD_USD: float = float(
 )
 CACHE_BACKEND: str = os.getenv("CACHE_BACKEND", "sqlite")  # "memory" or "sqlite"
 CACHE_SQLITE_PATH: str = os.getenv("CACHE_SQLITE_PATH", "data/cache.db")
-FORENSIC_CACHE_VERSION: str = os.getenv("FORENSIC_CACHE_VERSION", "forensic-v2")
+FORENSIC_CACHE_VERSION: str = os.getenv("FORENSIC_CACHE_VERSION", "forensic-v3")
 
 # ---------------------------------------------------------------------------
 # Limits

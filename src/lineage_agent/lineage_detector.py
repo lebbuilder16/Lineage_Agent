@@ -1418,6 +1418,7 @@ _NON_DEPLOYER_AUTHORITIES: frozenset[str] = frozenset({
     # Moonshot (Moonshot.fun)
     "MoonCVVNZFSYkqNXP6bxHLPL6QQJiMEfzPWlVMMf9Ly",     # Moonshot program
     "Ce6TQqeHC9p8KetsN6JsjHK7UTZk7nasjjnr7XxXp9F1",    # Moonshot fee/authority
+    "7rtiKSUDLBm59b1SBmD9oajcP8xE64vAGSMbAN5CXy1q",    # Moonshot relay / session signer
     # LetsBonk
     "4wTV81rvZBKW8vFJX9PMwn5n46sYr6HfkWMqJjpPbZ6M",     # LetsBonk program
     # Believe / Degen
