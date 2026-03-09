@@ -125,10 +125,27 @@ async def _run_rug_sweep() -> int:
                     except Exception:
                         pass
 
+                    # Parse token creation timestamp to filter pre-launch
+                    # deployer activity from the SOL trace.
+                    _token_created_at = None
+                    _created_at_str = row.get("created_at")
+                    if _created_at_str:
+                        try:
+                            _token_created_at = datetime.fromisoformat(
+                                str(_created_at_str).replace("Z", "+00:00")
+                            )
+                            if _token_created_at.tzinfo is None:
+                                _token_created_at = _token_created_at.replace(
+                                    tzinfo=timezone.utc
+                                )
+                        except Exception:
+                            pass
+
                     asyncio.create_task(
                         trace_sol_flow(
                             mint, _deployer,
                             extra_seed_wallets=_bundle_seeds,
+                            token_created_at=_token_created_at,
                         ),
                         name=f"sol_trace_{mint[:8]}",
                     )

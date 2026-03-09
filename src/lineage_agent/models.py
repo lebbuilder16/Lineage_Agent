@@ -624,6 +624,12 @@ class SolFlowReport(BaseModel):
     cross_chain_exits: list[CrossChainExit] = Field(
         default_factory=list, description="Detected cross-chain bridge exits"
     )
+    liquidity_is_sol_denominated: bool = Field(
+        default=True,
+        description="False when all trading pairs use USDC/non-SOL as quote token. "
+                    "When False, SOL flows represent infrastructure costs (rent, fees, launchpad), "
+                    "not value extraction — actual extraction would appear via USDC.",
+    )
 
 
 # ---------------------------------------------------------------------------

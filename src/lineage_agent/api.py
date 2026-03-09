@@ -828,6 +828,20 @@ async def get_sol_trace(
         from .sol_flow_service import _rows_to_report
         if db_rows and not force_refresh:
             return _rows_to_report(mint, db_rows)
+        # Gate: only trace confirmed rugged tokens.
+        # This endpoint is documented as "Post-rug SOL capital flow trace" —
+        # enforce the invariant to prevent false-positive extraction reports
+        # on live tokens where SOL flows are fees/rent, not extraction.
+        from .lineage_detector import _is_token_rugged as _itr
+        if not await _itr(mint):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Token is not confirmed rugged. "
+                    "SOL trace is only available after a rug event is recorded. "
+                    "If the token has recently rugged, wait for the next sweep (~15 min)."
+                ),
+            )
         # Look up deployer for this mint from intelligence_events
         from .data_sources._clients import event_query as _eq
         _mint_rows = await _eq(

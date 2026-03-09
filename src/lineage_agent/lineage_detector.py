@@ -79,6 +79,30 @@ _WEIGHTS = {
 
 
 # ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+async def _is_token_rugged(mint: str) -> bool:
+    """Return True if a confirmed token_rugged event exists in intelligence_events.
+
+    Fail-safe: returns False on any DB error so that callers never block.
+    Used to gate trace_sol_flow calls — the tracer is a post-rug forensic
+    tool and must not run on live tokens (would capture fees/rent as extraction).
+    """
+    try:
+        from .data_sources._clients import event_query as _eq
+        rows = await _eq(
+            where="event_type = 'token_rugged' AND mint = ?",
+            params=(mint,),
+            columns="mint",
+            limit=1,
+        )
+        return bool(rows)
+    except Exception:
+        return False
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -709,15 +733,29 @@ async def detect_lineage(
     async def _run_sol_flow() -> Optional[object]:
         flow = await _safe(get_sol_flow_report(_scan_mint), name="sol_flow_read")
         if flow is None and _scan_deployer:
-            try:
-                flow = await asyncio.wait_for(
-                    trace_sol_flow(_scan_mint, _scan_deployer), timeout=12.0
+            # Only run the forensic trace on confirmed rugs — not live tokens.
+            # trace_sol_flow is a post-rug BFS tool; running it on live tokens
+            # captures fees/rent/launchpad costs as false "SOL extraction".
+            # The rug_detector background sweep fires the trace correctly after
+            # a rug event is confirmed — no need to trace here on live tokens.
+            _rugged = await _is_token_rugged(_scan_mint)
+            if _rugged:
+                try:
+                    flow = await asyncio.wait_for(
+                        trace_sol_flow(_scan_mint, _scan_deployer, pairs=pairs), timeout=12.0
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning("[sol_flow] timed out — continuing in background")
+                    asyncio.ensure_future(
+                        trace_sol_flow(_scan_mint, _scan_deployer, pairs=pairs)
+                    )
+                except Exception as _e:
+                    logger.warning("[sol_flow] failed: %s", _e)
+            else:
+                logger.debug(
+                    "[sol_flow] skipping trace — token not confirmed rugged: %s",
+                    _scan_mint[:8],
                 )
-            except asyncio.TimeoutError:
-                logger.warning("[sol_flow] timed out — continuing in background")
-                asyncio.ensure_future(trace_sol_flow(_scan_mint, _scan_deployer))
-            except Exception as _e:
-                logger.warning("[sol_flow] failed: %s", _e)
         return flow
 
     async def _run_cartel() -> Optional[object]:
@@ -871,19 +909,22 @@ async def detect_lineage(
         )[:12]  # cap at 12 wallets to bound RPC cost
 
     if _bundle_seeds:
-        # Always fire-and-forget the bundle-seed SOL trace.  Previously, when
-        # sol_flow was None (common PumpFun case), this ran synchronously with a
-        # 15 s timeout — an extra post-gather sequential step that pushed scan
-        # time beyond 30 s.  The trace persists to DB; the next scan (or the
-        # /lineage/{mint}/sol-trace endpoint) returns the cached result.
-        # (Optimization #5)
-        asyncio.ensure_future(
-            trace_sol_flow(_scan_mint, _scan_deployer, extra_seed_wallets=_bundle_seeds)
-        )
-        logger.info(
-            "[sol_flow] queued bundle-seed trace in background: %d seeds for %s",
-            len(_bundle_seeds), _scan_mint[:8],
-        )
+        # Only fire bundle-seed trace on confirmed rugs (same policy as _run_sol_flow).
+        # Bundle extraction evidence is forensically valid only post-rug — running
+        # on a live token would still capture non-extraction SOL movements.
+        _rugged_for_bundle = await _is_token_rugged(_scan_mint)
+        if _rugged_for_bundle:
+            asyncio.ensure_future(
+                trace_sol_flow(
+                    _scan_mint, _scan_deployer,
+                    extra_seed_wallets=_bundle_seeds,
+                    pairs=pairs,
+                )
+            )
+            logger.info(
+                "[sol_flow] queued bundle-seed trace in background: %d seeds for %s",
+                len(_bundle_seeds), _scan_mint[:8],
+            )
 
     await _progress("Analysis complete", 100)
     result.scanned_at = datetime.now(timezone.utc)

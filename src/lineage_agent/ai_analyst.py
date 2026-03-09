@@ -258,7 +258,14 @@ def _heuristic_score(
     # ── SOL flow signals ──────────────────────────────────────────────────
     if sol_flow:
         extracted = getattr(sol_flow, "total_extracted_sol", 0) or 0
-        if extracted >= 20:
+        _liq_sol = getattr(sol_flow, "liquidity_is_sol_denominated", True)
+        if not _liq_sol:
+            # Token uses USDC/non-SOL liquidity. Small SOL flows are
+            # infrastructure costs (rent, fees, launchpad), not extraction.
+            # Real value extraction on a USDC pair would appear in USDC,
+            # not SOL — skip this signal to avoid false risk inflation.
+            pass
+        elif extracted >= 20:
             score += 20
         elif extracted >= 5:
             score += 12
@@ -743,6 +750,13 @@ def _build_prompt(
         parts.append(f"Total extracted: {getattr(sol_flow,'total_extracted_sol',0):.4f} SOL")
         if getattr(sol_flow, "total_extracted_usd", None):
             parts.append(f"USD value: ${sol_flow.total_extracted_usd:,.2f}")
+        if not getattr(sol_flow, "liquidity_is_sol_denominated", True):
+            parts.append(
+                "NOTE: Liquidity is USDC/non-SOL denominated. "
+                "SOL flows shown above are infrastructure costs (rent, fees, launchpad), "
+                "NOT extraction signals. Value extraction on this token would appear via "
+                "USDC outflows, not SOL — do not interpret these as rug proceeds."
+            )
         parts.append(f"Hops traced: {getattr(sol_flow,'hop_count',1)}")
         parts.append(f"Terminal wallets (final destinations): {len(getattr(sol_flow,'terminal_wallets',[]))}")
         parts.append(f"Known CEX detected: {getattr(sol_flow,'known_cex_detected',False)}")
