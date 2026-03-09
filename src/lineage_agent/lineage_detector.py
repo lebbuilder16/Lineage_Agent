@@ -927,7 +927,6 @@ async def detect_lineage(
             )
 
     await _progress("Analysis complete", 100)
-    result.scanned_at = datetime.now(timezone.utc)
     await _cache_set(f"lineage:v4:{mint_address}", result, ttl=CACHE_TTL_LINEAGE_SECONDS)
     return result
 
