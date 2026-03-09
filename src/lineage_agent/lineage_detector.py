@@ -1051,6 +1051,25 @@ async def detect_lineage(
                 asyncio.ensure_future(trace_sol_flow(_scan_mint, _scan_deployer))
             except Exception as _e:
                 logger.warning("[sol_flow] failed: %s", _e)
+
+        # Sanity gate: discard sol_flow when all traced activity predates the
+        # token's creation.  This catches false positives where the deployer
+        # is a regular personal wallet (Moonshot, some pump.fun) and the BFS
+        # finds unrelated pre-launch transactions from that wallet.
+        if flow is not None and query_meta and query_meta.created_at:
+            _rug_ts = getattr(flow, "rug_timestamp", None)
+            if _rug_ts and _rug_ts < query_meta.created_at:
+                logger.info(
+                    "[sol_flow] discarding trace for %s — rug_timestamp (%s) predates "
+                    "token creation (%s); likely pre-creation wallet activity",
+                    _scan_mint[:8], _rug_ts.isoformat(), query_meta.created_at.isoformat(),
+                )
+                await _safe(
+                    get_sol_flow_report(_scan_mint, force_refresh=True),
+                    name="sol_flow_purge",
+                )
+                flow = None
+
         return flow
 
     async def _run_cartel() -> Optional[object]:
