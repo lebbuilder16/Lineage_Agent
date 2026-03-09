@@ -452,7 +452,7 @@ async def detect_lineage(
     if force_refresh:
         await _cache_delete(_lineage_cache_key(mint_address))
         await _cache_delete(_legacy_lineage_cache_key(mint_address))
-        await _cache_delete(f"rpc:deployer:v4:{mint_address}")
+        await _cache_delete(f"rpc:deployer:v5:{mint_address}")
         await _cache_delete(f"rpc:asset:{mint_address}")
         logger.info("[force_refresh] cleared lineage + RPC caches for %s", mint_address)
 
@@ -1464,6 +1464,7 @@ _NON_DEPLOYER_AUTHORITIES: frozenset[str] = frozenset({
     # Moonshot (Moonshot.fun)
     "MoonCVVNZFSYkqNXP6bxHLPL6QQJiMEfzPWlVMMf9Ly",     # Moonshot program
     "Ce6TQqeHC9p8KetsN6JsjHK7UTZk7nasjjnr7XxXp9F1",    # Moonshot fee/authority
+    "7rtiKSUDLBm59b1SBmD9oajcP8xE64vAGSMbAN5CXy1q",    # Moonshot relay wallet (signs on behalf of users)
     # LetsBonk
     "4wTV81rvZBKW8vFJX9PMwn5n46sYr6HfkWMqJjpPbZ6M",     # LetsBonk program
     # Believe / Degen
@@ -1488,9 +1489,9 @@ async def _get_deployer_cached(
            created_at`` reflects Helius's *last-indexing* time, not the
            actual mint-init block time, and must NOT be used here.
     """
-    # v4: cache bust — v3 could persist update-authority addresses as deployer.
-    # v4 stores creator-first resolution + signature-walk timestamp.
-    cache_key = f"rpc:deployer:v4:{mint}"
+    # v5: cache bust — v4 could persist Moonshot relay wallet as deployer.
+    # v5 blocks the relay wallet (7rtiKSU...) so it returns "" for Moonshot tokens.
+    cache_key = f"rpc:deployer:v5:{mint}"
     cached = await _cache_get(cache_key)
     if cached is not None:
         # SQLite cache returns lists; convert datetime string back
