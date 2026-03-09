@@ -253,7 +253,11 @@ def _heuristic_score(
                 score += 20
             elif _ins_v == "suspicious":
                 score += 10
-            if getattr(_ins, "deployer_exited", False):
+            _ins_applicability = getattr(_ins, "applicability", None)
+            _ins_applicable = _ins_applicability is None or str(_ins_applicability).lower() not in (
+                "not_applicable", "unavailable",
+            )
+            if _ins_applicable and getattr(_ins, "deployer_exited", False):
                 score += 15
 
         # death clock

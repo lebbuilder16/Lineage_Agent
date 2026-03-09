@@ -84,7 +84,7 @@ _WEIGHTS = {
 }
 
 _LAUNCHPAD_CONTENT_HOSTS: dict[str, tuple[str, ...]] = {
-    "moonshot": ("moonshot.com",),
+    "moonshot": ("moonshot.money", "assets.moonshot.money", "dl.moonshot.money"),
 }
 
 _LAUNCHPAD_MINT_SUFFIXES: dict[str, tuple[str, ...]] = {
@@ -125,7 +125,7 @@ def classify_market_context(
             reason_codes.extend(heuristic_reasons)
 
     if platform and solana_pairs:
-        pair_context = _classify_launchpad_pair_context(solana_pairs)
+        pair_context = _classify_launchpad_pair_context(solana_pairs, launch_platform=platform)
         reason_codes.extend(pair_context["reason_codes"])
         return {
             "launch_platform": platform,
@@ -201,13 +201,51 @@ def _infer_launchpad_from_asset_signals(
 
 def _classify_launchpad_pair_context(
     solana_pairs: list[dict[str, Any]],
+    *,
+    launch_platform: Optional[str] = None,
 ) -> dict[str, Any]:
+    """Classify lifecycle stage from DexScreener Solana pairs.
+
+    DexScreener reports bonding-curve activity (Moonshot, letsbonk, believe)
+    with ``dexId`` set to the platform name *and* real volume/txn data.  These
+    are NOT DEX pairs — the token is still on the launchpad curve.  We must
+    separate bonding-curve pairs from real AMM/CLMM pairs before inferring
+    lifecycle stage.
+    """
+    # Build the set of dexId values that represent bonding-curve platforms.
+    # Always include the known set; optionally add the detected launch_platform.
+    from .constants import BONDING_CURVE_LAUNCHPAD_PLATFORMS
+    bonding_curve_ids: frozenset[str] = BONDING_CURVE_LAUNCHPAD_PLATFORMS
+    if launch_platform:
+        bonding_curve_ids = bonding_curve_ids | frozenset({launch_platform.lower()})
+
+    real_dex_pairs = [
+        p for p in solana_pairs
+        if (p.get("dexId") or "").lower() not in bonding_curve_ids
+    ]
+    bonding_curve_pairs = [
+        p for p in solana_pairs
+        if (p.get("dexId") or "").lower() in bonding_curve_ids
+    ]
+
+    # If ALL observed pairs are on a bonding curve → token has NOT graduated.
+    if bonding_curve_pairs and not real_dex_pairs:
+        return {
+            "lifecycle_stage": LifecycleStage.LAUNCHPAD_CURVE_ONLY,
+            "market_surface": MarketSurface.LAUNCHPAD_CURVE_ONLY,
+            "evidence_level": EvidenceLevel.STRONG,
+            "reason_codes": ["launchpad_bonding_curve_dex_only"],
+        }
+
+    # From here we only care about real DEX pairs.
+    working_pairs = real_dex_pairs if real_dex_pairs else solana_pairs
+
     now = datetime.now(timezone.utc)
     reason_codes = ["dex_pair_observed"]
     oldest_pair_at: Optional[datetime] = None
     has_live_market_activity = False
 
-    for pair in solana_pairs:
+    for pair in working_pairs:
         created_at = _pair_created_at(pair)
         if created_at is not None and (oldest_pair_at is None or created_at < oldest_pair_at):
             oldest_pair_at = created_at
@@ -934,6 +972,28 @@ async def detect_lineage(
     _linked_for_sell: list[str] = []
 
     async def _run_sol_flow() -> Optional[object]:
+        # Skip SOL-flow entirely for pre-DEX / bonding-curve tokens.
+        # On launchpad platforms the deployer's normal wallet activity (e.g.
+        # buying their own token, paying fees) gets misinterpreted as
+        # extraction — return None so the AI has no SOL-flow signal to misuse.
+        _stage = getattr(query_meta, "lifecycle_stage", None)
+        _is_pre_dex = _stage in (
+            LifecycleStage.LAUNCHPAD_CURVE_ONLY,
+            LifecycleStage.LAUNCHPAD_CURVE_ONLY.value,
+            "launchpad_curve_only",
+        )
+        if _is_pre_dex:
+            # Purge any stale trace that was persisted before this fix landed.
+            await _safe(
+                get_sol_flow_report(_scan_mint, force_refresh=True),
+                name="sol_flow_purge",
+            )
+            logger.info(
+                "[sol_flow] skipping trace for pre-DEX token %s (stage=%s)",
+                _scan_mint[:8], _stage,
+            )
+            return None
+
         flow = await _safe(get_sol_flow_report(_scan_mint), name="sol_flow_read")
         if flow is None and _scan_deployer:
             try:
@@ -1102,7 +1162,12 @@ async def detect_lineage(
             + result.bundle_report.coordinated_dump_wallets
         )[:12]  # cap at 12 wallets to bound RPC cost
 
-    if _bundle_seeds:
+    _pre_dex_stage = getattr(query_meta, "lifecycle_stage", None) in (
+        LifecycleStage.LAUNCHPAD_CURVE_ONLY,
+        LifecycleStage.LAUNCHPAD_CURVE_ONLY.value,
+        "launchpad_curve_only",
+    )
+    if _bundle_seeds and not _pre_dex_stage:
         # Always fire-and-forget the bundle-seed SOL trace.  Previously, when
         # sol_flow was None (common PumpFun case), this ran synchronously with a
         # 15 s timeout — an extra post-gather sequential step that pushed scan
