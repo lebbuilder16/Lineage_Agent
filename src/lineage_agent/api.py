@@ -393,6 +393,26 @@ async def _load_analyze_supporting_reports(
         deployer,
         extra_seed_wallets=_bundle_seed_wallets(bundle_res, deployer),
     )
+
+    # Sanity gate: discard sol_flow when all traced activity predates the
+    # token's creation (same check as _run_sol_flow in lineage_detector.py).
+    if sol_flow_res is not None and lineage_res is not None:
+        _qt = getattr(lineage_res, "query_token", None) or getattr(lineage_res, "root", None)
+        _token_created_at = getattr(_qt, "created_at", None) if _qt else None
+        _rug_ts = getattr(sol_flow_res, "rug_timestamp", None)
+        if _rug_ts and _token_created_at and _rug_ts < _token_created_at:
+            logger.info(
+                "[analyze] discarding sol_flow for %s — rug_timestamp (%s) predates "
+                "token creation (%s)",
+                mint[:8], _rug_ts.isoformat(), _token_created_at.isoformat(),
+            )
+            from .sol_flow_service import sol_flows_delete as _sfd
+            try:
+                await _sfd(mint)
+            except Exception:
+                pass
+            sol_flow_res = None
+
     return bundle_res, sol_flow_res
 
 
