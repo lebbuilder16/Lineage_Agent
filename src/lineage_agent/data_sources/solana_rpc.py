@@ -473,7 +473,7 @@ class SolanaRpcClient:
                         # each as a candidate (first non-program wins).
                         addr = key
                         is_signer = True
-                    if addr and is_signer and addr not in _PROGRAM_ADDRESSES:
+                    if addr and is_signer and addr not in _PROGRAM_ADDRESSES and addr != mint:
                         deployer = addr
                         break
             except (KeyError, IndexError, TypeError):

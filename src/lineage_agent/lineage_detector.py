@@ -452,7 +452,7 @@ async def detect_lineage(
     if force_refresh:
         await _cache_delete(_lineage_cache_key(mint_address))
         await _cache_delete(_legacy_lineage_cache_key(mint_address))
-        await _cache_delete(f"rpc:deployer:v5:{mint_address}")
+        await _cache_delete(f"rpc:deployer:v6:{mint_address}")
         await _cache_delete(f"rpc:asset:{mint_address}")
         logger.info("[force_refresh] cleared lineage + RPC caches for %s", mint_address)
 
@@ -1489,9 +1489,9 @@ async def _get_deployer_cached(
            created_at`` reflects Helius's *last-indexing* time, not the
            actual mint-init block time, and must NOT be used here.
     """
-    # v5: cache bust — v4 could persist Moonshot relay wallet as deployer.
-    # v5 blocks the relay wallet (7rtiKSU...) so it returns "" for Moonshot tokens.
-    cache_key = f"rpc:deployer:v5:{mint}"
+    # v6: cache bust — v5 could persist the mint address itself as deployer
+    # (InitializeMint signs with the mint account; must exclude mint from candidates).
+    cache_key = f"rpc:deployer:v6:{mint}"
     cached = await _cache_get(cache_key)
     if cached is not None:
         # SQLite cache returns lists; convert datetime string back
@@ -1500,9 +1500,11 @@ async def _get_deployer_cached(
             # Reject stale cache entries that stored a non-deployer address
             # (e.g. System Program from a burned authority, or a launchpad program).
             # Let the code below re-resolve and overwrite the cache.
-            if _cached_deployer and _cached_deployer not in _NON_DEPLOYER_AUTHORITIES:
+            if (_cached_deployer
+                    and _cached_deployer not in _NON_DEPLOYER_AUTHORITIES
+                    and _cached_deployer != mint):
                 return _cached_deployer, _parse_datetime(cached[1])
-        elif isinstance(cached, str) and cached not in _NON_DEPLOYER_AUTHORITIES:
+        elif isinstance(cached, str) and cached not in _NON_DEPLOYER_AUTHORITIES and cached != mint:
             return cached, None
 
     deployer = ""
@@ -1553,8 +1555,11 @@ async def _get_deployer_cached(
         if authorities and isinstance(authorities[0], dict):
             ua = authorities[0].get("address", "")
 
-        # 3) Safety: non-deployer authorities/programs must never be persisted
-        if deployer in _NON_DEPLOYER_AUTHORITIES:
+        # 3) Safety: non-deployer authorities/programs must never be persisted.
+        # Also reject the mint address itself — for some launchpads (e.g. Moonshot)
+        # the mint account signs its own InitializeMint instruction and can appear
+        # as the "first signer" when the real fee-payer/relay is blocked.
+        if deployer in _NON_DEPLOYER_AUTHORITIES or deployer == mint:
             deployer = ""
 
         if deployer and ua and ua != deployer:
@@ -1593,8 +1598,8 @@ async def _get_deployer_cached(
                 "usable address.",
                 mint,
             )
-        # Safety: signature-walk can still return a program/launchpad address.
-        if deployer in _NON_DEPLOYER_AUTHORITIES:
+        # Safety: signature-walk can still return a program/launchpad address or the mint itself.
+        if deployer in _NON_DEPLOYER_AUTHORITIES or deployer == mint:
             deployer = ""
     elif _sw_deployer and _sw_deployer != deployer:
         logger.warning(
