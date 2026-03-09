@@ -84,7 +84,7 @@ def _extract_flags(result: "LineageResult") -> list[str]:
         flags.append("CARTEL_LINKED")
 
     oi = result.operator_impact
-    if oi and oi.rug_rate_pct >= 50:
+    if oi and getattr(oi, "confirmed_rug_rate_pct", oi.rug_rate_pct) >= 50:
         flags.append("SERIAL_RUGGER")
 
     return flags
@@ -101,6 +101,8 @@ def _build_snapshot_dict(result: "LineageResult") -> dict:
 
     dp = result.deployer_profile
     rug_count = dp.rug_count if dp else 0
+    confirmed_rug_count = getattr(dp, "confirmed_rug_count", rug_count) if dp else 0
+    negative_outcome_count = getattr(dp, "negative_outcome_count", rug_count) if dp else 0
 
     dc = result.death_clock
     bundle = result.bundle_report
@@ -111,6 +113,8 @@ def _build_snapshot_dict(result: "LineageResult") -> dict:
         "flags": flags,
         "family_size": result.family_size,
         "rug_count": rug_count,
+        "confirmed_rug_count": confirmed_rug_count,
+        "negative_outcome_count": negative_outcome_count,
         "death_clock_risk": dc.risk_level if dc else "",
         "bundle_verdict": bundle.overall_verdict if bundle else "",
         "insider_verdict": insider.verdict if insider else "",
@@ -278,6 +282,7 @@ def compute_delta(snap_a: "ScanSnapshot", snap_b: "ScanSnapshot") -> "ScanDelta"
     resolved_flags = [f for f in snap_a.flags if f not in snap_b.flags]
     family_delta = snap_b.family_size - snap_a.family_size
     rug_delta = snap_b.rug_count - snap_a.rug_count
+    confirmed_rug_delta = snap_b.confirmed_rug_count - snap_a.confirmed_rug_count
 
     # Critical flags that always escalate the trend
     _critical = {"BUNDLE_CONFIRMED", "INSIDER_DUMP", "DEATH_CLOCK_CRITICAL", "ZOMBIE_ALERT"}
@@ -300,5 +305,6 @@ def compute_delta(snap_a: "ScanSnapshot", snap_b: "ScanSnapshot") -> "ScanDelta"
         resolved_flags=resolved_flags,
         family_size_delta=family_delta,
         rug_count_delta=rug_delta,
+        confirmed_rug_count_delta=confirmed_rug_delta,
         trend=trend,
     )

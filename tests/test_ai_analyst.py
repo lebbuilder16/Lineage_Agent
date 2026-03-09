@@ -155,6 +155,35 @@ class TestBuildPrompt:
         assert "Binance" in prompt
         assert "Known CEX detected: True" in prompt
 
+    def test_pre_dex_launchpad_prompt_includes_hard_constraints(self):
+        query_token = _ns(
+            name="MoonshotToken",
+            symbol="MOON",
+            deployer="D" * 44,
+            created_at="2025-01-01T00:00:00+00:00",
+            liquidity_usd=None,
+            market_cap_usd=None,
+            launch_platform="moonshot",
+            lifecycle_stage="launchpad_curve_only",
+            market_surface="launchpad_curve_only",
+            evidence_level="strong",
+            reason_codes=["launchpad_authority_matched", "launchpad_curve_only"],
+        )
+        lineage = _ns(
+            query_token=query_token,
+            root=query_token,
+            query_is_root=True,
+            derivatives=[],
+            confidence=0.8,
+            zombie_alert=None,
+            death_clock=None,
+            deployer_profile=None,
+        )
+        prompt = _build_prompt(MINT, lineage, None, None)
+        assert "HARD CONSTRAINTS FOR THIS TOKEN" in prompt
+        assert "must not describe it as a DEX liquidity rug" in prompt
+        assert "no DEX rug is proven yet" in prompt
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # _parse_response
@@ -490,6 +519,27 @@ class TestSanityCheck:
         assert result["key_findings"][0].startswith("[CAVEAT]")
         assert "existing finding" in result["key_findings"]
 
+    def test_pre_dex_launchpad_caps_incompatible_verdict(self):
+        query_token = _ns(
+            launch_platform="moonshot",
+            lifecycle_stage="launchpad_curve_only",
+            market_surface="launchpad_curve_only",
+        )
+        lineage = _ns(query_token=query_token)
+        result = {
+            "risk_score": 91,
+            "confidence": "high",
+            "rug_pattern": "classic_rug",
+            "verdict_summary": "The deployer drained DEX liquidity and rugged the pool.",
+            "key_findings": [],
+        }
+        out = _sanity_check(result, lineage=lineage, bundle=None, sol_flow=None)
+        assert out["risk_score"] == 60
+        assert out["confidence"] == "low"
+        assert out["rug_pattern"] == "unknown"
+        assert "does not prove a DEX rug" in out["verdict_summary"]
+        assert any("pre-DEX context" in finding for finding in out["key_findings"])
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # _extract_deployer (P1-B helper)
@@ -574,6 +624,23 @@ class TestRuleBasedFallback:
             assert key in result, f"Missing key: {key}"
         assert result["mint"] == MINT
         assert result["confidence"] == "low"
+
+    def test_pre_dex_launchpad_fallback_cannot_label_dex_rug(self):
+        query_token = _ns(
+            launch_platform="moonshot",
+            lifecycle_stage="launchpad_curve_only",
+            market_surface="launchpad_curve_only",
+        )
+        lineage = _ns(
+            query_token=query_token,
+            derivatives=[_ns() for _ in range(20)],
+            deployer_profile=_ns(confirmed_rug_count=7),
+            zombie_alert=None,
+        )
+        result = _rule_based_fallback(MINT, lineage=lineage)
+        assert result is not None
+        assert result["risk_score"] <= 60
+        assert any("pre-DEX" in finding for finding in result["key_findings"])
 
 
 # ─────────────────────────────────────────────────────────────────────────────

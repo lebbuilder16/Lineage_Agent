@@ -828,20 +828,6 @@ async def get_sol_trace(
         from .sol_flow_service import _rows_to_report
         if db_rows and not force_refresh:
             return _rows_to_report(mint, db_rows)
-        # Gate: only trace confirmed rugged tokens.
-        # This endpoint is documented as "Post-rug SOL capital flow trace" —
-        # enforce the invariant to prevent false-positive extraction reports
-        # on live tokens where SOL flows are fees/rent, not extraction.
-        from .lineage_detector import _is_token_rugged as _itr
-        if not await _itr(mint):
-            raise HTTPException(
-                status_code=409,
-                detail=(
-                    "Token is not confirmed rugged. "
-                    "SOL trace is only available after a rug event is recorded. "
-                    "If the token has recently rugged, wait for the next sweep (~15 min)."
-                ),
-            )
         # Look up deployer for this mint from intelligence_events
         from .data_sources._clients import event_query as _eq
         _mint_rows = await _eq(
@@ -1958,6 +1944,18 @@ _stats_cache: Optional[tuple[float, GlobalStats]] = None
 _STATS_CACHE_TTL = 60.0
 
 
+def _is_confirmed_rug_stats_row(row: dict) -> bool:
+    mechanism = str(row.get("rug_mechanism") or "").strip().lower()
+    evidence_level = str(row.get("evidence_level") or "").strip().lower()
+    if not mechanism:
+        return True
+    if mechanism not in {"dex_liquidity_rug", "pre_dex_extraction_rug"}:
+        return False
+    if not evidence_level:
+        return True
+    return evidence_level in {"moderate", "strong"}
+
+
 @app.get(
     "/stats/global",
     response_model=GlobalStats,
@@ -1993,7 +1991,7 @@ async def get_global_stats(request: Request) -> GlobalStats:
             _eq(
                 where="event_type = 'token_rugged' AND rugged_at >= ?",
                 params=(cutoff,),
-                columns="mint",
+                columns="mint, rug_mechanism, evidence_level",
             ),
             _eq(where="1=1", params=(), columns="COUNT(*) as cnt", limit=1),
             _eq(
@@ -2004,8 +2002,10 @@ async def get_global_stats(request: Request) -> GlobalStats:
         )
 
         tokens_scanned = len(created_rows)
-        tokens_rugged = len(rugged_rows)
+        tokens_negative_outcomes = len(rugged_rows)
+        tokens_rugged = sum(1 for row in rugged_rows if _is_confirmed_rug_stats_row(row))
         rug_rate = round((tokens_rugged / tokens_scanned * 100) if tokens_scanned > 0 else 0.0, 2)
+        negative_outcome_rate = round((tokens_negative_outcomes / tokens_scanned * 100) if tokens_scanned > 0 else 0.0, 2)
         active_deployers = len({r.get("deployer", "") for r in created_rows if r.get("deployer")})
         db_total = total_rows[0].get("cnt", 0) if total_rows else 0
 
@@ -2023,6 +2023,8 @@ async def get_global_stats(request: Request) -> GlobalStats:
             tokens_scanned_24h=tokens_scanned,
             tokens_rugged_24h=tokens_rugged,
             rug_rate_24h_pct=rug_rate,
+            tokens_negative_outcomes_24h=tokens_negative_outcomes,
+            negative_outcome_rate_24h_pct=negative_outcome_rate,
             active_deployers_24h=active_deployers,
             top_narratives=top_narratives,
             db_events_total=db_total,
@@ -2055,8 +2057,8 @@ async def get_stats_brief(request: Request) -> dict:
     rug_rate = f"{stats.rug_rate_24h_pct:.1f}"
 
     text = (
-        f"{stats.tokens_rugged_24h} rug pulls detected in the last 24 h "
-        f"({rug_rate}% rug rate) across {stats.tokens_scanned_24h:,} scanned tokens. "
+        f"{stats.tokens_rugged_24h} confirmed rug pulls detected in the last 24 h "
+        f"({rug_rate}% confirmed rug rate) across {stats.tokens_scanned_24h:,} scanned tokens. "
         f"Top narrative: {top_nar} — {stats.active_deployers_24h} active deployers tracked."
     )
 

@@ -8,11 +8,22 @@ data dependencies are met.
 from __future__ import annotations
 
 import hashlib
+import json
 from datetime import datetime, timedelta, timezone
+from unittest.mock import AsyncMock
 
 import pytest
 
 from lineage_agent.cache import SQLiteCache
+from lineage_agent.models import (
+    BundleExtractionReport,
+    EvidenceLevel,
+    LifecycleStage,
+    MarketSurface,
+    RugMechanism,
+    SolFlowReport,
+    TokenMetadata,
+)
 
 
 @pytest.fixture
@@ -35,7 +46,15 @@ _DEPLOYER_B = "DeployerBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB222"
 _NOW = datetime.now(tz=timezone.utc)
 
 
-async def _seed_tokens(cache: SQLiteCache, deployer: str, count: int, *, rug_count: int = 0):
+async def _seed_tokens(
+    cache: SQLiteCache,
+    deployer: str,
+    count: int,
+    *,
+    rug_count: int = 0,
+    rug_mechanism: str = "dex_liquidity_rug",
+    evidence_level: str = "strong",
+):
     """Insert count token_created events, optionally marking some as rugged."""
     # Use a hash of the deployer to guarantee unique mint IDs
     deployer_tag = hashlib.sha256(deployer.encode()).hexdigest()[:10]
@@ -63,6 +82,8 @@ async def _seed_tokens(cache: SQLiteCache, deployer: str, count: int, *, rug_cou
                 mcap_usd=10_000 + i * 1000,
                 rugged_at=rugged_at.isoformat(),
                 created_at=created.isoformat(),
+                rug_mechanism=rug_mechanism,
+                evidence_level=evidence_level,
             )
 
 
@@ -95,6 +116,38 @@ class TestDeathClock:
         from lineage_agent.death_clock import compute_death_clock
         result = await compute_death_clock("", _NOW)
         assert result is None
+
+    @pytest.mark.asyncio
+    async def test_normalizes_legacy_dex_rug_before_forecast(self, cache):
+        mint = "LegacyDexRugMint" + "L" * 28
+        created_at = (_NOW - timedelta(days=2)).isoformat()
+        rugged_at = (_NOW - timedelta(days=1, hours=12)).isoformat()
+        await cache.insert_event(
+            event_type="token_created",
+            mint=mint,
+            deployer=_DEPLOYER_A,
+            created_at=created_at,
+            lifecycle_stage="dex_listed",
+            market_surface="dex_pool_observed",
+        )
+        await cache.insert_event(
+            event_type="token_rugged",
+            mint=mint,
+            deployer=_DEPLOYER_A,
+            created_at=created_at,
+            rugged_at=rugged_at,
+        )
+
+        from lineage_agent.death_clock import compute_death_clock
+        result = await compute_death_clock(_DEPLOYER_A, _NOW)
+        rugged_rows = await cache.query_events(
+            where="event_type = 'token_rugged' AND mint = ?",
+            params=(mint,),
+        )
+
+        assert result is not None
+        assert rugged_rows[0]["rug_mechanism"] == RugMechanism.DEX_LIQUIDITY_RUG.value
+        assert rugged_rows[0]["analysis_version"] == "rug-normalize-v1"
 
 
 # ── Factory Rhythm ────────────────────────────────────────────────────────────
@@ -138,8 +191,26 @@ class TestDeployerProfile:
         assert result.address == _DEPLOYER_A
         assert result.total_tokens_launched == 4
         assert result.rug_count == 2
+        assert result.confirmed_rug_count == 2
         assert result.rug_rate_pct == pytest.approx(50.0)
         assert result.confidence in ("high", "medium", "low")
+
+    @pytest.mark.asyncio
+    async def test_unproven_abandonment_does_not_increment_confirmed_rug_count(self, cache):
+        deployer = _DEPLOYER_A + "LEGACY"
+        await _seed_tokens(
+            cache,
+            deployer,
+            4,
+            rug_count=2,
+            rug_mechanism="unproven_abandonment",
+            evidence_level="weak",
+        )
+        from lineage_agent.deployer_service import compute_deployer_profile
+        result = await compute_deployer_profile(deployer)
+        assert result is not None
+        assert result.rug_count == 2
+        assert result.confirmed_rug_count == 0
 
     @pytest.mark.asyncio
     async def test_returns_none_for_unknown_deployer(self, cache):
@@ -147,6 +218,41 @@ class TestDeployerProfile:
         result = await compute_deployer_profile("UnknownWallet" + "X" * 30)
         # No tokens in DB for this deployer → returns None (no profile to build)
         assert result is None
+
+    @pytest.mark.asyncio
+    async def test_legacy_pre_dex_rug_normalizes_to_unknown_not_confirmed(self, cache):
+        deployer = _DEPLOYER_A + "PREDEX"
+        mint = "LegacyPreDexMint" + "Z" * 29
+        created_at = (_NOW - timedelta(days=1)).isoformat()
+        await cache.insert_event(
+            event_type="token_created",
+            mint=mint,
+            deployer=deployer,
+            created_at=created_at,
+            launch_platform="moonshot",
+            lifecycle_stage="launchpad_curve_only",
+            market_surface="launchpad_curve_only",
+        )
+        await cache.insert_event(
+            event_type="token_rugged",
+            mint=mint,
+            deployer=deployer,
+            created_at=created_at,
+            rugged_at=_NOW.isoformat(),
+        )
+
+        from lineage_agent.deployer_service import compute_deployer_profile
+        result = await compute_deployer_profile(deployer)
+        rugged_rows = await cache.query_events(
+            where="event_type = 'token_rugged' AND mint = ?",
+            params=(mint,),
+        )
+
+        assert result is not None
+        assert result.rug_count == 1
+        assert result.confirmed_rug_count == 0
+        assert rugged_rows[0]["rug_mechanism"] == RugMechanism.UNKNOWN.value
+        assert "legacy_rug_pre_dex_context" in json.loads(rugged_rows[0]["reason_codes"])
 
 
 # ── Operator Impact ───────────────────────────────────────────────────────────
@@ -165,14 +271,283 @@ class TestOperatorImpact:
         assert result is not None
         assert result.total_tokens_launched == 5
         assert result.total_rug_count == 2
+        assert result.total_confirmed_rug_count == 2
         assert result.rug_rate_pct == pytest.approx(40.0)
         assert result.linked_wallets == [_DEPLOYER_A, _DEPLOYER_B]
+
+    @pytest.mark.asyncio
+    async def test_operator_impact_filters_non_confirmed_damage_from_extraction_estimate(self, cache):
+        await _seed_tokens(cache, _DEPLOYER_A, 2, rug_count=1)
+        await _seed_tokens(
+            cache,
+            _DEPLOYER_B,
+            2,
+            rug_count=1,
+            rug_mechanism="unproven_abandonment",
+            evidence_level="weak",
+        )
+        from lineage_agent.operator_impact_service import compute_operator_impact
+        result = await compute_operator_impact("abcdef1234567890", [_DEPLOYER_A, _DEPLOYER_B])
+        assert result is not None
+        assert result.total_rug_count == 2
+        assert result.total_confirmed_rug_count == 1
+        assert result.estimated_extracted_usd > 0
 
     @pytest.mark.asyncio
     async def test_returns_none_for_empty_wallets(self, cache):
         from lineage_agent.operator_impact_service import compute_operator_impact
         result = await compute_operator_impact("abcdef1234567890", [])
         assert result is None
+
+
+# ── Rug Detector ─────────────────────────────────────────────────────────────
+
+class TestRugDetector:
+    @pytest.mark.asyncio
+    async def test_rug_sweep_skips_launchpad_curve_only_tokens(self, cache, monkeypatch):
+        mint = "MoonshotMint" + "X" * 32
+        await cache.insert_event(
+            event_type="token_created",
+            mint=mint,
+            deployer=_DEPLOYER_A,
+            liq_usd=5_000,
+            created_at=_NOW.isoformat(),
+            launch_platform="moonshot",
+            lifecycle_stage="launchpad_curve_only",
+            market_surface="launchpad_curve_only",
+        )
+
+        fake_dex = type("FakeDex", (), {"get_token_pairs": AsyncMock(return_value=[])})()
+        monkeypatch.setattr("lineage_agent.rug_detector.get_dex_client", lambda: fake_dex)
+
+        from lineage_agent.rug_detector import _run_rug_sweep
+        result = await _run_rug_sweep()
+        rugged_rows = await cache.query_events(
+            where="event_type = 'token_rugged' AND mint = ?",
+            params=(mint,),
+        )
+
+        assert result == 0
+        assert rugged_rows == []
+
+    @pytest.mark.asyncio
+    async def test_rug_sweep_records_dex_liquidity_rug_for_dex_context(self, cache, monkeypatch):
+        mint = "DexMint" + "Y" * 37
+        await cache.insert_event(
+            event_type="token_created",
+            mint=mint,
+            deployer=_DEPLOYER_A,
+            liq_usd=5_000,
+            created_at=_NOW.isoformat(),
+            lifecycle_stage="dex_listed",
+            market_surface="dex_pool_observed",
+        )
+
+        fake_dex = type("FakeDex", (), {"get_token_pairs": AsyncMock(return_value=[])})()
+        monkeypatch.setattr("lineage_agent.rug_detector.get_dex_client", lambda: fake_dex)
+
+        from lineage_agent.rug_detector import _run_rug_sweep
+        result = await _run_rug_sweep()
+        rugged_rows = await cache.query_events(
+            where="event_type = 'token_rugged' AND mint = ?",
+            params=(mint,),
+        )
+
+        assert result == 1
+        assert rugged_rows[0]["rug_mechanism"] == "dex_liquidity_rug"
+        assert rugged_rows[0]["evidence_level"] == "strong"
+
+    @pytest.mark.asyncio
+    async def test_persist_pre_dex_extraction_rug_inserts_confirmed_bundle_case(self, cache):
+        mint = "PreDexMint" + "P" * 34
+        token_meta = TokenMetadata(
+            mint=mint,
+            deployer=_DEPLOYER_A,
+            launch_platform="moonshot",
+            lifecycle_stage=LifecycleStage.LAUNCHPAD_CURVE_ONLY,
+            market_surface=MarketSurface.LAUNCHPAD_CURVE_ONLY,
+            reason_codes=["moonshot_authority"],
+            evidence_level=EvidenceLevel.STRONG,
+            created_at=_NOW,
+        )
+        bundle_report = BundleExtractionReport(
+            mint=mint,
+            deployer=_DEPLOYER_A,
+            overall_verdict="confirmed_team_extraction",
+        )
+        sol_flow = SolFlowReport(
+            mint=mint,
+            deployer=_DEPLOYER_A,
+            total_extracted_sol=12.5,
+            analysis_timestamp=_NOW,
+        )
+
+        from lineage_agent.rug_detector import persist_pre_dex_extraction_rug
+        changed = await persist_pre_dex_extraction_rug(mint, _DEPLOYER_A, token_meta, bundle_report, sol_flow)
+        rugged_rows = await cache.query_events(
+            where="event_type = 'token_rugged' AND mint = ?",
+            params=(mint,),
+        )
+
+        assert changed is True
+        assert len(rugged_rows) == 1
+        assert rugged_rows[0]["rug_mechanism"] == RugMechanism.PRE_DEX_EXTRACTION_RUG.value
+        assert rugged_rows[0]["evidence_level"] == EvidenceLevel.STRONG.value
+        assert set(json.loads(rugged_rows[0]["reason_codes"])) >= {
+            "moonshot_authority",
+            "bundle_confirmed_team_extraction",
+            "sol_flow_extraction_detected",
+        }
+
+    @pytest.mark.asyncio
+    async def test_persist_pre_dex_extraction_rug_upgrades_existing_suspected_row(self, cache):
+        mint = "UpgradeMint" + "U" * 33
+        await cache.insert_event(
+            event_type="token_rugged",
+            mint=mint,
+            deployer=_DEPLOYER_A,
+            rugged_at=_NOW.isoformat(),
+            created_at=_NOW.isoformat(),
+            rug_mechanism=RugMechanism.PRE_DEX_EXTRACTION_RUG.value,
+            evidence_level=EvidenceLevel.MODERATE.value,
+            reason_codes=json.dumps(["bundle_suspected_team_extraction"]),
+        )
+        token_meta = TokenMetadata(
+            mint=mint,
+            deployer=_DEPLOYER_A,
+            launch_platform="pumpfun",
+            lifecycle_stage=LifecycleStage.LAUNCHPAD_CURVE_ONLY,
+            market_surface=MarketSurface.LAUNCHPAD_CURVE_ONLY,
+            evidence_level=EvidenceLevel.STRONG,
+        )
+        bundle_report = BundleExtractionReport(
+            mint=mint,
+            deployer=_DEPLOYER_A,
+            overall_verdict="confirmed_team_extraction",
+        )
+
+        from lineage_agent.rug_detector import persist_pre_dex_extraction_rug
+        changed = await persist_pre_dex_extraction_rug(mint, _DEPLOYER_A, token_meta, bundle_report, None)
+        rugged_rows = await cache.query_events(
+            where="event_type = 'token_rugged' AND mint = ?",
+            params=(mint,),
+        )
+
+        assert changed is True
+        assert len(rugged_rows) == 1
+        assert rugged_rows[0]["evidence_level"] == EvidenceLevel.STRONG.value
+        assert rugged_rows[0]["rug_mechanism"] == RugMechanism.PRE_DEX_EXTRACTION_RUG.value
+        assert "bundle_confirmed_team_extraction" in json.loads(rugged_rows[0]["reason_codes"])
+
+    @pytest.mark.asyncio
+    async def test_persist_pre_dex_extraction_rug_upgrades_sol_only_to_suspected_at_same_evidence(self, cache):
+        mint = "UpgradeSourceMint" + "S" * 27
+        await cache.insert_event(
+            event_type="token_rugged",
+            mint=mint,
+            deployer=_DEPLOYER_A,
+            rugged_at=_NOW.isoformat(),
+            created_at=_NOW.isoformat(),
+            rug_mechanism=RugMechanism.PRE_DEX_EXTRACTION_RUG.value,
+            evidence_level=EvidenceLevel.MODERATE.value,
+            reason_codes=json.dumps(["sol_flow_only_extraction_detected", "team_link_unproven"]),
+        )
+        token_meta = TokenMetadata(
+            mint=mint,
+            deployer=_DEPLOYER_A,
+            launch_platform="pumpfun",
+            lifecycle_stage=LifecycleStage.LAUNCHPAD_CURVE_ONLY,
+            market_surface=MarketSurface.LAUNCHPAD_CURVE_ONLY,
+            evidence_level=EvidenceLevel.STRONG,
+        )
+        bundle_report = BundleExtractionReport(
+            mint=mint,
+            deployer=_DEPLOYER_A,
+            overall_verdict="suspected_team_extraction",
+        )
+
+        from lineage_agent.rug_detector import persist_pre_dex_extraction_rug
+        changed = await persist_pre_dex_extraction_rug(mint, _DEPLOYER_A, token_meta, bundle_report, None)
+        rugged_rows = await cache.query_events(
+            where="event_type = 'token_rugged' AND mint = ?",
+            params=(mint,),
+        )
+
+        assert changed is True
+        reasons = set(json.loads(rugged_rows[0]["reason_codes"]))
+        assert rugged_rows[0]["evidence_level"] == EvidenceLevel.MODERATE.value
+        assert "bundle_suspected_team_extraction" in reasons
+        assert "sol_flow_only_extraction_detected" in reasons
+
+    @pytest.mark.asyncio
+    async def test_persist_pre_dex_extraction_rug_marks_sol_only_case_without_team_link(self, cache):
+        mint = "SolOnlyMint" + "Q" * 33
+        token_meta = TokenMetadata(
+            mint=mint,
+            deployer=_DEPLOYER_A,
+            launch_platform="moonshot",
+            lifecycle_stage=LifecycleStage.LAUNCHPAD_CURVE_ONLY,
+            market_surface=MarketSurface.LAUNCHPAD_CURVE_ONLY,
+            evidence_level=EvidenceLevel.STRONG,
+        )
+        sol_flow = SolFlowReport(
+            mint=mint,
+            deployer=_DEPLOYER_A,
+            total_extracted_sol=3.25,
+            analysis_timestamp=_NOW,
+        )
+
+        from lineage_agent.rug_detector import persist_pre_dex_extraction_rug
+        changed = await persist_pre_dex_extraction_rug(mint, _DEPLOYER_A, token_meta, None, sol_flow)
+        rugged_rows = await cache.query_events(
+            where="event_type = 'token_rugged' AND mint = ?",
+            params=(mint,),
+        )
+
+        assert changed is True
+        reasons = set(json.loads(rugged_rows[0]["reason_codes"]))
+        assert rugged_rows[0]["rug_mechanism"] == RugMechanism.PRE_DEX_EXTRACTION_RUG.value
+        assert rugged_rows[0]["evidence_level"] == EvidenceLevel.MODERATE.value
+        assert "sol_flow_only_extraction_detected" in reasons
+        assert "team_link_unproven" in reasons
+        assert "bundle_suspected_team_extraction" not in reasons
+
+    @pytest.mark.asyncio
+    async def test_persist_pre_dex_extraction_rug_does_not_overwrite_dex_liquidity_rug(self, cache):
+        mint = "DexProtectedMint" + "D" * 28
+        await cache.insert_event(
+            event_type="token_rugged",
+            mint=mint,
+            deployer=_DEPLOYER_A,
+            rugged_at=_NOW.isoformat(),
+            created_at=_NOW.isoformat(),
+            rug_mechanism=RugMechanism.DEX_LIQUIDITY_RUG.value,
+            evidence_level=EvidenceLevel.STRONG.value,
+        )
+        token_meta = TokenMetadata(
+            mint=mint,
+            deployer=_DEPLOYER_A,
+            launch_platform="moonshot",
+            lifecycle_stage=LifecycleStage.LAUNCHPAD_CURVE_ONLY,
+            market_surface=MarketSurface.LAUNCHPAD_CURVE_ONLY,
+            evidence_level=EvidenceLevel.STRONG,
+        )
+        bundle_report = BundleExtractionReport(
+            mint=mint,
+            deployer=_DEPLOYER_A,
+            overall_verdict="confirmed_team_extraction",
+        )
+
+        from lineage_agent.rug_detector import persist_pre_dex_extraction_rug
+        changed = await persist_pre_dex_extraction_rug(mint, _DEPLOYER_A, token_meta, bundle_report, None)
+        rugged_rows = await cache.query_events(
+            where="event_type = 'token_rugged' AND mint = ?",
+            params=(mint,),
+        )
+
+        assert changed is False
+        assert rugged_rows[0]["rug_mechanism"] == RugMechanism.DEX_LIQUIDITY_RUG.value
+        assert rugged_rows[0]["evidence_level"] == EvidenceLevel.STRONG.value
 
 
 # ── SOL Flow (DB read path) ──────────────────────────────────────────────────

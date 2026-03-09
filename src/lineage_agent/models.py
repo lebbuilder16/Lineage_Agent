@@ -12,6 +12,55 @@ from pydantic import BaseModel, Field
 
 
 # ---------------------------------------------------------------------------
+# Shared forensic context enums
+# ---------------------------------------------------------------------------
+class LifecycleStage(str, Enum):
+    """Minimal token lifecycle stages used to gate downstream signals."""
+
+    UNKNOWN = "unknown"
+    LAUNCHPAD_CURVE_ONLY = "launchpad_curve_only"
+    MIGRATION_PENDING = "migration_pending"
+    DEX_LISTED = "dex_listed"
+
+
+class MarketSurface(str, Enum):
+    """Observed market surface for the token."""
+
+    NO_MARKET_OBSERVED = "no_market_observed"
+    LAUNCHPAD_CURVE_ONLY = "launchpad_curve_only"
+    DEX_POOL_OBSERVED = "dex_pool_observed"
+    CONFLICTING = "conflicting"
+
+
+class DataApplicability(str, Enum):
+    """Whether a signal is valid for the token's current context."""
+
+    OBSERVED = "observed"
+    UNAVAILABLE = "unavailable"
+    NOT_APPLICABLE = "not_applicable"
+    CONFLICTING = "conflicting"
+
+
+class EvidenceLevel(str, Enum):
+    """Strength of evidence behind a forensic conclusion."""
+
+    NONE = "none"
+    WEAK = "weak"
+    MODERATE = "moderate"
+    STRONG = "strong"
+
+
+class RugMechanism(str, Enum):
+    """Typed negative-outcome classes used by rug analytics."""
+
+    UNKNOWN = "unknown"
+    DEX_LIQUIDITY_RUG = "dex_liquidity_rug"
+    PRE_DEX_EXTRACTION_RUG = "pre_dex_extraction_rug"
+    MARKET_DUMP = "market_dump"
+    UNPROVEN_ABANDONMENT = "unproven_abandonment"
+
+
+# ---------------------------------------------------------------------------
 # Token metadata
 # ---------------------------------------------------------------------------
 class TokenMetadata(BaseModel):
@@ -42,6 +91,26 @@ class TokenMetadata(BaseModel):
             "Distinct from created_at which reflects the on-chain mint initialisation. "
             "When pair_created_at >> created_at the token was stealth pre-minted."
         ),
+    )
+    launch_platform: Optional[str] = Field(
+        None,
+        description="Detected launch platform (moonshot, pumpfun, letsbonk, believe) when known",
+    )
+    lifecycle_stage: LifecycleStage = Field(
+        LifecycleStage.UNKNOWN,
+        description="Minimal lifecycle stage used to validate downstream forensic signals",
+    )
+    market_surface: MarketSurface = Field(
+        MarketSurface.NO_MARKET_OBSERVED,
+        description="Observed market surface for this token at scan time",
+    )
+    reason_codes: list[str] = Field(
+        default_factory=list,
+        description="Short deterministic reasons explaining platform/stage classification",
+    )
+    evidence_level: EvidenceLevel = Field(
+        EvidenceLevel.WEAK,
+        description="Strength of evidence supporting the market context classification",
     )
 
 
@@ -139,6 +208,9 @@ class LineageResult(BaseModel):
     )
     bundle_report: Optional["BundleExtractionReport"] = Field(
         None, description="Bundle wallet forensic analysis — pre+post sell behavior with verified extraction (Initiative 5)"
+    )
+    scanned_at: Optional[datetime] = Field(
+        None, description="UTC timestamp of when this analysis was computed (not when served from cache)"
     )
 
 
@@ -453,6 +525,18 @@ class DeathClockForecast(BaseModel):
     confidence_level: Literal["low", "medium", "high"] = Field(
         "low", description="Statistical confidence in the prediction"
     )
+    total_negative_outcome_count: int = Field(
+        0,
+        description="All historical token_rugged rows seen for this deployer, including non-confirmed classes",
+    )
+    forecast_basis: str = Field(
+        "confirmed_predictive_rugs_only",
+        description="Subset of historical outcomes used for timing calculations",
+    )
+    basis_breakdown: dict[str, int] = Field(
+        default_factory=dict,
+        description="Counts of forecast samples by rug mechanism",
+    )
     market_signals: Optional[MarketSignals] = Field(
         None, description="Live market signals that may elevate the risk level"
     )
@@ -516,6 +600,8 @@ class DeployerTokenSummary(BaseModel):
     symbol: str = ""
     created_at: Optional[datetime] = None
     rugged_at: Optional[datetime] = None
+    rug_mechanism: Optional[RugMechanism] = None
+    evidence_level: Optional[EvidenceLevel] = None
     mcap_usd: Optional[float] = None
     narrative: str = ""
 
@@ -524,11 +610,16 @@ class DeployerProfile(BaseModel):
     """Historical behaviour profile for a deployer wallet."""
 
     address: str
+    chain: str = "Solana"
     total_tokens_launched: int
     rug_count: int
+    confirmed_rug_count: int = 0
+    negative_outcome_count: int = 0
     rug_rate_pct: float = Field(ge=0.0, le=100.0)
+    confirmed_rug_rate_pct: float = Field(0.0, ge=0.0, le=100.0)
     avg_lifespan_days: Optional[float] = None
     active_tokens: int
+    rug_mechanism_counts: dict[str, int] = Field(default_factory=dict)
     preferred_narrative: str = ""
     first_seen: Optional[datetime] = None
     last_seen: Optional[datetime] = None
@@ -547,7 +638,10 @@ class OperatorImpactReport(BaseModel):
     linked_wallets: list[str] = Field(..., description="All deployer wallets sharing this fingerprint")
     total_tokens_launched: int
     total_rug_count: int
+    total_confirmed_rug_count: int = 0
+    total_negative_outcome_count: int = 0
     rug_rate_pct: float = Field(ge=0.0, le=100.0)
+    confirmed_rug_rate_pct: float = Field(0.0, ge=0.0, le=100.0)
     estimated_extracted_usd: float = Field(
         ge=0.0, description="Conservative 15% of rugged mcap estimate"
     )
@@ -555,6 +649,7 @@ class OperatorImpactReport(BaseModel):
         True, description="True if extraction figure is a 15% heuristic, False if from on-chain trace"
     )
     active_tokens: list[str] = Field(default_factory=list, description="Mints still not rugged")
+    rug_mechanism_counts: dict[str, int] = Field(default_factory=dict)
     narrative_sequence: list[str] = Field(
         default_factory=list,
         description="Narratives exploited, in chronological order of first appearance",
@@ -623,12 +718,6 @@ class SolFlowReport(BaseModel):
     )
     cross_chain_exits: list[CrossChainExit] = Field(
         default_factory=list, description="Detected cross-chain bridge exits"
-    )
-    liquidity_is_sol_denominated: bool = Field(
-        default=True,
-        description="False when all trading pairs use USDC/non-SOL as quote token. "
-                    "When False, SOL flows represent infrastructure costs (rent, fees, launchpad), "
-                    "not value extraction — actual extraction would appear via USDC.",
     )
 
 
@@ -710,12 +799,25 @@ class InsiderSellEvent(BaseModel):
     exited: bool = Field(
         False, description="True when balance_now == 0 (fully exited position)"
     )
+    balance_context: Optional[str] = Field(
+        None,
+        description=(
+            "Context for interpreting the balance snapshot, e.g. "
+            "zero_balance_expected_by_protocol"
+        ),
+    )
 
 
 class InsiderSellReport(BaseModel):
     """Silent drain detection: deployer/linked wallet token selling pressure."""
 
     mint: str
+    launch_platform: Optional[str] = None
+    lifecycle_stage: LifecycleStage = Field(default=LifecycleStage.UNKNOWN)
+    market_surface: MarketSurface = Field(default=MarketSurface.NO_MARKET_OBSERVED)
+    applicability: DataApplicability = Field(default=DataApplicability.UNAVAILABLE)
+    evidence_level: EvidenceLevel = Field(default=EvidenceLevel.WEAK)
+    reason_codes: list[str] = Field(default_factory=list)
 
     # ── Market signals from DexScreener (zero extra network calls) ──────
     sell_pressure_1h: Optional[float] = Field(
@@ -840,6 +942,16 @@ class GlobalStats(BaseModel):
     tokens_scanned_24h: int = Field(0, description="Distinct token mints recorded")
     tokens_rugged_24h: int = Field(0, description="Tokens confirmed rugged")
     rug_rate_24h_pct: float = Field(0.0, ge=0.0, le=100.0, description="rug / scanned × 100")
+    tokens_negative_outcomes_24h: int = Field(
+        0,
+        description="All token_rugged rows seen in the last 24h, including non-confirmed classes",
+    )
+    negative_outcome_rate_24h_pct: float = Field(
+        0.0,
+        ge=0.0,
+        le=100.0,
+        description="negative outcomes / scanned × 100",
+    )
     active_deployers_24h: int = Field(0, description="Distinct deployer wallets active")
     top_narratives: list[NarrativeCount] = Field(
         default_factory=list,
@@ -879,6 +991,8 @@ class ScanSnapshot(BaseModel):
     # ── Key metrics ────────────────────────────────────────────────────────
     family_size: int = Field(0, description="Total family members at scan time")
     rug_count: int = Field(0, description="Deployer rug count at scan time")
+    confirmed_rug_count: int = Field(0, description="Confirmed deployer rug count at scan time")
+    negative_outcome_count: int = Field(0, description="All deployer negative outcomes at scan time")
     death_clock_risk: str = Field("", description="Death Clock risk_level at scan time")
     bundle_verdict: str = Field("", description="Bundle overall_verdict at scan time")
     insider_verdict: str = Field("", description="Insider sell verdict at scan time")
@@ -913,6 +1027,10 @@ class ScanDelta(BaseModel):
     # ── Context evolution ──────────────────────────────────────────────────
     family_size_delta: int = Field(0, description="Change in derivative count")
     rug_count_delta: int = Field(0, description="Additional rugs by deployer since last scan")
+    confirmed_rug_count_delta: int = Field(
+        0,
+        description="Additional confirmed rugs by deployer since last scan",
+    )
 
     # ── Verdict ────────────────────────────────────────────────────────────
     trend: Literal["worsening", "stable", "improving"] = Field(

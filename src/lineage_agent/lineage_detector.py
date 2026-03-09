@@ -41,8 +41,10 @@ from .deployer_service import compute_deployer_profile
 from .factory_service import analyze_factory_rhythm, record_token_creation
 from .insider_sell_service import analyze_insider_sell
 from .bundle_tracker_service import analyze_bundle
+from .constants import LAUNCHPAD_PROGRAMS
 from .liquidity_arch import analyze_liquidity_architecture
 from .metadata_dna_service import build_operator_fingerprint
+from .rug_detector import persist_pre_dex_extraction_rug
 from .zombie_detector import detect_resurrection
 # Initiative 1: Operator Impact Report
 from .operator_impact_service import compute_operator_impact
@@ -52,6 +54,9 @@ from .sol_flow_service import get_sol_flow_report, trace_sol_flow
 from .cartel_service import build_cartel_edges_for_deployer, compute_cartel_report
 from .data_sources.solana_rpc import SolanaRpcClient
 from .models import (
+    EvidenceLevel,
+    LifecycleStage,
+    MarketSurface,
     DerivativeInfo,
     LineageResult,
     SimilarityEvidence,
@@ -78,28 +83,65 @@ _WEIGHTS = {
 }
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
+def classify_market_context(
+    asset: Optional[dict[str, Any]],
+    pairs: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Classify the token's market context from launchpad metadata and pairs.
 
-async def _is_token_rugged(mint: str) -> bool:
-    """Return True if a confirmed token_rugged event exists in intelligence_events.
-
-    Fail-safe: returns False on any DB error so that callers never block.
-    Used to gate trace_sol_flow calls — the tracer is a post-rug forensic
-    tool and must not run on live tokens (would capture fees/rent as extraction).
+    This is intentionally conservative: it only returns a strong launchpad stage
+    when a known launchpad authority/creator is observed.
     """
-    try:
-        from .data_sources._clients import event_query as _eq
-        rows = await _eq(
-            where="event_type = 'token_rugged' AND mint = ?",
-            params=(mint,),
-            columns="mint",
-            limit=1,
-        )
-        return bool(rows)
-    except Exception:
-        return False
+    solana_pairs = [p for p in pairs if (p.get("chainId") or "").lower() == "solana"]
+    authorities = asset.get("authorities") or [] if asset else []
+    creators = asset.get("creators") or [] if asset else []
+    authority_addrs = [a.get("address") for a in authorities if a.get("address")]
+    creator_addrs = [c.get("address") for c in creators if c.get("address")]
+
+    platform = next((LAUNCHPAD_PROGRAMS[a] for a in authority_addrs if a in LAUNCHPAD_PROGRAMS), None)
+    evidence = EvidenceLevel.STRONG if platform else EvidenceLevel.WEAK
+    reason_codes: list[str] = []
+    if platform:
+        reason_codes.append("launchpad_authority_matched")
+    else:
+        platform = next((LAUNCHPAD_PROGRAMS[a] for a in creator_addrs if a in LAUNCHPAD_PROGRAMS), None)
+        if platform:
+            evidence = EvidenceLevel.MODERATE
+            reason_codes.append("launchpad_creator_matched")
+
+    if platform and solana_pairs:
+        reason_codes.append("dex_pair_observed")
+        return {
+            "launch_platform": platform,
+            "lifecycle_stage": LifecycleStage.DEX_LISTED,
+            "market_surface": MarketSurface.DEX_POOL_OBSERVED,
+            "evidence_level": evidence,
+            "reason_codes": reason_codes,
+        }
+    if platform:
+        reason_codes.append("launchpad_curve_only")
+        return {
+            "launch_platform": platform,
+            "lifecycle_stage": LifecycleStage.LAUNCHPAD_CURVE_ONLY,
+            "market_surface": MarketSurface.LAUNCHPAD_CURVE_ONLY,
+            "evidence_level": evidence,
+            "reason_codes": reason_codes,
+        }
+    if solana_pairs:
+        return {
+            "launch_platform": None,
+            "lifecycle_stage": LifecycleStage.DEX_LISTED,
+            "market_surface": MarketSurface.DEX_POOL_OBSERVED,
+            "evidence_level": EvidenceLevel.MODERATE,
+            "reason_codes": ["dex_pair_observed"],
+        }
+    return {
+        "launch_platform": None,
+        "lifecycle_stage": LifecycleStage.UNKNOWN,
+        "market_surface": MarketSurface.NO_MARKET_OBSERVED,
+        "evidence_level": EvidenceLevel.WEAK,
+        "reason_codes": ["no_market_surface_observed"],
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -276,6 +318,12 @@ async def detect_lineage(
                 )
                 if _resolved and _resolved not in _NON_DEPLOYER_AUTHORITIES:
                     query_meta.deployer = _resolved
+            _market_ctx = classify_market_context(_q_asset, pairs)
+            query_meta.launch_platform = _market_ctx["launch_platform"]
+            query_meta.lifecycle_stage = _market_ctx["lifecycle_stage"]
+            query_meta.market_surface = _market_ctx["market_surface"]
+            query_meta.evidence_level = _market_ctx["evidence_level"]
+            query_meta.reason_codes = _market_ctx["reason_codes"]
         except Exception as _das_e:
             logger.debug("DAS getAsset enrichment failed for %s: %s", mint_address, _das_e)
     else:
@@ -733,29 +781,15 @@ async def detect_lineage(
     async def _run_sol_flow() -> Optional[object]:
         flow = await _safe(get_sol_flow_report(_scan_mint), name="sol_flow_read")
         if flow is None and _scan_deployer:
-            # Only run the forensic trace on confirmed rugs — not live tokens.
-            # trace_sol_flow is a post-rug BFS tool; running it on live tokens
-            # captures fees/rent/launchpad costs as false "SOL extraction".
-            # The rug_detector background sweep fires the trace correctly after
-            # a rug event is confirmed — no need to trace here on live tokens.
-            _rugged = await _is_token_rugged(_scan_mint)
-            if _rugged:
-                try:
-                    flow = await asyncio.wait_for(
-                        trace_sol_flow(_scan_mint, _scan_deployer, pairs=pairs), timeout=12.0
-                    )
-                except asyncio.TimeoutError:
-                    logger.warning("[sol_flow] timed out — continuing in background")
-                    asyncio.ensure_future(
-                        trace_sol_flow(_scan_mint, _scan_deployer, pairs=pairs)
-                    )
-                except Exception as _e:
-                    logger.warning("[sol_flow] failed: %s", _e)
-            else:
-                logger.debug(
-                    "[sol_flow] skipping trace — token not confirmed rugged: %s",
-                    _scan_mint[:8],
+            try:
+                flow = await asyncio.wait_for(
+                    trace_sol_flow(_scan_mint, _scan_deployer), timeout=12.0
                 )
+            except asyncio.TimeoutError:
+                logger.warning("[sol_flow] timed out — continuing in background")
+                asyncio.ensure_future(trace_sol_flow(_scan_mint, _scan_deployer))
+            except Exception as _e:
+                logger.warning("[sol_flow] failed: %s", _e)
         return flow
 
     async def _run_cartel() -> Optional[object]:
@@ -779,6 +813,11 @@ async def detect_lineage(
                     linked_wallets=_linked_for_sell,
                     pairs=pairs,
                     rpc=rpc,
+                    launch_platform=getattr(query_meta, "launch_platform", None),
+                    lifecycle_stage=getattr(query_meta, "lifecycle_stage", LifecycleStage.UNKNOWN),
+                    market_surface=getattr(query_meta, "market_surface", MarketSurface.NO_MARKET_OBSERVED),
+                    reason_codes=list(getattr(query_meta, "reason_codes", []) or []),
+                    evidence_level=getattr(query_meta, "evidence_level", EvidenceLevel.WEAK),
                 ),
                 timeout=10.0,
             )
@@ -909,24 +948,33 @@ async def detect_lineage(
         )[:12]  # cap at 12 wallets to bound RPC cost
 
     if _bundle_seeds:
-        # Only fire bundle-seed trace on confirmed rugs (same policy as _run_sol_flow).
-        # Bundle extraction evidence is forensically valid only post-rug — running
-        # on a live token would still capture non-extraction SOL movements.
-        _rugged_for_bundle = await _is_token_rugged(_scan_mint)
-        if _rugged_for_bundle:
-            asyncio.ensure_future(
-                trace_sol_flow(
-                    _scan_mint, _scan_deployer,
-                    extra_seed_wallets=_bundle_seeds,
-                    pairs=pairs,
-                )
-            )
-            logger.info(
-                "[sol_flow] queued bundle-seed trace in background: %d seeds for %s",
-                len(_bundle_seeds), _scan_mint[:8],
-            )
+        # Always fire-and-forget the bundle-seed SOL trace.  Previously, when
+        # sol_flow was None (common PumpFun case), this ran synchronously with a
+        # 15 s timeout — an extra post-gather sequential step that pushed scan
+        # time beyond 30 s.  The trace persists to DB; the next scan (or the
+        # /lineage/{mint}/sol-trace endpoint) returns the cached result.
+        # (Optimization #5)
+        asyncio.ensure_future(
+            trace_sol_flow(_scan_mint, _scan_deployer, extra_seed_wallets=_bundle_seeds)
+        )
+        logger.info(
+            "[sol_flow] queued bundle-seed trace in background: %d seeds for %s",
+            len(_bundle_seeds), _scan_mint[:8],
+        )
+
+    try:
+        await persist_pre_dex_extraction_rug(
+            _scan_mint,
+            _scan_deployer,
+            query_meta,
+            result.bundle_report,
+            result.sol_flow,
+        )
+    except Exception as _pre_dex_exc:
+        logger.warning("[pre_dex_rug] persist failed: %s", _pre_dex_exc)
 
     await _progress("Analysis complete", 100)
+    result.scanned_at = datetime.now(timezone.utc)
     await _cache_set(f"lineage:v4:{mint_address}", result, ttl=CACHE_TTL_LINEAGE_SECONDS)
     return result
 

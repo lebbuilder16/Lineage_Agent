@@ -33,7 +33,9 @@ import asyncio
 import logging
 from typing import Any, Optional
 
+from .constants import BONDING_CURVE_LAUNCHPAD_PLATFORMS
 from .models import InsiderSellEvent, InsiderSellReport
+from .models import DataApplicability, EvidenceLevel, LifecycleStage, MarketSurface
 from .data_sources.solana_rpc import SolanaRpcClient
 
 logger = logging.getLogger(__name__)
@@ -45,34 +47,8 @@ _PRICE_CRASH_SUSPICIOUS   = -30.0  # % — notable price fall
 _PRICE_CRASH_SEVERE       = -50.0  # % — severe price fall
 _VOLUME_SPIKE_THRESHOLD   = 3.0    # 1 h vol > 3× avg hourly vol
 
-# Bonding curve launchpads: on these platforms the deployer never holds tokens
-# (the curve PDA holds them). A zero deployer balance is expected, NOT a sign
-# of an insider dump.
-_BONDING_CURVE_DEX_IDS: frozenset[str] = frozenset({
-    "pump-fun",    # PumpFun (DexScreener dexId)
-    "moonshot",    # Moonshot (DexScreener dexId)
-    "letsbonk",    # LetsBonk
-})
-
 
 # ── Public entry point ────────────────────────────────────────────────────
-
-def _detect_bonding_curve(pairs: list[dict[str, Any]]) -> bool:
-    """Return True if any Solana pair was created on a bonding curve launchpad.
-
-    On bonding curve platforms (Moonshot, PumpFun, LetsBonk) the deployer
-    wallet never holds tokens directly — the curve PDA is the sole holder.
-    A zero deployer token balance is therefore expected from genesis and must
-    NOT be interpreted as an insider dump.
-    """
-    for p in pairs:
-        if (p.get("chainId") or "").lower() != "solana":
-            continue
-        dex = (p.get("dexId") or "").lower()
-        if dex in _BONDING_CURVE_DEX_IDS:
-            return True
-    return False
-
 
 async def analyze_insider_sell(
     mint: str,
@@ -80,6 +56,11 @@ async def analyze_insider_sell(
     linked_wallets: list[str],
     pairs: list[dict[str, Any]],
     rpc: SolanaRpcClient,
+    launch_platform: Optional[str] = None,
+    lifecycle_stage: LifecycleStage = LifecycleStage.UNKNOWN,
+    market_surface: MarketSurface = MarketSurface.NO_MARKET_OBSERVED,
+    reason_codes: Optional[list[str]] = None,
+    evidence_level: EvidenceLevel = EvidenceLevel.WEAK,
 ) -> InsiderSellReport:
     """Compute an :class:`InsiderSellReport` for *mint*.
 
@@ -97,20 +78,32 @@ async def analyze_insider_sell(
     rpc:
         Live :class:`SolanaRpcClient` instance.
     """
-    report = InsiderSellReport(mint=mint)
+    report = InsiderSellReport(
+        mint=mint,
+        launch_platform=launch_platform,
+        lifecycle_stage=lifecycle_stage,
+        market_surface=market_surface,
+        reason_codes=list(reason_codes or []),
+        evidence_level=evidence_level,
+    )
 
-    # Detect bonding curve early — affects whether deployer balance is meaningful.
-    is_bonding_curve = _detect_bonding_curve(pairs)
+    inferred_market_surface = market_surface
+    if (
+        inferred_market_surface == MarketSurface.NO_MARKET_OBSERVED
+        and any((p.get("chainId") or "").lower() == "solana" for p in pairs)
+    ):
+        inferred_market_surface = MarketSurface.DEX_POOL_OBSERVED
+        report.market_surface = inferred_market_surface
+        if report.lifecycle_stage == LifecycleStage.UNKNOWN:
+            report.lifecycle_stage = LifecycleStage.DEX_LISTED
 
     # ── Step 1: Market signals from DexScreener ───────────────────────────
-    _fill_market_signals(report, pairs)
+    _fill_market_signals(report, pairs, market_surface=inferred_market_surface)
 
     # ── Step 2: On-chain balance snapshots ───────────────────────────────
-    # On bonding curve platforms the deployer never holds tokens (the curve PDA
-    # does), so a zero balance is expected and must not be flagged as DEPLOYER_EXITED.
-    # Skip the balance check entirely in that case to avoid false positives.
+    # Check deployer + up to 3 linked wallets; fire in parallel.
     wallets_to_check: list[tuple[str, str]] = []   # (wallet, role)
-    if deployer and not is_bonding_curve:
+    if deployer:
         wallets_to_check.append((deployer, "deployer"))
     for lw in (linked_wallets or [])[:3]:
         if lw and lw != deployer:
@@ -118,7 +111,14 @@ async def analyze_insider_sell(
 
     if wallets_to_check:
         balance_tasks = [
-            _fetch_balance(rpc, wallet, mint, role)
+            _fetch_balance(
+                rpc,
+                wallet,
+                mint,
+                role,
+                launch_platform=launch_platform,
+                lifecycle_stage=lifecycle_stage,
+            )
             for wallet, role in wallets_to_check
         ]
         events: list[InsiderSellEvent] = await asyncio.gather(*balance_tasks)
@@ -146,11 +146,25 @@ async def analyze_insider_sell(
 def _fill_market_signals(
     report: InsiderSellReport,
     pairs: list[dict[str, Any]],
+    *,
+    market_surface: MarketSurface = MarketSurface.NO_MARKET_OBSERVED,
 ) -> None:
     """Aggregate txns, priceChange, and volume across all Solana pairs."""
     solana = [p for p in pairs if (p.get("chainId") or "").lower() == "solana"]
-    if not solana:
+    if market_surface == MarketSurface.NO_MARKET_OBSERVED and solana:
+        market_surface = MarketSurface.DEX_POOL_OBSERVED
+
+    if market_surface != MarketSurface.DEX_POOL_OBSERVED:
+        report.applicability = DataApplicability.NOT_APPLICABLE
+        if "market_signals_not_applicable_for_non_dex_surface" not in report.reason_codes:
+            report.reason_codes.append("market_signals_not_applicable_for_non_dex_surface")
         return
+
+    if not solana:
+        report.applicability = DataApplicability.UNAVAILABLE
+        return
+
+    report.applicability = DataApplicability.OBSERVED
 
     # Aggregate txn counts across all pools
     buys_1h = sells_1h = buys_6h = sells_6h = buys_24h = sells_24h = 0
@@ -204,6 +218,9 @@ async def _fetch_balance(
     wallet: str,
     mint: str,
     role: str,
+    *,
+    launch_platform: Optional[str] = None,
+    lifecycle_stage: LifecycleStage = LifecycleStage.UNKNOWN,
 ) -> Optional[InsiderSellEvent]:
     """Return an :class:`InsiderSellEvent` for a single wallet, or None on error."""
     try:
@@ -211,11 +228,20 @@ async def _fetch_balance(
             rpc.get_wallet_token_balance(wallet, mint),
             timeout=5.0,
         )
+        zero_balance_expected = (
+            role == "deployer"
+            and lifecycle_stage == LifecycleStage.LAUNCHPAD_CURVE_ONLY
+            and (launch_platform or "") in BONDING_CURVE_LAUNCHPAD_PLATFORMS
+            and balance == 0.0
+        )
         return InsiderSellEvent(
             wallet=wallet,
             role=role,  # type: ignore[arg-type]
             balance_now=balance,
-            exited=(balance == 0.0),
+            exited=(balance == 0.0 and not zero_balance_expected),
+            balance_context=(
+                "zero_balance_expected_by_protocol" if zero_balance_expected else None
+            ),
         )
     except Exception as exc:
         logger.debug("get_wallet_token_balance failed for %s: %s", wallet[:8], exc)
@@ -225,6 +251,9 @@ async def _fetch_balance(
 def _apply_flags(report: InsiderSellReport) -> None:
     """Populate ``report.flags`` based on thresholds."""
     flags: list[str] = []
+
+    if report.lifecycle_stage == LifecycleStage.LAUNCHPAD_CURVE_ONLY:
+        flags.append("PRE_DEX_LAUNCHPAD")
 
     # Sell pressure
     sp24 = report.sell_pressure_24h
@@ -248,7 +277,11 @@ def _apply_flags(report: InsiderSellReport) -> None:
         flags.append("SELL_BURST")
 
     # On-chain confirmation
-    if report.deployer_exited is True:
+    deployer_expected_zero = any(
+        e.role == "deployer" and e.balance_context == "zero_balance_expected_by_protocol"
+        for e in report.wallet_events
+    )
+    if report.deployer_exited is True and not deployer_expected_zero:
         flags.append("DEPLOYER_EXITED")
 
     # The most serious combined flag
@@ -264,6 +297,9 @@ def _apply_flags(report: InsiderSellReport) -> None:
 
 def _compute_risk_score(report: InsiderSellReport) -> float:
     score = 0.0
+
+    if report.applicability == DataApplicability.NOT_APPLICABLE:
+        return 0.0
 
     # Sell pressure (up to 0.35)
     sp24 = report.sell_pressure_24h or 0.0
@@ -297,6 +333,8 @@ def _compute_risk_score(report: InsiderSellReport) -> float:
 
 
 def _compute_verdict(report: InsiderSellReport) -> str:
+    if report.lifecycle_stage == LifecycleStage.LAUNCHPAD_CURVE_ONLY:
+        return "clean"
     if "INSIDER_DUMP_CONFIRMED" in report.flags:
         return "insider_dump"
     if report.risk_score >= 0.45 or (

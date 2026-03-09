@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone, timedelta
 from unittest.mock import AsyncMock, patch
 
@@ -9,7 +10,8 @@ import pytest
 
 from lineage_agent.lineage_detector import detect_lineage, search_tokens
 from lineage_agent.data_sources import _clients
-from lineage_agent.cache import TTLCache
+from lineage_agent.cache import SQLiteCache, TTLCache
+from lineage_agent.models import BundleExtractionReport, EvidenceLevel, RugMechanism, SolFlowReport
 
 
 @pytest.fixture(autouse=True)
@@ -235,6 +237,363 @@ class TestDetectLineageIntegration:
         # DexScreener should only be called once
         assert dex.get_token_pairs.call_count == 1
         assert result1.mint == result2.mint
+
+    @pytest.mark.asyncio
+    async def test_detect_lineage_persists_pre_dex_extraction_rug(self, tmp_path):
+        """Full pipeline should persist a pre-DEX extraction rug for launchpad tokens."""
+        db_cache = SQLiteCache(db_path=str(tmp_path / "lineage_integration.db"), default_ttl=3600)
+        old_cache = _clients.cache
+        _clients.cache = db_cache
+
+        query_mint = "QueryMoonshotMint12345678901234567890123"
+        clone_mint = "CloneMoonshotMint12345678901234567890123"
+        deployer = "DeployerMoonshotAAA"
+        base_time = datetime(2024, 1, 1, tzinfo=timezone.utc)
+
+        dex = AsyncMock()
+        dex.get_token_pairs = AsyncMock(return_value=[])
+        dex.search_tokens = AsyncMock(return_value=[
+            {
+                "chainId": "solana",
+                "baseToken": {
+                    "address": clone_mint,
+                    "name": "Moon Runner",
+                    "symbol": "MOON",
+                },
+                "info": {"imageUrl": "https://img.example.com/clone-moon.png"},
+                "priceUsd": "0.0002",
+                "marketCap": 90_000,
+                "liquidity": {"usd": 8_000},
+                "url": "",
+            }
+        ])
+        real_dex = _make_dex_client()
+        dex.pairs_to_metadata = real_dex.pairs_to_metadata
+        dex.pairs_to_search_results = real_dex.pairs_to_search_results
+
+        async def fake_deployer(mint: str):
+            if mint == query_mint:
+                return (deployer, base_time)
+            if mint == clone_mint:
+                return ("CloneDeployerBBB", base_time + timedelta(days=3))
+            return ("", None)
+
+        query_asset = {
+            "content": {
+                "metadata": {"name": "Moon Runner", "symbol": "MOON"},
+                "links": {"image": "https://img.example.com/query-moon.png"},
+                "json_uri": "https://meta.example.com/query-moon.json",
+            },
+            "authorities": [{"address": "MoonCVVNZFSYkqNXP6bxHLPL6QQJiMEfzPWlVMMf9Ly"}],
+            "creators": [{"address": deployer, "verified": True}],
+        }
+        clone_asset = {
+            "content": {
+                "metadata": {"name": "Moon Runner", "symbol": "MOON"},
+                "links": {"image": "https://img.example.com/clone-moon.png"},
+                "json_uri": "https://meta.example.com/clone-moon.json",
+            },
+            "authorities": [],
+            "creators": [{"address": "CloneDeployerBBB", "verified": True}],
+        }
+
+        rpc = AsyncMock()
+        rpc.get_deployer_and_timestamp = AsyncMock(side_effect=fake_deployer)
+        rpc.get_asset = AsyncMock(side_effect=lambda mint: query_asset if mint == query_mint else clone_asset)
+        rpc.search_assets_by_creator = AsyncMock(return_value=[])
+
+        jup = AsyncMock()
+        jup.get_price = AsyncMock(return_value=None)
+
+        bundle_report = BundleExtractionReport(
+            mint=query_mint,
+            deployer=deployer,
+            overall_verdict="suspected_team_extraction",
+        )
+        sol_flow_report = SolFlowReport(
+            mint=query_mint,
+            deployer=deployer,
+            total_extracted_sol=4.5,
+            analysis_timestamp=base_time,
+        )
+
+        try:
+            with patch("lineage_agent.lineage_detector._get_dex_client", return_value=dex), \
+                 patch("lineage_agent.lineage_detector._get_rpc_client", return_value=rpc), \
+                 patch("lineage_agent.lineage_detector._get_jup_client", return_value=jup), \
+                 patch("lineage_agent.lineage_detector.compute_image_similarity", new_callable=AsyncMock, return_value=1.0), \
+                 patch("lineage_agent.lineage_detector.compute_death_clock", new_callable=AsyncMock, return_value=None), \
+                 patch("lineage_agent.lineage_detector.build_operator_fingerprint", new_callable=AsyncMock, return_value=None), \
+                 patch("lineage_agent.lineage_detector.analyze_factory_rhythm", new_callable=AsyncMock, return_value=None), \
+                 patch("lineage_agent.lineage_detector.compute_deployer_profile", new_callable=AsyncMock, return_value=None), \
+                 patch("lineage_agent.lineage_detector.get_sol_flow_report", new_callable=AsyncMock, return_value=sol_flow_report), \
+                 patch("lineage_agent.lineage_detector.trace_sol_flow", new_callable=AsyncMock, return_value=sol_flow_report), \
+                 patch("lineage_agent.lineage_detector.build_cartel_edges_for_deployer", new_callable=AsyncMock, return_value=None), \
+                 patch("lineage_agent.lineage_detector.compute_cartel_report", new_callable=AsyncMock, return_value=None), \
+                 patch("lineage_agent.lineage_detector.analyze_insider_sell", new_callable=AsyncMock, return_value=None), \
+                 patch("lineage_agent.lineage_detector.analyze_bundle", new_callable=AsyncMock, return_value=bundle_report), \
+                 patch("lineage_agent.lineage_detector.detect_resurrection", return_value=None), \
+                 patch("lineage_agent.lineage_detector.analyze_liquidity_architecture", return_value=None), \
+                 patch("lineage_agent.lineage_detector._bootstrap_deployer_history", new_callable=AsyncMock, return_value=None):
+                result = await detect_lineage(query_mint, force_refresh=True)
+
+            rugged_rows = await db_cache.query_events(
+                where="event_type = 'token_rugged' AND mint = ?",
+                params=(query_mint,),
+            )
+
+            assert result.query_token is not None
+            assert result.query_token.launch_platform == "moonshot"
+            assert result.query_token.lifecycle_stage.value == "launchpad_curve_only"
+            assert result.bundle_report is not None
+            assert result.sol_flow is not None
+            assert len(rugged_rows) == 1
+            assert rugged_rows[0]["rug_mechanism"] == RugMechanism.PRE_DEX_EXTRACTION_RUG.value
+            assert rugged_rows[0]["evidence_level"] == EvidenceLevel.MODERATE.value
+            assert set(json.loads(rugged_rows[0]["reason_codes"])) >= {
+                "launchpad_authority_matched",
+                "bundle_suspected_team_extraction",
+                "sol_flow_extraction_detected",
+            }
+        finally:
+            _clients.cache = old_cache
+            await db_cache.close()
+
+    @pytest.mark.asyncio
+    async def test_detect_lineage_persists_sol_flow_only_pre_dex_extraction_rug(self, tmp_path):
+        """Pre-DEX launchpad tokens should persist a sol-flow-only extraction rug without bundle proof."""
+        db_cache = SQLiteCache(db_path=str(tmp_path / "lineage_integration_sol_only.db"), default_ttl=3600)
+        old_cache = _clients.cache
+        _clients.cache = db_cache
+
+        query_mint = "QueryMoonshotSolOnly12345678901234567890"
+        clone_mint = "CloneMoonshotSolOnly12345678901234567890"
+        deployer = "DeployerMoonshotSOL"
+        base_time = datetime(2024, 2, 1, tzinfo=timezone.utc)
+
+        dex = AsyncMock()
+        dex.get_token_pairs = AsyncMock(return_value=[])
+        dex.search_tokens = AsyncMock(return_value=[
+            {
+                "chainId": "solana",
+                "baseToken": {
+                    "address": clone_mint,
+                    "name": "Moon Solo",
+                    "symbol": "MSOLO",
+                },
+                "info": {"imageUrl": "https://img.example.com/clone-solo.png"},
+                "priceUsd": "0.0001",
+                "marketCap": 50_000,
+                "liquidity": {"usd": 4_000},
+                "url": "",
+            }
+        ])
+        real_dex = _make_dex_client()
+        dex.pairs_to_metadata = real_dex.pairs_to_metadata
+        dex.pairs_to_search_results = real_dex.pairs_to_search_results
+
+        async def fake_deployer(mint: str):
+            if mint == query_mint:
+                return (deployer, base_time)
+            if mint == clone_mint:
+                return ("CloneSoloDeployer", base_time + timedelta(days=2))
+            return ("", None)
+
+        query_asset = {
+            "content": {
+                "metadata": {"name": "Moon Solo", "symbol": "MSOLO"},
+                "links": {"image": "https://img.example.com/query-solo.png"},
+                "json_uri": "https://meta.example.com/query-solo.json",
+            },
+            "authorities": [{"address": "MoonCVVNZFSYkqNXP6bxHLPL6QQJiMEfzPWlVMMf9Ly"}],
+            "creators": [{"address": deployer, "verified": True}],
+        }
+        clone_asset = {
+            "content": {
+                "metadata": {"name": "Moon Solo", "symbol": "MSOLO"},
+                "links": {"image": "https://img.example.com/clone-solo.png"},
+                "json_uri": "https://meta.example.com/clone-solo.json",
+            },
+            "authorities": [],
+            "creators": [{"address": "CloneSoloDeployer", "verified": True}],
+        }
+
+        rpc = AsyncMock()
+        rpc.get_deployer_and_timestamp = AsyncMock(side_effect=fake_deployer)
+        rpc.get_asset = AsyncMock(side_effect=lambda mint: query_asset if mint == query_mint else clone_asset)
+        rpc.search_assets_by_creator = AsyncMock(return_value=[])
+
+        jup = AsyncMock()
+        jup.get_price = AsyncMock(return_value=None)
+        sol_flow_report = SolFlowReport(
+            mint=query_mint,
+            deployer=deployer,
+            total_extracted_sol=2.75,
+            analysis_timestamp=base_time,
+        )
+
+        try:
+            with patch("lineage_agent.lineage_detector._get_dex_client", return_value=dex), \
+                 patch("lineage_agent.lineage_detector._get_rpc_client", return_value=rpc), \
+                 patch("lineage_agent.lineage_detector._get_jup_client", return_value=jup), \
+                 patch("lineage_agent.lineage_detector.compute_image_similarity", new_callable=AsyncMock, return_value=1.0), \
+                 patch("lineage_agent.lineage_detector.compute_death_clock", new_callable=AsyncMock, return_value=None), \
+                 patch("lineage_agent.lineage_detector.build_operator_fingerprint", new_callable=AsyncMock, return_value=None), \
+                 patch("lineage_agent.lineage_detector.analyze_factory_rhythm", new_callable=AsyncMock, return_value=None), \
+                 patch("lineage_agent.lineage_detector.compute_deployer_profile", new_callable=AsyncMock, return_value=None), \
+                 patch("lineage_agent.lineage_detector.get_sol_flow_report", new_callable=AsyncMock, return_value=sol_flow_report), \
+                 patch("lineage_agent.lineage_detector.trace_sol_flow", new_callable=AsyncMock, return_value=sol_flow_report), \
+                 patch("lineage_agent.lineage_detector.build_cartel_edges_for_deployer", new_callable=AsyncMock, return_value=None), \
+                 patch("lineage_agent.lineage_detector.compute_cartel_report", new_callable=AsyncMock, return_value=None), \
+                 patch("lineage_agent.lineage_detector.analyze_insider_sell", new_callable=AsyncMock, return_value=None), \
+                 patch("lineage_agent.lineage_detector.analyze_bundle", new_callable=AsyncMock, return_value=None), \
+                 patch("lineage_agent.lineage_detector.detect_resurrection", return_value=None), \
+                 patch("lineage_agent.lineage_detector.analyze_liquidity_architecture", return_value=None), \
+                 patch("lineage_agent.lineage_detector._bootstrap_deployer_history", new_callable=AsyncMock, return_value=None):
+                await detect_lineage(query_mint, force_refresh=True)
+
+            rugged_rows = await db_cache.query_events(
+                where="event_type = 'token_rugged' AND mint = ?",
+                params=(query_mint,),
+            )
+
+            assert len(rugged_rows) == 1
+            assert rugged_rows[0]["rug_mechanism"] == RugMechanism.PRE_DEX_EXTRACTION_RUG.value
+            assert rugged_rows[0]["evidence_level"] == EvidenceLevel.MODERATE.value
+            assert set(json.loads(rugged_rows[0]["reason_codes"])) >= {
+                "launchpad_authority_matched",
+                "sol_flow_only_extraction_detected",
+                "team_link_unproven",
+            }
+        finally:
+            _clients.cache = old_cache
+            await db_cache.close()
+
+    @pytest.mark.asyncio
+    async def test_detect_lineage_dex_context_never_persists_pre_dex_extraction_rug(self, tmp_path):
+        """DEX-listed tokens must never be retyped as pre-DEX extraction rugs."""
+        db_cache = SQLiteCache(db_path=str(tmp_path / "lineage_integration_dex_guard.db"), default_ttl=3600)
+        old_cache = _clients.cache
+        _clients.cache = db_cache
+
+        query_mint = "QueryDexGuardMint123456789012345678901"
+        clone_mint = "CloneDexGuardMint123456789012345678901"
+        deployer = "DeployerDexGuardAAA"
+        base_time = datetime(2024, 3, 1, tzinfo=timezone.utc)
+        dex_pairs = [
+            {
+                "chainId": "solana",
+                "baseToken": {
+                    "address": query_mint,
+                    "name": "Dex Runner",
+                    "symbol": "DEXR",
+                },
+                "info": {"imageUrl": "https://img.example.com/dexr.png"},
+                "priceUsd": "0.002",
+                "marketCap": 250_000,
+                "liquidity": {"usd": 40_000},
+                "url": "https://dex.example.com/dexr",
+            }
+        ]
+
+        dex = AsyncMock()
+        dex.get_token_pairs = AsyncMock(return_value=dex_pairs)
+        dex.search_tokens = AsyncMock(return_value=[
+            {
+                "chainId": "solana",
+                "baseToken": {
+                    "address": clone_mint,
+                    "name": "Dex Runner",
+                    "symbol": "DEXR",
+                },
+                "info": {"imageUrl": "https://img.example.com/dexr-clone.png"},
+                "priceUsd": "0.001",
+                "marketCap": 75_000,
+                "liquidity": {"usd": 5_000},
+                "url": "",
+            }
+        ])
+        real_dex = _make_dex_client()
+        dex.pairs_to_metadata = real_dex.pairs_to_metadata
+        dex.pairs_to_search_results = real_dex.pairs_to_search_results
+
+        async def fake_deployer(mint: str):
+            if mint == query_mint:
+                return (deployer, base_time)
+            if mint == clone_mint:
+                return ("CloneDexGuardBBB", base_time + timedelta(days=5))
+            return ("", None)
+
+        query_asset = {
+            "content": {
+                "metadata": {"name": "Dex Runner", "symbol": "DEXR"},
+                "links": {"image": "https://img.example.com/dexr.png"},
+                "json_uri": "https://meta.example.com/dexr.json",
+            },
+            "authorities": [{"address": "MoonCVVNZFSYkqNXP6bxHLPL6QQJiMEfzPWlVMMf9Ly"}],
+            "creators": [{"address": deployer, "verified": True}],
+        }
+        clone_asset = {
+            "content": {
+                "metadata": {"name": "Dex Runner", "symbol": "DEXR"},
+                "links": {"image": "https://img.example.com/dexr-clone.png"},
+                "json_uri": "https://meta.example.com/dexr-clone.json",
+            },
+            "authorities": [],
+            "creators": [{"address": "CloneDexGuardBBB", "verified": True}],
+        }
+
+        rpc = AsyncMock()
+        rpc.get_deployer_and_timestamp = AsyncMock(side_effect=fake_deployer)
+        rpc.get_asset = AsyncMock(side_effect=lambda mint: query_asset if mint == query_mint else clone_asset)
+        rpc.search_assets_by_creator = AsyncMock(return_value=[])
+
+        jup = AsyncMock()
+        jup.get_price = AsyncMock(return_value=None)
+        bundle_report = BundleExtractionReport(
+            mint=query_mint,
+            deployer=deployer,
+            overall_verdict="suspected_team_extraction",
+        )
+        sol_flow_report = SolFlowReport(
+            mint=query_mint,
+            deployer=deployer,
+            total_extracted_sol=5.0,
+            analysis_timestamp=base_time,
+        )
+
+        try:
+            with patch("lineage_agent.lineage_detector._get_dex_client", return_value=dex), \
+                 patch("lineage_agent.lineage_detector._get_rpc_client", return_value=rpc), \
+                 patch("lineage_agent.lineage_detector._get_jup_client", return_value=jup), \
+                 patch("lineage_agent.lineage_detector.compute_image_similarity", new_callable=AsyncMock, return_value=1.0), \
+                 patch("lineage_agent.lineage_detector.compute_death_clock", new_callable=AsyncMock, return_value=None), \
+                 patch("lineage_agent.lineage_detector.build_operator_fingerprint", new_callable=AsyncMock, return_value=None), \
+                 patch("lineage_agent.lineage_detector.analyze_factory_rhythm", new_callable=AsyncMock, return_value=None), \
+                 patch("lineage_agent.lineage_detector.compute_deployer_profile", new_callable=AsyncMock, return_value=None), \
+                 patch("lineage_agent.lineage_detector.get_sol_flow_report", new_callable=AsyncMock, return_value=sol_flow_report), \
+                 patch("lineage_agent.lineage_detector.trace_sol_flow", new_callable=AsyncMock, return_value=sol_flow_report), \
+                 patch("lineage_agent.lineage_detector.build_cartel_edges_for_deployer", new_callable=AsyncMock, return_value=None), \
+                 patch("lineage_agent.lineage_detector.compute_cartel_report", new_callable=AsyncMock, return_value=None), \
+                 patch("lineage_agent.lineage_detector.analyze_insider_sell", new_callable=AsyncMock, return_value=None), \
+                 patch("lineage_agent.lineage_detector.analyze_bundle", new_callable=AsyncMock, return_value=bundle_report), \
+                 patch("lineage_agent.lineage_detector.detect_resurrection", return_value=None), \
+                 patch("lineage_agent.lineage_detector.analyze_liquidity_architecture", return_value=None), \
+                 patch("lineage_agent.lineage_detector._bootstrap_deployer_history", new_callable=AsyncMock, return_value=None):
+                result = await detect_lineage(query_mint, force_refresh=True)
+
+            rugged_rows = await db_cache.query_events(
+                where="event_type = 'token_rugged' AND mint = ?",
+                params=(query_mint,),
+            )
+
+            assert result.query_token is not None
+            assert result.query_token.lifecycle_stage.value == "dex_listed"
+            assert result.query_token.market_surface.value == "dex_pool_observed"
+            assert rugged_rows == []
+        finally:
+            _clients.cache = old_cache
+            await db_cache.close()
 
 
 class TestSearchTokensIntegration:

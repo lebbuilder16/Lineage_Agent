@@ -111,6 +111,27 @@ SKIP_PROGRAMS: frozenset[str] = frozenset({
     "Eo7WjKq67rjJQSZxS6z3YkapzY3eMj6Xy8X5EkAW7vAo",   # Meteora Pools
 })
 
+# Canonical launchpad program / authority registry.
+LAUNCHPAD_PROGRAMS: dict[str, str] = {
+    # PumpFun
+    "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBymtzbm": "pumpfun",
+    "TSLvdd1pWpHVjahSpsvCXUbgwsL3JAcvokwaKt1eokM": "pumpfun",
+    # Moonshot
+    "MoonCVVNZFSYkqNXP6bxHLPL6QQJiMEfzPWlVMMf9Ly": "moonshot",
+    "Ce6TQqeHC9p8KetsN6JsjHK7UTZk7nasjjnr7XxXp9F1": "moonshot",
+    # LetsBonk
+    "4wTV81rvZBKW8vFJX9PMwn5n46sYr6HfkWMqJjpPbZ6M": "letsbonk",
+    # Believe / Degen
+    "DEXYosS6oEGvk8uCDayvwEZz4qEyDJRf9nFgYCaqPMTm": "believe",
+}
+
+BONDING_CURVE_LAUNCHPAD_PLATFORMS: frozenset[str] = frozenset({
+    "pumpfun",
+    "moonshot",
+    "letsbonk",
+    "believe",
+})
+
 # ---------------------------------------------------------------------------
 # CEX hot wallet addresses — unified source of truth
 # ---------------------------------------------------------------------------

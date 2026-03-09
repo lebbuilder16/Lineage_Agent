@@ -6,7 +6,7 @@ import pytest
 from datetime import datetime, timezone, timedelta
 from unittest.mock import AsyncMock, patch
 
-from lineage_agent.models import DeathClockForecast, TokenMetadata
+from lineage_agent.models import DeathClockForecast, MarketSurface, TokenMetadata
 from lineage_agent.death_clock import compute_death_clock, _compute_market_signals
 
 
@@ -25,6 +25,7 @@ def _make_meta(liq: float | None, mcap: float | None) -> TokenMetadata:
         created_at=CREATED_2H_AGO,
         liquidity_usd=liq,
         market_cap_usd=mcap,
+        market_surface=MarketSurface.DEX_POOL_OBSERVED,
     )
 
 
@@ -68,6 +69,13 @@ def test_compute_market_signals_boost_capped_at_3():
     signals = _compute_market_signals(meta, "low")
     assert signals is not None
     assert signals.adjusted_risk_boost <= 3.0
+
+
+def test_compute_market_signals_returns_none_for_non_dex_surface():
+    meta = _make_meta(liq=100.0, mcap=500_000.0)
+    meta.market_surface = MarketSurface.LAUNCHPAD_CURVE_ONLY
+    signals = _compute_market_signals(meta, "medium")
+    assert signals is None
 
 
 # ---------------------------------------------------------------------------

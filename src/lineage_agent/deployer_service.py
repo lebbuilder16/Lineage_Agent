@@ -24,7 +24,8 @@ from datetime import datetime
 from typing import Optional
 
 from .data_sources._clients import event_query
-from .models import DeployerProfile, DeployerTokenSummary
+from .models import DeployerProfile, DeployerTokenSummary, EvidenceLevel, RugMechanism
+from .rug_detector import normalize_legacy_rug_events
 from .utils import parse_datetime as _parse_dt
 from config import CACHE_TTL_DEPLOYER_SECONDS as _CACHE_TTL_SECONDS
 
@@ -32,6 +33,23 @@ logger = logging.getLogger(__name__)
 
 _MIN_TOKENS_FOR_HIGH_CONFIDENCE = 5
 _MIN_TOKENS_FOR_MEDIUM_CONFIDENCE = 2
+_CONFIRMED_EVIDENCE_LEVELS = {EvidenceLevel.MODERATE.value, EvidenceLevel.STRONG.value}
+_CONFIRMED_RUG_MECHANISMS = {
+    RugMechanism.DEX_LIQUIDITY_RUG.value,
+    RugMechanism.PRE_DEX_EXTRACTION_RUG.value,
+}
+
+
+def _is_confirmed_rug(row: dict) -> bool:
+    mechanism = (row.get("rug_mechanism") or "").strip()
+    evidence_level = (row.get("evidence_level") or "").strip()
+    if not mechanism:
+        return True
+    if mechanism not in _CONFIRMED_RUG_MECHANISMS:
+        return False
+    if not evidence_level:
+        return True
+    return evidence_level in _CONFIRMED_EVIDENCE_LEVELS
 
 # Simple in-process TTL cache: {address: (expires_at, DeployerProfile)}
 _profile_cache: dict[str, tuple[float, Optional[DeployerProfile]]] = {}
@@ -91,17 +109,21 @@ async def _build_profile(deployer: str) -> Optional[DeployerProfile]:
     if not mints:
         return None
 
+    await normalize_legacy_rug_events(mints=mints)
+
     # SQLite IN clause — build parameterised query
     placeholders = ",".join("?" * len(mints))
     rugged_rows = await event_query(
         where=f"event_type = 'token_rugged' AND mint IN ({placeholders})",
         params=tuple(mints),
-        columns="mint, rugged_at",
+        columns="mint, rugged_at, rug_mechanism, evidence_level",
         limit=500,
     )
-    rugged_map: dict[str, Optional[datetime]] = {
-        r["mint"]: _parse_dt(r.get("rugged_at")) for r in rugged_rows
-    }
+    rugged_map: dict[str, dict] = {r["mint"]: r for r in rugged_rows}
+    rug_mechanism_counter: Counter[str] = Counter(
+        (r.get("rug_mechanism") or RugMechanism.UNKNOWN.value) for r in rugged_rows
+    )
+    confirmed_rug_count = sum(1 for row in rugged_rows if _is_confirmed_rug(row))
 
     # Build individual token summaries
     summaries: list[DeployerTokenSummary] = []
@@ -110,7 +132,8 @@ async def _build_profile(deployer: str) -> Optional[DeployerProfile]:
 
     for row in created_rows:
         mint = row.get("mint", "")
-        rugged_at = rugged_map.get(mint)
+        rug_row = rugged_map.get(mint, {})
+        rugged_at = _parse_dt(rug_row.get("rugged_at")) if rug_row else None
         narrative = row.get("narrative") or ""
         if narrative:
             narrative_counter[narrative] += 1
@@ -123,12 +146,15 @@ async def _build_profile(deployer: str) -> Optional[DeployerProfile]:
             symbol=row.get("symbol") or "",
             created_at=created_at,
             rugged_at=rugged_at,
+            rug_mechanism=(rug_row.get("rug_mechanism") if rug_row else None),
+            evidence_level=(rug_row.get("evidence_level") if rug_row else None),
             mcap_usd=row.get("mcap_usd"),
             narrative=narrative,
         ))
 
     total = len(summaries)
-    rug_count = len(rugged_map)
+    negative_outcome_count = len(rugged_map)
+    rug_count = negative_outcome_count
 
     # Average lifespan of rugged tokens (hours → days)
     lifespans: list[float] = []
@@ -140,7 +166,7 @@ async def _build_profile(deployer: str) -> Optional[DeployerProfile]:
     avg_lifespan = sum(lifespans) / len(lifespans) if lifespans else None
 
     # Active = launched but not yet rugged
-    active_tokens = total - rug_count
+    active_tokens = total - negative_outcome_count
 
     preferred_narrative = narrative_counter.most_common(1)[0][0] if narrative_counter else ""
 
@@ -158,9 +184,13 @@ async def _build_profile(deployer: str) -> Optional[DeployerProfile]:
         address=deployer,
         total_tokens_launched=total,
         rug_count=rug_count,
+        confirmed_rug_count=confirmed_rug_count,
+        negative_outcome_count=negative_outcome_count,
         rug_rate_pct=round(rug_count / total * 100, 1) if total else 0.0,
+        confirmed_rug_rate_pct=round(confirmed_rug_count / total * 100, 1) if total else 0.0,
         avg_lifespan_days=round(avg_lifespan, 2) if avg_lifespan is not None else None,
         active_tokens=max(0, active_tokens),
+        rug_mechanism_counts=dict(rug_mechanism_counter),
         preferred_narrative=preferred_narrative,
         first_seen=first_seen,
         last_seen=last_seen,

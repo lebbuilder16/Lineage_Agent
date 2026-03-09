@@ -14,17 +14,46 @@ from __future__ import annotations
 
 import logging
 import statistics
+from collections import Counter
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from .data_sources._clients import event_query
-from .models import DeathClockForecast, MarketSignals, TokenMetadata
+from .models import (
+    DeathClockForecast,
+    EvidenceLevel,
+    MarketSignals,
+    MarketSurface,
+    RugMechanism,
+    TokenMetadata,
+)
+from .rug_detector import normalize_legacy_rug_events
 from .utils import parse_datetime as _parse_dt
 
 logger = logging.getLogger(__name__)
 
 _MIN_SAMPLES = 1          # minimum rug events to compute forecast (1 = single-sample mode)
 _MAX_STDEV_RATIO = 2.0    # cap stdev at 2× median to avoid absurd windows
+_PREDICTIVE_RUG_MECHANISMS = {
+    RugMechanism.DEX_LIQUIDITY_RUG.value,
+    RugMechanism.PRE_DEX_EXTRACTION_RUG.value,
+}
+_CONFIRMED_EVIDENCE_LEVELS = {
+    EvidenceLevel.MODERATE.value,
+    EvidenceLevel.STRONG.value,
+}
+
+
+def _is_confirmed_predictive_rug(row: dict) -> bool:
+    mechanism = (row.get("rug_mechanism") or "").strip()
+    evidence_level = (row.get("evidence_level") or "").strip()
+    if not mechanism:
+        return True
+    if mechanism not in _PREDICTIVE_RUG_MECHANISMS:
+        return False
+    if not evidence_level:
+        return True
+    return evidence_level in _CONFIRMED_EVIDENCE_LEVELS
 
 
 async def compute_death_clock(
@@ -52,14 +81,22 @@ async def compute_death_clock(
     if not deployer or not token_created_at:
         return None
 
+    await normalize_legacy_rug_events(deployer=deployer)
+
     # Fetch historical rug events for this deployer
     rows = await event_query(
         where="deployer = ? AND event_type = 'token_rugged' AND rugged_at IS NOT NULL AND created_at IS NOT NULL",
         params=(deployer,),
-        columns="created_at, rugged_at",
+        columns="mint, created_at, rugged_at, rug_mechanism, evidence_level",
     )
 
-    if len(rows) < _MIN_SAMPLES:
+    total_negative_outcomes = len(rows)
+    confirmed_rows = [row for row in rows if _is_confirmed_predictive_rug(row)]
+    basis_breakdown = Counter(
+        (row.get("rug_mechanism") or RugMechanism.UNKNOWN.value) for row in confirmed_rows
+    )
+
+    if len(confirmed_rows) < _MIN_SAMPLES:
         # Zero rug events — no forecast possible at all
         return DeathClockForecast(
             deployer=deployer,
@@ -71,11 +108,13 @@ async def compute_death_clock(
             confidence_note="No prior rug events on record for this deployer",
             sample_count=0,
             confidence_level="low",
+            total_negative_outcome_count=total_negative_outcomes,
+            basis_breakdown=dict(basis_breakdown),
         )
 
     # Parse durations
     durations_h: list[float] = []
-    for row in rows:
+    for row in confirmed_rows:
         try:
             created = _parse_dt(row["created_at"])
             rugged = _parse_dt(row["rugged_at"])
@@ -147,11 +186,15 @@ async def compute_death_clock(
         predicted_window_end=window_end,
         sample_count=len(durations_h),
         confidence_level=_confidence_level,  # type: ignore[arg-type]
+        total_negative_outcome_count=total_negative_outcomes,
+        basis_breakdown=dict(basis_breakdown),
         confidence_note=(
             "Single prior rug — estimate based on 1 data point (\u00b150% window)"
             if single_sample
             else f"Based on {len(durations_h)} confirmed rug(s)"
-        ),        market_signals=_compute_market_signals(token_metadata, risk_level),    )
+        ),
+        market_signals=_compute_market_signals(token_metadata, risk_level),
+    )
 
 
 def _elapsed_hours(created_at: datetime) -> float:
@@ -205,6 +248,9 @@ def _compute_market_signals(
     ``metadata is None``.
     """
     if metadata is None:
+        return None
+
+    if metadata.market_surface != MarketSurface.DEX_POOL_OBSERVED:
         return None
 
     liq = metadata.liquidity_usd

@@ -33,25 +33,6 @@ logger = logging.getLogger(__name__)
 # Wrapped SOL mint for Jupiter price lookup
 _WSOL_MINT = "So11111111111111111111111111111111111111112"
 
-
-def _detect_sol_denominated_liquidity(pairs: Optional[list[dict]]) -> bool:
-    """Return True if at least one pair uses SOL/WSOL as the quote token.
-
-    For Moonshot USDC launches, all pairs quote in USDC — returns False.
-    An empty or None pairs list defaults to True (conservative: assume SOL).
-    When False, SOL flows in the trace represent infrastructure costs (rent,
-    fees, launchpad) rather than actual value extraction.
-    """
-    if not pairs:
-        return True
-    for pair in pairs:
-        quote = (pair.get("quoteToken") or {})
-        q_addr = quote.get("address", "")
-        q_sym = (quote.get("symbol") or "").upper()
-        if q_addr == _WSOL_MINT or q_sym in ("SOL", "WSOL"):
-            return True
-    return False
-
 # ── Skip lists ────────────────────────────────────────────────────────────────
 # Infrastructure, DEX programs, system accounts — not useful in a follow-the-money graph.
 # Now imported from constants.py (SKIP_PROGRAMS) as the single source of truth.
@@ -75,8 +56,6 @@ async def trace_sol_flow(
     max_hops: int = _MAX_HOPS,
     max_txn_per_wallet: int = _MAX_TXN_PER_WALLET,
     extra_seed_wallets: Optional[list[str]] = None,
-    token_created_at: Optional[datetime] = None,
-    pairs: Optional[list[dict]] = None,
 ) -> Optional[SolFlowReport]:
     """Trace SOL flows from a deployer wallet after a rug (BFS, max 3 hops).
 
@@ -93,13 +72,6 @@ async def trace_sol_flow(
                              Used for PumpFun / Jito bundle patterns where the
                              actual SOL extraction happens via bundle wallets
                              rather than directly through the deployer.
-        token_created_at:    Token creation timestamp. Transactions before this
-                             date are skipped — pre-launch deployer activity is
-                             unrelated to this token and would inflate extraction.
-        pairs:               Raw DexScreener pair dicts (already fetched by
-                             detect_lineage). Used to detect USDC/non-SOL
-                             liquidity and set liquidity_is_sol_denominated on
-                             the report accordingly.
 
     Returns:
         SolFlowReport if any flows found, else None.
@@ -107,7 +79,6 @@ async def trace_sol_flow(
     # Shared accumulator — _run_trace appends flows here so we can return
     # partial results on timeout (flows are already persisted per-hop).
     collected_flows: list[dict] = []
-    _liq_sol = _detect_sol_denominated_liquidity(pairs)
     try:
         return await asyncio.wait_for(
             _run_trace(
@@ -116,8 +87,6 @@ async def trace_sol_flow(
                 max_txn_per_wallet=max_txn_per_wallet,
                 extra_seed_wallets=extra_seed_wallets or [],
                 _collected=collected_flows,
-                token_created_at=token_created_at,
-                liquidity_is_sol_denominated=_liq_sol,
             ),
             timeout=_TRACE_TIMEOUT,
         )
@@ -144,14 +113,12 @@ async def trace_sol_flow(
                 mint, deployer, collected_flows,
                 cross_chain_exits=exits, sol_price_usd=sol_price,
                 dynamic_labels=dyn,
-                liquidity_is_sol_denominated=_liq_sol,
             )
         return None
     except Exception:
         logger.exception("trace_sol_flow failed for mint=%s", mint)
         if collected_flows:
-            return _flows_to_report(mint, deployer, collected_flows,
-                                    liquidity_is_sol_denominated=_liq_sol)
+            return _flows_to_report(mint, deployer, collected_flows)
         return None
 
 
@@ -186,8 +153,6 @@ async def _run_trace(
     max_txn_per_wallet: int,
     extra_seed_wallets: list[str],
     _collected: list[dict],
-    token_created_at: Optional[datetime] = None,
-    liquidity_is_sol_denominated: bool = True,
 ) -> Optional[SolFlowReport]:
     rpc = get_rpc_client()
     sem = asyncio.Semaphore(_HOP_SEM_CONCURRENCY)
@@ -211,8 +176,7 @@ async def _run_trace(
         txn_limit = max_txn_per_wallet if hop == 0 else min(max_txn_per_wallet, _MAX_TXN_HOP1_PLUS)
 
         tasks = [
-            _trace_wallet(rpc, sem, wallet, mint, hop, txn_limit,
-                          token_created_at=token_created_at)
+            _trace_wallet(rpc, sem, wallet, mint, hop, txn_limit)
             for wallet in frontier
         ]
         hop_results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -286,7 +250,6 @@ async def _run_trace(
         cross_chain_exits=exits,
         sol_price_usd=sol_price,
         dynamic_labels=dynamic_labels,
-        liquidity_is_sol_denominated=liquidity_is_sol_denominated,
     )
 
 
@@ -297,11 +260,8 @@ async def _trace_wallet(
     mint: str,
     hop: int,
     max_txn: int,
-    *,
-    token_created_at: Optional[datetime] = None,
 ) -> list[dict]:
     """Fetch recent transaction signatures for a wallet and parse SOL flows."""
-    _created_ts: Optional[float] = token_created_at.timestamp() if token_created_at else None
     async with sem:
         flows: list[dict] = []
         try:
@@ -323,13 +283,6 @@ async def _trace_wallet(
                 )
                 if not tx_raw or not isinstance(tx_raw, dict):
                     continue
-
-                # Skip transactions that predate the token's creation.
-                # Pre-launch deployer activity is unrelated to this token's rug.
-                if _created_ts is not None:
-                    _block_time = tx_raw.get("blockTime")
-                    if _block_time is not None and _block_time < _created_ts:
-                        continue
 
                 parsed = _parse_sol_flows(tx_raw, wallet, mint, hop, sig)
                 flows.extend(parsed)
@@ -501,7 +454,6 @@ def _flows_to_report(
     cross_chain_exits: Optional[list[CrossChainExit]] = None,
     sol_price_usd: Optional[float] = None,
     dynamic_labels: Optional[dict] = None,
-    liquidity_is_sol_denominated: bool = True,
 ) -> SolFlowReport:
     """Convert raw flow dicts to a SolFlowReport model."""
     _dyn = dynamic_labels or {}
@@ -559,7 +511,6 @@ def _flows_to_report(
         analysis_timestamp=datetime.now(tz=timezone.utc),
         rug_timestamp=rug_ts,
         cross_chain_exits=cross_chain_exits or [],
-        liquidity_is_sol_denominated=liquidity_is_sol_denominated,
     )
 
 

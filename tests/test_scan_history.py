@@ -71,6 +71,8 @@ def _make_snapshot(
     flags: list[str] | None = None,
     family_size: int = 3,
     rug_count: int = 0,
+    confirmed_rug_count: int = 0,
+    negative_outcome_count: int = 0,
 ) -> ScanSnapshot:
     return ScanSnapshot(
         snapshot_id=snapshot_id,
@@ -82,6 +84,8 @@ def _make_snapshot(
         flags=flags or [],
         family_size=family_size,
         rug_count=rug_count,
+        confirmed_rug_count=confirmed_rug_count,
+        negative_outcome_count=negative_outcome_count,
     )
 
 
@@ -173,12 +177,12 @@ class TestExtractFlags:
 
     def test_serial_rugger(self):
         result = _make_lineage_result()
-        result.operator_impact = MagicMock(rug_rate_pct=75)
+        result.operator_impact = MagicMock(rug_rate_pct=75, confirmed_rug_rate_pct=75)
         assert "SERIAL_RUGGER" in _extract_flags(result)
 
     def test_operator_below_threshold_not_flagged(self):
         result = _make_lineage_result()
-        result.operator_impact = MagicMock(rug_rate_pct=40)
+        result.operator_impact = MagicMock(rug_rate_pct=75, confirmed_rug_rate_pct=40)
         assert "SERIAL_RUGGER" not in _extract_flags(result)
 
     def test_multiple_flags_combined(self):
@@ -256,6 +260,13 @@ class TestComputeDelta:
         curr = _make_snapshot(scan_number=2, rug_count=5)
         delta = compute_delta(prev, curr)
         assert delta.rug_count_delta == 3
+
+    def test_confirmed_rug_count_delta(self):
+        prev = _make_snapshot(scan_number=1, rug_count=5, confirmed_rug_count=2)
+        curr = _make_snapshot(scan_number=2, rug_count=6, confirmed_rug_count=4)
+        delta = compute_delta(prev, curr)
+        assert delta.rug_count_delta == 1
+        assert delta.confirmed_rug_count_delta == 2
 
     def test_narrative_is_none_by_default(self):
         prev = _make_snapshot(scan_number=1)

@@ -15,13 +15,15 @@ from __future__ import annotations
 import asyncio
 import bisect
 import logging
+from collections import Counter
 from datetime import datetime, timezone
 from typing import Literal, Optional
 
 from .constants import EXTRACTION_RATE, estimate_extraction_rate
 from .data_sources._clients import event_query
 from .deployer_service import compute_deployer_profile
-from .models import DeployerProfile, OperatorImpactReport
+from .models import DeployerProfile, EvidenceLevel, OperatorImpactReport, RugMechanism
+from .rug_detector import normalize_legacy_rug_events
 from .utils import parse_datetime
 
 logger = logging.getLogger(__name__)
@@ -29,6 +31,23 @@ logger = logging.getLogger(__name__)
 _EXTRACTION_RATE = EXTRACTION_RATE  # 15% of rugged mcap
 _CAMPAIGN_ACTIVE_SECONDS = 21_600   # 6 hours
 _PROFILE_GATHER_TIMEOUT = 15.0
+_CONFIRMED_EVIDENCE_LEVELS = {EvidenceLevel.MODERATE.value, EvidenceLevel.STRONG.value}
+_EXTRACTION_COMPATIBLE_MECHANISMS = {
+    RugMechanism.DEX_LIQUIDITY_RUG.value,
+    RugMechanism.PRE_DEX_EXTRACTION_RUG.value,
+}
+
+
+def _is_confirmed_damage_event(row: dict) -> bool:
+    mechanism = (row.get("rug_mechanism") or "").strip()
+    evidence_level = (row.get("evidence_level") or "").strip()
+    if not mechanism:
+        return True
+    if mechanism not in _EXTRACTION_COMPATIBLE_MECHANISMS:
+        return False
+    if not evidence_level:
+        return True
+    return evidence_level in _CONFIRMED_EVIDENCE_LEVELS
 
 
 async def compute_operator_impact(
@@ -85,19 +104,27 @@ async def _build_impact(
     mints = [r["mint"] for r in created_rows if r.get("mint")]
     rugged_rows: list[dict] = []
     if mints:
+        await normalize_legacy_rug_events(mints=mints)
         rug_ph = ",".join("?" for _ in mints)
         rugged_rows = await event_query(
             f"event_type = 'token_rugged' AND mint IN ({rug_ph})",
             params=tuple(mints),
-            columns="mint, mcap_usd",
+            columns="mint, mcap_usd, rug_mechanism, evidence_level",
             limit=2000,
         )
 
     rugged_mints = {r["mint"] for r in rugged_rows}
+    confirmed_rug_mints = {r["mint"] for r in rugged_rows if _is_confirmed_damage_event(r)}
+    rug_mechanism_counts = Counter((r.get("rug_mechanism") or RugMechanism.UNKNOWN.value) for r in rugged_rows)
     total_tokens_launched = len(created_rows)
     total_rug_count = len(rugged_mints)
+    total_confirmed_rug_count = len(confirmed_rug_mints)
     rug_rate_pct = (
         total_rug_count / total_tokens_launched * 100.0
+        if total_tokens_launched > 0 else 0.0
+    )
+    confirmed_rug_rate_pct = (
+        total_confirmed_rug_count / total_tokens_launched * 100.0
         if total_tokens_launched > 0 else 0.0
     )
 
@@ -105,7 +132,7 @@ async def _build_impact(
     estimated_extracted_usd = sum(
         (r.get("mcap_usd") or 0.0) * estimate_extraction_rate(r.get("mcap_usd"))
         for r in rugged_rows
-        if r.get("mcap_usd")
+        if r.get("mcap_usd") and _is_confirmed_damage_event(r)
     )
 
     # ── 5. Active tokens (launched but not rugged) ─────────────────────────
@@ -163,9 +190,13 @@ async def _build_impact(
         linked_wallets=linked_wallets,
         total_tokens_launched=total_tokens_launched,
         total_rug_count=total_rug_count,
+        total_confirmed_rug_count=total_confirmed_rug_count,
+        total_negative_outcome_count=total_rug_count,
         rug_rate_pct=round(rug_rate_pct, 2),
+        confirmed_rug_rate_pct=round(confirmed_rug_rate_pct, 2),
         estimated_extracted_usd=round(estimated_extracted_usd, 2),
         active_tokens=active_tokens,
+        rug_mechanism_counts=dict(rug_mechanism_counts),
         narrative_sequence=seen_narratives,
         is_campaign_active=is_campaign_active,
         peak_concurrent_tokens=peak_concurrent,

@@ -97,6 +97,8 @@ Reasoning rules:
 - Do NOT repeat the same fact across narrative, key_findings, and conviction_chain — each adds a new layer.
 - Pre-computed labels (bundle verdict, insider_sell verdict) are WEAK HINTS only. \
 Reason from raw numbers first, validate against labels second.
+- If the token is explicitly marked as launchpad-only / pre-DEX, you MUST NOT describe it as a DEX liquidity rug unless direct DEX-pool evidence is provided.
+- For pre-DEX launchpad tokens, zero deployer balance or absent DEX pairs are NOT proof of a sell, LP drain, or rug by themselves.
 - If signals conflict, explicitly address the conflict in conviction_chain.
 - conviction_chain is mandatory — if data is sparse, state what the data cannot confirm and why.\
 """
@@ -258,14 +260,7 @@ def _heuristic_score(
     # ── SOL flow signals ──────────────────────────────────────────────────
     if sol_flow:
         extracted = getattr(sol_flow, "total_extracted_sol", 0) or 0
-        _liq_sol = getattr(sol_flow, "liquidity_is_sol_denominated", True)
-        if not _liq_sol:
-            # Token uses USDC/non-SOL liquidity. Small SOL flows are
-            # infrastructure costs (rent, fees, launchpad), not extraction.
-            # Real value extraction on a USDC pair would appear in USDC,
-            # not SOL — skip this signal to avoid false risk inflation.
-            pass
-        elif extracted >= 20:
+        if extracted >= 20:
             score += 20
         elif extracted >= 5:
             score += 12
@@ -541,6 +536,32 @@ def _build_prompt(
                 parts.append(f"Market cap: ${_qt_mcap:,.0f} USD")
             if _qt_liq is not None:
                 parts.append(f"Liquidity: ${_qt_liq:,.0f} USD")
+            _qt_platform = getattr(_qt, "launch_platform", None)
+            _qt_stage = _norm_enumish(getattr(_qt, "lifecycle_stage", "")) or "unknown"
+            _qt_surface = _norm_enumish(getattr(_qt, "market_surface", "")) or "unknown"
+            _qt_ctx_evidence = _norm_enumish(getattr(_qt, "evidence_level", "")) or "unknown"
+            _qt_reason_codes = getattr(_qt, "reason_codes", []) or []
+            parts.append(
+                f"Market context: platform={_qt_platform or 'unknown'} | lifecycle_stage={_qt_stage} | market_surface={_qt_surface} | context_evidence={_qt_ctx_evidence}"
+            )
+            if _qt_reason_codes:
+                parts.append(f"Market context reason codes: {_qt_reason_codes}")
+            if _is_launchpad_pre_dex_context(lineage):
+                parts.append("HARD CONSTRAINTS FOR THIS TOKEN:")
+                parts.append(
+                    "- This token is currently observed as pre-DEX / launchpad-only. You must not describe it as a DEX liquidity rug or LP drain unless direct DEX-pool evidence is present."
+                )
+                parts.append(
+                    "- Missing DexScreener pools, launchpad-only market surface, or a zero deployer token balance are not by themselves proof that the deployer sold or rugged."
+                )
+                if _has_pre_dex_extraction_proof(bundle, sol_flow):
+                    parts.append(
+                        "- If you describe wrongdoing, frame it as a pre-DEX extraction / coordinated launchpad dump proven by bundle or SOL-flow evidence, not as a DEX liquidity rug."
+                    )
+                else:
+                    parts.append(
+                        "- With the current data, you may discuss risk or suspicious context, but you must explicitly say that no DEX rug is proven yet."
+                    )
 
     # ── Lineage / clone intelligence ──────────────────────────────────────
     if lineage:
@@ -617,13 +638,23 @@ def _build_prompt(
 
         deployer_profile = getattr(lineage, "deployer_profile", None)
         if deployer_profile:
-            _dp_rugs  = getattr(deployer_profile, 'rug_count', 0) or 0
-            _dp_total = getattr(deployer_profile, 'total_tokens_deployed', 0) or 0
-            _dp_life  = getattr(deployer_profile, 'avg_token_lifespan_hours', 0) or 0
+            _dp_rugs  = getattr(deployer_profile, 'confirmed_rug_count', None)
+            if _dp_rugs is None:
+                _dp_rugs = getattr(deployer_profile, 'rug_count', 0) or 0
+            _dp_total = getattr(deployer_profile, 'total_tokens_launched', None)
+            if _dp_total is None:
+                _dp_total = getattr(deployer_profile, 'total_tokens_deployed', 0) or 0
+            _dp_life_days = getattr(deployer_profile, 'avg_lifespan_days', None)
+            if _dp_life_days is None:
+                _dp_life_hours = getattr(deployer_profile, 'avg_token_lifespan_hours', None)
+                if _dp_life_hours is not None:
+                    _dp_life_days = _dp_life_hours / 24.0
+            _dp_negative = getattr(deployer_profile, 'negative_outcome_count', getattr(deployer_profile, 'rug_count', 0) or 0)
             parts.append(
-                f"Deployer history: {_dp_rugs} confirmed rug(s) out of {_dp_total} token(s) deployed; "
-                f"average token lifespan {_dp_life:.0f}h before collapse"
+                f"Deployer history: {_dp_rugs} confirmed rug(s) out of {_dp_total} token(s) launched; {_dp_negative} total negative outcome(s) recorded"
             )
+            if _dp_life_days is not None:
+                parts.append(f"Average lifespan before collapse: {_dp_life_days:.1f} day(s)")
 
     # ── Bundle forensics ──────────────────────────────────────────────────
     if bundle:
@@ -750,13 +781,6 @@ def _build_prompt(
         parts.append(f"Total extracted: {getattr(sol_flow,'total_extracted_sol',0):.4f} SOL")
         if getattr(sol_flow, "total_extracted_usd", None):
             parts.append(f"USD value: ${sol_flow.total_extracted_usd:,.2f}")
-        if not getattr(sol_flow, "liquidity_is_sol_denominated", True):
-            parts.append(
-                "NOTE: Liquidity is USDC/non-SOL denominated. "
-                "SOL flows shown above are infrastructure costs (rent, fees, launchpad), "
-                "NOT extraction signals. Value extraction on this token would appear via "
-                "USDC outflows, not SOL — do not interpret these as rug proceeds."
-            )
         parts.append(f"Hops traced: {getattr(sol_flow,'hop_count',1)}")
         parts.append(f"Terminal wallets (final destinations): {len(getattr(sol_flow,'terminal_wallets',[]))}")
         parts.append(f"Known CEX detected: {getattr(sol_flow,'known_cex_detected',False)}")
@@ -844,6 +868,9 @@ def _build_prompt(
     ins = getattr(lineage, "insider_sell", None) if lineage else None
     if ins:
         parts.append("\n=== INSIDER SELL ANALYSIS [interpret these signals — translate into plain language in your output] ===")
+        _ins_applicability = getattr(ins, 'applicability', None)
+        if _ins_applicability is not None:
+            parts.append(f"Market-signal applicability: {_ins_applicability}")
         _ins_verdict = getattr(ins, 'verdict', '?')
         _ins_score   = getattr(ins, 'risk_score', 0) or 0
         parts.append(
@@ -880,6 +907,9 @@ def _build_prompt(
                 f"  Wallet {getattr(we,'wallet','?')[:14]} — role: {getattr(we,'role','?')} — "
                 f"{'has sold / exited' if _we_exited else 'has not sold'}"
             )
+            _balance_ctx = getattr(we, 'balance_context', None)
+            if _balance_ctx:
+                parts.append(f"    Balance context: {_balance_ctx}")
 
     # ── Factory rhythm (scripted deployment bot) ─────────────────────────
     fr = getattr(lineage, "factory_rhythm", None) if lineage else None
@@ -912,7 +942,12 @@ def _build_prompt(
         parts.append("\n=== OPERATOR IMPACT (cross-wallet damage ledger) ===")
         parts.append(f"Fingerprint: {getattr(oi,'fingerprint','?')[:16]}...")
         parts.append(f"Linked deployer wallets: {len(getattr(oi,'linked_wallets',[]))}")
-        parts.append(f"Total tokens / rugs: {getattr(oi,'total_tokens_launched',0)} / {getattr(oi,'total_rug_count',0)} ({getattr(oi,'rug_rate_pct',0):.0f}% rug rate)")
+        parts.append(
+            f"Total tokens / confirmed rugs / all negative outcomes: {getattr(oi,'total_tokens_launched',0)} / {getattr(oi,'total_confirmed_rug_count',getattr(oi,'total_rug_count',0))} / {getattr(oi,'total_negative_outcome_count',getattr(oi,'total_rug_count',0))}"
+        )
+        parts.append(
+            f"Confirmed rug rate: {getattr(oi,'confirmed_rug_rate_pct',getattr(oi,'rug_rate_pct',0)):.0f}% | broad negative-outcome rate: {getattr(oi,'rug_rate_pct',0):.0f}%"
+        )
         parts.append(f"Estimated extracted: ~${getattr(oi,'estimated_extracted_usd',0):,.0f} USD (is_estimated={getattr(oi,'is_estimated',True)})")
         parts.append(f"Campaign active now: {getattr(oi,'is_campaign_active',False)} | peak concurrent tokens: {getattr(oi,'peak_concurrent_tokens',0)}")
         parts.append(f"Narratives used: {getattr(oi,'narrative_sequence',[])[:6]}")
@@ -970,8 +1005,11 @@ def _sanity_check(
     if lineage:
         dp = getattr(lineage, "deployer_profile", None)
         if dp:
-            total = max(getattr(dp, "total_tokens_deployed", 0) or 1, 1)
-            rugs  = getattr(dp, "rug_count", 0) or 0
+            total_value = getattr(dp, "total_tokens_launched", None)
+            if total_value is None:
+                total_value = getattr(dp, "total_tokens_deployed", 0)
+            total = max(total_value or 1, 1)
+            rugs  = getattr(dp, "confirmed_rug_count", getattr(dp, "rug_count", 0) or 0) or 0
             deployer_rug_rate = rugs / total
 
     caveats: list[str] = []
@@ -1013,6 +1051,19 @@ def _sanity_check(
         findings = result.get("key_findings") or []
         result["key_findings"] = caveats + findings
 
+    if _is_launchpad_pre_dex_context(lineage) and not _has_pre_dex_extraction_proof(bundle, sol_flow):
+        if result.get("risk_score") is not None:
+            result["risk_score"] = min(result["risk_score"], 60)
+        result["confidence"] = "low"
+        result["rug_pattern"] = "unknown"
+        result["verdict_summary"] = (
+            "Pre-DEX launchpad token; current data does not prove a DEX rug or deployer cash-out."
+        )
+        findings = result.get("key_findings") or []
+        prefix = "[CAVEAT] Token is still in launchpad / pre-DEX context; no DEX-liquidity rug is proven from current evidence."
+        if prefix not in findings:
+            result["key_findings"] = [prefix] + findings
+
     return result
 
 
@@ -1027,6 +1078,45 @@ def _extract_deployer(lineage: Optional[Any]) -> Optional[str]:
         return None
     deployer = getattr(qt, "deployer", None)
     return deployer if deployer else None
+
+
+def _get_query_token(lineage: Optional[Any]) -> Optional[Any]:
+    """Return the token object that represents the analyzed subject."""
+    if not lineage:
+        return None
+    return getattr(lineage, "query_token", None) or getattr(lineage, "root", None)
+
+
+def _norm_enumish(value: Any) -> str:
+    """Normalize plain strings or enum-like objects to a lowercase string."""
+    raw = getattr(value, "value", value)
+    return str(raw or "").strip().lower()
+
+
+def _has_pre_dex_extraction_proof(bundle: Optional[Any], sol_flow: Optional[Any]) -> bool:
+    """True when non-DEX extraction evidence exists for a pre-DEX launchpad token."""
+    if bundle is not None:
+        verdict = str(getattr(bundle, "overall_verdict", "") or "").strip().lower()
+        if verdict and verdict != "early_buyers_no_link_proven":
+            return True
+    if sol_flow is not None and (getattr(sol_flow, "total_extracted_sol", 0) or 0) > 0:
+        return True
+    return False
+
+
+def _is_launchpad_pre_dex_context(lineage: Optional[Any]) -> bool:
+    """Return True when the analyzed token is still on a launchpad / pre-DEX surface."""
+    qt = _get_query_token(lineage)
+    if qt is None:
+        return False
+    lifecycle_stage = _norm_enumish(getattr(qt, "lifecycle_stage", ""))
+    market_surface = _norm_enumish(getattr(qt, "market_surface", ""))
+    launch_platform = str(getattr(qt, "launch_platform", "") or "").strip().lower()
+    return (
+        lifecycle_stage == "launchpad_curve_only"
+        or market_surface == "launchpad_curve_only"
+        or (launch_platform and lifecycle_stage != "dex_listed" and market_surface != "dex_pool_observed")
+    )
 
 
 # ── Behavioral fingerprint signals ──────────────────────────────────────────
@@ -1227,7 +1317,7 @@ def _rule_based_fallback(
     if lineage:
         clones = len(getattr(lineage, "derivatives", []) or [])
         dp     = getattr(lineage, "deployer_profile", None)
-        rug_count = getattr(dp, "rug_count", 0) or 0 if dp else 0
+        rug_count = getattr(dp, "confirmed_rug_count", getattr(dp, "rug_count", 0) or 0) if dp else 0
 
         if clones > 10:
             weighted.append((78.0, 0.25))
@@ -1255,6 +1345,13 @@ def _rule_based_fallback(
     total_w  = sum(w for _, w in weighted)
     risk_score = round(sum(s * w for s, w in weighted) / total_w)
 
+    if _is_launchpad_pre_dex_context(lineage) and not _has_pre_dex_extraction_proof(bundle, sol_flow):
+        risk_score = min(risk_score, 60)
+        findings.insert(
+            0,
+            "[CAVEAT] Token is still pre-DEX on a launchpad; current data does not prove a DEX liquidity rug.",
+        )
+
     return {
         "mint":         mint,
         "model":        "rule_based_fallback",
@@ -1274,6 +1371,31 @@ def _rule_based_fallback(
         "operator_hypothesis":   None,
         "is_fallback":           True,
     }
+
+
+def _fallback_delta_narrative(delta: Any) -> str:
+    """Generate a short plain-English scan evolution summary without LLM help."""
+    trend = str(getattr(delta, "trend", "stable") or "stable")
+    risk_delta = int(getattr(delta, "risk_score_delta", 0) or 0)
+    new_flags = list(getattr(delta, "new_flags", []) or [])
+    resolved_flags = list(getattr(delta, "resolved_flags", []) or [])
+
+    if trend == "worsening":
+        detail = f"Risk worsened by {risk_delta} points" if risk_delta > 0 else "Risk worsened"
+        if new_flags:
+            return f"{detail} and new alert flags appeared: {', '.join(new_flags[:3])}."
+        return f"{detail}, indicating a more dangerous setup than the previous scan."
+
+    if trend == "improving":
+        detail = f"Risk dropped by {abs(risk_delta)} points" if risk_delta < 0 else "Risk improved"
+        if resolved_flags:
+            return f"{detail} and prior warning signals were resolved: {', '.join(resolved_flags[:3])}."
+        return f"{detail}, suggesting conditions are better than in the previous scan."
+
+    return (
+        "Risk remains broadly stable since the previous scan, with no major new warning signs "
+        "or resolved alerts changing the overall picture."
+    )
 
 
 # ── Unified 3-layer response builder ─────────────────────────────────────────

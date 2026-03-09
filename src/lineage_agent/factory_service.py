@@ -61,6 +61,13 @@ async def record_token_creation(token: TokenMetadata) -> None:
             mcap_usd=token.market_cap_usd,
             liq_usd=token.liquidity_usd,
             created_at=token.created_at.isoformat() if token.created_at else None,
+            launch_platform=token.launch_platform,
+            lifecycle_stage=getattr(token.lifecycle_stage, "value", str(token.lifecycle_stage)),
+            market_surface=getattr(token.market_surface, "value", str(token.market_surface)),
+            evidence_level=getattr(token.evidence_level, "value", str(token.evidence_level)),
+            reason_codes=json.dumps(token.reason_codes) if token.reason_codes else None,
+            analysis_version="market-context-v1",
+            policy_version="market-context-v1",
             extra_json=json.dumps(extra_data) if extra_data else None,
             phash=phash_hex,
         )

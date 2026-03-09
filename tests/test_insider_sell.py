@@ -14,6 +14,7 @@ from lineage_agent.insider_sell_service import (
     _compute_verdict,
 )
 from lineage_agent.models import InsiderSellReport
+from lineage_agent.models import LifecycleStage, MarketSurface
 from lineage_agent.data_sources.solana_rpc import SolanaRpcClient
 
 
@@ -95,6 +96,14 @@ class TestFillMarketSignals:
         _fill_market_signals(r, [p1, p2])
         # total = 50 buys, 100 sells → pressure = 100/150 ≈ 0.667
         assert r.sell_pressure_24h == pytest.approx(100/150, abs=0.001)
+
+    def test_market_signals_not_applicable_for_launchpad_curve_only(self):
+        pair = _make_pair()
+        r = InsiderSellReport(mint=MINT)
+        _fill_market_signals(r, [pair], market_surface=MarketSurface.LAUNCHPAD_CURVE_ONLY)
+        assert r.sell_pressure_24h is None
+        assert r.applicability.value == "not_applicable"
+        assert "market_signals_not_applicable_for_non_dex_surface" in r.reason_codes
 
 
 # ---------------------------------------------------------------------------
@@ -257,6 +266,28 @@ class TestGetWalletTokenBalance:
         with patch.object(rpc, "_call", new_callable=AsyncMock, return_value=None):
             bal = await rpc.get_wallet_token_balance(DEPLOYER, MINT)
         assert bal == 0.0
+
+
+class TestAnalyzeInsiderSellLaunchpadContext:
+
+    @pytest.mark.asyncio
+    async def test_launchpad_curve_zero_balance_not_marked_as_exit(self, rpc):
+        with patch.object(rpc, "get_wallet_token_balance", new_callable=AsyncMock, return_value=0.0):
+            report = await analyze_insider_sell(
+                mint=MINT,
+                deployer=DEPLOYER,
+                linked_wallets=[],
+                pairs=[],
+                rpc=rpc,
+                launch_platform="moonshot",
+                lifecycle_stage=LifecycleStage.LAUNCHPAD_CURVE_ONLY,
+                market_surface=MarketSurface.LAUNCHPAD_CURVE_ONLY,
+            )
+
+        assert report.deployer_exited is False
+        assert report.verdict == "clean"
+        assert "DEPLOYER_EXITED" not in report.flags
+        assert report.wallet_events[0].balance_context == "zero_balance_expected_by_protocol"
 
     @pytest.mark.asyncio
     async def test_sums_multiple_accounts(self, rpc):

@@ -11,7 +11,9 @@ from lineage_agent.lineage_detector import (
     _compute_confidence,
     _parse_datetime,
     _select_root,
+    classify_market_context,
 )
+from lineage_agent.models import LifecycleStage, MarketSurface
 from lineage_agent.models import SimilarityEvidence
 
 
@@ -188,3 +190,20 @@ class TestSelectRootPreMintScenario:
         undated = _make_candidate("undated", created_at=None, liquidity_usd=999_999_999)
         root = _select_root([undated, dated])
         assert root.mint == "dated"
+
+
+class TestClassifyMarketContext:
+    def test_launchpad_curve_only_when_moonshot_authority_and_no_pairs(self):
+        asset = {
+            "authorities": [{"address": "MoonCVVNZFSYkqNXP6bxHLPL6QQJiMEfzPWlVMMf9Ly"}],
+            "creators": [],
+        }
+        result = classify_market_context(asset, [])
+        assert result["launch_platform"] == "moonshot"
+        assert result["lifecycle_stage"] == LifecycleStage.LAUNCHPAD_CURVE_ONLY
+        assert result["market_surface"] == MarketSurface.LAUNCHPAD_CURVE_ONLY
+
+    def test_dex_listed_when_pairs_observed(self):
+        result = classify_market_context(None, [{"chainId": "solana"}])
+        assert result["lifecycle_stage"] == LifecycleStage.DEX_LISTED
+        assert result["market_surface"] == MarketSurface.DEX_POOL_OBSERVED

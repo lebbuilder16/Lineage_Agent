@@ -253,6 +253,14 @@ class SQLiteCache:
                 liq_usd      REAL,
                 created_at   TEXT,
                 rugged_at    TEXT,
+                rug_mechanism TEXT,
+                launch_platform TEXT,
+                lifecycle_stage TEXT,
+                market_surface TEXT,
+                evidence_level TEXT,
+                reason_codes  TEXT,
+                analysis_version TEXT,
+                policy_version TEXT,
                 extra_json   TEXT,
                 metadata_uri TEXT DEFAULT '',
                 recorded_at  REAL NOT NULL
@@ -299,6 +307,26 @@ class SQLiteCache:
             )
         except Exception:
             pass  # Column already exists — safe to ignore
+        for _stmt in (
+            "ALTER TABLE intelligence_events ADD COLUMN rug_mechanism TEXT",
+            "ALTER TABLE intelligence_events ADD COLUMN launch_platform TEXT",
+            "ALTER TABLE intelligence_events ADD COLUMN lifecycle_stage TEXT",
+            "ALTER TABLE intelligence_events ADD COLUMN market_surface TEXT",
+            "ALTER TABLE intelligence_events ADD COLUMN evidence_level TEXT",
+            "ALTER TABLE intelligence_events ADD COLUMN reason_codes TEXT",
+            "ALTER TABLE intelligence_events ADD COLUMN analysis_version TEXT",
+            "ALTER TABLE intelligence_events ADD COLUMN policy_version TEXT",
+        ):
+            try:
+                await db.execute(_stmt)
+            except Exception:
+                pass
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_ie_platform ON intelligence_events(launch_platform)"
+        )
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_ie_stage ON intelligence_events(lifecycle_stage)"
+        )
 
         # operator_mappings: maps DNA fingerprints → deployer wallets
         await db.execute(
@@ -679,7 +707,9 @@ class SQLiteCache:
     _IE_ALLOWED_COLS: frozenset[str] = frozenset({
         "event_type", "mint", "deployer", "name", "symbol",
         "narrative", "mcap_usd", "liq_usd", "created_at",
-        "rugged_at", "extra_json", "phash", "metadata_uri",
+        "rugged_at", "rug_mechanism", "launch_platform", "lifecycle_stage", "market_surface",
+        "evidence_level", "reason_codes", "analysis_version", "policy_version",
+        "extra_json", "phash", "metadata_uri",
     })
 
     async def insert_event(self, **kwargs: Any) -> None:
