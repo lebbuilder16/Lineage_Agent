@@ -92,6 +92,26 @@ class TokenMetadata(BaseModel):
             "When pair_created_at >> created_at the token was stealth pre-minted."
         ),
     )
+    launch_platform: Optional[str] = Field(
+        None,
+        description="Detected launch platform (moonshot, pumpfun, letsbonk, believe) when known",
+    )
+    lifecycle_stage: LifecycleStage = Field(
+        LifecycleStage.UNKNOWN,
+        description="Minimal lifecycle stage used to validate downstream forensic signals",
+    )
+    market_surface: MarketSurface = Field(
+        MarketSurface.NO_MARKET_OBSERVED,
+        description="Observed market surface for this token at scan time",
+    )
+    reason_codes: list[str] = Field(
+        default_factory=list,
+        description="Short deterministic reasons explaining platform/stage classification",
+    )
+    evidence_level: EvidenceLevel = Field(
+        EvidenceLevel.WEAK,
+        description="Strength of evidence supporting the market context classification",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -198,6 +218,9 @@ class LineageResult(BaseModel):
     platform: Optional[str] = Field(
         default=None,
         description="Launchpad platform identifier ('moonshot', 'pump-fun', 'letsbonk') or None for DEX direct.",
+    )
+    scanned_at: Optional[datetime] = Field(
+        None, description="UTC timestamp of when this analysis was computed (not when served from cache)"
     )
 
 
@@ -775,6 +798,12 @@ class InsiderSellReport(BaseModel):
     """Silent drain detection: deployer/linked wallet token selling pressure."""
 
     mint: str
+    launch_platform: Optional[str] = None
+    lifecycle_stage: LifecycleStage = Field(default=LifecycleStage.UNKNOWN)
+    market_surface: MarketSurface = Field(default=MarketSurface.NO_MARKET_OBSERVED)
+    applicability: DataApplicability = Field(default=DataApplicability.UNAVAILABLE)
+    evidence_level: EvidenceLevel = Field(default=EvidenceLevel.WEAK)
+    reason_codes: list[str] = Field(default_factory=list)
 
     # ── Market signals from DexScreener (zero extra network calls) ──────
     sell_pressure_1h: Optional[float] = Field(
