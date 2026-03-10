@@ -8,6 +8,7 @@ import { BlurView } from "expo-blur";
 import { Ionicons } from "@expo/vector-icons";
 import { colors } from "@/src/theme/colors";
 import { useAlertsStore } from "@/src/store/alerts";
+import { ErrorBoundary } from "@/src/components/ErrorBoundary";
 
 function AlertsIcon({ color, focused, count }: { color: string; focused: boolean; count: number }) {
   return (
@@ -26,6 +27,7 @@ export default function TabsLayout() {
   const unreadCount = useAlertsStore((s) => s.unreadCount);
 
   return (
+    <ErrorBoundary>
     <Tabs
       screenOptions={{
         headerShown: false,
@@ -96,6 +98,7 @@ export default function TabsLayout() {
         }}
       />
     </Tabs>
+    </ErrorBoundary>
   );
 }
 

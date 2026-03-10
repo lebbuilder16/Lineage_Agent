@@ -3,6 +3,7 @@
 // Reconnects with exponential backoff. Controlled by start()/stop().
 
 import { useAlertsStore } from "@/src/store/alerts";
+import { sentryCaptureError, sentryBreadcrumb } from "@/src/lib/sentry";
 import type { AlertItem } from "@/src/types/api";
 
 const BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? "https://lineage-agent.fly.dev";
@@ -50,6 +51,7 @@ function connect() {
     nextSocket.onopen = () => {
       retryCount = 0;
       backoffMs = INITIAL_BACKOFF_MS;
+      sentryBreadcrumb("WebSocket connected", "websocket");
       setConnectionState("connected");
     };
 
@@ -70,12 +72,13 @@ function connect() {
         };
 
         useAlertsStore.getState().addAlert(alert);
-      } catch {
-        // Malformed message — ignore.
+      } catch (err) {
+        sentryCaptureError(err, { context: "WebSocket message parse error", data: event.data });
       }
     };
 
-    nextSocket.onerror = () => {
+    nextSocket.onerror = (event) => {
+      sentryCaptureError(new Error("WebSocket error"), { event: String(event) });
       nextSocket.close();
     };
 
@@ -83,10 +86,12 @@ function connect() {
       if (socket === nextSocket) {
         socket = null;
       }
+      sentryBreadcrumb("WebSocket disconnected", "websocket", { retryCount });
       setConnectionState("disconnected");
       scheduleReconnect();
     };
-  } catch {
+  } catch (err) {
+    sentryCaptureError(err, { context: "WebSocket connection failed" });
     setConnectionState("disconnected");
     scheduleReconnect();
   }

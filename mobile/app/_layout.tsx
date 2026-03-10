@@ -30,6 +30,11 @@ import {
   addNotificationResponseListener,
   clearBadge,
 } from "@/src/lib/pushNotifications";
+import { initSentry, sentrySetUser, Sentry } from "@/src/lib/sentry";
+import { ErrorBoundary } from "@/src/components/ErrorBoundary";
+
+// Initialise Sentry au démarrage de l'app (avant tout rendu)
+initSentry();
 
 const PRIVY_APP_ID = process.env.EXPO_PUBLIC_PRIVY_APP_ID ?? "";
 const ONBOARDING_KEY = "onboarding_done";
@@ -45,7 +50,7 @@ const queryClient = new QueryClient({
   },
 });
 
-export default function RootLayout() {
+function RootLayout() {
   const [fontsLoaded] = useFonts({
     Inter_400Regular,
     Inter_500Medium,
@@ -54,6 +59,11 @@ export default function RootLayout() {
   });
   const { isAuthenticated, user } = useAuthStore();
   const { addAlert } = useAlertsStore();
+
+  // Lie l'utilisateur courant à Sentry pour retrouver ses sessions dans les rapports
+  useEffect(() => {
+    sentrySetUser(user ? { id: user.privy_id, email: user.email ?? null } : null);
+  }, [user]);
 
   // ── RevenueCat init + push notifications
   useEffect(() => {
@@ -108,49 +118,54 @@ export default function RootLayout() {
   if (!fontsLoaded) return null;
 
   return (
-    <PrivyProvider appId={PRIVY_APP_ID}>
-      <GestureHandlerRootView style={{ flex: 1, backgroundColor: colors.background.deep }}>
-        <QueryClientProvider client={queryClient}>
-          <StatusBar style="light" backgroundColor={colors.background.deep} />
-        <Stack
-          screenOptions={{
-            headerShown: false,
-            contentStyle: { backgroundColor: colors.background.deep },
-            animation: "fade_from_bottom",
-          }}
-        >
-          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-          <Stack.Screen
-            name="lineage/[mint]"
-            options={{
-              animation: "slide_from_right",
-              presentation: "card",
-            }}
-          />
-          <Stack.Screen
-            name="deployer/[address]"
-            options={{ animation: "slide_from_right" }}
-          />
-          <Stack.Screen
-            name="chat/[mint]"
-            options={{
-              animation: "slide_from_bottom",
-              presentation: "modal",
-            }}
-          />
-          <Stack.Screen
-            name="paywall"
-            options={{
-              animation: "slide_from_bottom",
-              presentation: "modal",
-            }}
-          />
-          <Stack.Screen name="auth" options={{ headerShown: false }} />
-          <Stack.Screen name="onboarding" options={{ headerShown: false, animation: "fade" }} />
-        </Stack>
-          <FlashMessage position="top" />
-        </QueryClientProvider>
-      </GestureHandlerRootView>
-    </PrivyProvider>
+    <ErrorBoundary>
+      <PrivyProvider appId={PRIVY_APP_ID}>
+        <GestureHandlerRootView style={{ flex: 1, backgroundColor: colors.background.deep }}>
+          <QueryClientProvider client={queryClient}>
+            <StatusBar style="light" backgroundColor={colors.background.deep} />
+            <Stack
+              screenOptions={{
+                headerShown: false,
+                contentStyle: { backgroundColor: colors.background.deep },
+                animation: "fade_from_bottom",
+              }}
+            >
+              <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+              <Stack.Screen
+                name="lineage/[mint]"
+                options={{
+                  animation: "slide_from_right",
+                  presentation: "card",
+                }}
+              />
+              <Stack.Screen
+                name="deployer/[address]"
+                options={{ animation: "slide_from_right" }}
+              />
+              <Stack.Screen
+                name="chat/[mint]"
+                options={{
+                  animation: "slide_from_bottom",
+                  presentation: "modal",
+                }}
+              />
+              <Stack.Screen
+                name="paywall"
+                options={{
+                  animation: "slide_from_bottom",
+                  presentation: "modal",
+                }}
+              />
+              <Stack.Screen name="auth" options={{ headerShown: false }} />
+              <Stack.Screen name="onboarding" options={{ headerShown: false, animation: "fade" }} />
+            </Stack>
+            <FlashMessage position="top" />
+          </QueryClientProvider>
+        </GestureHandlerRootView>
+      </PrivyProvider>
+    </ErrorBoundary>
   );
 }
+
+// Sentry.wrap() instrumente le composant racine pour capturer les crashs natifs et JS
+export default Sentry.wrap(RootLayout);

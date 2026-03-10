@@ -2,6 +2,7 @@
 // Client HTTP typé — consomme le backend FastAPI existant
 
 import * as SecureStore from "expo-secure-store";
+import { sentryCaptureError, sentryBreadcrumb } from "@/src/lib/sentry";
 import type {
   LineageResult,
   TokenSearchResult,
@@ -69,6 +70,8 @@ async function apiFetch<T>(
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
+  sentryBreadcrumb(`API ${init.method ?? "GET"} ${path}`, "http");
+
   let response: Response;
   try {
     response = await fetch(`${BASE_URL}${path}`, {
@@ -78,8 +81,11 @@ async function apiFetch<T>(
     });
   } catch (err: unknown) {
     if (err instanceof Error && err.name === "AbortError") {
-      throw new ApiError(408, "Request timed out");
+      const timeoutErr = new ApiError(408, "Request timed out");
+      sentryCaptureError(timeoutErr, { path, method: init.method ?? "GET" });
+      throw timeoutErr;
     }
+    sentryCaptureError(err, { path, method: init.method ?? "GET" });
     throw err;
   } finally {
     clearTimeout(timeoutId);
@@ -90,7 +96,12 @@ async function apiFetch<T>(
       _unauthorizedHandler?.();
     }
     const text = await response.text().catch(() => response.statusText);
-    throw new ApiError(response.status, text);
+    const apiErr = new ApiError(response.status, text);
+    // Ne pas remonter les 401 (déconnexion attendue) ni les 404 (ressource absente)
+    if (response.status !== 401 && response.status !== 404) {
+      sentryCaptureError(apiErr, { path, method: init.method ?? "GET", status: response.status });
+    }
+    throw apiErr;
   }
 
   return response.json() as Promise<T>;
