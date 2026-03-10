@@ -30,6 +30,8 @@ interface UseAlertsOptions {
 const MAX_ALERTS = 50;
 const MAX_RETRIES = 5;
 const BASE_DELAY = 1000;
+/** Send a keepalive ping every 30 s to prevent proxy idle-timeout disconnections. */
+const PING_INTERVAL_MS = 30_000;
 
 function getWsBase(): string {
   if (typeof window === "undefined") return "";
@@ -47,6 +49,7 @@ export function useAlerts({ disabled = false }: UseAlertsOptions = {}) {
   const wsRef = useRef<WebSocket | null>(null);
   const retryRef = useRef(0);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const unmountedRef = useRef(false);
 
   const unreadCount = alerts.filter((a) => !a.read).length;
@@ -114,9 +117,18 @@ export function useAlerts({ disabled = false }: UseAlertsOptions = {}) {
 
     ws.onopen = () => {
       retryRef.current = 0;
+      // Send periodic pings so proxies (Fly.io, Nginx, …) don't close the
+      // idle WebSocket connection. The server responds with "pong".
+      pingRef.current = setInterval(() => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send("ping");
+        }
+      }, PING_INTERVAL_MS);
     };
 
     ws.onclose = () => {
+      clearInterval(pingRef.current ?? undefined);
+      pingRef.current = null;
       if (unmountedRef.current) return;
       const attempt = retryRef.current;
       if (attempt >= MAX_RETRIES) return;
@@ -136,6 +148,7 @@ export function useAlerts({ disabled = false }: UseAlertsOptions = {}) {
     return () => {
       unmountedRef.current = true;
       if (timerRef.current) clearTimeout(timerRef.current);
+      if (pingRef.current) clearInterval(pingRef.current);
       wsRef.current?.close();
     };
   }, [disabled, connect]);
