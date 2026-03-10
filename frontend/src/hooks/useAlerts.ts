@@ -82,6 +82,8 @@ export function useAlerts({ disabled = false }: UseAlertsOptions = {}) {
   }, []);
 
   // ── WebSocket connection ──────────────────────────────────────────────
+  const pingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   const connect = useCallback(() => {
     if (disabled || unmountedRef.current) return;
     const base = getWsBase();
@@ -91,6 +93,13 @@ export function useAlerts({ disabled = false }: UseAlertsOptions = {}) {
     wsRef.current = ws;
 
     ws.onmessage = (ev) => {
+      // Handle server-side keepalive ping
+      if (typeof ev.data === "string" && ev.data === "ping") {
+        if (ws.readyState === WebSocket.OPEN) ws.send("pong");
+        return;
+      }
+      // Ignore non-alert frames (e.g. "pong")
+      if (typeof ev.data === "string" && ev.data === "pong") return;
       try {
         const msg = JSON.parse(ev.data as string) as {
           event?: string;
@@ -114,9 +123,17 @@ export function useAlerts({ disabled = false }: UseAlertsOptions = {}) {
 
     ws.onopen = () => {
       retryRef.current = 0;
+      // Send a keepalive ping every 30 s to prevent proxy timeouts
+      pingIntervalRef.current = setInterval(() => {
+        if (ws.readyState === WebSocket.OPEN) ws.send("ping");
+      }, 30_000);
     };
 
     ws.onclose = () => {
+      if (pingIntervalRef.current !== null) {
+        clearInterval(pingIntervalRef.current);
+        pingIntervalRef.current = null;
+      }
       if (unmountedRef.current) return;
       const attempt = retryRef.current;
       if (attempt >= MAX_RETRIES) return;
@@ -136,6 +153,7 @@ export function useAlerts({ disabled = false }: UseAlertsOptions = {}) {
     return () => {
       unmountedRef.current = true;
       if (timerRef.current) clearTimeout(timerRef.current);
+      if (pingIntervalRef.current !== null) clearInterval(pingIntervalRef.current);
       wsRef.current?.close();
     };
   }, [disabled, connect]);
