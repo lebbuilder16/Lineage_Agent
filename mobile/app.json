@@ -58,8 +58,20 @@
         }
       ],
       "expo-web-browser",
-      "@sentry/react-native"
+      [
+        "@sentry/react-native",
+        {
+          "organization": "YOUR_SENTRY_ORG_SLUG",
+          "project": "YOUR_SENTRY_PROJECT_SLUG"
+        }
+      ]
     ],
+    "updates": {
+      "url": "https://u.expo.dev/7e3aa1cf-5f84-4c9b-8afe-66bce3a21a18"
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
     "experiments": {
       "typedRoutes": true
     },

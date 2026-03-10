@@ -9,7 +9,8 @@
       "distribution": "internal",
       "android": {
         "gradleCommand": ":app:assembleDebug"
-      }
+      },
+      "channel": "development"
     },
     "preview": {
       "distribution": "internal",
@@ -18,7 +19,8 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://lineage-agent.fly.dev"
+        "EXPO_PUBLIC_API_URL": "https://lineage-agent.fly.dev",
+        "SENTRY_AUTH_TOKEN": "$SENTRY_AUTH_TOKEN"
       }
     },
     "production": {
@@ -27,7 +29,8 @@
         "buildType": "app-bundle"
       },
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://lineage-agent.fly.dev"
+        "EXPO_PUBLIC_API_URL": "https://lineage-agent.fly.dev",
+        "SENTRY_AUTH_TOKEN": "$SENTRY_AUTH_TOKEN"
       }
     }
   },
