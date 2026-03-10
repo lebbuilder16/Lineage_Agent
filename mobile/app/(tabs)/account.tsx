@@ -18,6 +18,7 @@ import { router } from "expo-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { GlassCard } from "@/src/components/ui/GlassCard";
 import { HapticButton } from "@/src/components/ui/HapticButton";
+import { WalletBadge } from "@/src/components/ui/WalletBadge";
 import { colors } from "@/src/theme/colors";
 import { useAuthStore } from "@/src/store/auth";
 import {
@@ -167,16 +168,18 @@ export default function AccountScreen() {
         <GlassCard elevated style={styles.profileCard}>
           <View style={styles.avatar}>
             <Text style={styles.avatarText}>
-              {user?.wallet_address?.slice(0, 2).toUpperCase() ?? "??"}
+              {user?.wallet_address
+                ? user.wallet_address.slice(0, 2).toUpperCase()
+                : (user?.email?.[0]?.toUpperCase() ?? "?")}
             </Text>
           </View>
           <View style={styles.profileInfo}>
-            <Text style={styles.walletAddr}>
-              {user?.wallet_address
-                ? `${user.wallet_address.slice(0, 8)}…${user.wallet_address.slice(-6)}`
-                : "—"}
-            </Text>
-            <Text style={styles.email}>{user?.email ?? "No email"}</Text>
+            <WalletBadge
+              address={user?.wallet_address}
+              onLink={() => router.push("/auth")}
+              style={styles.walletBadge}
+            />
+            <Text style={styles.email}>{user?.email ?? "Email not set"}</Text>
           </View>
           <PlanBadge plan={(user?.plan ?? "free") as "free" | "pro"} />
         </GlassCard>
@@ -290,9 +293,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   avatarText: { color: colors.accent.ai, fontSize: 18, fontWeight: "700" },
-  profileInfo: { flex: 1 },
-  walletAddr: { color: colors.text.primary, fontSize: 14, fontWeight: "600", fontFamily: "monospace" },
-  email: { color: colors.text.muted, fontSize: 12, marginTop: 3 },
+  profileInfo: { flex: 1, gap: 4 },
+  walletBadge: {},
+  email: { color: colors.text.muted, fontSize: 12 },
   planBadge: {
     borderRadius: 8,
     borderWidth: 1,

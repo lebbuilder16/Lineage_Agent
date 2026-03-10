@@ -1,5 +1,5 @@
 // app/auth.tsx
-// Auth screen — connexion via Privy embedded wallet + fallback biométrique
+// Auth screen — connexion via Privy (email OTP) + Phantom Wallet deeplink
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
@@ -9,11 +9,13 @@ import {
   TextInput,
   ActivityIndicator,
   Alert,
+  Platform,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { router } from "expo-router";
 import * as LocalAuthentication from "expo-local-authentication";
 import * as SecureStore from "expo-secure-store";
+import * as Linking from "expo-linking";
 import Animated, {
   FadeIn,
   FadeInDown,
@@ -30,6 +32,13 @@ import { useAuthStore } from "@/src/store/auth";
 import { GlassCard } from "@/src/components/ui/GlassCard";
 import { HapticButton } from "@/src/components/ui/HapticButton";
 import { colors } from "@/src/theme/colors";
+import {
+  buildPhantomConnectURL,
+  buildPhantomUniversalConnectURL,
+  decryptPhantomResponse,
+  isPhantomCallback,
+  parsePhantomCallbackParams,
+} from "@/src/lib/solanaWallet";
 
 function AnimatedOrb() {
   const scale = useSharedValue(1);
@@ -69,7 +78,10 @@ export default function AuthScreen() {
   const [email, setEmail] = useState("");
   const [otpCode, setOtpCode] = useState("");
   const [otpSent, setOtpSent] = useState(false);
+  const [walletLoading, setWalletLoading] = useState(false);
   const authErrorRef = useRef<string | null>(null);
+  // Tracks whether we're in an active Phantom deeplink flow
+  const phantomPendingRef = useRef(false);
 
   // ── Privy SDK
   usePrivy(); // keep provider context active
@@ -78,6 +90,72 @@ export default function AuthScreen() {
       authErrorRef.current = err.message ?? "Please try again.";
     },
   });
+
+  // ── Phantom deeplink callback listener ────────────────────────────────
+  const _handlePhantomCallback = useCallback(
+    async (url: string) => {
+      if (!isPhantomCallback(url) || !phantomPendingRef.current) return;
+      phantomPendingRef.current = false;
+
+      const params = parsePhantomCallbackParams(url);
+
+      // User rejected in Phantom
+      if (params.errorCode) {
+        setWalletLoading(false);
+        Alert.alert(
+          "Wallet connection cancelled",
+          params.errorMessage ?? "You rejected the connection request."
+        );
+        return;
+      }
+
+      const { phantom_encryption_public_key, nonce, data } = params;
+      if (!phantom_encryption_public_key || !nonce || !data) {
+        setWalletLoading(false);
+        Alert.alert("Error", "Incomplete response from Phantom.");
+        return;
+      }
+
+      const result = decryptPhantomResponse(
+        phantom_encryption_public_key,
+        nonce,
+        data
+      );
+
+      if (!result.ok) {
+        setWalletLoading(false);
+        Alert.alert("Decryption error", result.error);
+        return;
+      }
+
+      // Use the Solana public key as unique identifier on our backend
+      try {
+        const user = await loginWithPrivy(result.publicKey, result.publicKey);
+        await setUser(user);
+        router.replace("/(tabs)");
+      } catch (e: any) {
+        Alert.alert("Connection failed", e.message ?? "Please try again.");
+      } finally {
+        setWalletLoading(false);
+      }
+    },
+    [setUser]
+  );
+
+  useEffect(() => {
+    // Listen for Phantom deeplink callbacks while this screen is mounted
+    const subscription = Linking.addEventListener("url", ({ url }) => {
+      _handlePhantomCallback(url);
+    });
+
+    // Handle case where app was cold-started by the deeplink
+    Linking.getInitialURL().then((url) => {
+      if (url) _handlePhantomCallback(url);
+    });
+
+    return () => subscription.remove();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Privy v2: onComplete removed — watch emailState.status instead
   useEffect(() => {
@@ -131,6 +209,33 @@ export default function AuthScreen() {
           // Token expiré — continuer vers login normal
         }
       }
+    }
+  };
+
+  const handlePhantomConnect = async () => {
+    setWalletLoading(true);
+    phantomPendingRef.current = true;
+
+    const deepUrl = buildPhantomConnectURL("lineage");
+
+    // Try the native phantom:// scheme first, fall back to universal link
+    const canOpen = await Linking.canOpenURL(deepUrl).catch(() => false);
+
+    try {
+      if (canOpen) {
+        await Linking.openURL(deepUrl);
+      } else {
+        // Universal link: also works as a web redirect on Android
+        const universalUrl = buildPhantomUniversalConnectURL("lineage");
+        await Linking.openURL(universalUrl);
+      }
+    } catch {
+      phantomPendingRef.current = false;
+      setWalletLoading(false);
+      Alert.alert(
+        "Phantom not found",
+        "Please install the Phantom wallet app to connect with a Solana wallet."
+      );
     }
   };
 
@@ -215,6 +320,30 @@ export default function AuthScreen() {
             <Text style={styles.cardSub}>
               Enter your email — we'll send you a one-time sign-in code.
             </Text>
+
+            {/* Phantom Wallet option */}
+            <HapticButton
+              hapticStyle="medium"
+              onPress={handlePhantomConnect}
+              disabled={walletLoading || loading}
+              style={styles.phantomBtn}
+            >
+              {walletLoading ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <View style={styles.phantomBtnInner}>
+                  <Text style={styles.phantomIcon}>👻</Text>
+                  <Text style={styles.phantomBtnLabel}>Connect Phantom Wallet</Text>
+                </View>
+              )}
+            </HapticButton>
+
+            {/* Divider */}
+            <View style={styles.divider}>
+              <View style={styles.dividerLine} />
+              <Text style={styles.dividerText}>or sign in with email</Text>
+              <View style={styles.dividerLine} />
+            </View>
 
             {/* Dev mode input — removed in production build */}
             {__DEV__ && (
@@ -316,6 +445,43 @@ export default function AuthScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background.deep },
+  phantomBtn: {
+    width: "100%",
+    height: 52,
+    borderRadius: 14,
+    backgroundColor: "#7C3AED",
+    borderWidth: 1,
+    borderColor: "#9B59F780",
+    marginBottom: 4,
+  },
+  phantomBtnInner: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  phantomIcon: { fontSize: 20 },
+  phantomBtnLabel: {
+    color: "#fff",
+    fontSize: 15,
+    fontWeight: "700",
+  },
+  divider: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginBottom: 16,
+    marginTop: 8,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: colors.glass.border,
+  },
+  dividerText: {
+    color: colors.text.muted,
+    fontSize: 12,
+  },
   meshBg: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: colors.background.deep,
