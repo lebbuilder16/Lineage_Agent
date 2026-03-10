@@ -189,6 +189,9 @@ export default function LineageDetailScreen() {
     queryFn: () => getLineage(mint),
     enabled: !!mint,
     staleTime: 30_000,
+    // Backend can take up to 50 s — don't retry automatically; the error state
+    // already shows a "Back" button so the user can retry manually.
+    retry: 0,
   });
 
   const { data: historyData } = useQuery({

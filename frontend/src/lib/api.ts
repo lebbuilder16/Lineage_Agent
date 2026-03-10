@@ -558,8 +558,9 @@ async function fetchJSONPost<T>(
 
 /* ---------- Endpoints ----------------------------------------------- */
 
-export function fetchLineage(mint: string): Promise<LineageResult> {
-  return fetchJSON<LineageResult>(`/lineage?mint=${encodeURIComponent(mint)}`);
+export function fetchLineage(mint: string, forceRefresh?: boolean): Promise<LineageResult> {
+  const qs = forceRefresh ? `&force_refresh=true` : "";
+  return fetchJSON<LineageResult>(`/lineage?mint=${encodeURIComponent(mint)}${qs}`);
 }
 
 export function fetchDeployerProfile(address: string): Promise<DeployerProfile> {
@@ -623,6 +624,7 @@ export function fetchLineageWithProgress(
   mint: string,
   onProgress: (event: ProgressEvent) => void,
   signal?: AbortSignal,
+  forceRefresh?: boolean,
 ): Promise<LineageResult> {
   return new Promise((resolve, reject) => {
     const wsBase = API_BASE.replace(/^http/, "ws");
@@ -654,7 +656,7 @@ export function fetchLineageWithProgress(
     }
 
     ws.onopen = () => {
-      ws.send(JSON.stringify({ mint }));
+      ws.send(JSON.stringify({ mint, force_refresh: !!forceRefresh }));
     };
 
     ws.onmessage = (event) => {
