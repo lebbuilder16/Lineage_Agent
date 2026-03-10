@@ -16,13 +16,14 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
 import Animated, { FadeIn, FadeInDown, SlideOutRight } from "react-native-reanimated";
 import { getWatches, removeWatch } from "@/src/lib/api";
+import { toast } from "@/src/lib/toast";
 import { GlassCard } from "@/src/components/ui/GlassCard";
 import { HapticButton } from "@/src/components/ui/HapticButton";
 import { colors } from "@/src/theme/colors";
 import type { Watch } from "@/src/types/api";
 import { useAuthStore } from "@/src/store/auth";
 
-function WatchRow({ item, onRemove }: { item: Watch; onRemove: (id: number) => void }) {
+const WatchRow = React.memo(function WatchRow({ item, onRemove }: { item: Watch; onRemove: (id: number) => void }) {
   const isMint = !!item.mint;
   const addr = (item.mint ?? item.deployer) as string;
 
@@ -39,6 +40,9 @@ function WatchRow({ item, onRemove }: { item: Watch; onRemove: (id: number) => v
             : router.push(`/deployer/${addr}`)
         }
         activeOpacity={0.7}
+        accessibilityRole="button"
+        accessibilityLabel={`View ${isMint ? "lineage" : "deployer profile"} for ${item.label || addr.slice(0, 8)}`}
+        accessibilityHint={isMint ? "Opens token lineage" : "Opens deployer profile"}
       >
         <View style={[styles.watchIcon, { backgroundColor: isMint ? `${colors.accent.safe}20` : `${colors.accent.ai}20` }]}>
           <Text style={{ fontSize: 16 }}>{isMint ? "◈" : "◉"}</Text>
@@ -54,13 +58,15 @@ function WatchRow({ item, onRemove }: { item: Watch; onRemove: (id: number) => v
           style={styles.removeBtn}
           onPress={() => onRemove(item.id)}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          accessibilityRole="button"
+          accessibilityLabel={`Remove ${item.label || "watch"} from watchlist`}
         >
           <Text style={styles.removeTxt}>✕</Text>
         </TouchableOpacity>
       </TouchableOpacity>
     </Animated.View>
   );
-}
+});
 
 function RoleTag({ type }: { type: "token" | "deployer" }) {
   const color = type === "token" ? colors.accent.safe : colors.accent.ai;
@@ -83,14 +89,23 @@ export default function WatchlistScreen() {
 
   const removeMutation = useMutation({
     mutationFn: removeWatch,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["watches"] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["watches"] });
+      toast.success("Removed from watchlist");
+    },
   });
+
+  // Stable reference — React.memo(WatchRow) needs this not to change every render
+  const handleRemove = useCallback(
+    (id: number) => removeMutation.mutate(id),
+    [removeMutation.mutate],
+  );
 
   const renderItem = useCallback(
     ({ item }: ListRenderItemInfo<Watch>) => (
-      <WatchRow item={item} onRemove={(id) => removeMutation.mutate(id)} />
+      <WatchRow item={item} onRemove={handleRemove} />
     ),
-    [removeMutation]
+    [handleRemove]
   );
 
   if (!isAuthenticated) {
@@ -140,6 +155,13 @@ export default function WatchlistScreen() {
               <Text style={styles.emptySub}>
                 Open any token and tap "Track" to add it here
               </Text>
+              <HapticButton
+                label="Search tokens"
+                variant="ghost"
+                size="sm"
+                onPress={() => router.push("/(tabs)/search")}
+                style={{ marginTop: 16 }}
+              />
             </Animated.View>
           ) : null
         }

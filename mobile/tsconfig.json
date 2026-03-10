@@ -12,6 +12,9 @@
     "noEmit": true,
     "moduleResolution": "bundler",
     "resolveJsonModule": true,
+    "types": [
+      "jest"
+    ],
     "isolatedModules": true,
     "jsx": "react-native",
     "baseUrl": ".",

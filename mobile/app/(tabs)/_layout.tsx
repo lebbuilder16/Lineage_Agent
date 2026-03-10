@@ -5,47 +5,19 @@ import React from "react";
 import { Tabs } from "expo-router";
 import { View, Text, StyleSheet, Platform } from "react-native";
 import { BlurView } from "expo-blur";
+import { Ionicons } from "@expo/vector-icons";
 import { colors } from "@/src/theme/colors";
 import { useAlertsStore } from "@/src/store/alerts";
 
-// Icônes SVG inline légères (évite une dépendance @expo/vector-icons)
-function HomeIcon({ color }: { color: string }) {
+function AlertsIcon({ color, focused, count }: { color: string; focused: boolean; count: number }) {
   return (
     <View style={iconStyles.wrap}>
-      <Text style={[iconStyles.icon, { color }]}>⌂</Text>
-    </View>
-  );
-}
-function SearchIcon({ color }: { color: string }) {
-  return (
-    <View style={iconStyles.wrap}>
-      <Text style={[iconStyles.icon, { color }]}>⌕</Text>
-    </View>
-  );
-}
-function WatchlistIcon({ color }: { color: string }) {
-  return (
-    <View style={iconStyles.wrap}>
-      <Text style={[iconStyles.icon, { color }]}>☆</Text>
-    </View>
-  );
-}
-function AlertsIcon({ color, count }: { color: string; count: number }) {
-  return (
-    <View style={iconStyles.wrap}>
-      <Text style={[iconStyles.icon, { color }]}>◎</Text>
+      <Ionicons name={focused ? "notifications" : "notifications-outline"} size={22} color={color} />
       {count > 0 && (
         <View style={iconStyles.badge}>
           <Text style={iconStyles.badgeText}>{count > 9 ? "9+" : count}</Text>
         </View>
       )}
-    </View>
-  );
-}
-function AccountIcon({ color }: { color: string }) {
-  return (
-    <View style={iconStyles.wrap}>
-      <Text style={[iconStyles.icon, { color }]}>◉</Text>
     </View>
   );
 }
@@ -82,29 +54,35 @@ export default function TabsLayout() {
         name="index"
         options={{
           title: "Feed",
-          tabBarIcon: ({ color }) => <HomeIcon color={color} />,
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons name={focused ? "home" : "home-outline"} size={22} color={color} />
+          ),
         }}
       />
       <Tabs.Screen
         name="search"
         options={{
           title: "Search",
-          tabBarIcon: ({ color }) => <SearchIcon color={color} />,
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons name={focused ? "search" : "search-outline"} size={22} color={color} />
+          ),
         }}
       />
       <Tabs.Screen
         name="watchlist"
         options={{
           title: "Watch",
-          tabBarIcon: ({ color }) => <WatchlistIcon color={color} />,
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons name={focused ? "star" : "star-outline"} size={22} color={color} />
+          ),
         }}
       />
       <Tabs.Screen
         name="alerts"
         options={{
           title: "Alerts",
-          tabBarIcon: ({ color }) => (
-            <AlertsIcon color={color} count={unreadCount} />
+          tabBarIcon: ({ color, focused }) => (
+            <AlertsIcon color={color} focused={focused} count={unreadCount} />
           ),
         }}
       />
@@ -112,7 +90,9 @@ export default function TabsLayout() {
         name="account"
         options={{
           title: "Account",
-          tabBarIcon: ({ color }) => <AccountIcon color={color} />,
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons name={focused ? "person-circle" : "person-circle-outline"} size={22} color={color} />
+          ),
         }}
       />
     </Tabs>
@@ -139,7 +119,6 @@ const styles = StyleSheet.create({
 
 const iconStyles = StyleSheet.create({
   wrap: { position: "relative", padding: 2 },
-  icon: { fontSize: 22 },
   badge: {
     position: "absolute",
     top: -2,

@@ -22,6 +22,9 @@ const RC_IOS_KEY = process.env.EXPO_PUBLIC_REVENUECAT_IOS_KEY ?? "";
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
 
+// Tracks whether Purchases.configure() was called successfully
+let _configured = false;
+
 /**
  * Initialize RevenueCat SDK. Call once at app startup, AFTER the user is
  * identified (pass the user's API-side ID so RC links purchases to users).
@@ -44,6 +47,7 @@ export function initRevenueCat(appUserId?: string): void {
   }
 
   Purchases.configure({ apiKey, appUserID: appUserId ?? null });
+  _configured = true;
 }
 
 // ─── Offerings ────────────────────────────────────────────────────────────────
@@ -99,7 +103,7 @@ export async function purchasePackage(pkg: PurchasesPackage): Promise<PurchaseRe
 export async function restorePurchases(): Promise<CustomerInfo | null> {
   if (!_isConfigured()) return null;
   try {
-    return await Purchases.restoreSubscriptions();
+    return await Purchases.restorePurchases();
   } catch (e) {
     console.warn("[RC] restorePurchases error:", e);
     return null;
@@ -155,9 +159,5 @@ export async function logoutFromRevenueCat(): Promise<void> {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function _isConfigured(): boolean {
-  try {
-    return Purchases.isConfigured();
-  } catch {
-    return false;
-  }
+  return _configured;
 }

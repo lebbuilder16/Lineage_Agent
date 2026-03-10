@@ -118,6 +118,7 @@ export interface DeployerTokenSummary {
 
 export interface DeployerProfile {
   address: string;
+  chain?: string;
   total_tokens_launched: number;
   rug_count: number;
   rug_rate_pct: number;
@@ -288,15 +289,17 @@ export interface TokenSearchResult {
 }
 
 export interface GlobalStats {
-  total_scanned_24h: number;
-  rug_count_24h: number;
+  tokens_scanned_24h: number;
+  tokens_rugged_24h: number;
+  rug_rate_24h_pct: number;
   active_deployers_24h: number;
-  rug_rate_24h_pct?: number;
   top_narratives: Array<{ narrative: string; count: number }>;
+  db_events_total: number;
+  last_updated: string;
 }
 
 export interface StatsBrief {
-  summary: string;
+  text: string;
   generated_at: string;
 }
 
@@ -328,45 +331,4 @@ export interface AlertItem {
   message: string;
   timestamp: string;
   read: boolean;
-  risk_score?: number; // 0.0–1.0, optionnel pour compat rétro
-}
-
-// ─── Scan history ─────────────────────────────────────────────────────────────
-
-export interface ScanSnapshot {
-  snapshot_id: number;
-  user_id: number;
-  mint: string;
-  scanned_at: string; // ISO datetime
-  scan_number: number;
-  risk_score: number;
-  flags: string[];
-  family_size: number;
-  rug_count: number;
-  death_clock_risk: string;
-  bundle_verdict: string;
-  insider_verdict: string;
-  zombie_detected: boolean;
-  token_name: string;
-  token_symbol: string;
-}
-
-export interface ScanDelta {
-  mint: string;
-  current_scan: ScanSnapshot;
-  previous_scan: ScanSnapshot;
-  scan_number: number;
-  risk_score_delta: number;
-  new_flags: string[];
-  resolved_flags: string[];
-  family_size_delta: number;
-  rug_count_delta: number;
-  trend: "worsening" | "stable" | "improving";
-  narrative: string | null;
-}
-
-export interface ScanHistory {
-  scan_count: number;
-  plan: "free" | "pro";
-  snapshots: ScanSnapshot[];
 }

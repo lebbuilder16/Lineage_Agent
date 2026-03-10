@@ -1,7 +1,6 @@
 {
   "cli": {
-    "version": ">= 5.9.0",
-    "promptToInstall": false
+    "version": ">= 5.9.0"
   },
   "build": {
     "development": {
@@ -22,7 +21,7 @@
     },
     "production": {
       "android": {
-        "buildType": "aab"
+        "buildType": "app-bundle"
       },
       "env": {
         "EXPO_PUBLIC_API_URL": "https://lineage-agent.fly.dev"
