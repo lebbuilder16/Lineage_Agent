@@ -13,26 +13,23 @@ const INITIAL_BACKOFF_MS = 1_000;
 const MAX_BACKOFF_MS = 30_000;
 const MAX_RETRIES = 10;
 
+export type WsConnectionState = "connecting" | "connected" | "disconnected";
+
 type LiveAlertsSocket = WebSocket & { ping?: () => void };
 
-// ─── Connection state pub/sub ──────────────────────────────────────────────────
-export type WsConnectionState = "connected" | "reconnecting" | "offline";
-
-let connectionState: WsConnectionState = "offline";
-const stateSubscribers = new Set<(s: WsConnectionState) => void>();
-
-function setConnectionState(s: WsConnectionState) {
-  if (connectionState === s) return;
-  connectionState = s;
-  stateSubscribers.forEach((fn) => fn(s));
-}
-
-// ─── Socket state ──────────────────────────────────────────────────────────────
 let socket: LiveAlertsSocket | null = null;
 let retryCount = 0;
 let backoffMs = INITIAL_BACKOFF_MS;
 let retryTimer: ReturnType<typeof setTimeout> | null = null;
 let stopped = false;
+let connectionState: WsConnectionState = "disconnected";
+const subscribers = new Set<(state: WsConnectionState) => void>();
+
+function setConnectionState(next: WsConnectionState) {
+  if (connectionState === next) return;
+  connectionState = next;
+  subscribers.forEach((fn) => fn(next));
+}
 
 function clearRetryTimer() {
   if (retryTimer !== null) {
@@ -47,6 +44,8 @@ function connect() {
   try {
     const nextSocket = new WebSocket(`${WS_BASE}/ws/lineage`) as LiveAlertsSocket;
     socket = nextSocket;
+
+    setConnectionState("connecting");
 
     nextSocket.onopen = () => {
       retryCount = 0;
@@ -68,7 +67,6 @@ function connect() {
           message: msg.message ?? "",
           timestamp: msg.timestamp ?? new Date().toISOString(),
           read: false,
-          risk_score: msg.risk_score,
         };
 
         useAlertsStore.getState().addAlert(alert);
@@ -85,20 +83,18 @@ function connect() {
       if (socket === nextSocket) {
         socket = null;
       }
+      setConnectionState("disconnected");
       scheduleReconnect();
     };
   } catch {
+    setConnectionState("disconnected");
     scheduleReconnect();
   }
 }
 
 function scheduleReconnect() {
-  if (stopped || retryCount >= MAX_RETRIES) {
-    setConnectionState("offline");
-    return;
-  }
+  if (stopped || retryCount >= MAX_RETRIES) return;
 
-  setConnectionState("reconnecting");
   retryCount += 1;
   backoffMs = Math.min(backoffMs * 2, MAX_BACKOFF_MS);
   retryTimer = setTimeout(connect, backoffMs);
@@ -120,15 +116,15 @@ export const liveAlerts = {
     clearRetryTimer();
     socket?.close();
     socket = null;
-    setConnectionState("offline");
+    setConnectionState("disconnected");
   },
 
   getState(): WsConnectionState {
     return connectionState;
   },
 
-  subscribe(fn: (s: WsConnectionState) => void): () => void {
-    stateSubscribers.add(fn);
-    return () => stateSubscribers.delete(fn);
+  subscribe(fn: (state: WsConnectionState) => void): () => void {
+    subscribers.add(fn);
+    return () => subscribers.delete(fn);
   },
 };
