@@ -1,7 +1,6 @@
 // src/lib/pushNotifications.ts
 // Gestion des push notifications FCM via Expo Notifications
 
-import * as Notifications from "expo-notifications";
 import * as Device from "expo-device";
 import Constants from "expo-constants";
 import { Platform } from "react-native";
@@ -11,16 +10,32 @@ import { registerFcmToken } from "@/src/lib/api";
 // Remote push notifications on Android are not supported in Expo Go SDK 53+.
 const isExpoGo = Constants.executionEnvironment === "storeClient";
 
-// setNotificationHandler covers local notifications on all platforms and
-// remote notifications on iOS Expo Go / all dev builds. Skip on Android Expo Go
-// where remote notification APIs are unavailable.
-if (!(Platform.OS === "android" && isExpoGo)) {
-  Notifications.setNotificationHandler({
-    handleNotification: async () => ({
-      shouldShowAlert: true,
-      shouldPlaySound: true,
-      shouldSetBadge: true,
-    }),
+// Suppress expo-notifications import on Android Expo Go (SDK 53+) since the
+// library itself throws a console error just from being imported in that env.
+const isAndroidExpoGo = Platform.OS === "android" && isExpoGo;
+
+type NotificationsModule = typeof import("expo-notifications");
+let _Notifications: NotificationsModule | null = null;
+
+async function getNotifications(): Promise<NotificationsModule | null> {
+  if (isAndroidExpoGo) return null;
+  if (!_Notifications) {
+    _Notifications = await import("expo-notifications");
+  }
+  return _Notifications;
+}
+
+// Eagerly initialize on supported platforms so setNotificationHandler runs
+// before any notification can arrive.
+if (!isAndroidExpoGo) {
+  getNotifications().then((N) => {
+    N?.setNotificationHandler({
+      handleNotification: async () => ({
+        shouldShowAlert: true,
+        shouldPlaySound: true,
+        shouldSetBadge: true,
+      }),
+    });
   });
 }
 
@@ -32,7 +47,7 @@ if (!(Platform.OS === "android" && isExpoGo)) {
  * Ne lance pas d'exception — logs les erreurs silencieusement.
  */
 export async function registerForPushNotifications(): Promise<string | null> {
-  if (Platform.OS === "android" && isExpoGo) {
+  if (isAndroidExpoGo) {
     console.warn(
       "[Push] Skipped — Android remote notifications are not supported in Expo Go (SDK 53+). Use a development build."
     );
@@ -44,12 +59,15 @@ export async function registerForPushNotifications(): Promise<string | null> {
     return null;
   }
 
+  const N = await getNotifications();
+  if (!N) return null;
+
   // ── 1. Vérifier/demander la permission
-  const { status: existingStatus } = await Notifications.getPermissionsAsync();
+  const { status: existingStatus } = await N.getPermissionsAsync();
   let finalStatus = existingStatus;
 
   if (existingStatus !== "granted") {
-    const { status } = await Notifications.requestPermissionsAsync();
+    const { status } = await N.requestPermissionsAsync();
     finalStatus = status;
   }
 
@@ -60,16 +78,16 @@ export async function registerForPushNotifications(): Promise<string | null> {
 
   // ── 2. Configurer le canal Android
   if (Platform.OS === "android") {
-    await Notifications.setNotificationChannelAsync("default", {
+    await N.setNotificationChannelAsync("default", {
       name: "Lineage Alerts",
-      importance: Notifications.AndroidImportance.HIGH,
+      importance: N.AndroidImportance.HIGH,
       vibrationPattern: [0, 250, 250, 250],
       lightColor: "#00FF9D",
       sound: "default",
     });
-    await Notifications.setNotificationChannelAsync("critical", {
+    await N.setNotificationChannelAsync("critical", {
       name: "Critical Alerts",
-      importance: Notifications.AndroidImportance.MAX,
+      importance: N.AndroidImportance.MAX,
       vibrationPattern: [0, 500, 200, 500],
       lightColor: "#FF3B5C",
       sound: "default",
@@ -83,13 +101,10 @@ export async function registerForPushNotifications(): Promise<string | null> {
       Constants.expoConfig?.extra?.eas?.projectId ??
       Constants.easConfig?.projectId;
 
-    const expoPushToken = await Notifications.getExpoPushTokenAsync(
+    const expoPushToken = await N.getExpoPushTokenAsync(
       projectId ? { projectId } : undefined
     );
 
-    // Le token Expo commence par "ExponentPushToken[...]"
-    // Pour FCM natif direct on peut aussi utiliser getDevicePushTokenAsync()
-    // mais Expo's token works through Expo's push relay which wraps FCM.
     const token = expoPushToken.data;
     console.info("[Push] Expo Push Token obtained:", token.slice(0, 30) + "…");
 
@@ -108,9 +123,12 @@ export async function registerForPushNotifications(): Promise<string | null> {
  * Retourne une fonction de nettoyage pour le useEffect.
  */
 export function addNotificationReceivedListener(
-  handler: (notification: Notifications.Notification) => void
+  handler: (notification: import("expo-notifications").Notification) => void
 ): () => void {
-  const sub = Notifications.addNotificationReceivedListener(handler);
+  if (isAndroidExpoGo) return () => {};
+  const N = _Notifications;
+  if (!N) return () => {};
+  const sub = N.addNotificationReceivedListener(handler);
   return () => sub.remove();
 }
 
@@ -119,9 +137,12 @@ export function addNotificationReceivedListener(
  * Retourne une fonction de nettoyage.
  */
 export function addNotificationResponseListener(
-  handler: (response: Notifications.NotificationResponse) => void
+  handler: (response: import("expo-notifications").NotificationResponse) => void
 ): () => void {
-  const sub = Notifications.addNotificationResponseReceivedListener(handler);
+  if (isAndroidExpoGo) return () => {};
+  const N = _Notifications;
+  if (!N) return () => {};
+  const sub = N.addNotificationResponseReceivedListener(handler);
   return () => sub.remove();
 }
 
@@ -129,5 +150,6 @@ export function addNotificationResponseListener(
  * Réinitialise le badge de l'icône de l'app.
  */
 export async function clearBadge(): Promise<void> {
-  await Notifications.setBadgeCountAsync(0);
+  const N = await getNotifications();
+  await N?.setBadgeCountAsync(0);
 }
