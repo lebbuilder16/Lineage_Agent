@@ -146,6 +146,8 @@ export default function SearchScreen() {
     isFetching,
     isLoading,
     isFetchingNextPage,
+    isError,
+    refetch,
   } = useInfiniteQuery({
     queryKey: ["search", debouncedQuery],
     queryFn: async ({ pageParam }) => {
@@ -160,6 +162,7 @@ export default function SearchScreen() {
     initialPageParam: 0,
     enabled: debouncedQuery.length >= 2,
     staleTime: 10_000,
+    retry: 0,
   });
 
   const results = searchData?.pages.flat() ?? [];
@@ -173,6 +176,7 @@ export default function SearchScreen() {
 
   const showSkeletons = isLoading && debouncedQuery.length >= 2;
   const showSuggestions = query.length < 2;
+  const showError = isError && debouncedQuery.length >= 2;
   const trendingNarratives = statsData?.top_narratives?.slice(0, 8) ?? [];
 
   return (
@@ -199,7 +203,15 @@ export default function SearchScreen() {
         {isFetching ? <View style={styles.loadingDot} /> : null}
       </View>
 
-      {showSuggestions ? (
+      {showError ? (
+        <Animated.View entering={FadeIn} style={styles.empty}>
+          <Text style={styles.emptyIcon}>⚠</Text>
+          <Text style={styles.emptyText}>Impossible de charger les résultats</Text>
+          <TouchableOpacity onPress={() => refetch()} style={styles.retryBtn}>
+            <Text style={styles.retryBtnText}>Réessayer</Text>
+          </TouchableOpacity>
+        </Animated.View>
+      ) : showSuggestions ? (
         <ScrollView
           contentContainerStyle={styles.suggestionsPad}
           keyboardShouldPersistTaps="handled"
@@ -313,6 +325,16 @@ const styles = StyleSheet.create({
   empty: { alignItems: "center", paddingTop: 60 },
   emptyIcon: { color: colors.text.muted, fontSize: 40, marginBottom: 12 },
   emptyText: { color: colors.text.muted, fontSize: 14 },
+  retryBtn: {
+    marginTop: 16,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    backgroundColor: colors.glass.bg,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.glass.border,
+  },
+  retryBtnText: { color: colors.accent.safe, fontSize: 14, fontWeight: "600" },
   header: { paddingBottom: 4, paddingHorizontal: 20, paddingTop: 8 },
   hint: { alignItems: "center", paddingTop: 60 },
   hintText: { color: colors.text.muted, fontSize: 13 },

@@ -44,13 +44,14 @@ export function registerUnauthorizedHandler(fn: (() => void) | null): void {
 
 interface FetchOptions extends RequestInit {
   authenticated?: boolean;
+  timeoutMs?: number;
 }
 
 async function apiFetch<T>(
   path: string,
   options: FetchOptions = {}
 ): Promise<T> {
-  const { authenticated = false, ...init } = options;
+  const { authenticated = false, timeoutMs = 15_000, ...init } = options;
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     ...(init.headers as Record<string, string>),
@@ -63,10 +64,24 @@ async function apiFetch<T>(
     }
   }
 
-  const response = await fetch(`${BASE_URL}${path}`, {
-    ...init,
-    headers,
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  let response: Response;
+  try {
+    response = await fetch(`${BASE_URL}${path}`, {
+      ...init,
+      headers,
+      signal: controller.signal,
+    });
+  } catch (err: unknown) {
+    if (err instanceof Error && err.name === "AbortError") {
+      throw new ApiError(408, "Request timed out");
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 
   if (!response.ok) {
     if (response.status === 401) {

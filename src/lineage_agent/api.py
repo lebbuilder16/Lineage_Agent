@@ -811,8 +811,11 @@ async def search(
             status_code=400, detail="Query string required (max 100 chars)"
         )
     try:
-        all_results = await search_tokens(q)
+        all_results = await asyncio.wait_for(search_tokens(q), timeout=10.0)
         return all_results[offset : offset + limit]
+    except asyncio.TimeoutError:
+        logger.warning("Token search timed out for '%s'", q)
+        raise HTTPException(status_code=504, detail="Search timed out, please try again")
     except Exception as exc:
         logger.exception("Token search failed for '%s'", q)
         raise HTTPException(
