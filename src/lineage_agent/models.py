@@ -12,6 +12,55 @@ from pydantic import BaseModel, Field
 
 
 # ---------------------------------------------------------------------------
+# Shared forensic context enums
+# ---------------------------------------------------------------------------
+class LifecycleStage(str, Enum):
+    """Minimal token lifecycle stages used to gate downstream signals."""
+
+    UNKNOWN = "unknown"
+    LAUNCHPAD_CURVE_ONLY = "launchpad_curve_only"
+    MIGRATION_PENDING = "migration_pending"
+    DEX_LISTED = "dex_listed"
+
+
+class MarketSurface(str, Enum):
+    """Observed market surface for the token."""
+
+    NO_MARKET_OBSERVED = "no_market_observed"
+    LAUNCHPAD_CURVE_ONLY = "launchpad_curve_only"
+    DEX_POOL_OBSERVED = "dex_pool_observed"
+    CONFLICTING = "conflicting"
+
+
+class DataApplicability(str, Enum):
+    """Whether a signal is valid for the token's current context."""
+
+    OBSERVED = "observed"
+    UNAVAILABLE = "unavailable"
+    NOT_APPLICABLE = "not_applicable"
+    CONFLICTING = "conflicting"
+
+
+class EvidenceLevel(str, Enum):
+    """Strength of evidence behind a forensic conclusion."""
+
+    NONE = "none"
+    WEAK = "weak"
+    MODERATE = "moderate"
+    STRONG = "strong"
+
+
+class RugMechanism(str, Enum):
+    """Typed negative-outcome classes used by rug analytics."""
+
+    UNKNOWN = "unknown"
+    DEX_LIQUIDITY_RUG = "dex_liquidity_rug"
+    PRE_DEX_EXTRACTION_RUG = "pre_dex_extraction_rug"
+    MARKET_DUMP = "market_dump"
+    UNPROVEN_ABANDONMENT = "unproven_abandonment"
+
+
+# ---------------------------------------------------------------------------
 # Token metadata
 # ---------------------------------------------------------------------------
 class TokenMetadata(BaseModel):
