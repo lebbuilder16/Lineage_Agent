@@ -202,7 +202,7 @@ function StatsBar() {
     <Animated.View entering={FadeInDown.delay(0).springify()} style={styles.statsCard}>
       <View style={styles.statItem}>
         <AnimatedNumber
-          value={data.total_scanned_24h ?? 0}
+          value={data.total_scanned_24h ?? data.tokens_scanned_24h ?? 0}
           fontSize={18}
           fontWeight="700"
         />
@@ -212,7 +212,7 @@ function StatsBar() {
       <View style={styles.statItem}>
         <View style={styles.statValueRow}>
           <AnimatedNumber
-            value={data.rug_count_24h ?? 0}
+            value={data.rug_count_24h ?? data.tokens_rugged_24h ?? 0}
             fontSize={18}
             fontWeight="700"
             color={colors.accent.danger}
@@ -279,7 +279,7 @@ function AIBriefCard() {
       })()
     : null;
 
-  const words = data?.summary?.split(" ") ?? [];
+  const words = (data?.summary ?? data?.text ?? "").split(" ");
 
   return (
     <Animated.View entering={FadeInDown.delay(100).springify()}>
@@ -306,7 +306,7 @@ function AIBriefCard() {
 
           {data && (
             <View style={styles.briefWordsRow}>
-              {words.map((word, i) => (
+              {words.map((word: string, i: number) => (
                 <Animated.Text
                   key={`${word}-${i}`}
                   entering={FadeInDown.delay(i * 25).duration(180)}

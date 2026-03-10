@@ -68,13 +68,17 @@ export default function RootLayout() {
     registerForPushNotifications();
 
     const cleanFg = addNotificationReceivedListener((notification) => {
-      const { title = "", body = "" } = notification.request.content;
+      const rawTitle = notification.request.content.title;
+      const rawBody = notification.request.content.body;
+      const alertTitle: string = rawTitle ?? "";
+      const alertBody: string = rawBody ?? "";
       addAlert({
         id: notification.request.identifier,
         type: (notification.request.content.data?.type as any) ?? "info",
-        title,
-        message: body,
-        mint: notification.request.content.data?.mint as string | undefined,
+        token_name: alertTitle,
+        message: alertBody,
+        token_image: "",
+        mint: (notification.request.content.data?.mint as string | undefined) ?? "",
         timestamp: new Date().toISOString(),
         read: false,
       });

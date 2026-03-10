@@ -13,7 +13,7 @@ const INITIAL_BACKOFF_MS = 1_000;
 const MAX_BACKOFF_MS = 30_000;
 const MAX_RETRIES = 10;
 
-export type WsConnectionState = "connecting" | "connected" | "disconnected";
+export type WsConnectionState = "connecting" | "connected" | "disconnected" | "reconnecting";
 
 type LiveAlertsSocket = WebSocket & { ping?: () => void };
 
@@ -97,6 +97,7 @@ function scheduleReconnect() {
 
   retryCount += 1;
   backoffMs = Math.min(backoffMs * 2, MAX_BACKOFF_MS);
+  setConnectionState("reconnecting");
   retryTimer = setTimeout(connect, backoffMs);
 }
 

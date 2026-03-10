@@ -10,6 +10,8 @@ import type {
   StatsBrief,
   User,
   Watch,
+  ScanHistory,
+  ScanDelta,
 } from "@/types/api";
 
 const API_KEY_STORAGE_KEY = "lineage_api_key";
@@ -72,7 +74,7 @@ async function apiFetch<T>(
     response = await fetch(`${BASE_URL}${path}`, {
       ...init,
       headers,
-      signal: controller.signal,
+      signal: controller.signal as RequestInit["signal"],
     });
   } catch (err: unknown) {
     if (err instanceof Error && err.name === "AbortError") {
@@ -217,6 +219,20 @@ export async function syncSubscription(rcAppUserId: string): Promise<User> {
     method: "POST",
     authenticated: true,
     body: JSON.stringify({ rc_app_user_id: rcAppUserId }),
+  });
+}
+
+// ─── Scan History ─────────────────────────────────────────────────────────────
+
+export async function getScanHistory(mint: string): Promise<ScanHistory> {
+  return apiFetch<ScanHistory>(`/lineage/${encodeURIComponent(mint)}/history`, {
+    authenticated: true,
+  });
+}
+
+export async function getScanDelta(mint: string): Promise<ScanDelta> {
+  return apiFetch<ScanDelta>(`/lineage/${encodeURIComponent(mint)}/delta`, {
+    authenticated: true,
   });
 }
 

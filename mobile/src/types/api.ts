@@ -296,11 +296,16 @@ export interface GlobalStats {
   top_narratives: Array<{ narrative: string; count: number }>;
   db_events_total: number;
   last_updated: string;
+  // Aliased fields used by some UI components
+  total_scanned_24h?: number;
+  rug_count_24h?: number;
 }
 
 export interface StatsBrief {
   text: string;
   generated_at: string;
+  // Alias used by some UI components
+  summary?: string;
 }
 
 // Auth
@@ -331,4 +336,45 @@ export interface AlertItem {
   message: string;
   timestamp: string;
   read: boolean;
+  risk_score?: number;
+}
+
+// ─── Scan History ────────────────────────────────────────────────────────────
+
+export interface ScanSnapshot {
+  snapshot_id: number;
+  user_id: number;
+  mint: string;
+  scanned_at: string;
+  scan_number: number;
+  risk_score: number;
+  flags: string[];
+  family_size: number;
+  rug_count: number;
+  death_clock_risk: string | null;
+  bundle_verdict: string | null;
+  insider_verdict: string | null;
+  zombie_detected: boolean;
+  token_name: string;
+  token_symbol: string;
+}
+
+export interface ScanDelta {
+  mint: string;
+  current_scan: ScanSnapshot;
+  previous_scan: ScanSnapshot;
+  scan_number: number;
+  risk_score_delta: number;
+  new_flags: string[];
+  resolved_flags: string[];
+  family_size_delta: number;
+  rug_count_delta: number;
+  trend: "worsening" | "stable" | "improving";
+  narrative: string | null;
+}
+
+export interface ScanHistory {
+  scan_count: number;
+  plan: "free" | "pro";
+  snapshots: ScanSnapshot[];
 }

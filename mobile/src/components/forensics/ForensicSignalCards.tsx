@@ -17,6 +17,19 @@ import type { LineageResult } from "@/src/types/api";
 import { router } from "expo-router";
 
 // ─────────────────────────────────────────────────────────────
+// Exported constants (used by tests and other components)
+// ─────────────────────────────────────────────────────────────
+
+export const RISK_SCORE: Record<string, number> = {
+  low: 0.2,
+  medium: 0.5,
+  high: 0.75,
+  critical: 0.95,
+  first_rug: 0.85,
+  insufficient_data: 0.1,
+};
+
+// ─────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────
 function Section({

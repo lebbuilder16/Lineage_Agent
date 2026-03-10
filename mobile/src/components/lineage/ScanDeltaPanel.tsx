@@ -53,7 +53,7 @@ function flagLabel(flag: string): string {
  * Nécessite ≥ 2 scans (delta fourni par l'API).
  */
 export function ScanDeltaPanel({ delta }: Props) {
-  const cfg = TREND_CONFIG[delta.trend];
+  const cfg = TREND_CONFIG[delta.trend as keyof typeof TREND_CONFIG];
   const prev = delta.previous_scan;
   const curr = delta.current_scan;
   const scoreDeltaStr = delta.risk_score_delta > 0
@@ -95,7 +95,7 @@ export function ScanDeltaPanel({ delta }: Props) {
       {/* New flags */}
       {delta.new_flags.length > 0 && (
         <View style={styles.flagRow}>
-          {delta.new_flags.map((f) => {
+          {delta.new_flags.map((f: string) => {
             const fc = FLAG_COLORS[f] ?? { bg: "#4B5563CC", text: "#fff" };
             return (
               <View key={f} style={[styles.flagChip, { backgroundColor: fc.bg, borderColor: "#FF3B5C66" }]}>
@@ -109,7 +109,7 @@ export function ScanDeltaPanel({ delta }: Props) {
       {/* Resolved flags */}
       {delta.resolved_flags.length > 0 && (
         <View style={styles.flagRow}>
-          {delta.resolved_flags.map((f) => (
+          {delta.resolved_flags.map((f: string) => (
             <View key={f} style={[styles.flagChip, { backgroundColor: "#00FF9D15", borderColor: "#00FF9D33" }]}>
               <Text style={[styles.flagText, { color: colors.accent.safe }]}>✅ {flagLabel(f)}</Text>
             </View>

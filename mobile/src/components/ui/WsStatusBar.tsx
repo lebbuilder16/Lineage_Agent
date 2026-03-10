@@ -15,24 +15,29 @@ interface WsStatusBarProps {
   state: WsConnectionState;
 }
 
-const STATUS_CONFIG = {
+const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
   reconnecting: {
     label: "◌  Reconnecting...",
     color: colors.accent.warning,
     bg: `${colors.accent.warning}15`,
   },
-  offline: {
+  connecting: {
+    label: "◌  Connecting...",
+    color: colors.accent.warning,
+    bg: `${colors.accent.warning}15`,
+  },
+  disconnected: {
     label: "⊗  Offline — alerts paused",
     color: colors.text.muted,
     bg: `${colors.text.muted}15`,
   },
-} as const;
+};
 
 export function WsStatusBar({ state }: WsStatusBarProps) {
   const height = useSharedValue(0);
 
   const isVisible = state !== "connected";
-  const config = isVisible ? STATUS_CONFIG[state] : null;
+  const config = isVisible ? (STATUS_CONFIG[state] ?? null) : null;
 
   useEffect(() => {
     height.value = withSpring(isVisible ? 28 : 0, { damping: 20, stiffness: 220 });
