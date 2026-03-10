@@ -579,3 +579,65 @@ async def test_purge_legacy_forensic_cache_namespaces_uses_prefix_deletes():
 
     assert mock_delete.await_args_list[0].args[0] == "ai:v3:"
     assert mock_delete.await_args_list[1].args[0] == "lineage:v4:"
+
+
+# ------------------------------------------------------------------
+# WebSocket /ws/alerts — keepalive ping/pong
+# ------------------------------------------------------------------
+# Root-cause analysis: the frontend and mobile clients were never sending
+# keepalive "ping" frames.  The server explicitly waits up to 90 s for a
+# client ping before sending its own server-side keepalive.  Without client
+# pings, infrastructure proxies (Fly.io, Nginx, …) close the idle connection
+# typically within 60 s, causing the repeated disconnections.
+# ------------------------------------------------------------------
+
+
+def test_ws_alerts_client_ping_receives_pong():
+    """Server must respond with 'pong' when the client sends 'ping'."""
+    sync_client = TestClient(app)
+    with sync_client.websocket_connect("/ws/alerts") as ws:
+        ws.send_text("ping")
+        response = ws.receive_text()
+    assert response == "pong"
+
+
+def test_ws_alerts_client_ping_case_insensitive():
+    """Server should respond to 'PING' (case-insensitive) with 'pong'."""
+    sync_client = TestClient(app)
+    with sync_client.websocket_connect("/ws/alerts") as ws:
+        ws.send_text("PING")
+        response = ws.receive_text()
+    assert response == "pong"
+
+
+def test_ws_alerts_receives_broadcast_alert():
+    """Alerts pushed via _broadcast_web_alert must reach connected clients."""
+    import asyncio
+    from lineage_agent.alert_service import _broadcast_web_alert
+
+    received: list = []
+
+    sync_client = TestClient(app)
+    with sync_client.websocket_connect("/ws/alerts") as ws:
+        # Broadcast an alert from outside the handler (simulates the sweep)
+        loop = asyncio.new_event_loop()
+        try:
+            loop.run_until_complete(
+                _broadcast_web_alert({
+                    "event": "alert",
+                    "type": "deployer",
+                    "title": "Test Alert",
+                    "body": "Deployer launched token",
+                    "mint": _WS_MINT,
+                })
+            )
+        finally:
+            loop.close()
+        # The alert frame should arrive before any ping timeout
+        msg = ws.receive_text()
+        import json
+        received.append(json.loads(msg))
+
+    assert len(received) == 1
+    assert received[0]["event"] == "alert"
+    assert received[0]["mint"] == _WS_MINT
