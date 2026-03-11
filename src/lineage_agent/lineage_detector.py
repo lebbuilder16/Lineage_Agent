@@ -1194,7 +1194,7 @@ async def _detect_lineage_impl(
             )
         except asyncio.TimeoutError:
             logger.warning(
-                "[bundle] inline analysis capped at 12 s for %s — "
+                "[bundle] inline analysis capped at 8 s for %s — "
                 "continuing full analysis in background", _scan_mint[:8],
             )
             asyncio.ensure_future(
