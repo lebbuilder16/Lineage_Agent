@@ -5,10 +5,13 @@
 import nacl from "tweetnacl";
 import bs58 from "bs58";
 
-// ── Module-level ephemeral keypair ────────────────────────────────────────
+// ── Module-level session state ────────────────────────────────────────────
 // Kept alive across screen re-renders and app backgrounding (single flow).
 // Cleared after a successful decryption or a new connect attempt.
 let _dappKeypair: nacl.BoxKeyPair | null = null;
+// Shared nonce so the deep-link and universal-link fallback use identical bytes
+// — prevents NaCl box decryption failure when canOpenURL triggers the fallback.
+let _connectNonce: Uint8Array | null = null;
 
 // ── Public API ─────────────────────────────────────────────────────────────
 
@@ -18,11 +21,12 @@ let _dappKeypair: nacl.BoxKeyPair | null = null;
  * Call this once per connect attempt — it regenerates the ephemeral keypair.
  */
 export function buildPhantomConnectURL(appScheme = "lineage"): string {
-  // New keypair for every connect attempt
+  // New keypair + nonce for every connect attempt
   _dappKeypair = nacl.box.keyPair();
+  _connectNonce = nacl.randomBytes(24);
 
   const dappPubKeyB58 = bs58.encode(_dappKeypair.publicKey);
-  const nonce = bs58.encode(nacl.randomBytes(24));
+  const nonce = bs58.encode(_connectNonce);
   const redirect = encodeURIComponent(`${appScheme}://phantom-connect`);
   const appUrl = encodeURIComponent("https://lineageagent.io");
 
@@ -40,9 +44,10 @@ export function buildPhantomConnectURL(appScheme = "lineage"): string {
  * Universal link fallback for Android when `phantom://` scheme is not registered.
  */
 export function buildPhantomUniversalConnectURL(appScheme = "lineage"): string {
-  if (!_dappKeypair) buildPhantomConnectURL(appScheme); // ensure keypair exists
+  if (!_dappKeypair || !_connectNonce) buildPhantomConnectURL(appScheme); // ensure session exists
   const dappPubKeyB58 = bs58.encode(_dappKeypair!.publicKey);
-  const nonce = bs58.encode(nacl.randomBytes(24));
+  // Reuse the nonce from buildPhantomConnectURL — regenerating it would cause NaCl decryption failure
+  const nonce = bs58.encode(_connectNonce!);
   const redirect = encodeURIComponent(`${appScheme}://phantom-connect`);
   const appUrl = encodeURIComponent("https://lineageagent.io");
 
@@ -97,7 +102,8 @@ export function decryptPhantomResponse(
       session: string;
     };
 
-    _dappKeypair = null; // clear after successful use
+    _dappKeypair = null;
+    _connectNonce = null; // clear session after successful use
     return { ok: true, publicKey: payload.public_key, session: payload.session };
   } catch (e: any) {
     return { ok: false, error: e?.message ?? "Unknown parse error." };

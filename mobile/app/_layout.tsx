@@ -38,6 +38,12 @@ import { ErrorBoundary } from "@/src/components/ErrorBoundary";
 initSentry();
 
 const PRIVY_APP_ID = process.env.EXPO_PUBLIC_PRIVY_APP_ID ?? "";
+if (__DEV__ && !PRIVY_APP_ID) {
+  console.warn(
+    "[Auth] EXPO_PUBLIC_PRIVY_APP_ID is empty — Privy will not initialise.\n" +
+    "Copy mobile/.env.example to mobile/.env.local and fill in the value."
+  );
+}
 const ONBOARDING_KEY = "onboarding_done";
 
 SplashScreen.preventAutoHideAsync();
@@ -59,10 +65,10 @@ function RootLayout() {
     Inter_700Bold,
   });
   const { isAuthenticated, user, logout } = useAuthStore();
-  const initialNavDone = useRef(false);
   const { addAlert } = useAlertsStore();
+  const initialNavDone = useRef(false);
 
-  // Register global 401 handler — logs the user out and redirects to /auth
+  // Register global 401 handler — silently logs out and redirects to /auth on token expiry
   useEffect(() => {
     registerUnauthorizedHandler(async () => {
       await logout();
@@ -128,9 +134,8 @@ function RootLayout() {
         router.replace("/auth");
       }
     });
-  // Runs once after fonts load — isAuthenticated is intentionally excluded
-  // to avoid re-triggering during the biometric session-restore in auth.tsx.
-  // The 401 handler above covers post-login session expiry.
+  // Runs once after fonts load — isAuthenticated intentionally excluded to avoid
+  // re-triggering during the biometric session-restore in auth.tsx.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fontsLoaded]);
 

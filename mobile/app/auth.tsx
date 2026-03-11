@@ -27,6 +27,7 @@ import Animated, {
 } from "react-native-reanimated";
 import { usePrivy, useLoginWithEmail } from "@privy-io/expo";
 import { loginWithPrivy, getCurrentUser } from "@/src/lib/api";
+import { sentryCaptureError } from "@/src/lib/sentry";
 import { toast } from "@/src/lib/toast";
 import { useAuthStore } from "@/src/store/auth";
 import { GlassCard } from "@/src/components/ui/GlassCard";
@@ -79,12 +80,15 @@ export default function AuthScreen() {
   const [otpCode, setOtpCode] = useState("");
   const [otpSent, setOtpSent] = useState(false);
   const [walletLoading, setWalletLoading] = useState(false);
+  const [resendCooldown, setResendCooldown] = useState(0);
   const authErrorRef = useRef<string | null>(null);
   // Tracks whether we're in an active Phantom deeplink flow
   const phantomPendingRef = useRef(false);
+  const phantomTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const resendIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // ── Privy SDK
-  usePrivy(); // keep provider context active
+  const { ready } = usePrivy();
   const { sendCode, loginWithCode, state: emailState } = useLoginWithEmail({
     onError: (err) => {
       authErrorRef.current = err.message ?? "Please try again.";
@@ -96,7 +100,10 @@ export default function AuthScreen() {
     async (url: string) => {
       if (!isPhantomCallback(url) || !phantomPendingRef.current) return;
       phantomPendingRef.current = false;
-
+      if (phantomTimeoutRef.current) {
+        clearTimeout(phantomTimeoutRef.current);
+        phantomTimeoutRef.current = null;
+      }
       const params = parsePhantomCallbackParams(url);
 
       // User rejected in Phantom
@@ -134,6 +141,7 @@ export default function AuthScreen() {
         await setUser(user);
         router.replace("/(tabs)");
       } catch (e: any) {
+        sentryCaptureError(e, { context: "auth_phantom" });
         Alert.alert("Connection failed", e.message ?? "Please try again.");
       } finally {
         setWalletLoading(false);
@@ -176,6 +184,7 @@ export default function AuthScreen() {
         await setUser(user);
         router.replace("/(tabs)");
       } catch (e: any) {
+        sentryCaptureError(e, { context: "auth_email" });
         Alert.alert("Connection failed", e.message ?? "Please try again.");
       } finally {
         setLoading(false);
@@ -186,6 +195,11 @@ export default function AuthScreen() {
 
   useEffect(() => {
     checkBiometric();
+    return () => {
+      if (phantomTimeoutRef.current) clearTimeout(phantomTimeoutRef.current);
+      if (resendIntervalRef.current) clearInterval(resendIntervalRef.current);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const checkBiometric = async () => {
@@ -197,26 +211,35 @@ export default function AuthScreen() {
     if (!existingKey) return;
 
     if (compatible && enrolled) {
-      // Biometrics available — gate re-auth behind a biometric unlock
+      // Gate silent restore behind biometric unlock
       const result = await LocalAuthentication.authenticateAsync({
         promptMessage: "Unlock Lineage Agent",
         fallbackLabel: "Enter PIN",
       });
-      if (!result.success) return; // user cancelled — show auth screen
+      if (!result.success) return;
     }
-    // No biometrics enrolled → restore silently using the stored key
+    // No biometrics enrolled → restore session silently using the stored key
     try {
       const user = await getCurrentUser();
       await setUser(user);
       router.replace("/(tabs)");
     } catch {
-      // Token expired or network error — continue to login screen
+      // Token expired or network error — stay on login screen
     }
   };
 
   const handlePhantomConnect = async () => {
     setWalletLoading(true);
     phantomPendingRef.current = true;
+
+    // Auto-reset if Phantom doesn't callback within 120s
+    if (phantomTimeoutRef.current) clearTimeout(phantomTimeoutRef.current);
+    phantomTimeoutRef.current = setTimeout(() => {
+      if (!phantomPendingRef.current) return;
+      phantomPendingRef.current = false;
+      setWalletLoading(false);
+      Alert.alert("Connection timed out", "Phantom didn't respond. Please try again.");
+    }, 120_000);
 
     const deepUrl = buildPhantomConnectURL("lineage");
 
@@ -233,6 +256,10 @@ export default function AuthScreen() {
       }
     } catch {
       phantomPendingRef.current = false;
+      if (phantomTimeoutRef.current) {
+        clearTimeout(phantomTimeoutRef.current);
+        phantomTimeoutRef.current = null;
+      }
       setWalletLoading(false);
       Alert.alert(
         "Phantom not found",
@@ -252,7 +279,7 @@ export default function AuthScreen() {
     if (!otpSent) {
       // Step 1: send OTP to email
       const trimmedEmail = email.trim();
-      if (!trimmedEmail || !trimmedEmail.includes("@")) {
+      if (!trimmedEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(trimmedEmail)) {
         Alert.alert("Invalid email", "Please enter a valid email address.");
         setLoading(false);
         return;
@@ -262,6 +289,19 @@ export default function AuthScreen() {
         await sendCode({ email: trimmedEmail });
         setOtpSent(true);
         toast.info("Code sent! Check your email.");
+        // Start 30s resend cooldown
+        setResendCooldown(30);
+        if (resendIntervalRef.current) clearInterval(resendIntervalRef.current);
+        resendIntervalRef.current = setInterval(() => {
+          setResendCooldown((prev) => {
+            if (prev <= 1) {
+              clearInterval(resendIntervalRef.current!);
+              resendIntervalRef.current = null;
+              return 0;
+            }
+            return prev - 1;
+          });
+        }, 1000);
       } catch (e: any) {
         const msg =
           authErrorRef.current ??
@@ -295,6 +335,41 @@ export default function AuthScreen() {
       }
     }
   };
+
+  const handleResend = async () => {
+    if (loading) return;
+    setLoading(true);
+    setOtpCode("");
+    try {
+      authErrorRef.current = null;
+      await sendCode({ email: email.trim() });
+      toast.info("New code sent! Check your email.");
+      setResendCooldown(30);
+      if (resendIntervalRef.current) clearInterval(resendIntervalRef.current);
+      resendIntervalRef.current = setInterval(() => {
+        setResendCooldown((prev) => {
+          if (prev <= 1) {
+            clearInterval(resendIntervalRef.current!);
+            resendIntervalRef.current = null;
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    } catch (e: any) {
+      Alert.alert("Resend failed", e.message ?? "Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Auto-submit OTP when all 6 digits are entered
+  useEffect(() => {
+    if (otpSent && otpCode.length === 6 && !loading) {
+      handleConnect();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [otpCode, otpSent]);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -377,23 +452,40 @@ export default function AuthScreen() {
                 <Text style={styles.otpHint}>Code sent to {email}</Text>
                 <TextInput
                   style={styles.textInput}
-                  placeholder="Enter OTP code"
+                  placeholder="6-digit code"
                   placeholderTextColor={colors.text.muted}
                   value={otpCode}
                   onChangeText={setOtpCode}
                   keyboardType="number-pad"
+                  maxLength={6}
                   returnKeyType="done"
                   onSubmitEditing={handleConnect}
                   autoFocus
                 />
-                <HapticButton
-                  label="Change email"
-                  variant="ghost"
-                  size="sm"
-                  hapticStyle="light"
-                  onPress={() => { setOtpSent(false); setOtpCode(""); }}
-                  style={styles.changeEmailBtn}
-                />
+                <View style={styles.otpActions}>
+                  <HapticButton
+                    label="Change email"
+                    variant="ghost"
+                    size="sm"
+                    hapticStyle="light"
+                    onPress={() => {
+                      setOtpSent(false);
+                      setOtpCode("");
+                      setResendCooldown(0);
+                      if (resendIntervalRef.current) clearInterval(resendIntervalRef.current);
+                    }}
+                    style={styles.changeEmailBtn}
+                  />
+                  <HapticButton
+                    label={resendCooldown > 0 ? `Resend (${resendCooldown}s)` : "Resend code"}
+                    variant="ghost"
+                    size="sm"
+                    hapticStyle="light"
+                    disabled={resendCooldown > 0 || loading}
+                    onPress={handleResend}
+                    style={styles.changeEmailBtn}
+                  />
+                </View>
               </View>
             )}
 
@@ -401,7 +493,7 @@ export default function AuthScreen() {
               label={loading ? "" : otpSent ? "Verify Code" : "Send Code"}
               hapticStyle="medium"
               onPress={handleConnect}
-              disabled={loading}
+              disabled={loading || !ready}
               style={styles.connectBtn}
             >
               {loading && <ActivityIndicator color={colors.background.deep} />}
@@ -422,18 +514,14 @@ export default function AuthScreen() {
               By connecting, you agree to the{" "}
               <Text
                 style={styles.link}
-                onPress={() =>
-                  Linking.openURL("https://lineageagent.io/terms").catch(() => {})
-                }
+                onPress={() => Linking.openURL("https://lineageagent.io/terms").catch(() => {})}
               >
                 Terms of Service
               </Text>
               {" "}and{" "}
               <Text
                 style={styles.link}
-                onPress={() =>
-                  Linking.openURL("https://lineageagent.io/privacy").catch(() => {})
-                }
+                onPress={() => Linking.openURL("https://lineageagent.io/privacy").catch(() => {})}
               >
                 Privacy Policy
               </Text>
@@ -555,6 +643,11 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   changeEmailBtn: { marginTop: 8, alignSelf: "center" },
+  otpActions: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: 8,
+  },
   connectBtn: { width: "100%", height: 52, borderRadius: 14 },
   connectBtnText: { color: colors.background.deep, fontSize: 16, fontWeight: "700" },
   biometricBtn: { marginTop: 12, alignSelf: "center" },
