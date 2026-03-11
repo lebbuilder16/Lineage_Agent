@@ -6,6 +6,8 @@ and _parse_inner_instructions without touching the network.
 
 from __future__ import annotations
 
+import asyncio
+from unittest.mock import AsyncMock, patch
 
 from lineage_agent.sol_flow_service import (
     _parse_sol_flows,
@@ -255,12 +257,6 @@ class TestParseSolFlows:
 # ===================================================================
 # trace_sol_flow — high-level async API (mocked _run_trace)
 # ===================================================================
-
-import asyncio
-import pytest
-from unittest.mock import AsyncMock, patch
-
-
 class TestTraceSolFlowHighLevel:
     """Test the timeout / exception handling paths of trace_sol_flow."""
 

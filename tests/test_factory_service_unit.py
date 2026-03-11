@@ -7,8 +7,6 @@ from datetime import datetime, timedelta, timezone
 from types import ModuleType, SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
-
 from lineage_agent.models import EvidenceLevel, LifecycleStage, MarketSurface, TokenMetadata
 
 

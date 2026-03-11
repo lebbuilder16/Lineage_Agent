@@ -12,8 +12,6 @@ from __future__ import annotations
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
-
 from lineage_agent.cartel_service import (
     _is_confirmed_cartel_rug,
     compute_cartel_report,

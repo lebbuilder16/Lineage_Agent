@@ -14,8 +14,6 @@ from __future__ import annotations
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
-
 from lineage_agent.alert_service import (
     _esc,
     cancel_alert_sweep,
@@ -155,7 +153,6 @@ class TestWebClients:
         assert ws not in svc._web_clients
 
     def test_unregister_nonexistent_is_noop(self):
-        import lineage_agent.alert_service as svc
         ws = MagicMock()
         # Should not raise even if ws was never registered
         unregister_web_client(ws)
@@ -168,9 +165,8 @@ class TestWebClients:
 class TestBroadcastWebAlert:
     async def test_broadcasts_to_connected_clients(self):
         from lineage_agent.alert_service import _broadcast_web_alert
-
-        import lineage_agent.alert_service as svc
         ws = AsyncMock()
+        import lineage_agent.alert_service as svc
         svc._web_clients.add(ws)
         try:
             with patch.object(svc, "asyncio") as mock_asyncio:
@@ -338,7 +334,6 @@ class TestRunAlertSweep:
 class TestBroadcastWebAlertWithMint:
     async def test_ensure_future_called_when_mint_present(self):
         from lineage_agent.alert_service import _broadcast_web_alert
-        import lineage_agent.alert_service as svc
 
         ensure_future_calls = []
 
@@ -453,7 +448,6 @@ class TestPushFcmToWatchers:
         try:
             svc._FIREBASE_PROJECT_ID = ""
             # Should return without any DB access
-            mock_cache = AsyncMock()
             with patch("lineage_agent.alert_service._send_fcm_push", new_callable=AsyncMock) as mock_push:
                 await _push_fcm_to_watchers("MINT123", title="Test", body="body", alert_type="deployer")
             mock_push.assert_not_called()
@@ -468,7 +462,6 @@ class TestPushFcmToWatchers:
 class TestSweepLoop:
     async def test_sweep_loop_runs_and_cancels(self):
         from lineage_agent.alert_service import _sweep_loop
-        import lineage_agent.alert_service as svc
 
         call_count = {"n": 0}
 

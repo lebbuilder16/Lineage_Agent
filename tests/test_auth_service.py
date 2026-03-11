@@ -5,7 +5,6 @@ All tests use an in-memory aiosqlite DB so there are no file-system side effects
 
 from __future__ import annotations
 
-import time
 from unittest.mock import MagicMock
 
 import aiosqlite
