@@ -43,6 +43,10 @@ testpaths = ["tests"]
 asyncio_mode = "auto"
 pythonpath = ["src"]
 addopts = "-v --tb=short"
+filterwarnings = [
+    "ignore::pytest.PytestUnraisableExceptionWarning",
+    "ignore::ResourceWarning",
+]
 
 [tool.ruff]
 target-version = "py311"

@@ -1014,10 +1014,12 @@ async def _detect_lineage_impl(
     # subsequent scans are fully accurate because the DB is already populated.
     # 8 s × every cold scan > cost of slightly incomplete first-scan forensics.
     # (Optimization #3)
-    asyncio.ensure_future(_bootstrap_deployer_history(_scan_deployer))
+    _t = asyncio.create_task(_bootstrap_deployer_history(_scan_deployer))
+    _t.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
     # Also bootstrap root deployer if this is a clone with a different deployer.
     if _scan_deployer != root_meta.deployer and root_meta.deployer:
-        asyncio.ensure_future(_bootstrap_deployer_history(root_meta.deployer))
+        _t2 = asyncio.create_task(_bootstrap_deployer_history(root_meta.deployer))
+        _t2.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
 
     # Phase 1  — Zombie Token detection (sync, uses already-built result)
     try:
@@ -1117,7 +1119,8 @@ async def _detect_lineage_impl(
                 )
             except asyncio.TimeoutError:
                 logger.warning("[sol_flow] timed out — continuing in background")
-                asyncio.ensure_future(trace_sol_flow(_scan_mint, _scan_deployer))
+                _sf_t = asyncio.create_task(trace_sol_flow(_scan_mint, _scan_deployer))
+                _sf_t.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
             except Exception as _e:
                 logger.warning("[sol_flow] failed: %s", _e)
 
@@ -1199,9 +1202,10 @@ async def _detect_lineage_impl(
                 "[bundle] inline analysis capped at 8 s for %s — "
                 "continuing full analysis in background", _scan_mint[:8],
             )
-            asyncio.ensure_future(
+            _ab_t = asyncio.create_task(
                 analyze_bundle(_scan_mint, _scan_deployer, _price, force_refresh=force_refresh)
             )
+            _ab_t.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
             return None
         except Exception as _be:
             logger.warning("[bundle] analysis failed: %s", _be)
@@ -1209,7 +1213,7 @@ async def _detect_lineage_impl(
 
     # ── Launch gather 2 as an asyncio Task BEFORE awaiting gather 1 ─────────
     # Both groups now run in parallel on the event loop.
-    _gather2_task = asyncio.ensure_future(asyncio.gather(
+    _gather2_task = asyncio.create_task(asyncio.gather(
         _run_sol_flow(),
         _run_cartel(),
         _run_insider(),
@@ -1240,8 +1244,9 @@ async def _detect_lineage_impl(
             if w and w != _scan_deployer
         ]
         for _w in _linked_to_boot[:4]:
-            asyncio.ensure_future(_bootstrap_deployer_history(_w))
-        _oi_task = asyncio.ensure_future(
+            _bw_t = asyncio.create_task(_bootstrap_deployer_history(_w))
+            _bw_t.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
+        _oi_task = asyncio.create_task(
             asyncio.wait_for(
                 compute_operator_impact(
                     result.operator_fingerprint.fingerprint,
@@ -1308,9 +1313,10 @@ async def _detect_lineage_impl(
         # time beyond 30 s.  The trace persists to DB; the next scan (or the
         # /lineage/{mint}/sol-trace endpoint) returns the cached result.
         # (Optimization #5)
-        asyncio.ensure_future(
+        _bs_t = asyncio.create_task(
             trace_sol_flow(_scan_mint, _scan_deployer, extra_seed_wallets=_bundle_seeds)
         )
+        _bs_t.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
         logger.info(
             "[sol_flow] queued bundle-seed trace in background: %d seeds for %s",
             len(_bundle_seeds), _scan_mint[:8],
