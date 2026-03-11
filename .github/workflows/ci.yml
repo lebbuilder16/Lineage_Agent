@@ -144,10 +144,18 @@ jobs:
           eas-version: latest
           token: ${{ secrets.EXPO_TOKEN }}
 
-      - name: Publish OTA update
-        run: eas update --auto --non-interactive
+      - name: Publish OTA update (production)
+        run: eas update --channel production --message "CI: ${{ github.sha }}" --non-interactive
         env:
           EXPO_PUBLIC_API_URL: https://lineage-agent.fly.dev
+          EXPO_PUBLIC_PRIVY_APP_ID: ${{ secrets.NEXT_PUBLIC_PRIVY_APP_ID }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+
+      - name: Publish OTA update (preview)
+        run: eas update --channel preview --message "CI: ${{ github.sha }}" --non-interactive
+        env:
+          EXPO_PUBLIC_API_URL: https://lineage-agent.fly.dev
+          EXPO_PUBLIC_PRIVY_APP_ID: ${{ secrets.NEXT_PUBLIC_PRIVY_APP_ID }}
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
 
   # ── Docker build smoke-test ────────────────────────────────────
