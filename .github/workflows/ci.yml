@@ -44,6 +44,7 @@ jobs:
           pip-audit -r requirements.txt
 
       - name: Run tests with coverage
+        timeout-minutes: 10
         run: pytest --cov=lineage_agent --cov-report=term-missing --cov-report=xml --cov-fail-under=70
 
       - name: Upload coverage artifact
