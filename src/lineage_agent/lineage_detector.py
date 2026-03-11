@@ -1096,16 +1096,18 @@ async def _detect_lineage_impl(
             "launchpad_curve_only",
         )
         if _is_pre_dex:
-            # Purge any stale trace that was persisted before this fix landed.
-            await _safe(
-                get_sol_flow_report(_scan_mint, force_refresh=True),
-                name="sol_flow_purge",
-            )
+            # For pre-DEX tokens: skip launching a new trace (deployer's
+            # normal wallet activity gets misinterpreted as extraction), but
+            # still return any previously-computed report so that
+            # persist_pre_dex_extraction_rug can use it.
             logger.info(
-                "[sol_flow] skipping trace for pre-DEX token %s (stage=%s)",
+                "[sol_flow] reading existing report for pre-DEX token %s (stage=%s)",
                 _scan_mint[:8], _stage,
             )
-            return None
+            return await _safe(
+                get_sol_flow_report(_scan_mint),
+                name="sol_flow_pre_dex_read",
+            )
 
         flow = await _safe(get_sol_flow_report(_scan_mint), name="sol_flow_read")
         if flow is None and _scan_deployer:

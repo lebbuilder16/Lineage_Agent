@@ -18,7 +18,6 @@ import statistics
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from config import FORENSIC_CACHE_VERSION
 from .models import EvidenceLevel, RugMechanism
 from .rug_detector import normalize_legacy_rug_events
 
@@ -30,7 +29,7 @@ _MODEL = os.getenv("ANTHROPIC_MODEL", "claude-haiku-4-5")
 _MODEL_SONNET = os.getenv("ANTHROPIC_MODEL_SONNET", "claude-sonnet-4-6")
 _MAX_TOKENS = 2500  # tool_use generates cleaner output, needs fewer tokens
 _TIMEOUT = 55.0  # seconds — must be < Fly machine timeout (60s) to surface proper error
-_AI_CACHE_PREFIX = f"ai:{FORENSIC_CACHE_VERSION}"
+_AI_CACHE_PREFIX = "ai:forensic-v2"
 _CONFIRMED_EVIDENCE_LEVELS = {EvidenceLevel.MODERATE.value, EvidenceLevel.STRONG.value}
 _CONFIRMED_RUG_MECHANISMS = {
     RugMechanism.DEX_LIQUIDITY_RUG.value,
