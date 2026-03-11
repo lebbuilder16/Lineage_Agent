@@ -20,7 +20,6 @@ When a match is found, the service:
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import os
 import time

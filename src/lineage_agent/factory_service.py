@@ -23,7 +23,7 @@ from typing import Literal, Optional
 
 from .data_sources._clients import event_insert, event_query, get_img_client
 from .models import FactoryRhythmReport, TokenMetadata
-from .utils import classify_narrative, classify_narrative_llm
+from .utils import classify_narrative_llm
 
 logger = logging.getLogger(__name__)
 

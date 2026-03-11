@@ -1483,7 +1483,6 @@ async def stream_ai_analysis(
         import json as _json
         import time as _time
         from .ai_analyst import analyze_token as _analyze_token, _build_unified_response as _bur, _heuristic_score
-        from .sol_flow_service import get_sol_flow_report as _gsfr
 
         def _evt(event: str, data: dict) -> dict:
             return {"event": event, "data": _json.dumps(data)}
@@ -2066,9 +2065,9 @@ async def compare_tokens(
     elif round(composite * 100) >= 40:
         verdict_reasons.append(f"composite score {round(composite * 100)}% ≥ 40% related threshold")
     if lineage_a_err:
-        verdict_reasons.append(f"⚠ on-chain data unavailable for token A — scores may be incomplete")
+        verdict_reasons.append("⚠ on-chain data unavailable for token A — scores may be incomplete")
     if lineage_b_err:
-        verdict_reasons.append(f"⚠ on-chain data unavailable for token B — scores may be incomplete")
+        verdict_reasons.append("⚠ on-chain data unavailable for token B — scores may be incomplete")
 
     return TokenCompareResult(
         mint_a=mint_a,

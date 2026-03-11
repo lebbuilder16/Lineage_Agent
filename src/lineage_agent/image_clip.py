@@ -21,7 +21,6 @@ from __future__ import annotations
 import io
 import logging
 import os
-from functools import lru_cache
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -150,7 +149,6 @@ async def compute_clip_similarity(url_a: str, url_b: str) -> float:
         return -1.0
 
     try:
-        import math  # noqa: PLC0415
         dot = sum(a * b for a, b in zip(embed_a, embed_b))
         # Embeddings are L2-normalised, so ||a||=||b||=1 and cosine = dot
         return max(0.0, min(1.0, dot))
