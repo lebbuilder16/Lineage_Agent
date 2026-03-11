@@ -184,6 +184,36 @@ function OperatorImpactCard({ data }: { data: NonNullable<LineageResult["operato
   );
 }
 
+function SolFlowCard({ data }: { data: NonNullable<LineageResult["sol_flow"]> }) {
+  const extractedSol = data.total_extracted_sol ?? 0;
+  const risk = Math.min(extractedSol / 100, 1); // 100 SOL = max risk
+  const formatSol = (n: number) =>
+    n >= 1_000 ? `${(n / 1_000).toFixed(1)}K` : `${n.toFixed(1)}`;
+  const formatUsd = (n: number | null) => {
+    if (n == null) return "—";
+    if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)}M`;
+    if (n >= 1_000) return `$${(n / 1_000).toFixed(1)}K`;
+    return `$${n.toFixed(0)}`;
+  };
+  return (
+    <Section title="💸 SOL FLOW" accent={colors.accent.danger}>
+      <View style={styles.gaugeWrap}>
+        <RiskGauge score={risk} size={64} strokeWidth={6} />
+      </View>
+      <Row label="Extracted" value={`${formatSol(extractedSol)} SOL`} />
+      <Row label="≈ USD" value={formatUsd(data.total_extracted_usd)} />
+      <Row label="Hops" value={data.hop_count ?? 0} />
+      <Row label="Destinations" value={data.terminal_wallets?.length ?? 0} />
+      {data.known_cex_detected && (
+        <RiskBadge label="CEX EXIT" riskLevel="high" size="sm" />
+      )}
+      {(data.cross_chain_exits?.length ?? 0) > 0 && (
+        <Row label="Cross-chain" value={`${data.cross_chain_exits.length} exit(s)`} />
+      )}
+    </Section>
+  );
+}
+
 // ─────────────────────────────────────────────────────────────
 // Main component
 // ─────────────────────────────────────────────────────────────
@@ -193,6 +223,7 @@ export function ForensicSignalCards({ result }: { result: LineageResult }) {
   if (result.death_clock) cards.push(<DeathClockCard key="dc" data={result.death_clock} />);
   if (result.zombie_alert) cards.push(<ZombieCard key="zb" data={result.zombie_alert} />);
   if (result.bundle_report) cards.push(<BundleCard key="bd" data={result.bundle_report} />);
+  if (result.sol_flow) cards.push(<SolFlowCard key="sf" data={result.sol_flow} />);
   if (result.operator_fingerprint) cards.push(<OperatorCard key="op" data={result.operator_fingerprint} />);
   if (result.operator_impact) cards.push(<OperatorImpactCard key="oi" data={result.operator_impact} />);
   if (result.liquidity_arch) cards.push(<LiquidityCard key="lq" data={result.liquidity_arch} />);
