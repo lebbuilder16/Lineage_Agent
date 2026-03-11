@@ -10,6 +10,7 @@ import {
   TouchableOpacity,
   Share,
   ActivityIndicator,
+  RefreshControl,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, router } from "expo-router";
@@ -183,6 +184,8 @@ function calculateRiskScore(data: LineageResult): number {
 export default function LineageDetailScreen() {
   const { mint } = useLocalSearchParams<{ mint: string }>();
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const qc = useQueryClient();
+  const [refreshing, setRefreshing] = useState(false);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["lineage", mint],
@@ -193,6 +196,23 @@ export default function LineageDetailScreen() {
     // already shows a "Back" button so the user can retry manually.
     retry: 0,
   });
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    try {
+      // Force backend cache bust so stale bundle_report / sol_flow data is
+      // re-computed on the server rather than served from a partial cache entry.
+      await qc.fetchQuery({
+        queryKey: ["lineage", mint],
+        queryFn: () => getLineage(mint, true /* forceRefresh */),
+        staleTime: 0,
+      });
+      qc.invalidateQueries({ queryKey: ["scan-history", mint] });
+      qc.invalidateQueries({ queryKey: ["scan-delta", mint] });
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   const { data: historyData } = useQuery({
     queryKey: ["scan-history", mint],
@@ -257,6 +277,13 @@ export default function LineageDetailScreen() {
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scroll}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            tintColor={colors.accent.safe}
+          />
+        }
       >
         {/* Token header */}
         <TokenHeader data={data} />

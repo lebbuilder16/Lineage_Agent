@@ -164,6 +164,26 @@ function InsiderCard({ data }: { data: NonNullable<LineageResult["insider_sell"]
   );
 }
 
+function OperatorImpactCard({ data }: { data: NonNullable<LineageResult["operator_impact"]> }) {
+  const rugRisk = Math.min((data.rug_rate_pct ?? 0) / 100, 1);
+  return (
+    <Section title="🎯 OPERATOR IMPACT" accent="#C084FC">
+      <View style={styles.gaugeWrap}>
+        <RiskGauge score={rugRisk} size={64} strokeWidth={6} />
+      </View>
+      <Row label="Tokens launched" value={data.total_tokens_launched ?? 0} />
+      <Row label="Total rugs" value={data.total_rug_count ?? 0} />
+      <Row label="Extracted USD" value={`$${((data.estimated_extracted_usd ?? 0) / 1e6).toFixed(2)}M`} />
+      <Row label="Campaign active" value={data.is_campaign_active ? "Yes ⚠" : "No"} />
+      <RiskBadge
+        label={data.confidence?.toUpperCase() ?? "UNKNOWN"}
+        riskLevel={data.confidence === "high" ? "critical" : data.confidence === "medium" ? "high" : "medium"}
+        size="sm"
+      />
+    </Section>
+  );
+}
+
 // ─────────────────────────────────────────────────────────────
 // Main component
 // ─────────────────────────────────────────────────────────────
@@ -174,6 +194,7 @@ export function ForensicSignalCards({ result }: { result: LineageResult }) {
   if (result.zombie_alert) cards.push(<ZombieCard key="zb" data={result.zombie_alert} />);
   if (result.bundle_report) cards.push(<BundleCard key="bd" data={result.bundle_report} />);
   if (result.operator_fingerprint) cards.push(<OperatorCard key="op" data={result.operator_fingerprint} />);
+  if (result.operator_impact) cards.push(<OperatorImpactCard key="oi" data={result.operator_impact} />);
   if (result.liquidity_arch) cards.push(<LiquidityCard key="lq" data={result.liquidity_arch} />);
   if (result.factory_rhythm) cards.push(<FactoryCard key="fc" data={result.factory_rhythm} />);
   if (result.insider_sell) cards.push(<InsiderCard key="is" data={result.insider_sell} />);

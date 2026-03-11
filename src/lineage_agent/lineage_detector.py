@@ -381,6 +381,20 @@ ProgressCallback = Optional[Callable[[str, int], Awaitable[None]]]
 _LINEAGE_CACHE_PREFIX = f"lineage:{FORENSIC_CACHE_VERSION}"
 _LEGACY_LINEAGE_CACHE_PREFIX = "lineage:v4"
 
+# Per-mint asyncio.Event used to deduplicate concurrent detect_lineage() calls.
+#
+# When an analysis for a mint is already in-flight, any subsequent caller
+# waits on this event rather than launching a redundant parallel pipeline.
+# This eliminates the race condition where the frontend's WebSocket timeout
+# triggers an HTTP fallback at T=30 s, starting a second detect_lineage() run
+# before the first one has cached its result.  Without this guard both runs
+# independently hit the bundle-analysis 12 s inline cap and race to write the
+# same cache key — the faster (but potentially incomplete) run wins, resulting
+# in bundle_report=null being served to the web client while the mobile client
+# (which calls later and hits the completed cache from the first run) sees the
+# full report.
+_in_flight: dict[str, asyncio.Event] = {}
+
 
 def _lineage_cache_key(mint: str) -> str:
     return f"{_LINEAGE_CACHE_PREFIX}:{mint}"
@@ -410,6 +424,56 @@ async def get_cached_lineage_report(mint: str) -> Optional[LineageResult]:
 
 
 async def detect_lineage(
+    mint_address: str,
+    *,
+    progress_cb: ProgressCallback = None,
+    force_refresh: bool = False,
+) -> LineageResult:
+    """Public entry point — deduplication guard + delegate to _detect_lineage_impl.
+
+    If a concurrent analysis for *mint_address* is already running, this
+    coroutine waits for it to finish and then reads the result from cache
+    instead of starting a redundant parallel pipeline.
+    """
+    # ── Deduplication guard ──────────────────────────────────────────────────
+    if not force_refresh and mint_address in _in_flight:
+        logger.info(
+            "[detect_lineage] concurrent request for %s — waiting for in-flight run",
+            mint_address[:8],
+        )
+        await _in_flight[mint_address].wait()
+        # The in-flight run wrote to cache; read and return it.
+        cached_after_wait = await _cache_get(_lineage_cache_key(mint_address))
+        if cached_after_wait is not None:
+            if isinstance(cached_after_wait, LineageResult):
+                return cached_after_wait
+            if isinstance(cached_after_wait, dict):
+                try:
+                    return LineageResult(**cached_after_wait)
+                except Exception:
+                    pass
+        # Cache write failed in the in-flight run — fall through to a fresh run.
+        logger.warning(
+            "[detect_lineage] in-flight run for %s finished but cache is empty — re-running",
+            mint_address[:8],
+        )
+
+    _flight_event: Optional[asyncio.Event] = None
+    if not force_refresh and mint_address not in _in_flight:
+        _flight_event = asyncio.Event()
+        _in_flight[mint_address] = _flight_event
+
+    try:
+        return await _detect_lineage_impl(
+            mint_address, progress_cb=progress_cb, force_refresh=force_refresh
+        )
+    finally:
+        if _flight_event is not None:
+            _in_flight.pop(mint_address, None)
+            _flight_event.set()  # unblock any waiters so they can read from cache
+
+
+async def _detect_lineage_impl(
     mint_address: str,
     *,
     progress_cb: ProgressCallback = None,

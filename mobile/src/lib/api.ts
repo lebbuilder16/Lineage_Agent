@@ -155,10 +155,11 @@ export async function removeWatch(watchId: number): Promise<void> {
 
 // ─── Lineage endpoints ────────────────────────────────────────────────────────
 
-export async function getLineage(mint: string): Promise<LineageResult> {
+export async function getLineage(mint: string, forceRefresh = false): Promise<LineageResult> {
   // Use 60 s — backend analysis timeout is 50 s, so the client must wait longer
   // than the server to avoid timing out before receiving a 504 or a result.
-  return apiFetch<LineageResult>(`/lineage?mint=${encodeURIComponent(mint)}`, {
+  const qs = forceRefresh ? "&force_refresh=true" : "";
+  return apiFetch<LineageResult>(`/lineage?mint=${encodeURIComponent(mint)}${qs}`, {
     timeoutMs: 60_000,
   });
 }

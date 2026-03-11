@@ -131,6 +131,23 @@ export interface DeployerProfile {
   confidence: "high" | "medium" | "low";
 }
 
+export interface OperatorImpactReport {
+  fingerprint: string;
+  linked_wallets: string[];
+  total_tokens_launched: number;
+  total_rug_count: number;
+  rug_rate_pct: number;
+  estimated_extracted_usd: number;
+  active_tokens: string[];
+  narrative_sequence: string[];
+  is_campaign_active: boolean;
+  peak_concurrent_tokens: number;
+  first_activity: string | null;
+  last_activity: string | null;
+  wallet_profiles: DeployerProfile[];
+  confidence: "high" | "medium" | "low";
+}
+
 export interface InsiderSellReport {
   mint: string;
   sell_pressure_1h: number | null;
@@ -269,10 +286,17 @@ export interface LineageResult {
   liquidity_arch: LiquidityArchReport | null;
   factory_rhythm: FactoryRhythmReport | null;
   deployer_profile: DeployerProfile | null;
+  operator_impact: OperatorImpactReport | null;
   insider_sell: InsiderSellReport | null;
   bundle_report: BundleExtractionReport | null;
   sol_flow: SolFlowReport | null;
   cartel_report: CartelReport | null;
+  /** True when the token is on a bonding-curve launchpad (PumpFun, Moonshot…). */
+  is_bonding_curve: boolean;
+  /** Launchpad platform identifier, e.g. "pump-fun", "moonshot", or null for DEX direct. */
+  platform: string | null;
+  /** UTC timestamp of when this analysis was computed (not when served from cache). */
+  scanned_at: string | null;
 }
 
 export interface TokenSearchResult {

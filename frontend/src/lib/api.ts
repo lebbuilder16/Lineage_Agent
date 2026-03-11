@@ -631,13 +631,18 @@ export function fetchLineageWithProgress(
     const ws = new WebSocket(`${wsBase}/ws/lineage`);
     let settled = false;
 
+    // Backend ANALYSIS_TIMEOUT_SECONDS = 50 s.  Client must wait longer than
+    // the server to avoid a premature timeout that would trigger the HTTP
+    // fallback while the backend is still computing, creating two concurrent
+    // detect_lineage() runs for the same mint (race condition → bundle_report
+    // returning null when it should be populated).
     const timeoutId = setTimeout(() => {
       if (!settled) {
         settled = true;
         ws.close();
-        reject(new ApiError(408, "Analysis timed out after 30s"));
+        reject(new ApiError(408, "Analysis timed out after 65s"));
       }
-    }, 30_000);
+    }, 65_000);
 
     const settle = (fn: () => void) => {
       if (!settled) {
