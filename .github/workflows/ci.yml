@@ -5,6 +5,7 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 jobs:
   # ── Backend: lint + tests ──────────────────────────────────────
@@ -102,13 +103,13 @@ jobs:
   # ── Change detection ──────────────────────────────────────────
   detect-changes:
     runs-on: ubuntu-latest
-    if: github.event_name == 'push'
     outputs:
-      mobile: ${{ steps.filter.outputs.mobile }}
+      mobile: ${{ github.event_name == 'workflow_dispatch' && 'true' || steps.filter.outputs.mobile }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
         id: filter
+        if: github.event_name != 'workflow_dispatch'
         with:
           filters: |
             mobile:
@@ -118,7 +119,7 @@ jobs:
   mobile-ota:
     runs-on: ubuntu-latest
     needs: detect-changes
-    if: needs.detect-changes.outputs.mobile == 'true'
+    if: always() && needs.detect-changes.result == 'success' && needs.detect-changes.outputs.mobile == 'true'
 
     defaults:
       run:
