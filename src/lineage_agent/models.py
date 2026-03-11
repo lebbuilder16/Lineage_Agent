@@ -598,6 +598,8 @@ class DeployerTokenSummary(BaseModel):
     symbol: str = ""
     created_at: Optional[datetime] = None
     rugged_at: Optional[datetime] = None
+    rug_mechanism: Optional[str] = None
+    evidence_level: Optional[str] = None
     mcap_usd: Optional[float] = None
     narrative: str = ""
 
@@ -608,9 +610,13 @@ class DeployerProfile(BaseModel):
     address: str
     total_tokens_launched: int
     rug_count: int
+    confirmed_rug_count: int = Field(0, description="Rugs with strong/moderate evidence")
+    negative_outcome_count: int = Field(0, description="Total negative outcomes (rugs + suspected)")
     rug_rate_pct: float = Field(ge=0.0, le=100.0)
+    confirmed_rug_rate_pct: float = Field(0.0, ge=0.0, le=100.0)
     avg_lifespan_days: Optional[float] = None
     active_tokens: int
+    rug_mechanism_counts: dict[str, int] = Field(default_factory=dict)
     preferred_narrative: str = ""
     first_seen: Optional[datetime] = None
     last_seen: Optional[datetime] = None
@@ -629,13 +635,17 @@ class OperatorImpactReport(BaseModel):
     linked_wallets: list[str] = Field(..., description="All deployer wallets sharing this fingerprint")
     total_tokens_launched: int
     total_rug_count: int
+    total_confirmed_rug_count: int = Field(0, description="Rugs with strong/moderate evidence")
+    total_negative_outcome_count: int = Field(0, description="Total negative outcomes")
     rug_rate_pct: float = Field(ge=0.0, le=100.0)
+    confirmed_rug_rate_pct: float = Field(0.0, ge=0.0, le=100.0)
     estimated_extracted_usd: float = Field(
         ge=0.0, description="Conservative 15% of rugged mcap estimate"
     )
     is_estimated: bool = Field(
         True, description="True if extraction figure is a 15% heuristic, False if from on-chain trace"
     )
+    rug_mechanism_counts: dict[str, int] = Field(default_factory=dict)
     active_tokens: list[str] = Field(default_factory=list, description="Mints still not rugged")
     narrative_sequence: list[str] = Field(
         default_factory=list,
@@ -792,6 +802,10 @@ class InsiderSellEvent(BaseModel):
     exited: bool = Field(
         False, description="True when balance_now == 0 (fully exited position)"
     )
+    balance_context: Optional[str] = Field(
+        None,
+        description="'zero_balance_expected_by_protocol' for bonding-curve pre-DEX tokens",
+    )
 
 
 class InsiderSellReport(BaseModel):
@@ -941,6 +955,13 @@ class GlobalStats(BaseModel):
     tokens_scanned_24h: int = Field(0, description="Distinct token mints recorded")
     tokens_rugged_24h: int = Field(0, description="Tokens confirmed rugged")
     rug_rate_24h_pct: float = Field(0.0, ge=0.0, le=100.0, description="rug / scanned × 100")
+    tokens_negative_outcomes_24h: int = Field(
+        0, description="Tokens with any negative outcome (rug + suspected) in 24 h"
+    )
+    negative_outcome_rate_24h_pct: float = Field(
+        0.0, ge=0.0, le=100.0,
+        description="negative outcomes / scanned × 100",
+    )
     active_deployers_24h: int = Field(0, description="Distinct deployer wallets active")
     top_narratives: list[NarrativeCount] = Field(
         default_factory=list,
@@ -980,6 +1001,8 @@ class ScanSnapshot(BaseModel):
     # ── Key metrics ────────────────────────────────────────────────────────
     family_size: int = Field(0, description="Total family members at scan time")
     rug_count: int = Field(0, description="Deployer rug count at scan time")
+    confirmed_rug_count: int = Field(0, description="Confirmed rugs (strong/moderate evidence) at scan time")
+    negative_outcome_count: int = Field(0, description="Total negative outcomes at scan time")
     death_clock_risk: str = Field("", description="Death Clock risk_level at scan time")
     bundle_verdict: str = Field("", description="Bundle overall_verdict at scan time")
     insider_verdict: str = Field("", description="Insider sell verdict at scan time")
@@ -1014,6 +1037,7 @@ class ScanDelta(BaseModel):
     # ── Context evolution ──────────────────────────────────────────────────
     family_size_delta: int = Field(0, description="Change in derivative count")
     rug_count_delta: int = Field(0, description="Additional rugs by deployer since last scan")
+    confirmed_rug_count_delta: int = Field(0, description="Additional confirmed rugs since last scan")
 
     # ── Verdict ────────────────────────────────────────────────────────────
     trend: Literal["worsening", "stable", "improving"] = Field(

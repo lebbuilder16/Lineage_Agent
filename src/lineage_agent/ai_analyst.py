@@ -1096,15 +1096,15 @@ def _sanity_check(
 
     if _is_launchpad_pre_dex_context(lineage) and not _has_pre_dex_extraction_proof(bundle, sol_flow):
         if result.get("risk_score") is not None:
-            result["risk_score"] = min(result["risk_score"], 40)  # hard cap: no DEX = no DEX rug
+            result["risk_score"] = min(result["risk_score"], 60)  # cap: launchpad context = no confirmed DEX rug
         result["confidence"] = "low"
         result["rug_pattern"] = "unknown"
         result["verdict_summary"] = (
-            "Token is still trading on its launchpad bonding curve and has not graduated "
-            "to a DEX. No liquidity rug or deployer cash-out is provable from current data."
+            "Token is trading on a launchpad bonding curve and has not graduated to a DEX. "
+            "This pre-DEX context does not prove a DEX rug or deployer cash-out from current data."
         )
         findings = result.get("key_findings") or []
-        prefix = "[CAVEAT] Token is still in launchpad / pre-DEX context; no DEX-liquidity rug is proven from current evidence."
+        prefix = "[CAVEAT] Token is still in pre-DEX context; no DEX-liquidity rug is proven from current evidence."
         if prefix not in findings:
             result["key_findings"] = [prefix] + findings
 

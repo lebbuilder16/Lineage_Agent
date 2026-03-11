@@ -84,7 +84,7 @@ _WEIGHTS = {
 }
 
 _LAUNCHPAD_CONTENT_HOSTS: dict[str, tuple[str, ...]] = {
-    "moonshot": ("moonshot.money", "assets.moonshot.money", "dl.moonshot.money"),
+    "moonshot": ("moonshot.money", "assets.moonshot.money", "dl.moonshot.money", "moonshot.com", "cdn.moonshot.com", "api.moonshot.com"),
 }
 
 _LAUNCHPAD_MINT_SUFFIXES: dict[str, tuple[str, ...]] = {
@@ -784,7 +784,10 @@ async def _detect_lineage_impl(
                 )
             except asyncio.TimeoutError:
                 c_deployer, c_created = "", candidate.pair_created_at
-            c_asset = await _get_asset_cached(rpc, candidate.mint)
+        # DAS getAsset is a fast Helius call (~0.5 s) with no 429 risk — no need
+        # to hold the RPC semaphore.  Releasing the slot before this call lets
+        # the next candidate start its sig-walk ~1 s sooner.
+        c_asset = await _get_asset_cached(rpc, candidate.mint)
 
         # Anchor to on-market date for root-selection accuracy.
         # A token may have been pre-minted (mint account created) well before
@@ -1055,7 +1058,7 @@ async def _detect_lineage_impl(
         logger.debug("uri_tuples history expansion failed: %s", _fp_err)
 
     # Phases 2, 3, 5, 6, 7, 8, 9 — async enrichers in parallel
-    async def _safe(coro, *, name: str = "enricher", timeout: float = 10.0):
+    async def _safe(coro, *, name: str = "enricher", timeout: float = 7.0):
         try:
             return await asyncio.wait_for(coro, timeout=timeout)
         except asyncio.TimeoutError:
@@ -1108,7 +1111,7 @@ async def _detect_lineage_impl(
         if flow is None and _scan_deployer:
             try:
                 flow = await asyncio.wait_for(
-                    trace_sol_flow(_scan_mint, _scan_deployer), timeout=12.0
+                    trace_sol_flow(_scan_mint, _scan_deployer), timeout=8.0
                 )
             except asyncio.TimeoutError:
                 logger.warning("[sol_flow] timed out — continuing in background")
@@ -1181,13 +1184,13 @@ async def _detect_lineage_impl(
                 _price = _p
         except Exception:
             pass
-        # Inline cap = 12 s.  The bundle tracker's own internal timeout (120 s)
-        # handles the full analysis in the background; results are persisted to DB
-        # and the next scan reads them instantly.  (Optimization: was 30 s)
+        # Inline cap = 8 s (down from 12 s).  The bundle tracker's own internal
+        # timeout (120 s) handles the full analysis in the background; results are
+        # persisted to DB and the next scan reads them instantly.
         try:
             return await asyncio.wait_for(
                 analyze_bundle(_scan_mint, _scan_deployer, _price, force_refresh=force_refresh),
-                timeout=12.0,
+                timeout=8.0,
             )
         except asyncio.TimeoutError:
             logger.warning(

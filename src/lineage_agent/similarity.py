@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import io
 import logging
+from collections import OrderedDict
 from datetime import datetime
 from typing import Optional
 
@@ -19,6 +20,12 @@ import httpx
 from Levenshtein import ratio as levenshtein_ratio
 
 logger = logging.getLogger(__name__)
+
+# In-memory pHash cache: avoids re-downloading the same image URL across
+# candidates in a single scan (or across back-to-back scans).
+# Bounded at 2 000 entries (FIFO eviction) — negligible memory footprint.
+_PHASH_CACHE_MAX = 2_000
+_phash_cache: OrderedDict[str, object] = OrderedDict()  # url → pHash | None
 
 # Lazy-load heavy optional deps
 _PIL_AVAILABLE = False
@@ -119,7 +126,15 @@ async def compute_image_similarity(
 
 
 async def _phash_from_url(url: str, timeout: int = 5, client: httpx.AsyncClient | None = None):
-    """Download an image and compute its perceptual hash."""
+    """Download an image and compute its perceptual hash.
+
+    Results are cached in ``_phash_cache`` (bounded FIFO, 2 000 entries) so
+    that the same logo URL is only downloaded once per process lifetime.
+    """
+    if url in _phash_cache:
+        return _phash_cache[url]
+
+    result = None
     try:
         if client is not None:
             resp = await client.get(url)
@@ -129,10 +144,15 @@ async def _phash_from_url(url: str, timeout: int = 5, client: httpx.AsyncClient 
                 resp = await _client.get(url)
                 resp.raise_for_status()
         img = Image.open(io.BytesIO(resp.content)).convert("RGB")
-        return imagehash.phash(img)
+        result = imagehash.phash(img)
     except Exception as exc:  # noqa: BLE001
         logger.debug("Could not compute phash for %s: %s", url, exc)
-        return None
+
+    # Store (even None) so we don't retry a known-bad URL repeatedly.
+    if len(_phash_cache) >= _PHASH_CACHE_MAX:
+        _phash_cache.popitem(last=False)  # evict oldest
+    _phash_cache[url] = result
+    return result
 
 
 # ------------------------------------------------------------------
