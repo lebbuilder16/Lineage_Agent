@@ -8,15 +8,14 @@ Uses an in-memory SQLite cache via a lightweight stub of SQLiteCache.
 from __future__ import annotations
 
 import asyncio
-import json
 import time
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import aiosqlite
 import pytest
 
-from src.lineage_agent.models import ScanDelta, ScanSnapshot
+from src.lineage_agent.models import ScanSnapshot
 from src.lineage_agent.scan_history_service import (
     _extract_flags,
     _enforce_retention,
