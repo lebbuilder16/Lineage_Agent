@@ -1213,7 +1213,10 @@ async def _detect_lineage_impl(
 
     # ── Launch gather 2 as an asyncio Task BEFORE awaiting gather 1 ─────────
     # Both groups now run in parallel on the event loop.
-    _gather2_task = asyncio.create_task(asyncio.gather(
+    # ensure_future is intentional here: asyncio.gather() returns a _GatheringFuture
+    # (not a coroutine), so create_task() would raise TypeError.  The task IS
+    # awaited below (_g2 = await _gather2_task) so there is no leak.
+    _gather2_task = asyncio.ensure_future(asyncio.gather(
         _run_sol_flow(),
         _run_cartel(),
         _run_insider(),
