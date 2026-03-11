@@ -22,6 +22,7 @@ import { HapticButton } from "@/src/components/ui/HapticButton";
 import { WalletBadge } from "@/src/components/ui/WalletBadge";
 import { colors } from "@/src/theme/colors";
 import { useAuthStore } from "@/src/store/auth";
+import { usePrivy } from "@privy-io/expo";
 import {
   getNotificationPrefs,
   updateNotificationPrefs,
@@ -91,6 +92,7 @@ function MenuRow({ label, onPress, danger = false }: { label: string; onPress: (
 
 export default function AccountScreen() {
   const { user, isAuthenticated, isPro, logout } = useAuthStore();
+  const { logout: privyLogout } = usePrivy();
   const queryClient = useQueryClient();
 
   // Load notification prefs from backend
@@ -139,6 +141,11 @@ export default function AccountScreen() {
         text: "Disconnect",
         style: "destructive",
         onPress: async () => {
+          try {
+            await privyLogout();
+          } catch {
+            // Ignore Privy logout errors — clear local state regardless
+          }
           await logout();
           router.replace("/auth");
         },

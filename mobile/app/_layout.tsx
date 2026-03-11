@@ -3,7 +3,7 @@
 
 import "../src/polyfills";
 import "../src/global.css";
-import React, { useEffect } from "react";
+import React, { useEffect, useRef } from "react";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
@@ -31,6 +31,7 @@ import {
   clearBadge,
 } from "@/src/lib/pushNotifications";
 import { initSentry, sentrySetUser, Sentry } from "@/src/lib/sentry";
+import { registerUnauthorizedHandler } from "@/src/lib/api";
 import { ErrorBoundary } from "@/src/components/ErrorBoundary";
 
 // Initialise Sentry au démarrage de l'app (avant tout rendu)
@@ -57,8 +58,19 @@ function RootLayout() {
     Inter_600SemiBold,
     Inter_700Bold,
   });
-  const { isAuthenticated, user } = useAuthStore();
+  const { isAuthenticated, user, logout } = useAuthStore();
+  const initialNavDone = useRef(false);
   const { addAlert } = useAlertsStore();
+
+  // Register global 401 handler — logs the user out and redirects to /auth
+  useEffect(() => {
+    registerUnauthorizedHandler(async () => {
+      await logout();
+      router.replace("/auth");
+    });
+    return () => registerUnauthorizedHandler(null);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Lie l'utilisateur courant à Sentry pour retrouver ses sessions dans les rapports
   useEffect(() => {
@@ -106,13 +118,20 @@ function RootLayout() {
   }, [isAuthenticated, user?.privy_id]);
 
   useEffect(() => {
-    if (fontsLoaded) {
-      SplashScreen.hideAsync();
-      // Show onboarding on first launch
-      AsyncStorage.getItem(ONBOARDING_KEY).then((value) => {
-        if (!value) router.replace("/onboarding");
-      });
-    }
+    if (!fontsLoaded || initialNavDone.current) return;
+    initialNavDone.current = true;
+    SplashScreen.hideAsync();
+    AsyncStorage.getItem(ONBOARDING_KEY).then((value) => {
+      if (!value) {
+        router.replace("/onboarding");
+      } else if (!isAuthenticated) {
+        router.replace("/auth");
+      }
+    });
+  // Runs once after fonts load — isAuthenticated is intentionally excluded
+  // to avoid re-triggering during the biometric session-restore in auth.tsx.
+  // The 401 handler above covers post-login session expiry.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fontsLoaded]);
 
   if (!fontsLoaded) return null;

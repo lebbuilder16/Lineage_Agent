@@ -193,22 +193,24 @@ export default function AuthScreen() {
     const enrolled = await LocalAuthentication.isEnrolledAsync();
     setHasBiometric(compatible && enrolled);
 
-    // Re-login biométrique si API key déjà stockée
     const existingKey = await SecureStore.getItemAsync("lineage_api_key");
-    if (existingKey && compatible && enrolled) {
+    if (!existingKey) return;
+
+    if (compatible && enrolled) {
+      // Biometrics available — gate re-auth behind a biometric unlock
       const result = await LocalAuthentication.authenticateAsync({
         promptMessage: "Unlock Lineage Agent",
         fallbackLabel: "Enter PIN",
       });
-      if (result.success) {
-        try {
-          const user = await getCurrentUser();
-          setUser(user);
-          router.replace("/(tabs)");
-        } catch {
-          // Token expiré — continuer vers login normal
-        }
-      }
+      if (!result.success) return; // user cancelled — show auth screen
+    }
+    // No biometrics enrolled → restore silently using the stored key
+    try {
+      const user = await getCurrentUser();
+      await setUser(user);
+      router.replace("/(tabs)");
+    } catch {
+      // Token expired or network error — continue to login screen
     }
   };
 
@@ -257,18 +259,15 @@ export default function AuthScreen() {
       }
       try {
         authErrorRef.current = null;
-        const result = await sendCode({ email: trimmedEmail });
-        if (!result?.success) {
-          Alert.alert(
-            "Code not sent",
-            authErrorRef.current ?? "Privy could not send the email code. Check spam and retry in a minute."
-          );
-          return;
-        }
+        await sendCode({ email: trimmedEmail });
         setOtpSent(true);
         toast.info("Code sent! Check your email.");
       } catch (e: any) {
-        Alert.alert("Connection failed", e.message ?? "Please try again.");
+        const msg =
+          authErrorRef.current ??
+          e.message ??
+          "Privy could not send the email code. Check spam and retry in a minute.";
+        Alert.alert("Code not sent", msg);
       } finally {
         setLoading(false);
       }
@@ -283,18 +282,15 @@ export default function AuthScreen() {
       }
       try {
         authErrorRef.current = null;
-        const privyUser = await loginWithCode({ code: trimmedCode });
-        if (!privyUser) {
-          Alert.alert(
-            "Code invalid",
-            authErrorRef.current ?? "The code was rejected or expired. Request a new code and try again."
-          );
-          setLoading(false);
-          return;
-        }
-        // loading stays true — _handlePrivyUser will reset it after navigation
+        await loginWithCode({ code: trimmedCode });
+        // On success: emailState.status → "done" triggers _handlePrivyUser()
+        // loading stays true so there is no flicker before navigation.
       } catch (e: any) {
-        Alert.alert("Connection failed", e.message ?? "Please try again.");
+        const msg =
+          authErrorRef.current ??
+          e.message ??
+          "The code was rejected or expired. Request a new code and try again.";
+        Alert.alert("Code invalid", msg);
         setLoading(false);
       }
     }
@@ -424,8 +420,24 @@ export default function AuthScreen() {
 
             <Text style={styles.disclaimer}>
               By connecting, you agree to the{" "}
-              <Text style={styles.link}>Terms of Service</Text> and{" "}
-              <Text style={styles.link}>Privacy Policy</Text>.
+              <Text
+                style={styles.link}
+                onPress={() =>
+                  Linking.openURL("https://lineageagent.io/terms").catch(() => {})
+                }
+              >
+                Terms of Service
+              </Text>
+              {" "}and{" "}
+              <Text
+                style={styles.link}
+                onPress={() =>
+                  Linking.openURL("https://lineageagent.io/privacy").catch(() => {})
+                }
+              >
+                Privacy Policy
+              </Text>
+              .
             </Text>
           </GlassCard>
         </Animated.View>
