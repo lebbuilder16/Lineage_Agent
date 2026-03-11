@@ -30,7 +30,7 @@ CMD ["python", "-m", "uvicorn", "lineage_agent.api:app", "--host", "0.0.0.0", "-
 
 
 # ---- Stage 2: Next.js frontend ----
-FROM node:20-alpine AS frontend-builder
+FROM node:22-alpine AS frontend-builder
 
 WORKDIR /app
 COPY frontend/package.json frontend/package-lock.json* ./
@@ -41,7 +41,7 @@ RUN mkdir -p public
 RUN npm run build
 
 
-FROM node:20-alpine AS frontend
+FROM node:22-alpine AS frontend
 
 WORKDIR /app
 COPY --from=frontend-builder /app/.next/standalone ./
