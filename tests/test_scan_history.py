@@ -15,8 +15,8 @@ from unittest.mock import MagicMock, patch
 import aiosqlite
 import pytest
 
-from src.lineage_agent.models import ScanSnapshot
-from src.lineage_agent.scan_history_service import (
+from lineage_agent.models import ScanSnapshot
+from lineage_agent.scan_history_service import (
     _extract_flags,
     _enforce_retention,
     compute_delta,
@@ -291,7 +291,7 @@ class TestSaveAndGetSnapshots:
         result = _make_lineage_result()
         # Patch _heuristic_score to return deterministic value
         with patch(
-            "src.lineage_agent.scan_history_service._extract_risk_score",
+            "lineage_agent.scan_history_service._extract_risk_score",
             return_value=45,
         ):
             snap = await save_snapshot(fake_cache, user_id=1, mint="MINT1", result=result)
@@ -303,7 +303,7 @@ class TestSaveAndGetSnapshots:
     async def test_get_snapshots_oldest_first(self, fake_cache, mem_db):
         result = _make_lineage_result()
         with patch(
-            "src.lineage_agent.scan_history_service._extract_risk_score",
+            "lineage_agent.scan_history_service._extract_risk_score",
             return_value=30,
         ):
             for _ in range(3):
@@ -318,7 +318,7 @@ class TestSaveAndGetSnapshots:
     async def test_different_users_isolated(self, fake_cache, mem_db):
         result = _make_lineage_result()
         with patch(
-            "src.lineage_agent.scan_history_service._extract_risk_score",
+            "lineage_agent.scan_history_service._extract_risk_score",
             return_value=0,
         ):
             await save_snapshot(fake_cache, user_id=10, mint="MINTX", result=result)
@@ -344,7 +344,7 @@ class TestRetention:
         """Free plan: inserting 5 snapshots should leave only 3."""
         result = _make_lineage_result()
         with patch(
-            "src.lineage_agent.scan_history_service._extract_risk_score",
+            "lineage_agent.scan_history_service._extract_risk_score",
             return_value=0,
         ):
             for _ in range(5):
@@ -360,7 +360,7 @@ class TestRetention:
         """Pro plan: 6 snapshots within 90 days must all be kept."""
         result = _make_lineage_result()
         with patch(
-            "src.lineage_agent.scan_history_service._extract_risk_score",
+            "lineage_agent.scan_history_service._extract_risk_score",
             return_value=0,
         ):
             for _ in range(6):
@@ -424,7 +424,7 @@ class TestRetention:
 
 class TestFallbackDeltaNarrative:
     def _get_fallback(self):
-        from src.lineage_agent.ai_analyst import _fallback_delta_narrative
+        from lineage_agent.ai_analyst import _fallback_delta_narrative
         return _fallback_delta_narrative
 
     def test_worsening_contains_risk_info(self):

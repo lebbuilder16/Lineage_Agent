@@ -579,3 +579,273 @@ async def test_purge_legacy_forensic_cache_namespaces_uses_prefix_deletes():
 
     assert mock_delete.await_args_list[0].args[0] == "ai:v3:"
     assert mock_delete.await_args_list[1].args[0] == "lineage:v4:"
+
+
+# ------------------------------------------------------------------
+# /deployer/{address}
+# ------------------------------------------------------------------
+
+_VALID_ADDR = "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263"
+
+
+@pytest.mark.anyio
+async def test_deployer_invalid_address(client):
+    resp = await client.get("/deployer/short")
+    assert resp.status_code == 400
+    assert "Invalid Solana address" in resp.json()["detail"]
+
+
+@pytest.mark.anyio
+async def test_deployer_not_found_returns_404(client):
+    with patch(
+        "lineage_agent.api.compute_deployer_profile",
+        new_callable=AsyncMock,
+        return_value=None,
+    ):
+        resp = await client.get(f"/deployer/{_VALID_ADDR}")
+    assert resp.status_code == 404
+
+
+@pytest.mark.anyio
+async def test_deployer_internal_error_returns_500(client):
+    with patch(
+        "lineage_agent.api.compute_deployer_profile",
+        new_callable=AsyncMock,
+        side_effect=RuntimeError("db error"),
+    ):
+        resp = await client.get(f"/deployer/{_VALID_ADDR}")
+    assert resp.status_code == 500
+
+
+# ------------------------------------------------------------------
+# /operator/{fingerprint}
+# ------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_operator_invalid_fingerprint_returns_400(client):
+    resp = await client.get("/operator/NOTAHEX")
+    assert resp.status_code == 400
+    assert "fingerprint" in resp.json()["detail"].lower()
+
+
+@pytest.mark.anyio
+async def test_operator_not_found_returns_404(client):
+    with patch(
+        "lineage_agent.api.operator_mapping_query",
+        new_callable=AsyncMock,
+        return_value=[],
+    ):
+        resp = await client.get("/operator/abcdef1234567890")
+    assert resp.status_code == 404
+
+
+# ------------------------------------------------------------------
+# /lineage/{mint}/sol-trace
+# ------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_sol_trace_invalid_mint_returns_400(client):
+    resp = await client.get("/lineage/short/sol-trace")
+    assert resp.status_code == 400
+    assert "Invalid Solana mint" in resp.json()["detail"]
+
+
+@pytest.mark.anyio
+async def test_sol_trace_no_deployer_returns_404(client):
+    with (
+        patch("lineage_agent.data_sources._clients.sol_flows_query", new_callable=AsyncMock, return_value=[]),
+        patch("lineage_agent.data_sources._clients.event_query", new_callable=AsyncMock, return_value=[]),
+        patch("lineage_agent.api._resolve_deployer", new_callable=AsyncMock, return_value=""),
+    ):
+        resp = await client.get(f"/lineage/{_VALID_ADDR}/sol-trace")
+    assert resp.status_code == 404
+
+
+# ------------------------------------------------------------------
+# /lineage/{mint}/bundle
+# ------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_lineage_bundle_invalid_mint_returns_400(client):
+    resp = await client.get("/lineage/bad/bundle")
+    assert resp.status_code == 400
+
+
+@pytest.mark.anyio
+async def test_lineage_bundle_not_found_returns_404(client):
+    with patch(
+        "lineage_agent.bundle_tracker_service.get_cached_bundle_report",
+        new_callable=AsyncMock,
+        return_value=None,
+    ):
+        resp = await client.get(f"/lineage/{_VALID_ADDR}/bundle")
+    assert resp.status_code == 404
+
+
+@pytest.mark.anyio
+async def test_lineage_bundle_internal_error_returns_500(client):
+    with patch(
+        "lineage_agent.bundle_tracker_service.get_cached_bundle_report",
+        new_callable=AsyncMock,
+        side_effect=RuntimeError("db error"),
+    ):
+        resp = await client.get(f"/lineage/{_VALID_ADDR}/bundle")
+    assert resp.status_code == 500
+
+
+# ------------------------------------------------------------------
+# /cartel/search
+# ------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_cartel_search_invalid_deployer_returns_400(client):
+    resp = await client.get("/cartel/search", params={"deployer": "xyz"})
+    assert resp.status_code == 400
+
+
+# ------------------------------------------------------------------
+# /cartel/{community_id}
+# ------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_cartel_community_invalid_id_returns_400(client):
+    resp = await client.get("/cartel/NOTAVALIDID12")
+    assert resp.status_code == 400
+    assert "community_id" in resp.json()["detail"].lower()
+
+
+@pytest.mark.anyio
+async def test_cartel_community_no_data_returns_404(client):
+    with (
+        patch("lineage_agent.data_sources._clients.community_lookup_query", new_callable=AsyncMock, return_value=None),
+        patch("lineage_agent.data_sources._clients.cartel_edges_query_all", new_callable=AsyncMock, return_value=[]),
+    ):
+        resp = await client.get("/cartel/abcdef123456")
+    assert resp.status_code == 404
+
+
+# ------------------------------------------------------------------
+# /cartel/{deployer}/financial
+# ------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_cartel_financial_invalid_address_returns_400(client):
+    resp = await client.get("/cartel/bad/financial")
+    assert resp.status_code == 400
+
+
+@pytest.mark.anyio
+async def test_cartel_financial_timeout_returns_504(client):
+    import asyncio as _asyncio
+
+    with (
+        patch("lineage_agent.api.build_financial_edges", new_callable=AsyncMock,
+              side_effect=_asyncio.TimeoutError()),
+    ):
+        resp = await client.get(f"/cartel/{_VALID_ADDR}/financial")
+    assert resp.status_code == 504
+
+
+@pytest.mark.anyio
+async def test_cartel_financial_success_returns_200(client):
+    with (
+        patch("lineage_agent.api.build_financial_edges", new_callable=AsyncMock, return_value=0),
+        patch("lineage_agent.data_sources._clients.cartel_edges_query", new_callable=AsyncMock, return_value=[]),
+    ):
+        resp = await client.get(f"/cartel/{_VALID_ADDR}/financial")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["deployer"] == _VALID_ADDR
+    assert body["financial_score"] == 0
+
+
+# ------------------------------------------------------------------
+# /bundle/{mint}
+# ------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_bundle_invalid_mint_returns_400(client):
+    resp = await client.get("/bundle/short")
+    assert resp.status_code == 400
+
+
+@pytest.mark.anyio
+async def test_bundle_no_deployer_returns_404(client):
+    with (
+        patch("lineage_agent.api._resolve_deployer", new_callable=AsyncMock, return_value=""),
+    ):
+        resp = await client.get(f"/bundle/{_VALID_ADDR}")
+    assert resp.status_code == 404
+
+
+# ------------------------------------------------------------------
+# /lineage/{mint}/graph
+# ------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_lineage_graph_invalid_mint_returns_400(client):
+    resp = await client.get("/lineage/bad/graph")
+    assert resp.status_code == 400
+
+
+@pytest.mark.anyio
+async def test_lineage_graph_success_returns_200(client):
+    from lineage_agent.models import LineageResult, TokenMetadata
+
+    fake_result = LineageResult(
+        mint=_WS_MINT,
+        query_token=TokenMetadata(
+            mint=_WS_MINT,
+            name="BONK",
+            symbol="BONK",
+        ),
+        root=None,
+        derivatives=[],
+        family_size=1,
+        generation_count=0,
+        scanned_at=None,
+    )
+
+    with patch("lineage_agent.api.detect_lineage", new_callable=AsyncMock, return_value=fake_result):
+        resp = await client.get(f"/lineage/{_WS_MINT}/graph")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["mint"] == _WS_MINT
+    assert "nodes" in body
+    assert "edges" in body
+
+
+# ------------------------------------------------------------------
+# /analyze/{mint}/stream (invalid mint only — full AI integration is expensive)
+# ------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_stream_analyze_invalid_mint_returns_400(client):
+    resp = await client.get("/analyze/short/stream")
+    assert resp.status_code == 400
+
+
+# ------------------------------------------------------------------
+# Internal helper: _schedule_cartel_sweep / _cancel_cartel_sweep
+# ------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_schedule_and_cancel_cartel_sweep():
+    import asyncio as _asyncio
+    from lineage_agent import api as _api
+
+    # Patch the loop so it cancels immediately
+    async def _instant_loop():
+        await _asyncio.sleep(9999)
+
+    old_task = _api._cartel_sweep_task
+    try:
+        with patch("lineage_agent.api._cartel_sweep_loop", new=_instant_loop):
+            _api._schedule_cartel_sweep()
+            assert _api._cartel_sweep_task is not None
+            assert not _api._cartel_sweep_task.done()
+            _api._cancel_cartel_sweep()
+            await _asyncio.sleep(0)  # let cancel propagate
+    finally:
+        _api._cartel_sweep_task = old_task

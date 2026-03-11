@@ -31,7 +31,8 @@ async def _cleanup_expired_cache(db) -> int:
     """Delete expired cache rows. Returns count deleted."""
     now = time.time()
     cursor = await db.execute(
-        "DELETE FROM cache WHERE expires_at < ? LIMIT ?",
+        "DELETE FROM cache WHERE rowid IN "
+        "(SELECT rowid FROM cache WHERE expires_at < ? LIMIT ?)",
         (now, _CACHE_EXPIRE_BATCH),
     )
     await db.commit()

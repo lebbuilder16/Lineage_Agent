@@ -250,3 +250,118 @@ class TestParseSolFlows:
         assert len(flows) == 1
         assert flows[0]["amount_lamports"] == 500_000_000
         assert flows[0]["to_address"] == _DEST_A
+
+
+# ===================================================================
+# trace_sol_flow — high-level async API (mocked _run_trace)
+# ===================================================================
+
+import asyncio
+import pytest
+from unittest.mock import AsyncMock, patch
+
+
+class TestTraceSolFlowHighLevel:
+    """Test the timeout / exception handling paths of trace_sol_flow."""
+
+    async def test_timeout_no_partial_flows_returns_none(self):
+        from lineage_agent.sol_flow_service import trace_sol_flow
+
+        async def _slow(*args, **kwargs):
+            await asyncio.sleep(9999)
+
+        with patch("lineage_agent.sol_flow_service._run_trace", new=_slow):
+            with patch("lineage_agent.sol_flow_service._TRACE_TIMEOUT", 0.001):
+                result = await trace_sol_flow("MINT1", "DEPLOYER1")
+
+        assert result is None
+
+    async def test_exception_returns_none(self):
+        from lineage_agent.sol_flow_service import trace_sol_flow
+
+        async def _explode(*args, **kwargs):
+            raise RuntimeError("rpc failure")
+
+        with patch("lineage_agent.sol_flow_service._run_trace", new=_explode):
+            result = await trace_sol_flow("MINT2", "DEPLOYER2")
+
+        assert result is None
+
+    async def test_success_returns_report(self):
+        from lineage_agent.sol_flow_service import trace_sol_flow
+        from lineage_agent.models import SolFlowReport
+
+        from datetime import datetime, timezone
+        mock_report = SolFlowReport(
+            mint="MINT3",
+            deployer="DEPLOYER3",
+            total_extracted_sol=0.0,
+            analysis_timestamp=datetime.now(timezone.utc),
+        )
+
+        async def _fast(*args, **kwargs):
+            return mock_report
+
+        with patch("lineage_agent.sol_flow_service._run_trace", new=_fast):
+            result = await trace_sol_flow("MINT3", "DEPLOYER3")
+
+        assert result is mock_report
+
+
+# ===================================================================
+# get_sol_flow_report — DB-backed report retrieval
+# ===================================================================
+
+class TestGetSolFlowReport:
+    async def test_force_refresh_returns_none(self):
+        from lineage_agent.sol_flow_service import get_sol_flow_report
+
+        with patch("lineage_agent.sol_flow_service.sol_flows_delete", new_callable=AsyncMock) as mock_del:
+            result = await get_sol_flow_report("MINT_FR", force_refresh=True)
+
+        assert result is None
+        mock_del.assert_called_once_with("MINT_FR")
+
+    async def test_no_rows_in_db_returns_none(self):
+        from lineage_agent.sol_flow_service import get_sol_flow_report
+
+        with patch("lineage_agent.sol_flow_service.sol_flows_query", new_callable=AsyncMock, return_value=[]):
+            result = await get_sol_flow_report("MINT_EMPTY")
+
+        assert result is None
+
+    async def test_existing_rows_returns_report(self):
+        from lineage_agent.sol_flow_service import get_sol_flow_report
+
+        rows = [
+            {
+                "from_address": "DEPLOYER_X",
+                "to_address": "Wallet_AA",
+                "amount_lamports": 1_000_000_000,
+                "signature": "sig_abc",
+                "slot": 111,
+                "block_time": 1700000000.0,
+                "hop": 0,
+                "label": None,
+                "is_bridge": False,
+            }
+        ]
+
+        with patch("lineage_agent.sol_flow_service.sol_flows_query", new_callable=AsyncMock, return_value=rows):
+            result = await get_sol_flow_report("MINT_DB")
+
+        # Report should be non-None with at least one edge
+        assert result is not None
+
+    async def test_exception_returns_none(self):
+        from lineage_agent.sol_flow_service import get_sol_flow_report
+
+        with patch(
+            "lineage_agent.sol_flow_service.sol_flows_query",
+            new_callable=AsyncMock,
+            side_effect=Exception("db error"),
+        ):
+            result = await get_sol_flow_report("MINT_ERR")
+
+        assert result is None
+
