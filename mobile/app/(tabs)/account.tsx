@@ -13,6 +13,7 @@ import {
   Linking,
   Platform,
 } from "react-native";
+import Constants from "expo-constants";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { router } from "expo-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -98,12 +99,12 @@ export default function AccountScreen() {
     queryFn: getNotificationPrefs,
     enabled: isAuthenticated,
     staleTime: 60_000,
-    initialData: { rug: true, bundle: true, insider: true, zombie: false },
+    initialData: { rug: true, bundle: true, insider: true, zombie: false, death_clock: false },
   });
 
   // Local copy for optimistic updates
   const [localPrefs, setLocalPrefs] = React.useState<NotificationPrefs>(
-    prefs ?? { rug: true, bundle: true, insider: true, zombie: false }
+    prefs ?? { rug: true, bundle: true, insider: true, zombie: false, death_clock: false }
   );
 
   // Sync with backend data when loaded
@@ -244,16 +245,40 @@ export default function AccountScreen() {
             value={localPrefs.zombie}
             onToggle={(v) => handlePrefToggle("zombie", v)}
           />
+          <View style={styles.separator} />
+          <SettingRow
+            label="Death Clock"
+            description="Alert when a token's rug countdown hits critical"
+            value={localPrefs.death_clock}
+            onToggle={(v) => handlePrefToggle("death_clock", v)}
+          />
         </GlassCard>
 
         {/* More */}
         <Text style={styles.sectionTitle}>More</Text>
         <GlassCard style={styles.settingsCard}>
-          <MenuRow label="Privacy Policy" onPress={() => {}} />
+          <MenuRow
+            label="Privacy Policy"
+            onPress={() =>
+              Linking.openURL("https://lineageagent.io/privacy").catch(() =>
+                Alert.alert("Error", "Could not open Privacy Policy.")
+              )
+            }
+          />
           <View style={styles.separator} />
-          <MenuRow label="Terms of Service" onPress={() => {}} />
+          <MenuRow
+            label="Terms of Service"
+            onPress={() =>
+              Linking.openURL("https://lineageagent.io/terms").catch(() =>
+                Alert.alert("Error", "Could not open Terms of Service.")
+              )
+            }
+          />
           <View style={styles.separator} />
-          <MenuRow label="Version 1.0.0" onPress={() => {}} />
+          <MenuRow
+            label={`Version ${Constants.expoConfig?.version ?? Constants.manifest?.version ?? "1.0.0"}`}
+            onPress={() => {}}
+          />
         </GlassCard>
 
         <View style={styles.logoutWrap}>

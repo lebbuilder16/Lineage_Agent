@@ -279,7 +279,8 @@ function AIBriefCard() {
       })()
     : null;
 
-  const words = (data?.summary ?? data?.text ?? "").split(" ");
+  const briefText = data?.summary ?? data?.text ?? "";
+  const words = briefText.split(" ");
 
   return (
     <Animated.View entering={FadeInDown.delay(100).springify()}>
@@ -304,7 +305,7 @@ function AIBriefCard() {
             </View>
           )}
 
-          {data && (
+          {data && briefText.trim().length > 0 ? (
             <View style={styles.briefWordsRow}>
               {words.map((word: string, i: number) => (
                 <Animated.Text
@@ -316,11 +317,22 @@ function AIBriefCard() {
                 </Animated.Text>
               ))}
             </View>
-          )}
+          ) : data && !isLoading ? (
+            <Text style={styles.briefEmptyText}>No market intelligence available right now.</Text>
+          ) : null}
 
           <TouchableOpacity
             style={styles.aiBriefCta}
-            onPress={() => router.push("/chat/latest")}
+            onPress={() => {
+              // Navigate to the most recent alerted token's chat, or fall back
+              // to the search screen if no alerts have been received yet.
+              const firstMint = useAlertsStore.getState().alerts[0]?.mint;
+              if (firstMint) {
+                router.push(`/chat/${firstMint}`);
+              } else {
+                router.push("/(tabs)/search");
+              }
+            }}
           >
             <Text style={styles.aiBriefCtaText}>Ask AI →</Text>
           </TouchableOpacity>
@@ -376,7 +388,8 @@ export default function HomeFeedScreen() {
     toast.success("Updated just now");
   }, [queryClient]);
 
-  const groups = groupAlertsByTime(alerts.slice(0, 20));
+  const MAX_ALERTS = 50;
+  const groups = groupAlertsByTime(alerts.slice(0, MAX_ALERTS));
 
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
@@ -443,7 +456,14 @@ export default function HomeFeedScreen() {
           <AIBriefCard />
 
           {/* Live Alerts */}
-          <Text style={styles.sectionTitle}>Live Alerts</Text>
+          <View style={styles.sectionRow}>
+            <Text style={[styles.sectionTitle, { marginTop: 0, marginBottom: 0 }]}>Live Alerts</Text>
+            {alerts.length > MAX_ALERTS && (
+              <TouchableOpacity onPress={() => router.push("/(tabs)/alerts")}>
+                <Text style={styles.seeAllText}>See all →</Text>
+              </TouchableOpacity>
+            )}
+          </View>
           <GlassCard style={styles.alertList}>
             {alerts.length === 0 ? (
               <EmptyRadar
@@ -586,8 +606,12 @@ const styles = StyleSheet.create({
   briefError: { flexDirection: "row", gap: 10, alignItems: "center", marginBottom: 10 },
   briefErrorText: { color: colors.text.muted, fontSize: 13 },
   briefRetryText: { color: colors.accent.ai, fontSize: 13, fontWeight: "600" },
+  briefEmptyText: { color: colors.text.muted, fontSize: 13, fontStyle: "italic", marginBottom: 12 },
   aiBriefCta: { alignSelf: "flex-start" },
   aiBriefCtaText: { color: colors.accent.ai, fontSize: 14, fontWeight: "600" },
+
+  sectionRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 20, marginBottom: 10 },
+  seeAllText: { color: colors.accent.safe, fontSize: 12, fontWeight: "600" },
 
   // Alert list
   alertList: { overflow: "hidden" },

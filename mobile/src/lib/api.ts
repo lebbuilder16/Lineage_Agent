@@ -258,6 +258,7 @@ export interface NotificationPrefs {
   bundle: boolean;
   insider: boolean;
   zombie: boolean;
+  death_clock: boolean;
 }
 
 export async function getNotificationPrefs(): Promise<NotificationPrefs> {
