@@ -50,15 +50,12 @@ export default function LineagePage() {
 
   useEffect(() => {
     if (!mint) return;
-    // If a fresh result is cached (e.g. auth-state remount or page refresh),
-    // restore it immediately without hitting the network.
-    log("useEffect[mint] — trying cache restore for", mint.slice(0, 8));
-    if (!restoreFromCache(mint)) {
-      log("cache miss — calling analyze()");
-      analyze(mint);
-    } else {
-      log("cache hit — restored without network call");
-    }
+    // Restore cached result immediately so the UI isn't blank while the fresh
+    // fetch is in flight (stale-while-revalidate pattern). Then always call
+    // analyze() so every page visit gets up-to-date on-chain data.
+    log("useEffect[mint] — restoring cache (if any) then analyzing", mint.slice(0, 8));
+    restoreFromCache(mint);
+    analyze(mint);
   }, [mint, analyze, restoreFromCache]);
 
   // Sync risk score back into the watchlist whenever analysis finishes

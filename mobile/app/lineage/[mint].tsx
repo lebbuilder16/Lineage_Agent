@@ -191,7 +191,11 @@ export default function LineageDetailScreen() {
     queryKey: ["lineage", mint],
     queryFn: () => getLineage(mint),
     enabled: !!mint,
-    staleTime: 30_000,
+    // Keep data visible while a background refetch runs (stale-while-revalidate).
+    // 0 means React Query refetches immediately on every mount/focus while still
+    // displaying the previous result — equivalent to what the web does after the
+    // cache-restore fix.
+    staleTime: 0,
     // Backend can take up to 50 s — don't retry automatically; the error state
     // already shows a "Back" button so the user can retry manually.
     retry: 0,

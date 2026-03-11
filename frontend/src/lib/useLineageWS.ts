@@ -8,7 +8,7 @@ import {
   type ProgressEvent,
 } from "./api";
 
-const CACHE_TTL_MS = 5 * 60 * 1000; // 5 min
+const CACHE_TTL_MS = 2 * 60 * 1000; // 2 min — intentionally shorter than the backend 3-min TTL so the frontend never serves data the backend would already consider stale
 
 function cacheKey(mint: string) {
   return `lineage_v1:${mint}`;
@@ -95,7 +95,12 @@ export function useLineageWS(): UseLineageWSReturn {
     }
 
     const runId = ++runIdRef.current;
-    setData(null);
+    // Keep existing data visible as a placeholder while the fresh result loads
+    // (stale-while-revalidate). Only clear on an explicit forceRefresh so the
+    // user explicitly asked for a clean reload.
+    if (forceRefresh) {
+      setData(null);
+    }
     setError(null);
     setIsLoading(true);
     setProgress({ step: "Connecting…", progress: 0 });
