@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import aiosqlite
 import pytest
@@ -307,3 +308,162 @@ class TestScheduleCancel:
         import lineage_agent.db_maintenance as dm
         monkeypatch.setattr(dm, "_maintenance_task", None)
         cancel_db_maintenance()  # should not raise
+
+
+# ---------------------------------------------------------------------------
+# _maintenance_loop — inline execution via monkeypatching
+# ---------------------------------------------------------------------------
+
+class TestMaintenanceLoop:
+    """Test _maintenance_loop body by running it with mocked internals."""
+
+    async def test_loop_runs_one_iteration_then_cancels(self, monkeypatch):
+        """Run startup delay, one maintenance iteration, then cancel on sleep."""
+        import lineage_agent.db_maintenance as dm
+        import aiosqlite
+
+        sleep_count = 0
+
+        async def fake_sleep(seconds):
+            nonlocal sleep_count
+            sleep_count += 1
+            if sleep_count == 1:
+                return
+            raise asyncio.CancelledError()
+
+        async with aiosqlite.connect(":memory:") as mem_db:
+            # Create all required tables
+            await mem_db.execute("CREATE TABLE cache (key TEXT PRIMARY KEY, value TEXT, expires_at REAL)")
+            await mem_db.execute("CREATE TABLE sol_flows (id INTEGER PRIMARY KEY, mint TEXT, block_time REAL)")
+            await mem_db.execute("CREATE TABLE intelligence_events (id INTEGER PRIMARY KEY, event_type TEXT, recorded_at REAL)")
+            await mem_db.commit()
+
+            # Build a fake cache backend with _get_conn
+            fake_cache = MagicMock()
+            fake_cache._get_conn = AsyncMock(return_value=mem_db)
+
+            monkeypatch.setattr("lineage_agent.db_maintenance.asyncio.sleep", fake_sleep)
+
+            # Patch the lazy import of _cache_backend inside _maintenance_loop
+            with patch("lineage_agent.data_sources._clients.cache", fake_cache):
+                # Also patch the local import inside the loop function
+                import lineage_agent.data_sources._clients as _clients_mod
+                orig_cache = getattr(_clients_mod, "cache", None)
+                _clients_mod.cache = fake_cache
+
+                try:
+                    await dm._maintenance_loop()
+                finally:
+                    if orig_cache is not None:
+                        _clients_mod.cache = orig_cache
+
+        assert sleep_count >= 2
+
+    async def test_loop_skips_when_no_get_conn(self, monkeypatch):
+        """If cache backend has no _get_conn, loop sleeps and continues."""
+        import lineage_agent.db_maintenance as dm
+
+        sleep_calls = []
+
+        async def fake_sleep(seconds):
+            sleep_calls.append(seconds)
+            if len(sleep_calls) == 1:
+                return
+            raise asyncio.CancelledError()
+
+        fake_cache = MagicMock(spec=[])  # no _get_conn attribute
+
+        monkeypatch.setattr("lineage_agent.db_maintenance.asyncio.sleep", fake_sleep)
+
+        import lineage_agent.data_sources._clients as _clients_mod
+        orig_cache = getattr(_clients_mod, "cache", None)
+        _clients_mod.cache = fake_cache
+
+        try:
+            await dm._maintenance_loop()
+        finally:
+            if orig_cache is not None:
+                _clients_mod.cache = orig_cache
+
+        assert len(sleep_calls) >= 2
+
+    async def test_loop_handles_exception_in_iteration(self, monkeypatch):
+        """Exceptions during maintenance are caught and loop continues."""
+        import lineage_agent.db_maintenance as dm
+
+        sleep_calls = []
+
+        async def fake_sleep(seconds):
+            sleep_calls.append(seconds)
+            if len(sleep_calls) == 1:
+                return
+            raise asyncio.CancelledError()
+
+        # Cache backend that raises on _get_conn
+        fake_cache = MagicMock()
+        fake_cache._get_conn = AsyncMock(side_effect=RuntimeError("DB error"))
+
+        monkeypatch.setattr("lineage_agent.db_maintenance.asyncio.sleep", fake_sleep)
+
+        import lineage_agent.data_sources._clients as _clients_mod
+        orig_cache = getattr(_clients_mod, "cache", None)
+        _clients_mod.cache = fake_cache
+
+        try:
+            await dm._maintenance_loop()
+        finally:
+            if orig_cache is not None:
+                _clients_mod.cache = orig_cache
+
+        assert len(sleep_calls) >= 2
+
+    async def test_loop_uses_cache_cleanup_fallback_and_ignores_optional_failures(self, monkeypatch):
+        import lineage_agent.db_maintenance as dm
+
+        sleep_calls = 0
+
+        async def fake_sleep(seconds):
+            nonlocal sleep_calls
+            sleep_calls += 1
+            if sleep_calls == 1:
+                return
+            raise asyncio.CancelledError()
+
+        class FakeCursor:
+            rowcount = 7
+
+        class FakeDb:
+            def __init__(self):
+                self.executed = []
+                self.commit_count = 0
+
+            async def execute(self, sql, params=()):
+                self.executed.append((sql, params))
+                return FakeCursor()
+
+            async def commit(self):
+                self.commit_count += 1
+
+        fake_db = FakeDb()
+        fake_cache = MagicMock()
+        fake_cache._get_conn = AsyncMock(return_value=fake_db)
+
+        monkeypatch.setattr("lineage_agent.db_maintenance.asyncio.sleep", fake_sleep)
+
+        import lineage_agent.data_sources._clients as _clients_mod
+        orig_cache = getattr(_clients_mod, "cache", None)
+        _clients_mod.cache = fake_cache
+
+        try:
+            with patch("lineage_agent.db_maintenance._cleanup_expired_cache", AsyncMock(side_effect=RuntimeError("no limit"))):
+                with patch("lineage_agent.db_maintenance._cleanup_old_sol_flows", AsyncMock(side_effect=RuntimeError("no table"))):
+                    with patch("lineage_agent.db_maintenance._cleanup_old_events", AsyncMock(side_effect=RuntimeError("no table"))):
+                        with patch("lineage_agent.db_maintenance._wal_checkpoint", AsyncMock(side_effect=RuntimeError("wal fail"))):
+                            with patch("lineage_agent.db_maintenance._incremental_vacuum", AsyncMock(side_effect=RuntimeError("vacuum fail"))):
+                                await dm._maintenance_loop()
+        finally:
+            if orig_cache is not None:
+                _clients_mod.cache = orig_cache
+
+        assert any("DELETE FROM cache WHERE expires_at < ?" in sql for sql, _ in fake_db.executed)
+        assert fake_db.commit_count == 1

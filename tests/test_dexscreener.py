@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock, MagicMock
+
+import httpx
 import pytest
 
-from lineage_agent.data_sources.dexscreener import DexScreenerClient
+from lineage_agent.circuit_breaker import CircuitOpenError
+from lineage_agent.data_sources.dexscreener import DexScreenerClient, _safe_float
 
 
 @pytest.fixture
@@ -127,3 +131,136 @@ class TestPairsToSearchResults:
 
     def test_empty_input(self, client):
         assert client.pairs_to_search_results([]) == []
+
+
+class TestAsyncHelpers:
+    async def test_get_client_reuses_open_client(self, client):
+        first = await client._get_client()
+        second = await client._get_client()
+
+        assert first is second
+        await client.close()
+
+    async def test_close_closes_open_client(self, client):
+        mock_client = MagicMock()
+        mock_client.is_closed = False
+        mock_client.aclose = AsyncMock(return_value=None)
+        client._client = mock_client
+
+        await client.close()
+
+        mock_client.aclose.assert_awaited_once()
+
+    async def test_get_token_pairs_returns_empty_on_none(self, client, monkeypatch):
+        monkeypatch.setattr(client, "_get", AsyncMock(return_value=None))
+
+        result = await client.get_token_pairs("mint")
+
+        assert result == []
+
+    async def test_get_token_pairs_returns_pairs(self, client, monkeypatch):
+        monkeypatch.setattr(client, "_get", AsyncMock(return_value={"pairs": [{"x": 1}]}))
+
+        result = await client.get_token_pairs("mint")
+
+        assert result == [{"x": 1}]
+
+    async def test_search_tokens_returns_empty_on_none(self, client, monkeypatch):
+        monkeypatch.setattr(client, "_get", AsyncMock(return_value=None))
+
+        result = await client.search_tokens("bonk")
+
+        assert result == []
+
+    async def test_search_tokens_returns_pairs(self, client, monkeypatch):
+        monkeypatch.setattr(client, "_get", AsyncMock(return_value={"pairs": [{"mint": "x"}]}))
+
+        result = await client.search_tokens("bonk")
+
+        assert result == [{"mint": "x"}]
+
+
+class TestPairsToMetadataExtra:
+    def test_uses_quote_token_when_mint_matches_quote(self, client):
+        pairs = [{
+            "chainId": "solana",
+            "baseToken": {"address": "other", "name": "Other", "symbol": "OTH"},
+            "quoteToken": {"address": "mint-q", "name": "Quote", "symbol": "Q"},
+            "liquidity": {"usd": 10},
+            "priceUsd": "1.0",
+            "url": "https://dex/q",
+        }]
+
+        meta = client.pairs_to_metadata("mint-q", pairs)
+
+        assert meta.name == "Quote"
+        assert meta.symbol == "Q"
+
+    def test_falls_back_to_fdv_when_market_cap_missing(self, client):
+        pairs = [{
+            "chainId": "solana",
+            "baseToken": {"address": "mint-f", "name": "Fallback", "symbol": "FB"},
+            "liquidity": {"usd": 10},
+            "fdv": "4321",
+            "pairCreatedAt": 1_700_000_000_000,
+            "url": "https://dex/f",
+        }]
+
+        meta = client.pairs_to_metadata("mint-f", pairs)
+
+        assert meta.market_cap_usd == 4321.0
+        assert meta.created_at is not None
+
+
+class TestInternalGet:
+    async def test_get_returns_none_when_retries_exhausted_under_cb(self, client):
+        mock_cb = MagicMock()
+
+        async def call_wrapper(fn):
+            return await fn()
+
+        mock_cb.call = AsyncMock(side_effect=call_wrapper)
+        client._cb = mock_cb
+        client._client = MagicMock(is_closed=False)
+
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr("lineage_agent.data_sources.dexscreener.async_http_get", AsyncMock(return_value=None))
+            result = await client._get("https://example.com")
+
+        assert result is None
+
+    async def test_get_returns_none_when_circuit_is_open(self, client):
+        client._client = MagicMock(is_closed=False)
+        client._cb = MagicMock(call=AsyncMock(side_effect=CircuitOpenError("open")))
+
+        result = await client._get("https://example.com")
+
+        assert result is None
+
+    async def test_get_returns_none_when_cb_wrapper_raises(self, client):
+        client._client = MagicMock(is_closed=False)
+        client._cb = MagicMock(call=AsyncMock(side_effect=RuntimeError("boom")))
+
+        result = await client._get("https://example.com")
+
+        assert result is None
+
+    async def test_get_without_cb_uses_async_http_get(self, client):
+        client._client = MagicMock(is_closed=False)
+
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(
+                "lineage_agent.data_sources.dexscreener.async_http_get",
+                AsyncMock(return_value={"pairs": [1]}),
+            )
+            result = await client._get("https://example.com")
+
+        assert result == {"pairs": [1]}
+
+
+class TestSafeFloat:
+    def test_returns_none_on_type_error(self):
+        assert _safe_float(object()) is None
+
+    def test_returns_none_on_value_error(self):
+        assert _safe_float("abc") is None

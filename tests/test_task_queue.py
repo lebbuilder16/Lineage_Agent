@@ -96,6 +96,46 @@ class TestGetPool:
 
         assert result is fake_pool
 
+    async def test_creates_pool_when_redis_is_configured(self, monkeypatch):
+        import sys
+        import lineage_agent.task_queue as tq
+
+        fake_pool = MagicMock()
+        fake_config = MagicMock()
+        fake_config.ARQ_REDIS_URL = "redis://localhost:6379/0"
+        fake_redis_settings = MagicMock()
+        fake_redis_settings.from_dsn = MagicMock(return_value="settings")
+
+        monkeypatch.setattr(tq, "_pool", None)
+        monkeypatch.setattr(tq, "_pool_lock", None)
+
+        with patch.dict(sys.modules, {"config": fake_config}):
+            with patch("arq.create_pool", AsyncMock(return_value=fake_pool)) as mock_create_pool:
+                with patch("arq.connections.RedisSettings", fake_redis_settings):
+                    result = await tq._get_pool()
+
+        assert result is fake_pool
+        mock_create_pool.assert_awaited_once_with("settings")
+
+    async def test_returns_none_when_pool_creation_fails(self, monkeypatch):
+        import sys
+        import lineage_agent.task_queue as tq
+
+        fake_config = MagicMock()
+        fake_config.ARQ_REDIS_URL = "redis://localhost:6379/0"
+        fake_redis_settings = MagicMock()
+        fake_redis_settings.from_dsn = MagicMock(return_value="settings")
+
+        monkeypatch.setattr(tq, "_pool", None)
+        monkeypatch.setattr(tq, "_pool_lock", None)
+
+        with patch.dict(sys.modules, {"config": fake_config}):
+            with patch("arq.create_pool", AsyncMock(side_effect=RuntimeError("redis down"))):
+                with patch("arq.connections.RedisSettings", fake_redis_settings):
+                    result = await tq._get_pool()
+
+        assert result is None
+
 
 # ─── task_analyze_bundle ──────────────────────────────────────────────────────
 
@@ -217,3 +257,47 @@ class TestGetLock:
             assert lock1 is lock2
 
         asyncio.get_event_loop().run_until_complete(_run())
+
+
+# ─── WorkerSettings ───────────────────────────────────────────────────────────
+
+class TestWorkerSettings:
+    async def test_on_startup_calls_init_clients(self):
+        from lineage_agent.task_queue import WorkerSettings
+
+        mock_init = AsyncMock(return_value=None)
+        with patch("lineage_agent.data_sources._clients.init_clients", mock_init):
+            await WorkerSettings.on_startup({})
+
+        mock_init.assert_called_once()
+
+    async def test_on_shutdown_calls_close_clients(self):
+        from lineage_agent.task_queue import WorkerSettings
+
+        mock_close = AsyncMock(return_value=None)
+        with patch("lineage_agent.data_sources._clients.close_clients", mock_close):
+            await WorkerSettings.on_shutdown({})
+
+        mock_close.assert_called_once()
+
+    def test_redis_settings_returns_settings(self):
+        from lineage_agent.task_queue import WorkerSettings
+        import sys
+
+        fake_redis_settings = MagicMock()
+        fake_redis_settings_cls = MagicMock(return_value=fake_redis_settings)
+        fake_redis_settings_cls.from_dsn = MagicMock(return_value=fake_redis_settings)
+
+        fake_config = MagicMock()
+        fake_config.ARQ_REDIS_URL = "redis://localhost:6379"
+
+        fake_arq_connections = MagicMock()
+        fake_arq_connections.RedisSettings = fake_redis_settings_cls
+
+        with patch.dict(sys.modules, {
+            "config": fake_config,
+            "arq.connections": fake_arq_connections,
+        }):
+            result = WorkerSettings.redis_settings()
+
+        assert result is not None
