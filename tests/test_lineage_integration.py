@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import ExitStack, contextmanager
 import json
 from datetime import datetime, timezone, timedelta
 from unittest.mock import AsyncMock, patch
@@ -117,6 +118,39 @@ def _make_rpc_client():
     return rpc
 
 
+@contextmanager
+def _patch_fast_detect_lineage_background_work():
+    """Disable slow enrichers in tests that only care about lineage caching/state."""
+    with ExitStack() as stack:
+        jup = AsyncMock()
+        jup.get_price = AsyncMock(return_value=None)
+        stack.enter_context(
+            patch("lineage_agent.lineage_detector._get_jup_client", return_value=jup)
+        )
+        stack.enter_context(
+            patch(
+                "lineage_agent.lineage_detector.get_sol_flow_report",
+                new_callable=AsyncMock,
+                return_value=None,
+            )
+        )
+        stack.enter_context(
+            patch(
+                "lineage_agent.lineage_detector.trace_sol_flow",
+                new_callable=AsyncMock,
+                return_value=None,
+            )
+        )
+        stack.enter_context(
+            patch(
+                "lineage_agent.lineage_detector.analyze_bundle",
+                new_callable=AsyncMock,
+                return_value=None,
+            )
+        )
+        yield
+
+
 class TestDetectLineageIntegration:
 
     @pytest.mark.asyncio
@@ -127,7 +161,8 @@ class TestDetectLineageIntegration:
 
         with patch("lineage_agent.lineage_detector._get_dex_client", return_value=dex), \
              patch("lineage_agent.lineage_detector._get_rpc_client", return_value=rpc), \
-             patch("lineage_agent.lineage_detector.compute_image_similarity", new_callable=AsyncMock, return_value=0.9):
+               patch("lineage_agent.lineage_detector.compute_image_similarity", new_callable=AsyncMock, return_value=0.9), \
+               _patch_fast_detect_lineage_background_work():
 
             result = await detect_lineage("QueryMint1234567890123456789012345678")
 
@@ -160,7 +195,8 @@ class TestDetectLineageIntegration:
         rpc.search_assets_by_creator = AsyncMock(return_value=[])
 
         with patch("lineage_agent.lineage_detector._get_dex_client", return_value=dex), \
-             patch("lineage_agent.lineage_detector._get_rpc_client", return_value=rpc):
+               patch("lineage_agent.lineage_detector._get_rpc_client", return_value=rpc), \
+               _patch_fast_detect_lineage_background_work():
             result = await detect_lineage("QueryMint1234567890123456789012345678")
 
         assert result.query_token.deployer == creator
@@ -213,7 +249,8 @@ class TestDetectLineageIntegration:
         rpc.search_assets_by_creator = AsyncMock(return_value=[])
 
         with patch("lineage_agent.lineage_detector._get_dex_client", return_value=dex), \
-             patch("lineage_agent.lineage_detector._get_rpc_client", return_value=rpc):
+               patch("lineage_agent.lineage_detector._get_rpc_client", return_value=rpc), \
+               _patch_fast_detect_lineage_background_work():
 
             result = await detect_lineage("QueryMint1234567890123456789012345678")
 
@@ -229,7 +266,8 @@ class TestDetectLineageIntegration:
 
         with patch("lineage_agent.lineage_detector._get_dex_client", return_value=dex), \
              patch("lineage_agent.lineage_detector._get_rpc_client", return_value=rpc), \
-             patch("lineage_agent.lineage_detector.compute_image_similarity", new_callable=AsyncMock, return_value=0.9):
+               patch("lineage_agent.lineage_detector.compute_image_similarity", new_callable=AsyncMock, return_value=0.9), \
+               _patch_fast_detect_lineage_background_work():
 
             result1 = await detect_lineage("QueryMint1234567890123456789012345678")
             result2 = await detect_lineage("QueryMint1234567890123456789012345678")
@@ -637,7 +675,8 @@ class TestScannedAt:
         before = datetime.now(timezone.utc)
         with patch("lineage_agent.lineage_detector._get_dex_client", return_value=dex), \
              patch("lineage_agent.lineage_detector._get_rpc_client", return_value=rpc), \
-             patch("lineage_agent.lineage_detector.compute_image_similarity", new_callable=AsyncMock, return_value=0.9):
+               patch("lineage_agent.lineage_detector.compute_image_similarity", new_callable=AsyncMock, return_value=0.9), \
+               _patch_fast_detect_lineage_background_work():
             result = await detect_lineage("QueryMint1234567890123456789012345678")
         after = datetime.now(timezone.utc)
 
@@ -663,7 +702,8 @@ class TestScannedAt:
 
         before = datetime.now(timezone.utc)
         with patch("lineage_agent.lineage_detector._get_dex_client", return_value=dex), \
-             patch("lineage_agent.lineage_detector._get_rpc_client", return_value=rpc):
+               patch("lineage_agent.lineage_detector._get_rpc_client", return_value=rpc), \
+               _patch_fast_detect_lineage_background_work():
             result = await detect_lineage("QueryMint1234567890123456789012345678")
         after = datetime.now(timezone.utc)
 
@@ -679,7 +719,8 @@ class TestScannedAt:
 
         with patch("lineage_agent.lineage_detector._get_dex_client", return_value=dex), \
              patch("lineage_agent.lineage_detector._get_rpc_client", return_value=rpc), \
-             patch("lineage_agent.lineage_detector.compute_image_similarity", new_callable=AsyncMock, return_value=0.9):
+               patch("lineage_agent.lineage_detector.compute_image_similarity", new_callable=AsyncMock, return_value=0.9), \
+               _patch_fast_detect_lineage_background_work():
             result1 = await detect_lineage("QueryMint1234567890123456789012345678")
             result2 = await detect_lineage("QueryMint1234567890123456789012345678")  # cache hit
 
@@ -712,7 +753,8 @@ class TestForceRefresh:
         )
         with patches["lineage_detector___get_dex_client"], \
              patches["lineage_detector___get_rpc_client"], \
-             patches["image_sim"]:
+               patches["image_sim"], \
+               _patch_fast_detect_lineage_background_work():
             # First call — populates cache
             await detect_lineage("QueryMint1234567890123456789012345678")
             first_call_count = dex.get_token_pairs.call_count
@@ -735,7 +777,8 @@ class TestForceRefresh:
 
         with patch("lineage_agent.lineage_detector._get_dex_client", return_value=dex), \
              patch("lineage_agent.lineage_detector._get_rpc_client", return_value=rpc), \
-             patch("lineage_agent.lineage_detector.compute_image_similarity", new_callable=AsyncMock, return_value=0.9):
+               patch("lineage_agent.lineage_detector.compute_image_similarity", new_callable=AsyncMock, return_value=0.9), \
+               _patch_fast_detect_lineage_background_work():
             result1 = await detect_lineage("QueryMint1234567890123456789012345678")
             await _asyncio.sleep(0.01)  # ensure wall clock advances
             result2 = await detect_lineage(
