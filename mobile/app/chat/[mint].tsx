@@ -307,18 +307,33 @@ export default function ChatScreen() {
       setIsStreaming(true);
 
       try {
-        const url = getChatStreamUrl(mint!, text);
+        const url = getChatStreamUrl(mint!);
         abortRef.current = new AbortController();
 
+        // Build conversation history from completed messages (last 8 turns)
+        const history = messages
+          .filter((m) => !m.streaming)
+          .slice(-8)
+          .map((m) => ({ role: m.role, content: m.text }));
+
         const response = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message: text, history }),
           signal: abortRef.current.signal as any,
         });
 
-        if (!response.ok || !response.body) throw new Error("Stream failed");
+        if (!response.ok || !response.body) {
+          const errText = await response.text().catch(() => `HTTP ${response.status}`);
+          throw new Error(errText);
+        }
 
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let accumulated = "";
+        // Persisted across chunks so event: and data: lines from the same
+        // SSE message are correctly associated even when split across reads.
+        let currentEvent = "";
 
         // eslint-disable-next-line no-constant-condition
         while (true) {
@@ -326,32 +341,52 @@ export default function ChatScreen() {
           if (done) break;
 
           const chunk = decoder.decode(value, { stream: true });
-          // SSE format: "data: <text>\n\n"
+          // SSE format: "event: <type>\ndata: <json>\n\n"
           const lines = chunk.split("\n");
+          let streamDone = false;
           for (const line of lines) {
-            if (line.startsWith("data: ")) {
+            if (line.startsWith("event: ")) {
+              currentEvent = line.slice(7).trim();
+            } else if (line.startsWith("data: ")) {
               const data = line.slice(6).trim();
-              if (data === "[DONE]") break;
+              if (currentEvent === "done" || data === "[DONE]") {
+                streamDone = true;
+                break;
+              }
+              if (currentEvent === "error") {
+                try {
+                  const parsed = JSON.parse(data);
+                  throw new Error(parsed?.detail ?? "Stream error");
+                } catch (e) {
+                  throw e instanceof Error ? e : new Error("Stream error");
+                }
+              }
+              // token event (or untyped)
               try {
                 const parsed = JSON.parse(data);
-                const delta = parsed?.choices?.[0]?.delta?.content ?? parsed?.text ?? data;
-                accumulated += delta;
-                setMessages((prev) =>
-                  prev.map((m) =>
-                    m.id === assistantId ? { ...m, text: accumulated } : m
-                  )
-                );
+                const delta = parsed?.text ?? "";
+                if (delta) {
+                  accumulated += delta;
+                  setMessages((prev) =>
+                    prev.map((m) =>
+                      m.id === assistantId ? { ...m, text: accumulated } : m
+                    )
+                  );
+                }
               } catch {
-                // raw text chunk
-                accumulated += data;
-                setMessages((prev) =>
-                  prev.map((m) =>
-                    m.id === assistantId ? { ...m, text: accumulated } : m
-                  )
-                );
+                // non-JSON chunk — append raw only if non-empty and not sentinel
+                if (data && data !== "{}") {
+                  accumulated += data;
+                  setMessages((prev) =>
+                    prev.map((m) =>
+                      m.id === assistantId ? { ...m, text: accumulated } : m
+                    )
+                  );
+                }
               }
             }
           }
+          if (streamDone) break;
         }
 
         // Mark done

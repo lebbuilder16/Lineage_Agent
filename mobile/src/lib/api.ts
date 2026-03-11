@@ -203,9 +203,8 @@ export function getAnalysisStreamUrl(mint: string): string {
   return `${BASE_URL}/analyze/${encodeURIComponent(mint)}/stream`;
 }
 
-export function getChatStreamUrl(mint: string, query?: string): string {
-  const base = `${BASE_URL}/chat/${encodeURIComponent(mint)}`;
-  return query ? `${base}?q=${encodeURIComponent(query)}` : base;
+export function getChatStreamUrl(mint: string): string {
+  return `${BASE_URL}/chat/${encodeURIComponent(mint)}`;
 }
 
 // ─── Bundle & SOL Flow ───────────────────────────────────────────────────────
