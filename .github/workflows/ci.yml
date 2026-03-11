@@ -145,14 +145,16 @@ jobs:
           token: ${{ secrets.EXPO_TOKEN }}
 
       - name: Publish OTA update (production)
-        run: eas update --channel production --message "CI: ${{ github.sha }}" --non-interactive
+        run: |
+          eas update --channel production --message "CI: ${{ github.sha }}" --non-interactive
         env:
           EXPO_PUBLIC_API_URL: https://lineage-agent.fly.dev
           EXPO_PUBLIC_PRIVY_APP_ID: ${{ secrets.NEXT_PUBLIC_PRIVY_APP_ID }}
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
 
       - name: Publish OTA update (preview)
-        run: eas update --channel preview --message "CI: ${{ github.sha }}" --non-interactive
+        run: |
+          eas update --channel preview --message "CI: ${{ github.sha }}" --non-interactive
         env:
           EXPO_PUBLIC_API_URL: https://lineage-agent.fly.dev
           EXPO_PUBLIC_PRIVY_APP_ID: ${{ secrets.NEXT_PUBLIC_PRIVY_APP_ID }}
