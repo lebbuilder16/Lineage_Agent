@@ -9,7 +9,6 @@ import {
   TextInput,
   ActivityIndicator,
   Alert,
-  Platform,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { router } from "expo-router";
@@ -39,6 +38,7 @@ import {
   decryptPhantomResponse,
   isPhantomCallback,
   parsePhantomCallbackParams,
+  persistPhantomSession,
 } from "@/src/lib/solanaWallet";
 
 function AnimatedOrb() {
@@ -88,7 +88,7 @@ export default function AuthScreen() {
   const resendIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // ── Privy SDK
-  const { ready } = usePrivy();
+  const { isReady: ready } = usePrivy();
   const { sendCode, loginWithCode, state: emailState } = useLoginWithEmail({
     onError: (err) => {
       authErrorRef.current = err.message ?? "Please try again.";
@@ -242,6 +242,7 @@ export default function AuthScreen() {
     }, 120_000);
 
     const deepUrl = buildPhantomConnectURL("lineage");
+    await persistPhantomSession(); // persist keypair in case the process is killed
 
     // Try the native phantom:// scheme first, fall back to universal link
     const canOpen = await Linking.canOpenURL(deepUrl).catch(() => false);

@@ -4,6 +4,9 @@
 
 import nacl from "tweetnacl";
 import bs58 from "bs58";
+import * as SecureStore from "expo-secure-store";
+
+const PHANTOM_SESSION_KEY = "phantom_dapp_session_v1";
 
 // ── Module-level session state ────────────────────────────────────────────
 // Kept alive across screen re-renders and app backgrounding (single flow).
@@ -61,6 +64,33 @@ export function buildPhantomUniversalConnectURL(appScheme = "lineage"): string {
   );
 }
 
+/**
+ * Persists the current ephemeral keypair + nonce to SecureStore so it
+ * survives a process kill between buildPhantomConnectURL and the callback.
+ */
+export async function persistPhantomSession(): Promise<void> {
+  if (!_dappKeypair || !_connectNonce) return;
+  const payload = JSON.stringify({
+    sk: bs58.encode(_dappKeypair.secretKey),
+    pk: bs58.encode(_dappKeypair.publicKey),
+    nonce: bs58.encode(_connectNonce),
+  });
+  await SecureStore.setItemAsync(PHANTOM_SESSION_KEY, payload);
+}
+
+/**
+ * Restores the keypair + nonce from SecureStore if the module variables are
+ * empty (cold-start recovery). No-op if a session is already in memory.
+ */
+export async function restorePhantomSession(): Promise<void> {
+  if (_dappKeypair) return;
+  const raw = await SecureStore.getItemAsync(PHANTOM_SESSION_KEY);
+  if (!raw) return;
+  const { sk, pk, nonce } = JSON.parse(raw);
+  _dappKeypair = { secretKey: bs58.decode(sk), publicKey: bs58.decode(pk) };
+  _connectNonce = bs58.decode(nonce);
+}
+
 export type PhantomConnectResult =
   | { ok: true; publicKey: string; session: string }
   | { ok: false; error: string };
@@ -103,7 +133,8 @@ export function decryptPhantomResponse(
     };
 
     _dappKeypair = null;
-    _connectNonce = null; // clear session after successful use
+    _connectNonce = null;
+    SecureStore.deleteItemAsync(PHANTOM_SESSION_KEY).catch(() => {}); // best-effort cleanup
     return { ok: true, publicKey: payload.public_key, session: payload.session };
   } catch (e: any) {
     return { ok: false, error: e?.message ?? "Unknown parse error." };

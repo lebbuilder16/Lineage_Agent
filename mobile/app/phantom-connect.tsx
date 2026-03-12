@@ -13,6 +13,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import {
   decryptPhantomResponse,
   parsePhantomCallbackParams,
+  restorePhantomSession,
 } from "@/src/lib/solanaWallet";
 import { loginWithPrivy } from "@/src/lib/api";
 import { useAuthStore } from "@/src/store/auth";
@@ -38,6 +39,9 @@ export default function PhantomConnectScreen() {
 
     async function handle() {
       handled.current = true;
+
+      // Restore keypair from SecureStore in case the app was cold-started
+      await restorePhantomSession();
 
       // Prefer params parsed by Expo Router; fall back to raw initial URL
       let params: Record<string, string> = {};
