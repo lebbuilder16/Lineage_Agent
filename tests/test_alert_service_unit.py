@@ -1,12 +1,11 @@
-"""Unit tests for lineage_agent.alert_service — pure functions and light async paths.
+"""Unit tests for lineage_agent.alert_service — WebSocket/FCM alert paths.
 
 Focuses on:
-- _esc() — pure MarkdownV2 escaping
-- set_bot_app / register_web_client / unregister_web_client
+- register_web_client / unregister_web_client
 - schedule_alert_sweep / cancel_alert_sweep lifecycle
-- _send_alert with a mocked bot
-- _run_alert_sweep with fully mocked external dependencies
 - _broadcast_web_alert with mock WebSocket clients
+- FCM helpers (_get_fcm_access_token, _send_fcm_push, _push_fcm_to_watchers)
+- _sweep_loop cancellation
 """
 
 from __future__ import annotations
@@ -15,120 +14,11 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from lineage_agent.alert_service import (
-    _esc,
     cancel_alert_sweep,
     register_web_client,
     schedule_alert_sweep,
-    set_bot_app,
     unregister_web_client,
 )
-
-
-# ---------------------------------------------------------------------------
-# _esc — Telegram MarkdownV2 escaping
-# ---------------------------------------------------------------------------
-
-class TestEsc:
-    def test_plain_text_unchanged(self):
-        assert _esc("hello world") == "hello world"
-
-    def test_underscore_escaped(self):
-        assert _esc("hello_world") == r"hello\_world"
-
-    def test_asterisk_escaped(self):
-        assert _esc("a*b") == r"a\*b"
-
-    def test_backtick_escaped(self):
-        assert _esc("`code`") == r"\`code\`"
-
-    def test_parentheses_escaped(self):
-        assert _esc("(test)") == r"\(test\)"
-
-    def test_dot_escaped(self):
-        assert _esc("v1.2.3") == r"v1\.2\.3"
-
-    def test_exclamation_escaped(self):
-        assert _esc("Hello!") == r"Hello\!"
-
-    def test_multiple_special_chars(self):
-        result = _esc("_*[]~")
-        assert result == r"\_\*\[\]\~"
-
-    def test_empty_string(self):
-        assert _esc("") == ""
-
-    def test_all_special_chars(self):
-        special = r"_*[]()~`>#+-=|{}.!"
-        result = _esc(special)
-        assert all(c == "\\" or c in special for c in result)
-        # Every special char should be preceded by backslash
-        for char in special:
-            assert f"\\{char}" in result
-
-    def test_normal_alphanumeric(self):
-        assert _esc("ABC123") == "ABC123"
-
-
-# ---------------------------------------------------------------------------
-# set_bot_app / _send_alert
-# ---------------------------------------------------------------------------
-
-class TestSetBotApp:
-    def test_registers_bot(self):
-        import lineage_agent.alert_service as svc
-        original = svc._bot_app
-        bot = MagicMock()
-        set_bot_app(bot)
-        assert svc._bot_app is bot
-        # Restore
-        svc._bot_app = original
-
-
-class TestSendAlert:
-    async def test_send_with_bot(self):
-        from lineage_agent.alert_service import _send_alert
-
-        mock_bot = AsyncMock()
-        mock_app = MagicMock()
-        mock_app.bot = mock_bot
-
-        import lineage_agent.alert_service as svc
-        original = svc._bot_app
-        svc._bot_app = mock_app
-        try:
-            await _send_alert(chat_id=123, text="Test alert")
-            mock_bot.send_message.assert_called_once()
-            call_kwargs = mock_bot.send_message.call_args
-            assert call_kwargs.kwargs["chat_id"] == 123
-        finally:
-            svc._bot_app = original
-
-    async def test_no_bot_app_is_noop(self):
-        from lineage_agent.alert_service import _send_alert
-
-        import lineage_agent.alert_service as svc
-        original = svc._bot_app
-        svc._bot_app = None
-        try:
-            # Should not raise
-            await _send_alert(chat_id=456, text="No bot registered")
-        finally:
-            svc._bot_app = original
-
-    async def test_send_exception_is_swallowed(self):
-        from lineage_agent.alert_service import _send_alert
-
-        mock_bot = AsyncMock(send_message=AsyncMock(side_effect=Exception("network error")))
-        mock_app = MagicMock()
-        mock_app.bot = mock_bot
-
-        import lineage_agent.alert_service as svc
-        original = svc._bot_app
-        svc._bot_app = mock_app
-        try:
-            await _send_alert(chat_id=789, text="Will fail silently")
-        finally:
-            svc._bot_app = original
 
 
 # ---------------------------------------------------------------------------
@@ -248,83 +138,6 @@ class TestScheduleCancel:
             await task1
         except (asyncio.CancelledError, Exception):
             pass
-
-
-# ---------------------------------------------------------------------------
-# _run_alert_sweep — mocked external dependencies
-# ---------------------------------------------------------------------------
-
-class TestRunAlertSweep:
-    async def test_returns_zero_when_no_subscriptions(self):
-        from lineage_agent.alert_service import _run_alert_sweep
-
-        with patch("lineage_agent.alert_service.all_subscriptions", new_callable=AsyncMock, return_value=[]):
-            count = await _run_alert_sweep()
-        assert count == 0
-
-    async def test_dispatches_deployer_alert(self):
-        from lineage_agent.alert_service import _run_alert_sweep
-
-        sub = {"sub_type": "deployer", "value": "DeployerXXX", "chat_id": 111}
-        row = {"mint": "MINTABC", "name": "RugCoin", "symbol": "RUG", "mcap_usd": 50000}
-
-        with (
-            patch("lineage_agent.alert_service.all_subscriptions", new_callable=AsyncMock, return_value=[sub]),
-            patch("lineage_agent.alert_service.event_query", new_callable=AsyncMock, return_value=[row]),
-            patch("lineage_agent.alert_service._send_alert", new_callable=AsyncMock) as mock_send,
-            patch("lineage_agent.alert_service._broadcast_web_alert", new_callable=AsyncMock),
-        ):
-            count = await _run_alert_sweep()
-
-        assert count > 0
-        mock_send.assert_called_once()
-
-    async def test_dispatches_narrative_alert(self):
-        from lineage_agent.alert_service import _run_alert_sweep
-
-        sub = {"sub_type": "narrative", "value": "meme", "chat_id": 222}
-        row = {"mint": "MINT2", "name": "MemeCoin", "symbol": "MEME", "mcap_usd": None}
-
-        with (
-            patch("lineage_agent.alert_service.all_subscriptions", new_callable=AsyncMock, return_value=[sub]),
-            patch("lineage_agent.alert_service.event_query", new_callable=AsyncMock, return_value=[row]),
-            patch("lineage_agent.alert_service._send_alert", new_callable=AsyncMock) as mock_send,
-            patch("lineage_agent.alert_service._broadcast_web_alert", new_callable=AsyncMock),
-        ):
-            count = await _run_alert_sweep()
-
-        assert count > 0
-        mock_send.assert_called_once()
-
-    async def test_skips_sub_with_missing_fields(self):
-        from lineage_agent.alert_service import _run_alert_sweep
-
-        # sub missing chat_id
-        sub = {"sub_type": "deployer", "value": "D1"}
-
-        with (
-            patch("lineage_agent.alert_service.all_subscriptions", new_callable=AsyncMock, return_value=[sub]),
-            patch("lineage_agent.alert_service._send_alert", new_callable=AsyncMock) as mock_send,
-        ):
-            count = await _run_alert_sweep()
-
-        assert count == 0
-        mock_send.assert_not_called()
-
-    async def test_empty_rows_no_dispatch(self):
-        from lineage_agent.alert_service import _run_alert_sweep
-
-        sub = {"sub_type": "deployer", "value": "D2", "chat_id": 333}
-
-        with (
-            patch("lineage_agent.alert_service.all_subscriptions", new_callable=AsyncMock, return_value=[sub]),
-            patch("lineage_agent.alert_service.event_query", new_callable=AsyncMock, return_value=[]),
-            patch("lineage_agent.alert_service._send_alert", new_callable=AsyncMock) as mock_send,
-        ):
-            count = await _run_alert_sweep()
-
-        assert count == 0
-        mock_send.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

@@ -126,26 +126,6 @@ class TestTTLCacheStubs:
         await cache.update_event("1=1", (), status="done")
 
     @pytest.mark.asyncio
-    async def test_subscribe_alert_false(self, cache):
-        assert await cache.subscribe_alert(1, "price", "SOL") is False
-
-    @pytest.mark.asyncio
-    async def test_unsubscribe_alert_false(self, cache):
-        assert await cache.unsubscribe_alert(1, 99) is False
-
-    @pytest.mark.asyncio
-    async def test_list_subscriptions_empty(self, cache):
-        assert await cache.list_subscriptions(1) == []
-
-    @pytest.mark.asyncio
-    async def test_query_subscriptions_empty(self, cache):
-        assert await cache.query_subscriptions("price", "SOL") == []
-
-    @pytest.mark.asyncio
-    async def test_all_subscriptions_empty(self, cache):
-        assert await cache.all_subscriptions() == []
-
-    @pytest.mark.asyncio
     async def test_operator_mapping_upsert_noop(self, cache):
         await cache.operator_mapping_upsert("fp1", "wallet1")
 
