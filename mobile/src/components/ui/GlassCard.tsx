@@ -1,5 +1,5 @@
 // src/components/ui/GlassCard.tsx
-// Card glassmorphique de base — réutilisée partout dans l'app
+// Card glassmorphique de base — Noelle Dark Design System
 
 import React from "react";
 import { View, ViewStyle, StyleSheet, StyleProp } from "react-native";
@@ -31,6 +31,11 @@ export function GlassCard({
           borderColor: noBorder
             ? "transparent"
             : borderColor ?? (elevated ? colors.glass.borderBright : colors.glass.border),
+          shadowColor: elevated ? "#622EC3" : "#3B2D8F",
+          shadowOffset: { width: 0, height: 4 },
+          shadowOpacity: elevated ? 0.35 : 0.18,
+          shadowRadius: elevated ? 16 : 8,
+          elevation: elevated ? 8 : 3,
         },
         style,
       ]}

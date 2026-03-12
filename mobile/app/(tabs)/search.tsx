@@ -196,7 +196,7 @@ export default function SearchScreen() {
           placeholder="Search tokens, $PEPE, mint…"
           placeholderTextColor={colors.text.muted}
           returnKeyType="search"
-          selectionColor={colors.accent.safe}
+          selectionColor={colors.accent.cyan}
           style={styles.input}
           value={query}
         />
@@ -334,7 +334,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.glass.border,
   },
-  retryBtnText: { color: colors.accent.safe, fontSize: 14, fontWeight: "600" },
+  retryBtnText: { color: colors.accent.cyan, fontSize: 14, fontWeight: "600" },
   header: { paddingBottom: 4, paddingHorizontal: 20, paddingTop: 8 },
   hint: { alignItems: "center", paddingTop: 60 },
   hintText: { color: colors.text.muted, fontSize: 13 },
@@ -346,7 +346,7 @@ const styles = StyleSheet.create({
   },
   list: { paddingBottom: 100, paddingHorizontal: 16 },
   loadingDot: {
-    backgroundColor: colors.accent.safe,
+    backgroundColor: colors.accent.cyan,
     borderRadius: 4,
     height: 8,
     width: 8,
@@ -355,7 +355,7 @@ const styles = StyleSheet.create({
   searchWrap: {
     alignItems: "center",
     backgroundColor: colors.glass.bg,
-    borderColor: colors.glass.border,
+    borderColor: "rgba(98, 46, 195, 0.35)",
     borderRadius: 12,
     borderWidth: 1,
     flexDirection: "row",

@@ -59,9 +59,9 @@ export function ChatPanel({ mint, tokenName }: Props) {
         className={cn(
           "fixed bottom-6 right-6 z-50 flex items-center gap-2 rounded-full px-4 py-3",
           "bg-card border border-white/10 shadow-xl",
-          "hover:border-neon/40 hover:shadow-[0_0_20px_rgba(57,255,20,0.1)]",
+          "hover:border-[#622EC3]/40 hover:shadow-[0_0_20px_rgba(98,46,195,0.15)]",
           "transition-all duration-200 font-medium text-sm",
-          open ? "border-neon/40 text-neon" : "text-foreground",
+          open ? "border-[#622EC3]/40 text-[#B370F0]" : "text-foreground",
         )}
         aria-label={open ? "Close chat" : "Open forensic chat"}
       >
@@ -72,7 +72,7 @@ export function ChatPanel({ mint, tokenName }: Props) {
             <MessageCircle className="h-4 w-4" />
             <span className="hidden sm:inline">Ask AI</span>
             {messages.length > 0 && (
-              <span className="flex h-4 w-4 items-center justify-center rounded-full bg-neon text-black text-[10px] font-bold">
+              <span className="flex h-4 w-4 items-center justify-center rounded-full bg-[#622EC3] text-white text-[10px] font-bold">
                 {messages.filter((m) => m.role === "assistant").length}
               </span>
             )}
@@ -94,7 +94,7 @@ export function ChatPanel({ mint, tokenName }: Props) {
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
             <div className="flex items-center gap-2">
-              <Bot className="h-4 w-4 text-neon" />
+              <Bot className="h-4 w-4 text-[#53E9F6]" />
               <span className="font-display font-bold text-sm">
                 Forensic Chat{tokenName ? ` — ${tokenName}` : ""}
               </span>
@@ -123,8 +123,8 @@ export function ChatPanel({ mint, tokenName }: Props) {
                       onClick={() => handleSuggestion(s)}
                       className={cn(
                         "w-full text-left text-xs px-3 py-2 rounded-lg",
-                        "bg-white/5 hover:bg-neon/10 hover:text-neon",
-                        "border border-white/5 hover:border-neon/20",
+                        "bg-white/5 hover:bg-[#622EC3]/10 hover:text-[#B370F0]",
+                        "border border-white/5 hover:border-[#622EC3]/20",
                         "transition-colors truncate",
                       )}
                     >
@@ -148,7 +148,7 @@ export function ChatPanel({ mint, tokenName }: Props) {
                   className={cn(
                     "flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px]",
                     msg.role === "user"
-                      ? "bg-neon/20 text-neon border border-neon/30"
+                      ? "bg-[#622EC3]/20 text-[#B370F0] border border-[#622EC3]/30"
                       : "bg-white/10 text-muted-foreground border border-white/10",
                   )}
                 >
@@ -164,7 +164,7 @@ export function ChatPanel({ mint, tokenName }: Props) {
                   className={cn(
                     "max-w-[80%] rounded-2xl px-3 py-2 text-sm leading-relaxed",
                     msg.role === "user"
-                      ? "bg-neon/15 text-foreground rounded-tr-sm"
+                      ? "bg-[#622EC3]/15 text-foreground rounded-tr-sm"
                       : "bg-white/5 text-foreground/90 rounded-tl-sm",
                   )}
                 >
@@ -173,9 +173,9 @@ export function ChatPanel({ mint, tokenName }: Props) {
                   ) : (
                     // Streaming placeholder
                     <span className="flex gap-1 items-center py-0.5">
-                      <span className="h-1.5 w-1.5 rounded-full bg-neon/60 animate-bounce [animation-delay:0ms]" />
-                      <span className="h-1.5 w-1.5 rounded-full bg-neon/60 animate-bounce [animation-delay:150ms]" />
-                      <span className="h-1.5 w-1.5 rounded-full bg-neon/60 animate-bounce [animation-delay:300ms]" />
+                      <span className="h-1.5 w-1.5 rounded-full bg-[#53E9F6]/60 animate-bounce [animation-delay:0ms]" />
+                      <span className="h-1.5 w-1.5 rounded-full bg-[#53E9F6]/60 animate-bounce [animation-delay:150ms]" />
+                      <span className="h-1.5 w-1.5 rounded-full bg-[#53E9F6]/60 animate-bounce [animation-delay:300ms]" />
                     </span>
                   )}
                 </div>
@@ -204,7 +204,7 @@ export function ChatPanel({ mint, tokenName }: Props) {
               className={cn(
                 "flex-1 bg-white/5 rounded-full px-4 py-2 text-sm outline-none",
                 "placeholder:text-muted-foreground/50",
-                "border border-white/10 focus:border-neon/30",
+                "border border-white/10 focus:border-[#622EC3]/30",
                 "transition-colors disabled:opacity-50",
               )}
             />
@@ -213,8 +213,8 @@ export function ChatPanel({ mint, tokenName }: Props) {
               disabled={!input.trim() || isStreaming}
               className={cn(
                 "flex h-9 w-9 shrink-0 items-center justify-center rounded-full",
-                "bg-neon text-black transition-all",
-                "hover:bg-neon/90 active:scale-95",
+                "bg-[#622EC3] text-white transition-all",
+                "hover:bg-[#7B45E0] active:scale-95",
                 "disabled:opacity-40 disabled:cursor-not-allowed",
               )}
               aria-label="Send message"

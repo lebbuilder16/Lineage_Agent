@@ -207,7 +207,7 @@ export default function AIAnalysisCard({ analysis, isLoading }: Props) {
       {/* ── header ─────────────────────────────────────────────────────── */}
       <div className="flex items-center gap-2 mb-3">
         <span className="text-xs font-bold uppercase tracking-widest text-zinc-400 flex items-center gap-1.5">
-          <Brain className="h-3.5 w-3.5 text-neon" />
+          <Brain className="h-3.5 w-3.5 text-[#53E9F6]" />
           AI Forensic Analysis
         </span>
         <div className="ml-auto flex items-center gap-1.5">

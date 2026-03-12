@@ -24,7 +24,7 @@ export default function HomePage() {
       <section className="relative flex flex-col items-center justify-center min-h-[calc(100svh-5rem)] px-4 text-center pb-24">
         <div
           className="pointer-events-none absolute inset-0 -z-10"
-          style={{ background: "radial-gradient(ellipse 60% 50% at 50% 0%, rgba(57,255,20,0.1) 0%, transparent 70%)" }}
+          style={{ background: "radial-gradient(ellipse 60% 50% at 50% 0%, rgba(98,46,195,0.15) 0%, transparent 70%)" }}
         />
         <div
           className="pointer-events-none absolute inset-0 -z-10 opacity-10"
@@ -35,10 +35,10 @@ export default function HomePage() {
         />
 
         <motion.div {...fadeUp(0)} className="flex flex-col items-center gap-6 max-w-4xl">
-          <div className="inline-flex items-center gap-2 rounded-full border border-neon/30 bg-neon/5 px-4 py-1.5 text-xs font-display font-semibold tracking-widest uppercase text-neon">
+          <div className="inline-flex items-center gap-2 rounded-full border border-[#53E9F6]/30 bg-[#53E9F6]/5 px-4 py-1.5 text-xs font-display font-semibold tracking-widest uppercase text-[#53E9F6]">
             <span className="relative flex h-1.5 w-1.5">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-neon/60" />
-              <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-neon" />
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#53E9F6]/60" />
+              <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-[#53E9F6]" />
             </span>
             Solana Memecoin Intelligence
           </div>
@@ -55,7 +55,7 @@ export default function HomePage() {
             Tired of getting rugged by clones? We sniff out the{" "}
             <span className="text-white font-medium">original token</span> and expose every
             impersonator in the family tree.{" "}
-            <span className="text-neon">No cap.</span>
+            <span className="text-[#53E9F6]">No cap.</span>
           </p>
 
           <div className="w-full max-w-xl mt-2">
@@ -74,7 +74,7 @@ export default function HomePage() {
                 <button
                   onClick={login}
                   disabled={!ready}
-                  className="inline-flex items-center gap-2 px-6 py-3 rounded-full bg-neon text-black font-display font-bold text-sm hover:bg-neon/90 transition-all hover:scale-105 active:scale-95 disabled:opacity-50 disabled:scale-100"
+                  className="inline-flex items-center gap-2 px-6 py-3 rounded-full bg-[#622EC3] text-white font-display font-bold text-sm hover:bg-[#7B45E0] transition-all hover:scale-105 active:scale-95 disabled:opacity-50 disabled:scale-100 shadow-[0_0_16px_rgba(98,46,195,0.4)]"
                 >
                   <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
@@ -89,7 +89,7 @@ export default function HomePage() {
             {authenticated && (
               <Link
                 href="/search"
-                className="inline-flex items-center gap-2 px-6 py-3 rounded-full bg-neon text-black font-display font-bold text-sm hover:bg-neon/90 transition-all hover:scale-105 active:scale-95"
+                className="inline-flex items-center gap-2 px-6 py-3 rounded-full bg-[#622EC3] text-white font-display font-bold text-sm hover:bg-[#7B45E0] transition-all hover:scale-105 active:scale-95 shadow-[0_0_16px_rgba(98,46,195,0.4)]"
               >
                 <Scan className="h-4 w-4" />
                 Start Detecting Clones
@@ -105,7 +105,7 @@ export default function HomePage() {
               href="https://x.com/LineageMemes"
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 px-6 py-3 rounded-full border border-white/10 text-white/50 font-display font-semibold text-sm hover:border-neon/40 hover:text-neon transition-all"
+              className="inline-flex items-center gap-2 px-6 py-3 rounded-full border border-white/10 text-white/50 font-display font-semibold text-sm hover:border-[#53E9F6]/40 hover:text-[#53E9F6] transition-all"
             >
               <svg viewBox="0 0 24 24" className="h-4 w-4 fill-current" aria-hidden="true"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.744l7.736-8.857L1.254 2.25H8.08l4.253 5.622L18.244 2.25zm-1.161 17.52h1.833L7.084 4.126H5.117L17.083 19.77z"/></svg>
               Follow us
@@ -165,7 +165,7 @@ export default function HomePage() {
             transition={{ duration: 0.6, delay: 0.15, ease: [0.22, 1, 0.36, 1] }}
             className="space-y-5 min-w-0"
           >
-            <p className="display-heading text-xs tracking-widest uppercase text-neon">What is this about?</p>
+            <p className="display-heading text-xs tracking-widest uppercase text-[#53E9F6]">What is this about?</p>
             <h2 className="display-heading text-display-md text-white">
               WE DETECT<br />MEMECOIN<br />CLONES
             </h2>
@@ -181,7 +181,7 @@ export default function HomePage() {
             </p>
             <Link
               href="/search"
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-neon text-black font-display font-bold text-sm hover:bg-neon/90 transition-all hover:scale-105 active:scale-95"
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-[#622EC3] text-white font-display font-bold text-sm hover:bg-[#7B45E0] transition-all hover:scale-105 active:scale-95 shadow-[0_0_12px_rgba(98,46,195,0.35)]"
             >
               Try it →
             </Link>
@@ -217,9 +217,9 @@ export default function HomePage() {
               viewport={{ once: true, margin: "-60px" }}
               transition={{ duration: 0.5, delay: i * 0.1 }}
             >
-              <div className="group h-full rounded-2xl border border-white/5 bg-card p-7 transition-all duration-300 hover:border-neon/20 hover:bg-white/[0.04]">
+              <div className="group h-full rounded-2xl border border-white/5 bg-card p-7 transition-all duration-300 hover:border-[#622EC3]/30 hover:bg-[#622EC3]/[0.04]">
                 <div className="flex items-start justify-between mb-5">
-                  <div className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-neon transition-colors group-hover:bg-neon/10 group-hover:border-neon/30">
+                  <div className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-[#53E9F6] transition-colors group-hover:bg-[#622EC3]/15 group-hover:border-[#622EC3]/40">
                     {f.icon}
                   </div>
                   <span className="font-display font-bold text-4xl text-white/[0.05] group-hover:text-white/[0.08] transition-colors">
@@ -248,7 +248,7 @@ export default function HomePage() {
             transition={{ duration: 0.6 }}
             className="space-y-5"
           >
-            <p className="display-heading text-xs tracking-widest uppercase text-neon">Signals</p>
+            <p className="display-heading text-xs tracking-widest uppercase text-[#53E9F6]">Signals</p>
             <h2 className="display-heading text-display-md text-white">
               HOW WE<br />CATCH THEM
             </h2>
@@ -276,11 +276,11 @@ export default function HomePage() {
                     <span className="font-display font-semibold text-white uppercase tracking-wide text-xs">
                       {s.label}
                     </span>
-                    <span className="font-display font-bold text-neon">{s.pct}%</span>
+                    <span className="font-display font-bold text-[#53E9F6]">{s.pct}%</span>
                   </div>
                   <div className="h-1.5 w-full rounded-full bg-white/5 overflow-hidden">
                     <motion.div
-                      className="h-full rounded-full bg-neon"
+                      className="h-full rounded-full bg-[#622EC3]"
                       initial={{ width: 0 }}
                       whileInView={{ width: `${(s.pct / 30) * 100}%` }}
                       viewport={{ once: true }}
@@ -301,7 +301,7 @@ export default function HomePage() {
             transition={{ duration: 0.6, delay: 0.15 }}
             className="space-y-4"
           >
-            <p className="display-heading text-xs tracking-widest uppercase text-neon">Tutorial</p>
+            <p className="display-heading text-xs tracking-widest uppercase text-[#53E9F6]">Tutorial</p>
             <h2 className="display-heading text-display-md text-white">USE IT OR<br />LOSE IT</h2>
             <p className="text-white/40 leading-relaxed">Four steps. Even your favourite coin dev can follow this.</p>
             <div className="space-y-3 pt-2">
@@ -317,9 +317,9 @@ export default function HomePage() {
                   whileInView={{ opacity: 1, x: 0 }}
                   viewport={{ once: true, margin: "-40px" }}
                   transition={{ delay: i * 0.1, duration: 0.45 }}
-                  className="flex gap-5 p-6 rounded-2xl border border-white/5 bg-card hover:border-neon/15 transition-all group"
+                  className="flex gap-5 p-6 rounded-2xl border border-white/5 bg-card hover:border-[#622EC3]/25 transition-all group"
                 >
-                  <div className="flex-shrink-0 h-9 w-9 rounded-full border border-neon/30 bg-neon/5 text-neon flex items-center justify-center font-display font-bold text-sm group-hover:bg-neon group-hover:text-black transition-all">
+                  <div className="flex-shrink-0 h-9 w-9 rounded-full border border-[#622EC3]/40 bg-[#622EC3]/10 text-[#B370F0] flex items-center justify-center font-display font-bold text-sm group-hover:bg-[#622EC3] group-hover:text-white transition-all">
                     {s.num}
                   </div>
                   <div>
@@ -345,7 +345,7 @@ export default function HomePage() {
             className="space-y-8"
           >
             <div className="space-y-3">
-              <p className="display-heading text-xs tracking-widest uppercase text-neon">TELEGRAM BOT</p>
+              <p className="display-heading text-xs tracking-widest uppercase text-[#53E9F6]">TELEGRAM BOT</p>
               <h2 className="display-heading text-display-md text-white">SCAN FROM<br />ANYWHERE</h2>
             </div>
             <p className="text-white/50 text-sm sm:text-base leading-relaxed max-w-xl mx-auto">
@@ -391,7 +391,7 @@ export default function HomePage() {
             transition={{ duration: 0.5 }}
             className="mb-14 text-center space-y-3"
           >
-            <p className="display-heading text-xs tracking-widest uppercase text-neon">FAQ</p>
+            <p className="display-heading text-xs tracking-widest uppercase text-[#53E9F6]">FAQ</p>
             <h2 className="display-heading text-display-md text-white">DUMB QUESTIONS,<br />SMART ANSWERS</h2>
           </motion.div>
           <FaqSection />
@@ -424,7 +424,7 @@ export default function HomePage() {
             </div>
             <Link
               href="/search"
-              className="inline-flex items-center gap-2 px-8 py-3 rounded-full bg-neon text-black font-display font-bold hover:bg-neon/90 transition-all hover:scale-105"
+              className="inline-flex items-center gap-2 px-8 py-3 rounded-full bg-[#622EC3] text-white font-display font-bold hover:bg-[#7B45E0] transition-all hover:scale-105 shadow-[0_0_12px_rgba(98,46,195,0.4)]"
             >
               Start Detecting →
             </Link>
@@ -487,7 +487,7 @@ function FaqSection() {
               {item.q}
             </span>
             <ChevronDown
-              className={`flex-shrink-0 ml-4 h-4 w-4 text-neon transition-transform duration-300 ${open === i ? "rotate-180" : ""}`}
+              className={`flex-shrink-0 ml-4 h-4 w-4 text-[#53E9F6] transition-transform duration-300 ${open === i ? "rotate-180" : ""}`}
             />
           </button>
           <AnimatePresence initial={false}>

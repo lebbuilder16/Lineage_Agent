@@ -9,15 +9,15 @@ interface Props {
 }
 
 const CONFIDENCE_CONFIG = {
-  high:   { badge: "bg-neon/20 text-neon border-neon/30",   label: "High confidence" },
+  high:   { badge: "bg-[#622EC3]/20 text-[#B370F0] border-[#622EC3]/30",   label: "High confidence" },
   medium: { badge: "bg-warning/20 text-warning border-warning/30", label: "Medium confidence" },
   low:    { badge: "bg-muted text-muted-foreground border-border",  label: "Low confidence" },
 } as const;
 
 function RugBar({ rugRate }: { rugRate: number }) {
   const level = rugRate >= 80 ? "critical" : rugRate >= 50 ? "high" : rugRate >= 25 ? "medium" : "low";
-  const barColor = { critical: "bg-destructive", high: "bg-destructive/70", medium: "bg-warning", low: "bg-neon" }[level];
-  const textColor = { critical: "text-destructive", high: "text-destructive/80", medium: "text-warning", low: "text-neon" }[level];
+  const barColor = { critical: "bg-destructive", high: "bg-destructive/70", medium: "bg-warning", low: "bg-[#622EC3]" }[level];
+  const textColor = { critical: "text-destructive", high: "text-destructive/80", medium: "text-warning", low: "text-[#53E9F6]" }[level];
   return (
     <div className="space-y-1">
       <div className="flex items-center justify-between text-xs">
@@ -106,7 +106,7 @@ export default function DeployerProfileCard({ profile }: Props) {
             <div key={t.mint} className="flex items-center justify-between text-xs gap-2">
               <a
                 href={`/lineage/${t.mint}`}
-                className="truncate font-medium hover:text-neon transition-colors max-w-[160px]"
+                className="truncate font-medium hover:text-[#53E9F6] transition-colors max-w-[160px]"
               >
                 {t.name || t.symbol || t.mint.slice(0, 8)}
               </a>

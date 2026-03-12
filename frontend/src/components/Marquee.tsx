@@ -43,7 +43,7 @@ export function Marquee({
             <span className="text-sm font-display font-semibold tracking-widest uppercase text-white/70">
               {item}
             </span>
-            <span className="text-neon text-xs">{separator}</span>
+            <span className="text-[#53E9F6] text-xs">{separator}</span>
           </React.Fragment>
         ))}
       </div>

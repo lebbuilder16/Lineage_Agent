@@ -51,7 +51,7 @@ export default function HeroCard({ data, analysis, analysisLoading }: Props) {
   const showCloneOf = !isOriginal && root && root.mint !== token?.mint;
 
   return (
-    <div className="rounded-2xl border border-white/5 bg-card p-5 animate-fade-in hover:border-neon/20 transition-all">
+    <div className="rounded-2xl border border-white/10 bg-card p-5 animate-fade-in hover:border-[#622EC3]/40 shadow-[0_0_32px_rgba(98,46,195,0.08)] transition-all">
       {/* ── Row 1: Avatar + Name + Badges + Share ──────────────────── */}
       <div className="flex items-start gap-4">
         {/* Avatar */}
@@ -72,8 +72,8 @@ export default function HeroCard({ data, analysis, analysisLoading }: Props) {
             )}
           </div>
           {isOriginal && (
-            <div className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-neon shadow-md">
-              <Crown className="h-2.5 w-2.5 text-black" />
+            <div className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-[#622EC3] shadow-[0_0_8px_rgba(98,46,195,0.6)]">
+              <Crown className="h-2.5 w-2.5 text-white" />
             </div>
           )}
         </div>
@@ -91,11 +91,11 @@ export default function HeroCard({ data, analysis, analysisLoading }: Props) {
             )}
             {/* Original / Clone pill */}
             {isOriginal ? (
-              <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-950/40 px-2 py-0.5 text-[10px] font-semibold text-emerald-300">
+              <span className="inline-flex items-center gap-1 rounded-full border border-[#5BC763]/40 bg-[#5BC763]/10 px-2 py-0.5 text-[10px] font-semibold text-[#5BC763]">
                 <CheckCircle2 className="h-3 w-3" /> Original
               </span>
             ) : (
-              <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-950/40 px-2 py-0.5 text-[10px] font-semibold text-amber-300">
+              <span className="inline-flex items-center gap-1 rounded-full border border-[#F1AD4B]/40 bg-[#F1AD4B]/10 px-2 py-0.5 text-[10px] font-semibold text-[#F1AD4B]">
                 <Copy className="h-3 w-3" /> Clone
               </span>
             )}
@@ -167,7 +167,7 @@ export default function HeroCard({ data, analysis, analysisLoading }: Props) {
                 href={token.dex_url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-primary hover:text-neon transition-colors"
+                className="inline-flex items-center gap-1 text-primary hover:text-[#53E9F6] transition-colors"
               >
                 DexScreener
                 <ExternalLink className="h-3 w-3" />
@@ -327,7 +327,7 @@ function Pill({
         href={href}
         target="_blank"
         rel="noopener noreferrer"
-        className="hover:text-neon transition-colors"
+        className="hover:text-[#53E9F6] transition-colors"
       >
         {content}
       </a>

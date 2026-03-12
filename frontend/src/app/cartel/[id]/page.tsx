@@ -39,7 +39,7 @@ const SIGNAL_COLORS: Record<string, { stroke: string; label: string }> = {
 };
 
 const CONFIDENCE_CONFIG = {
-  high:   { badge: "bg-neon/20 text-neon border-neon/30",               label: "High confidence" },
+  high:   { badge: "bg-[#622EC3]/20 text-[#B370F0] border-[#622EC3]/30",               label: "High confidence" },
   medium: { badge: "bg-warning/20 text-warning border-warning/30",      label: "Medium confidence" },
   low:    { badge: "bg-muted text-muted-foreground border-border",      label: "Low confidence" },
 } as const;
@@ -265,7 +265,7 @@ export default function CartelPage({ params }: Props) {
               <code className="font-mono text-xs text-muted-foreground truncate max-w-[200px]">{w}</code>
               <Link
                 href={`/deployer/${w}`}
-                className="ml-2 shrink-0 text-xs text-primary hover:text-neon transition-colors"
+                className="ml-2 shrink-0 text-xs text-primary hover:text-[#53E9F6] transition-colors"
               >
                 Profile →
               </Link>

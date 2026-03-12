@@ -292,7 +292,7 @@ const styles = StyleSheet.create({
   brandLogo: {
     fontFamily: Fonts.bold,
     fontSize: 20,
-    color: colors.accent.safe,
+    color: colors.accent.cyan,
     letterSpacing: 1,
   },
   brandDot: {
@@ -354,7 +354,7 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
   dotActive: {
-    backgroundColor: colors.accent.blue,
+    backgroundColor: colors.accent.cyan,
     width: 24,
   },
   dotInactive: {
@@ -375,7 +375,7 @@ const preview = StyleSheet.create({
     backgroundColor: colors.glass.bgElevated,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: colors.glass.border,
+    borderColor: "rgba(98, 46, 195, 0.40)",
     padding: 16,
     gap: 10,
   },

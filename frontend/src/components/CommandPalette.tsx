@@ -102,7 +102,7 @@ export function CommandPalette() {
 
           {/* Input */}
           <div className="flex items-center border-b border-white/5 px-3 gap-2">
-            <Search className="h-4 w-4 text-neon shrink-0" />
+            <Search className="h-4 w-4 text-[#53E9F6] shrink-0" />
             <Command.Input
               value={query}
               onValueChange={setQuery}
@@ -134,7 +134,7 @@ export function CommandPalette() {
                   onSelect={() => navigate(query.trim())}
                   className={itemClass}
                 >
-                  <div className="flex h-7 w-7 items-center justify-center rounded-xl bg-neon/10 text-neon shrink-0">
+                  <div className="flex h-7 w-7 items-center justify-center rounded-xl bg-[#622EC3]/10 text-[#53E9F6] shrink-0">
                     <ArrowRight className="h-3.5 w-3.5" />
                   </div>
                   <div>
@@ -173,7 +173,7 @@ export function CommandPalette() {
                   onSelect={handleSubmit}
                   className={itemClass}
                 >
-                  <div className="flex h-7 w-7 items-center justify-center rounded-xl bg-white/5 text-neon shrink-0">
+                  <div className="flex h-7 w-7 items-center justify-center rounded-xl bg-white/5 text-[#53E9F6] shrink-0">
                     <TrendingUp className="h-3.5 w-3.5" />
                   </div>
                   <p className="text-sm">
@@ -191,7 +191,7 @@ export function CommandPalette() {
           <span><kbd className="font-mono">↑↓</kbd> navigate</span>
           <span><kbd className="font-mono">↵</kbd> select</span>
           <span><kbd className="font-mono">esc</kbd> close</span>
-          <span className="ml-auto hidden sm:inline text-neon/60">⌘K to open anywhere</span>
+          <span className="ml-auto hidden sm:inline text-[#53E9F6]/60">⌘K to open anywhere</span>
         </div>
       </div>
     </div>

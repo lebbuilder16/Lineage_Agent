@@ -18,7 +18,7 @@ const AuthGate = dynamic(() => import("@/components/AuthGate"), {
   ssr: false,
   loading: () => (
     <div className="flex items-center justify-center min-h-[60vh]">
-      <div className="h-8 w-8 rounded-full border-2 border-neon/30 border-t-neon animate-spin" />
+      <div className="h-8 w-8 rounded-full border-2 border-[#622EC3]/30 border-t-[#622EC3] animate-spin" />
     </div>
   ),
 });
@@ -49,7 +49,7 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
-  themeColor: "#0a0a0a",
+  themeColor: "#000000",
 };
 export default function RootLayout({
   children,
@@ -64,7 +64,7 @@ export default function RootLayout({
           {/* Skip to content — accessibility */}
           <a
             href="#main"
-            className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[200] focus:rounded-full focus:bg-neon focus:px-4 focus:py-2 focus:text-black focus:font-bold focus:text-sm"
+            className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[200] focus:rounded-full focus:bg-[#622EC3] focus:px-4 focus:py-2 focus:text-white focus:font-bold focus:text-sm"
           >
             Skip to content
           </a>
@@ -75,7 +75,7 @@ export default function RootLayout({
             style={{
               paddingTop: "max(0.5rem, env(safe-area-inset-top))",
               paddingBottom: "0.5rem",
-              background: "linear-gradient(to bottom, #0a0a0a 60%, transparent)",
+              background: "linear-gradient(to bottom, #000000 60%, transparent)",
             }}
           >
             <nav className="pill-nav flex items-center gap-1 px-2 py-2">
@@ -84,11 +84,11 @@ export default function RootLayout({
                 href="/"
                 className="flex items-center gap-2 px-3 py-1 rounded-full transition-colors hover:bg-white/5"
               >
-                <div className="flex h-6 w-6 items-center justify-center rounded-md bg-neon text-black text-xs font-black font-display">
+                <div className="flex h-6 w-6 items-center justify-center rounded-md bg-[#622EC3] text-white text-xs font-black font-display">
                   L
                 </div>
                 <span className="font-display font-bold text-sm tracking-tight text-white">
-                  LINEAGE<span className="text-neon">AGENT</span>
+                  LINEAGE<span className="text-[#53E9F6]">AGENT</span>
                 </span>
               </Link>
 
@@ -117,7 +117,7 @@ export default function RootLayout({
               {/* CTA button */}
               <Link
                 href="/search"
-                className="flex items-center gap-1.5 px-4 py-2 min-h-[44px] rounded-full bg-neon text-black text-sm font-bold font-display hover:bg-neon/90 transition-colors"
+                className="flex items-center gap-1.5 px-4 py-2 min-h-[44px] rounded-full bg-[#622EC3] text-white text-sm font-bold font-display hover:bg-[#7B45E0] transition-colors shadow-[0_0_12px_rgba(98,46,195,0.4)]"
               >
                 <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />

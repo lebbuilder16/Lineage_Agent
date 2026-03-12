@@ -139,7 +139,7 @@ export default function DashboardPage() {
             icon: <Bell className="h-4 w-4" />,
             label: "Unread alerts",
             value: unreadCount,
-            color: "text-neon",
+            color: "text-[#53E9F6]",
           },
           {
             icon: <TrendingUp className="h-4 w-4" />,
@@ -166,11 +166,11 @@ export default function DashboardPage() {
         <section className="rounded-xl border border-white/5 bg-card overflow-hidden">
           <div className="flex items-center justify-between border-b border-white/5 px-4 py-3">
             <h2 className="flex items-center gap-2 text-sm font-semibold">
-              <BarChart2 className="h-4 w-4 text-neon" />
+              <BarChart2 className="h-4 w-4 text-[#53E9F6]" />
               Network stats
               <span className="text-[10px] text-muted-foreground font-normal">(live · 60s cache)</span>
             </h2>
-            <Link href="/compare" className="text-xs text-neon hover:underline">
+            <Link href="/compare" className="text-xs text-[#53E9F6] hover:underline">
               Compare two tokens →
             </Link>
           </div>
@@ -215,7 +215,7 @@ export default function DashboardPage() {
               <AlertTriangle className="h-3 w-3 text-orange-400 shrink-0" />
               <p className="text-xs text-muted-foreground">
                 {globalStats.tokens_rugged_24h} rug{globalStats.tokens_rugged_24h > 1 ? "s" : ""} detected in the last 24 hours —{" "}
-                <Link href="/search" className="text-neon hover:underline">run an analysis</Link> on any suspicious token.
+                <Link href="/search" className="text-[#53E9F6] hover:underline">run an analysis</Link> on any suspicious token.
               </p>
             </div>
           )}
@@ -245,7 +245,7 @@ export default function DashboardPage() {
             {watchlist.length === 0 ? (
               <p className="px-4 py-8 text-center text-xs text-muted-foreground">
                 No tokens watched yet.{" "}
-                <Link href="/search" className="text-neon hover:underline">
+                <Link href="/search" className="text-[#53E9F6] hover:underline">
                   Find a token
                 </Link>{" "}
                 and star it.
@@ -260,7 +260,7 @@ export default function DashboardPage() {
                     <div className="flex items-center gap-2">
                       <Link
                         href={`/lineage/${entry.mint}`}
-                        className="font-medium text-sm truncate hover:text-neon transition-colors"
+                        className="font-medium text-sm truncate hover:text-[#53E9F6] transition-colors"
                       >
                         {entry.name}
                       </Link>
@@ -317,7 +317,7 @@ export default function DashboardPage() {
             {history.length === 0 ? (
               <p className="px-4 py-8 text-center text-xs text-muted-foreground">
                 No analyses yet.{" "}
-                <Link href="/search" className="text-neon hover:underline">
+                <Link href="/search" className="text-[#53E9F6] hover:underline">
                   Start your first analysis.
                 </Link>
               </p>
@@ -330,7 +330,7 @@ export default function DashboardPage() {
                   <div className="flex-1 min-w-0">
                     <Link
                       href={`/lineage/${entry.mint}`}
-                      className="font-medium text-sm truncate hover:text-neon transition-colors block"
+                      className="font-medium text-sm truncate hover:text-[#53E9F6] transition-colors block"
                     >
                       {entry.name}
                     </Link>
@@ -353,10 +353,10 @@ export default function DashboardPage() {
       <section className="rounded-xl border border-white/5 bg-card overflow-hidden">
         <div className="flex items-center justify-between border-b border-white/5 px-4 py-3">
           <h2 className="flex items-center gap-2 text-sm font-semibold">
-            <Bell className="h-4 w-4 text-neon" />
+            <Bell className="h-4 w-4 text-[#53E9F6]" />
             Alert feed
             {unreadCount > 0 && (
-              <span className="rounded-full bg-neon px-1.5 py-0.5 text-[9px] font-bold text-black">
+              <span className="rounded-full bg-[#622EC3]/80 px-1.5 py-0.5 text-[9px] font-bold text-white">
                 {unreadCount} new
               </span>
             )}
@@ -397,7 +397,7 @@ export default function DashboardPage() {
                 key={alert.id}
                 className={cn(
                   "flex items-start gap-3 px-4 py-3 group hover:bg-white/5 transition-colors",
-                  !alert.read && "bg-neon/5",
+                  !alert.read && "bg-[#622EC3]/5",
                 )}
               >
                 <span className="mt-0.5 text-base leading-none shrink-0">
@@ -410,7 +410,7 @@ export default function DashboardPage() {
                       {relativeTime(alert.timestamp)}
                     </span>
                     {!alert.read && (
-                      <span className="h-1.5 w-1.5 rounded-full bg-neon shrink-0" />
+                      <span className="h-1.5 w-1.5 rounded-full bg-[#53E9F6] shrink-0" />
                     )}
                   </div>
                   <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">
@@ -419,7 +419,7 @@ export default function DashboardPage() {
                   {alert.mint && (
                     <Link
                       href={`/lineage/${alert.mint}`}
-                      className="mt-1 inline-block text-xs text-neon hover:underline"
+                      className="mt-1 inline-block text-xs text-[#53E9F6] hover:underline"
                     >
                       View report →
                     </Link>

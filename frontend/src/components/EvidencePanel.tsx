@@ -16,13 +16,13 @@ function scoreLevel(v: number) {
 }
 
 const barBg = {
-  high: "bg-neon",
+  high: "bg-[#622EC3]",
   medium: "bg-warning",
   low: "bg-destructive",
 } as const;
 
 const textColor = {
-  high: "text-neon",
+  high: "text-[#53E9F6]",
   medium: "text-warning",
   low: "text-destructive",
 } as const;
@@ -77,7 +77,7 @@ export function EvidencePanel({ evidence, name }: Props) {
   const compositeLevel = scoreLevel(evidence.composite_score);
 
   return (
-    <div className="rounded-2xl border border-white/5 bg-card p-5 animate-fade-in hover:border-neon/15 transition-all">
+    <div className="rounded-2xl border border-white/5 bg-card p-5 animate-fade-in hover:border-[#622EC3]/15 transition-all">
       {name && (
         <h4 className="display-heading font-semibold text-xs text-white uppercase tracking-wide mb-3.5 truncate">{name}</h4>
       )}

@@ -198,11 +198,11 @@ const styles = StyleSheet.create({
     backgroundColor: colors.glass.bg,
   },
   chipActive: {
-    borderColor: colors.accent.safe,
-    backgroundColor: `${colors.accent.safe}20`,
+    borderColor: colors.accent.cyan,
+    backgroundColor: `${colors.accent.cyan}20`,
   },
   chipText: { color: colors.text.muted, fontSize: 12, fontWeight: "600" },
-  chipTextActive: { color: colors.accent.safe },
+  chipTextActive: { color: colors.accent.cyan },
   list: { paddingHorizontal: 16, paddingBottom: 100 },
   alertCard: {
     flexDirection: "row",
@@ -230,7 +230,7 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: colors.accent.safe,
+    backgroundColor: colors.accent.cyan,
     alignSelf: "center",
   },
   empty: { alignItems: "center", paddingTop: 80 },

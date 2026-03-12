@@ -8,42 +8,44 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        // Dark Intel Design System
+        // Noelle Dark Design System
         background: {
-          deep: "#0A0A0F",
-          mid: "#111118",
-          surface: "#16161F",
+          deep: "#000000",
+          mid: "#181818",
+          surface: "#282828",
         },
         glass: {
-          DEFAULT: "rgba(255, 255, 255, 0.07)",
-          elevated: "rgba(255, 255, 255, 0.12)",
-          border: "rgba(255, 255, 255, 0.08)",
+          DEFAULT: "rgba(59, 45, 143, 0.25)",
+          elevated: "rgba(59, 45, 143, 0.40)",
+          border: "rgba(255, 255, 255, 0.10)",
         },
         accent: {
-          safe: "#00FF9D",     // clean / confirmed safe
-          danger: "#FF3B5C",   // rug / critical
-          warning: "#FFB547",  // suspected / medium risk
-          ai: "#9B59F7",       // AI / analysis features
-          blue: "#3B82F6",     // info / links
+          safe: "#5BC763",      // clean / confirmed safe
+          danger: "#DD5656",    // rug / critical
+          warning: "#F1AD4B",   // suspected / medium risk
+          ai: "#622EC3",        // AI / analysis features — Noelle purple
+          aiLight: "#B370F0",   // light purple variant
+          cyan: "#53E9F6",      // highlight / interactive
+          blue: "#4D65DB",      // info / links
         },
         text: {
-          primary: "#F0F0FF",
-          secondary: "#B0B0CC",
-          muted: "#6B6B8A",
-          inverse: "#0A0A0F",
+          primary: "#FFFFFF",
+          secondary: "#AAAAAA",
+          muted: "#666666",
+          inverse: "#000000",
         },
         risk: {
-          low: "#00FF9D",
-          medium: "#FFB547",
-          high: "#FF7A2F",
-          critical: "#FF3B5C",
+          low: "#5BC763",
+          medium: "#F1AD4B",
+          high: "#E3A33D",
+          critical: "#DD5656",
         },
       },
       fontFamily: {
-        sans: ["Inter_400Regular", "System"],
-        medium: ["Inter_500Medium", "System"],
-        semibold: ["Inter_600SemiBold", "System"],
-        bold: ["Inter_700Bold", "System"],
+        sans: ["Inter_400Regular", "Avenir", "System"],
+        medium: ["Inter_500Medium", "Avenir-Medium", "System"],
+        semibold: ["Inter_600SemiBold", "Avenir-Heavy", "System"],
+        bold: ["Inter_700Bold", "Avenir-Black", "System"],
         mono: ["JetBrainsMono_400Regular", "Courier"],
         "mono-bold": ["JetBrainsMono_700Bold", "Courier"],
       },

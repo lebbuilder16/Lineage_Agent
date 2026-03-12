@@ -43,11 +43,11 @@ export default function TabsLayout() {
             <View
               style={[
                 StyleSheet.absoluteFill,
-                { backgroundColor: "rgba(10,10,15,0.95)" },
+                { backgroundColor: "rgba(0,0,0,0.95)" },
               ]}
             />
           ),
-        tabBarActiveTintColor: colors.accent.safe,
+        tabBarActiveTintColor: colors.accent.cyan,
         tabBarInactiveTintColor: colors.text.muted,
         tabBarLabelStyle: styles.tabLabel,
       }}
@@ -106,7 +106,7 @@ const styles = StyleSheet.create({
   tabBar: {
     position: "absolute",
     borderTopWidth: 1,
-    borderTopColor: colors.glass.border,
+    borderTopColor: "rgba(98, 46, 195, 0.30)",
     height: 84,
     paddingBottom: 24,
     paddingTop: 8,

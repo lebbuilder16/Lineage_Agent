@@ -120,10 +120,10 @@ const styles = StyleSheet.create({
 const variantStyles = {
   primary: StyleSheet.create({
     container: {
-      backgroundColor: colors.accent.safe,
+      backgroundColor: colors.accent.ai,
     },
     text: {
-      color: colors.background.deep,
+      color: "#FFFFFF",
     },
   }),
   secondary: StyleSheet.create({

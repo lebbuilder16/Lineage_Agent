@@ -66,7 +66,7 @@ export default function AccountPage() {
   if (!ready) {
     return (
       <div className="flex items-center justify-center min-h-[40vh]">
-        <div className="h-6 w-6 rounded-full border-2 border-neon/30 border-t-neon animate-spin" />
+        <div className="h-6 w-6 rounded-full border-2 border-[#622EC3]/30 border-t-[#622EC3] animate-spin" />
       </div>
     );
   }
@@ -81,7 +81,7 @@ export default function AccountPage() {
         </p>
         <button
           onClick={login}
-          className="px-6 py-3 rounded-full bg-neon text-black font-bold font-display hover:bg-neon/90 transition-colors"
+          className="px-6 py-3 rounded-full bg-[#622EC3] text-white font-bold font-display hover:bg-[#7B45E0] transition-colors shadow-[0_0_12px_rgba(98,46,195,0.4)]"
         >
           Connect
         </button>
@@ -115,7 +115,7 @@ export default function AccountPage() {
         <div className="flex items-center gap-2">
           <p className="text-xs text-white/40">Plan</p>
           {authUser?.plan === "pro" ? (
-            <span className="text-xs font-bold px-2 py-0.5 rounded bg-neon/20 text-neon">PRO</span>
+            <span className="text-xs font-bold px-2 py-0.5 rounded bg-[#622EC3]/20 text-[#B370F0]">PRO</span>
           ) : (
             <span className="text-xs font-bold px-2 py-0.5 rounded bg-white/10 text-white/40">FREE</span>
           )}
@@ -132,7 +132,7 @@ export default function AccountPage() {
       <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-6 space-y-4">
         <h2 className="text-sm font-semibold text-white/40 uppercase tracking-widest">API Key</h2>
         <p className="text-xs text-white/40">
-          Use this key in the <code className="text-neon">X-API-Key</code> header to access authenticated endpoints.
+          Use this key in the <code className="text-[#53E9F6]">X-API-Key</code> header to access authenticated endpoints.
         </p>
         <div className="flex items-center gap-2">
           <code className="flex-1 font-mono text-xs bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-white break-all">
@@ -146,7 +146,7 @@ export default function AccountPage() {
           </button>
           <button
             onClick={copyApiKey}
-            className="px-3 py-2 rounded-lg border border-white/10 text-xs text-white/50 hover:text-neon hover:border-neon/30 transition-colors flex-shrink-0"
+            className="px-3 py-2 rounded-lg border border-white/10 text-xs text-white/50 hover:text-[#53E9F6] hover:border-[#53E9F6]/30 transition-colors flex-shrink-0"
           >
             {copied ? "Copied!" : "Copy"}
           </button>
@@ -158,12 +158,12 @@ export default function AccountPage() {
         <h2 className="text-sm font-semibold text-white/40 uppercase tracking-widest">
           Watches
           {watches.length > 0 && (
-            <span className="ml-2 text-neon">{watches.length}</span>
+            <span className="ml-2 text-[#53E9F6]">{watches.length}</span>
           )}
         </h2>
 
         {loadingWatches ? (
-          <div className="h-4 w-4 rounded-full border-2 border-neon/30 border-t-neon animate-spin" />
+          <div className="h-4 w-4 rounded-full border-2 border-[#622EC3]/30 border-t-[#622EC3] animate-spin" />
         ) : watches.length === 0 ? (
           <p className="text-sm text-white/30">
             No watches yet. Add deployers or tokens from scan results.
@@ -181,7 +181,7 @@ export default function AccountPage() {
                   </span>
                   <Link
                     href={`/token/${w.value}`}
-                    className="font-mono text-xs text-white/70 hover:text-neon transition-colors"
+                    className="font-mono text-xs text-white/70 hover:text-[#53E9F6] transition-colors"
                   >
                     {w.value.slice(0, 8)}…{w.value.slice(-6)}
                   </Link>

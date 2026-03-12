@@ -50,7 +50,7 @@ export default function WalletButton() {
       <button
         onClick={login}
         disabled={loading}
-        className="flex items-center gap-1.5 px-3 py-2 min-h-[44px] rounded-full border border-white/10 bg-white/5 text-white/70 text-sm hover:text-white hover:border-neon/40 hover:bg-neon/5 transition-colors disabled:opacity-50"
+        className="flex items-center gap-1.5 px-3 py-2 min-h-[44px] rounded-full border border-white/10 bg-white/5 text-white/70 text-sm hover:text-white hover:border-[#622EC3]/40 hover:bg-[#622EC3]/5 transition-colors disabled:opacity-50"
         title="Connect wallet or email"
       >
         <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -67,7 +67,7 @@ export default function WalletButton() {
     "Account";
 
   const planBadge = authUser?.plan === "pro" ? (
-    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-neon/20 text-neon">PRO</span>
+    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-[#622EC3]/20 text-[#B370F0]">PRO</span>
   ) : (
     <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-white/10 text-white/40">FREE</span>
   );
@@ -76,11 +76,11 @@ export default function WalletButton() {
     <div className="relative" ref={ref}>
       <button
         onClick={() => setOpen((o) => !o)}
-        className="flex items-center gap-1.5 px-3 py-2 min-h-[44px] rounded-full border border-neon/30 bg-neon/5 text-neon text-sm hover:bg-neon/10 transition-colors"
+        className="flex items-center gap-1.5 px-3 py-2 min-h-[44px] rounded-full border border-[#622EC3]/40 bg-[#622EC3]/10 text-[#B370F0] text-sm hover:bg-[#622EC3]/20 transition-colors"
         title="Account"
       >
         {/* Avatar dot */}
-        <span className="h-2 w-2 rounded-full bg-neon flex-shrink-0" />
+        <span className="h-2 w-2 rounded-full bg-[#5BC763] flex-shrink-0" />
         <span className="hidden sm:inline font-mono text-xs">{displayName}</span>
       </button>
 

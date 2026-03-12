@@ -11,7 +11,7 @@ interface Props {
 }
 
 const CONFIDENCE_CONFIG = {
-  high:   { badge: "bg-neon/20 text-neon border-neon/30",               label: "High confidence" },
+  high:   { badge: "bg-[#622EC3]/20 text-[#B370F0] border-[#622EC3]/30",               label: "High confidence" },
   medium: { badge: "bg-warning/20 text-warning border-warning/30",      label: "Medium confidence" },
   low:    { badge: "bg-muted text-muted-foreground border-border",      label: "Low confidence" },
 } as const;
@@ -106,7 +106,7 @@ export default function OperatorPage({ params }: Props) {
               <code className="font-mono text-xs text-muted-foreground truncate max-w-[200px]">{w}</code>
               <Link
                 href={`/deployer/${w}`}
-                className="ml-2 shrink-0 text-xs text-primary hover:text-neon transition-colors"
+                className="ml-2 shrink-0 text-xs text-primary hover:text-[#53E9F6] transition-colors"
               >
                 Profile →
               </Link>
@@ -161,7 +161,7 @@ export default function OperatorPage({ params }: Props) {
               <Link
                 key={mint}
                 href={`/lineage/${mint}`}
-                className="rounded-lg border border-border bg-card px-3 py-1.5 font-mono text-xs text-muted-foreground hover:text-neon hover:border-neon/30 transition-colors"
+                className="rounded-lg border border-border bg-card px-3 py-1.5 font-mono text-xs text-muted-foreground hover:text-[#53E9F6] hover:border-[#53E9F6]/30 transition-colors"
               >
                 {mint.slice(0, 8)}…
               </Link>
@@ -193,7 +193,7 @@ export default function OperatorPage({ params }: Props) {
                 </div>
                 <Link
                   href={`/deployer/${profile.address}`}
-                  className="text-xs text-primary hover:text-neon transition-colors"
+                  className="text-xs text-primary hover:text-[#53E9F6] transition-colors"
                 >
                   Full Profile →
                 </Link>

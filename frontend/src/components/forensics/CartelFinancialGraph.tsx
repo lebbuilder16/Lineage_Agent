@@ -41,13 +41,13 @@ function ScoreGauge({ score }: { score: number }) {
       ? "text-destructive"
       : pct >= 40
       ? "text-warning"
-      : "text-neon";
+      : "text-[#53E9F6]";
   const trackColor =
     pct >= 70
       ? "bg-destructive"
       : pct >= 40
       ? "bg-warning"
-      : "bg-neon";
+      : "bg-[#622EC3]";
   const label =
     pct >= 70 ? "High risk" : pct >= 40 ? "Moderate risk" : "Low risk";
 

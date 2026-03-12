@@ -32,7 +32,7 @@ export function TokenInfo({ token, isRoot = false }: Props) {
     <div
       className={cn(
         "flex items-start gap-4 rounded-2xl border bg-card p-5 animate-fade-in transition-all",
-        isRoot ? "border-neon/30 shadow-[0_0_20px_rgba(57,255,20,0.08)]" : "border-white/5 hover:border-white/10"
+        isRoot ? "border-[#622EC3]/40 shadow-[0_0_24px_rgba(98,46,195,0.15)]" : "border-white/8 hover:border-[#53E9F6]/20"
       )}
     >
       {/* Avatar — wrapper is relative but NOT overflow-hidden so the crown badge isn't clipped */}
@@ -53,8 +53,8 @@ export function TokenInfo({ token, isRoot = false }: Props) {
           )}
         </div>
         {isRoot && (
-          <div className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-neon shadow-md">
-            <Crown className="h-2.5 w-2.5 text-black" />
+          <div className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-[#622EC3] shadow-[0_0_8px_rgba(98,46,195,0.6)]">
+            <Crown className="h-2.5 w-2.5 text-white" />
           </div>
         )}
       </div>

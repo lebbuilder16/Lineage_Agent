@@ -199,7 +199,7 @@ export default function LineagePage() {
           {progress && (
             <div className="fixed top-0 left-0 right-0 z-[60] h-0.5 bg-white/5 overflow-hidden">
               <div
-                className="h-full bg-neon transition-all duration-300 ease-out shadow-[0_0_8px_rgba(57,255,20,0.5)]"
+                className="h-full bg-[#622EC3] transition-all duration-300 ease-out shadow-[0_0_8px_rgba(98,46,195,0.5)]"
                 style={{ width: `${progress.progress}%` }}
               />
             </div>
@@ -251,7 +251,7 @@ export default function LineagePage() {
             onClick={() => mint && analyze(mint)}
             className={cn(
               "inline-flex items-center gap-2 rounded-full px-5 py-2 text-sm font-display font-bold",
-              "bg-neon text-black hover:bg-neon/90",
+              "bg-[#622EC3] text-white hover:bg-[#7B45E0]",
               "transition-colors",
             )}
           >

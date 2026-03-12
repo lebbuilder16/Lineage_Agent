@@ -67,7 +67,7 @@ export default function AlertBell() {
           <span
             className={cn(
               "absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center",
-              "rounded-full bg-neon text-[9px] font-bold text-black",
+              "rounded-full bg-[#622EC3] text-[9px] font-bold text-white",
               "animate-pulse",
             )}
           >
@@ -103,7 +103,7 @@ export default function AlertBell() {
             {alerts.length === 0 ? (
               <p className="px-4 py-6 text-center text-xs text-muted-foreground">
                 No alerts yet.{" "}
-                <Link href="/search" className="text-neon hover:underline" onClick={() => setOpen(false)}>
+                <Link href="/search" className="text-[#53E9F6] hover:underline" onClick={() => setOpen(false)}>
                   Watch a deployer
                 </Link>{" "}
                 to get notified.
@@ -115,7 +115,7 @@ export default function AlertBell() {
                   className={cn(
                     "flex items-start gap-3 border-b border-white/5 px-4 py-3",
                     "hover:bg-white/5 transition-colors group",
-                    !alert.read && "bg-neon/5",
+                    !alert.read && "bg-[#622EC3]/5",
                   )}
                 >
                   <span className="mt-0.5 text-base leading-none">
@@ -134,7 +134,7 @@ export default function AlertBell() {
                     {alert.mint && (
                       <Link
                         href={`/lineage/${alert.mint}`}
-                        className="mt-1 inline-block text-[10px] text-neon hover:underline"
+                        className="mt-1 inline-block text-[10px] text-[#53E9F6] hover:underline"
                         onClick={() => setOpen(false)}
                       >
                         View report →

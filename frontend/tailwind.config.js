@@ -15,7 +15,9 @@ module.exports = {
         ring: "hsl(var(--ring))",
         background: "hsl(var(--background))",
         foreground: "hsl(var(--foreground))",
-        neon: "#39FF14",
+        neon: "#53E9F6",        /* Noelle cyan — replaces neon green */
+        purple: "#622EC3",      /* Noelle primary purple */
+        "purple-light": "#B370F0",
         primary: {
           DEFAULT: "hsl(var(--primary))",
           foreground: "hsl(var(--primary-foreground))",

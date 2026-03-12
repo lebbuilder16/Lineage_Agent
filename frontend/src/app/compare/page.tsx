@@ -145,7 +145,7 @@ export default function ComparePage() {
       {/* Header */}
       <div>
         <h1 className="text-2xl font-display font-bold flex items-center gap-2">
-          <ArrowLeftRight className="h-6 w-6 text-neon" />
+          <ArrowLeftRight className="h-6 w-6 text-[#53E9F6]" />
           Compare tokens
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
@@ -162,7 +162,7 @@ export default function ComparePage() {
               value={mintA}
               onChange={(e) => setMintA(e.target.value)}
               placeholder="Mint address…"
-              className="w-full rounded-lg border border-white/10 bg-zinc-900 px-3 py-2.5 text-sm font-mono placeholder:text-zinc-600 focus:border-neon/50 focus:outline-none transition-colors"
+              className="w-full rounded-lg border border-white/10 bg-zinc-900 px-3 py-2.5 text-sm font-mono placeholder:text-zinc-600 focus:border-[#622EC3]/60 focus:outline-none transition-colors"
             />
           </div>
           <div className="space-y-1.5">
@@ -171,7 +171,7 @@ export default function ComparePage() {
               value={mintB}
               onChange={(e) => setMintB(e.target.value)}
               placeholder="Mint address…"
-              className="w-full rounded-lg border border-white/10 bg-zinc-900 px-3 py-2.5 text-sm font-mono placeholder:text-zinc-600 focus:border-neon/50 focus:outline-none transition-colors"
+              className="w-full rounded-lg border border-white/10 bg-zinc-900 px-3 py-2.5 text-sm font-mono placeholder:text-zinc-600 focus:border-[#622EC3]/60 focus:outline-none transition-colors"
             />
           </div>
         </div>
@@ -179,7 +179,7 @@ export default function ComparePage() {
         <button
           onClick={handleCompare}
           disabled={loading}
-          className="flex w-full items-center justify-center gap-2 rounded-lg bg-neon px-4 py-2.5 text-sm font-bold text-black hover:bg-neon/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          className="flex w-full items-center justify-center gap-2 rounded-lg bg-[#622EC3] px-4 py-2.5 text-sm font-bold text-white hover:bg-[#7B45E0] disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-[0_0_12px_rgba(98,46,195,0.4)]"
         >
           {loading ? (
             <span className="h-4 w-4 rounded-full border-2 border-black/30 border-t-black animate-spin" />
@@ -277,7 +277,7 @@ export default function ComparePage() {
                 <ul className="space-y-1 text-xs text-zinc-400">
                   {result.verdict_reasons.map((reason, i) => (
                     <li key={i} className="flex items-start gap-1.5">
-                      <span className="mt-0.5 text-neon/60">›</span>
+                      <span className="mt-0.5 text-[#53E9F6]/60">›</span>
                       {reason}
                     </li>
                   ))}

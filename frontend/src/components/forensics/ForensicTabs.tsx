@@ -56,7 +56,7 @@ export default function ForensicTabs({ tabs, defaultTab }: Props) {
                   className={cn(
                     "rounded-full px-1.5 py-px text-[11px] font-bold tabular-nums",
                     isActive
-                      ? "bg-neon/20 text-neon"
+                      ? "bg-[#622EC3]/20 text-[#B370F0]"
                       : tab.disabled
                         ? "bg-zinc-900 text-zinc-700"
                         : "bg-zinc-800 text-zinc-500",
@@ -69,7 +69,7 @@ export default function ForensicTabs({ tabs, defaultTab }: Props) {
               {isActive && (
                 <motion.div
                   layoutId="forensic-tab-indicator"
-                  className="absolute bottom-0 left-0 right-0 h-[2px] bg-neon rounded-full"
+                  className="absolute bottom-0 left-0 right-0 h-[2px] bg-[#622EC3] rounded-full"
                   transition={{ type: "spring", stiffness: 400, damping: 30 }}
                 />
               )}

@@ -56,7 +56,7 @@ export function MobileNav() {
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: -8, scale: 0.97 }}
               transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
-              className="fixed top-20 left-4 right-4 z-[90] sm:hidden rounded-2xl border border-white/10 bg-zinc-950/95 backdrop-blur-xl shadow-2xl shadow-black/60 overflow-hidden"
+              className="fixed top-20 left-4 right-4 z-[90] sm:hidden rounded-2xl border border-[#622EC3]/30 bg-black/95 backdrop-blur-xl shadow-2xl shadow-[#622EC3]/10 overflow-hidden"
             >
               <nav className="flex flex-col p-2">
                 {navItems.map((item) => (
@@ -64,7 +64,7 @@ export function MobileNav() {
                     key={item.href}
                     href={item.href}
                     onClick={() => setOpen(false)}
-                    className="flex items-center px-4 py-3 rounded-xl text-sm font-semibold text-white/70 hover:text-white hover:bg-white/8 transition-colors"
+                    className="flex items-center px-4 py-3 rounded-xl text-sm font-semibold text-white/70 hover:text-white hover:bg-[#622EC3]/15 transition-colors"
                   >
                     {item.label}
                   </Link>
@@ -78,7 +78,7 @@ export function MobileNav() {
                   <Link
                     href="/search"
                     onClick={() => setOpen(false)}
-                    className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-neon text-black font-bold text-sm hover:bg-neon/90 transition-colors"
+                    className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-[#622EC3] text-white font-bold text-sm hover:bg-[#7B45E0] transition-colors shadow-[0_0_12px_rgba(98,46,195,0.4)]"
                   >
                     <Search className="h-3.5 w-3.5" />
                     Analyse

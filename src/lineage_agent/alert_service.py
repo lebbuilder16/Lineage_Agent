@@ -1,7 +1,6 @@
-"""
-Alert Sweep Service.
+"""Alert Sweep Service.
 
-Runs a background sweep every ``_SWEEP_INTERVAL_SECONDS`` (default 5 min)
+Runs a background sweep every ``_SWEEP_INTERVAL_SECONDS`` (default 5 min)
 to check whether any new events have occurred that match active alert
 subscriptions.
 
@@ -12,9 +11,8 @@ narrative  – notify when a watched narrative category gains a new token
 token      – notify when a watched token has a new forensic signal
 
 When a match is found, the service:
-  1. Sends a Telegram message (if chat_id is set)
-  2. Broadcasts to WebSocket browser clients
-  3. Sends a Firebase Cloud Messaging push to the user's registered device
+  1. Broadcasts to WebSocket browser clients
+  2. Sends a Firebase Cloud Messaging push to the user's registered device
 """
 
 from __future__ import annotations
@@ -27,7 +25,6 @@ from typing import TYPE_CHECKING, Optional
 
 import httpx
 
-
 if TYPE_CHECKING:
     from fastapi import WebSocket
 
@@ -37,7 +34,6 @@ _SWEEP_INTERVAL_SECONDS = 5 * 60   # 5 minutes
 _LOOKBACK_SECONDS = 6 * 60         # check events from last 6 min (overlap to cover delays)
 
 _sweep_task: Optional[asyncio.Task] = None
-# Store reference to the Telegram Application so we can send messages
 # Web WebSocket clients (browser dashboard)
 _web_clients: set["WebSocket"] = set()
 
@@ -216,6 +212,7 @@ async def _broadcast_web_alert(payload: dict) -> None:
 async def _run_alert_sweep() -> int:
     """One sweep iteration. Returns 0 (Telegram removed; web alerts triggered on scan)."""
     return 0
+
 
 async def _sweep_loop() -> None:
     """Background loop that runs the sweep every interval."""

@@ -23,25 +23,25 @@ export function LineageCard({ data }: Props) {
   const rootName   = data.root?.name || data.root?.symbol || data.root?.mint?.slice(0, 8) || "Unknown";
 
   return (
-    <div className="rounded-2xl border border-white/5 bg-card p-6 animate-fade-in hover:border-neon/20 transition-all">
+    <div className="rounded-2xl border border-white/10 bg-card p-6 animate-fade-in hover:border-[#622EC3]/40 shadow-[0_0_32px_rgba(98,46,195,0.06)] transition-all">
       {/* Original / Clone banner */}
       {isOriginal ? (
-        <div className="flex items-center gap-2 mb-4 rounded-lg border border-emerald-500/30 bg-emerald-950/40 px-3 py-2">
-          <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" />
-          <span className="text-xs font-semibold text-emerald-300">Original token</span>
-          <span className="ml-auto text-[10px] text-emerald-600 font-mono">{queryName}</span>
+        <div className="flex items-center gap-2 mb-4 rounded-lg border border-[#5BC763]/30 bg-[#5BC763]/10 px-3 py-2">
+          <CheckCircle2 className="h-4 w-4 shrink-0 text-[#5BC763]" />
+          <span className="text-xs font-semibold text-[#5BC763]">Original token</span>
+          <span className="ml-auto text-[10px] text-[#5BC763]/60 font-mono">{queryName}</span>
         </div>
       ) : (
-        <div className="flex items-center gap-2 mb-4 rounded-lg border border-amber-500/30 bg-amber-950/40 px-3 py-2">
-          <Copy className="h-4 w-4 shrink-0 text-amber-400" />
-          <span className="text-xs font-semibold text-amber-300">Clone</span>
-          <span className="text-xs text-amber-500">of</span>
-          <span className="text-xs font-semibold text-amber-200 truncate max-w-[180px]">{rootName}</span>
+        <div className="flex items-center gap-2 mb-4 rounded-lg border border-[#F1AD4B]/30 bg-[#F1AD4B]/10 px-3 py-2">
+          <Copy className="h-4 w-4 shrink-0 text-[#F1AD4B]" />
+          <span className="text-xs font-semibold text-[#F1AD4B]">Clone</span>
+          <span className="text-xs text-[#F1AD4B]/60">of</span>
+          <span className="text-xs font-semibold text-[#F1AD4B]/90 truncate max-w-[180px]">{rootName}</span>
         </div>
       )}
 
       <div className="flex items-center gap-2 mb-5">
-        <div className="flex h-7 w-7 items-center justify-center rounded-xl bg-neon/10 text-neon">
+        <div className="flex h-7 w-7 items-center justify-center rounded-xl bg-[#622EC3]/20 text-[#B370F0]">
           <Shield className="h-4 w-4" />
         </div>
         <h2 className="display-heading font-bold text-base text-white uppercase tracking-wide">Lineage Summary</h2>

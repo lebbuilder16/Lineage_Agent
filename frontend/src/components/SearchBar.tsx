@@ -92,15 +92,15 @@ export function SearchBar({ compact = false }: { compact?: boolean }) {
             "relative flex items-center rounded-2xl border bg-card transition-all duration-200",
             showDropdown ? "rounded-b-none border-b-0" : "",
             focused
-              ? "border-neon/50 ring-2 ring-neon/10 shadow-[0_0_20px_rgba(57,255,20,0.07)]"
-              : "border-white/10 hover:border-white/20",
+              ? "border-[#622EC3]/60 ring-2 ring-[#622EC3]/15 shadow-[0_0_20px_rgba(98,46,195,0.12)]"
+              : "border-white/10 hover:border-[#53E9F6]/30",
             compact ? "h-11" : "h-12 sm:h-14"
           )}
         >
           <Search
             className={cn(
               "absolute left-3.5 h-4 w-4 pointer-events-none transition-colors",
-              isLoading ? "text-neon/70 animate-pulse" : "text-muted-foreground"
+              isLoading ? "text-[#53E9F6]/70 animate-pulse" : "text-muted-foreground"
             )}
           />
           <input
@@ -149,10 +149,10 @@ export function SearchBar({ compact = false }: { compact?: boolean }) {
             type="submit"
             className={cn(
               "absolute right-1.5 inline-flex items-center gap-1.5 rounded-full px-4 font-display font-bold text-sm",
-              "bg-neon text-black",
-              "hover:bg-neon/90 active:scale-[0.97]",
+              "bg-[#622EC3] text-white",
+              "hover:bg-[#7B45E0] active:scale-[0.97]",
               "transition-all duration-150",
-              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neon/50",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#622EC3]/50",
               compact ? "h-8" : "h-9"
             )}
           >
@@ -167,14 +167,14 @@ export function SearchBar({ compact = false }: { compact?: boolean }) {
         <div
           className={cn(
             "absolute left-0 right-0 z-50",
-            "bg-card border border-neon/50 border-t-0 rounded-b-2xl",
+            "bg-card border border-[#622EC3]/50 border-t-0 rounded-b-2xl",
             "shadow-[0_8px_32px_rgba(0,0,0,0.5)]",
             "overflow-hidden"
           )}
         >
           {isLoading && results.length === 0 ? (
             <div className="flex items-center gap-2 px-4 py-3 text-sm text-muted-foreground">
-              <span className="h-3 w-3 rounded-full border-2 border-neon/50 border-t-neon animate-spin" />
+              <span className="h-3 w-3 rounded-full border-2 border-[#622EC3]/50 border-t-[#622EC3] animate-spin" />
               Searching...
             </div>
           ) : (
@@ -193,7 +193,7 @@ export function SearchBar({ compact = false }: { compact?: boolean }) {
                   className={cn(
                     "flex items-center gap-3 px-4 py-2.5 cursor-pointer transition-colors",
                     idx === activeIdx
-                      ? "bg-neon/10 text-foreground"
+                      ? "bg-[#622EC3]/10 text-foreground"
                       : "hover:bg-white/5 text-foreground/80"
                   )}
                 >

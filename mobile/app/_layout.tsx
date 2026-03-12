@@ -204,7 +204,6 @@ function RootLayout() {
               />
               <Stack.Screen name="auth" options={{ headerShown: false }} />
               <Stack.Screen name="onboarding" options={{ headerShown: false, animation: "fade" }} />
-              <Stack.Screen name="phantom-connect" options={{ headerShown: false, animation: "fade" }} />
             </Stack>
             <FlashMessage position="top" />
           </QueryClientProvider>

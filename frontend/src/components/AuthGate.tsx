@@ -34,7 +34,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   if (!ready && !privyTimedOut) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
-        <div className="h-8 w-8 rounded-full border-2 border-neon/30 border-t-neon animate-spin" />
+        <div className="h-8 w-8 rounded-full border-2 border-[#622EC3]/30 border-t-[#622EC3] animate-spin" />
         <p className="text-xs text-white/30">Connecting to auth…</p>
       </div>
     );
@@ -49,7 +49,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   // causes browsers to block the Privy popup silently.
   return (
     <div className="flex flex-col items-center justify-center min-h-[70vh] px-4 text-center">
-      <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-neon text-black text-2xl font-black font-display mb-6">
+      <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#622EC3] text-white text-2xl font-black font-display mb-6">
         L
       </div>
 
@@ -62,7 +62,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
 
       <button
         onClick={() => { try { login(); } catch { /* popup blocked — user can retry */ } }}
-        className="flex items-center gap-2 px-6 py-3 rounded-full bg-neon text-black font-bold text-sm hover:bg-neon/90 transition-colors"
+        className="flex items-center gap-2 px-6 py-3 rounded-full bg-[#622EC3] text-white font-bold text-sm hover:bg-[#7B45E0] transition-colors shadow-[0_0_12px_rgba(98,46,195,0.4)]"
       >
         <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />

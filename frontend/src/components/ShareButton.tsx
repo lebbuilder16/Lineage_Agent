@@ -166,7 +166,7 @@ export function ShareButton({ data, analysis }: Props) {
               </div>
               <div className="pb-safe-area pb-8">
                 <button onClick={copyLink} role="menuitem" className="flex w-full items-center gap-3 px-4 py-3.5 text-sm hover:bg-white/5 transition-colors text-left min-h-[52px]">
-                  {copied ? <Check className="h-5 w-5 text-neon shrink-0" /> : <Copy className="h-5 w-5 text-muted-foreground shrink-0" />}
+                  {copied ? <Check className="h-5 w-5 text-[#5BC763] shrink-0" /> : <Copy className="h-5 w-5 text-muted-foreground shrink-0" />}
                   <span>{copied ? "Copied!" : "Copy link"}</span>
                 </button>
                 <div className="border-t border-white/5" />
@@ -189,7 +189,7 @@ export function ShareButton({ data, analysis }: Props) {
               aria-label="Share options"
             >
               <button onClick={copyLink} role="menuitem" className="flex w-full items-center gap-3 px-3 py-2.5 text-sm hover:bg-white/5 transition-colors text-left">
-                {copied ? <Check className="h-4 w-4 text-neon" /> : <Copy className="h-4 w-4 text-muted-foreground" />}
+                {copied ? <Check className="h-4 w-4 text-[#5BC763]" /> : <Copy className="h-4 w-4 text-muted-foreground" />}
                 <span>{copied ? "Copied!" : "Copy link"}</span>
               </button>
               <div className="border-t border-white/5" />

@@ -18,30 +18,30 @@
 
 @layer base {
   :root {
-    /* Dark-only crypto theme — no light mode */
-    --background: 0 0% 4%;          /* #0A0A0A */
-    --foreground: 0 0% 96%;         /* #F5F5F5 */
-    --card: 0 0% 8%;                /* #141414 */
-    --card-foreground: 0 0% 96%;
-    --popover: 0 0% 8%;
-    --popover-foreground: 0 0% 96%;
-    --primary: 112 100% 53%;        /* #39FF14 neon green */
-    --primary-foreground: 0 0% 0%;  /* black text on neon */
-    --secondary: 0 0% 10%;
-    --secondary-foreground: 0 0% 70%;
-    --muted: 0 0% 10%;
-    --muted-foreground: 0 0% 53%;   /* #888 */
-    --accent: 0 0% 12%;
-    --accent-foreground: 0 0% 96%;
-    --destructive: 0 63% 55%;
-    --destructive-foreground: 0 0% 98%;
-    --success: 112 100% 53%;        /* neon green */
+    /* Noelle Dark theme — dark only */
+    --background: 0 0% 0%;           /* #000000 */
+    --foreground: 0 0% 100%;         /* #FFFFFF */
+    --card: 0 0% 9.4%;               /* #181818 */
+    --card-foreground: 0 0% 100%;
+    --popover: 0 0% 9.4%;
+    --popover-foreground: 0 0% 100%;
+    --primary: 261 62% 47%;          /* #622EC3 Noelle purple */
+    --primary-foreground: 0 0% 100%; /* white text on purple */
+    --secondary: 0 0% 15.7%;        /* #282828 */
+    --secondary-foreground: 0 0% 66.7%;  /* #AAAAAA */
+    --muted: 0 0% 15.7%;
+    --muted-foreground: 0 0% 40%;    /* #666666 */
+    --accent: 185 90% 65%;           /* #53E9F6 Noelle cyan */
+    --accent-foreground: 0 0% 0%;    /* black on cyan */
+    --destructive: 0 67% 60%;        /* #DD5656 */
+    --destructive-foreground: 0 0% 100%;
+    --success: 124 49% 57%;          /* #5BC763 */
     --success-foreground: 0 0% 0%;
-    --warning: 38 92% 50%;
+    --warning: 35 85% 62%;           /* #F1AD4B */
     --warning-foreground: 0 0% 0%;
-    --border: 0 0% 17%;             /* #2A2A2A */
+    --border: 0 0% 17%;              /* #2B2B2B */
     --input: 0 0% 17%;
-    --ring: 112 100% 53%;
+    --ring: 261 62% 47%;             /* purple ring */
     --radius: 0.625rem;
   }
 }
@@ -85,13 +85,23 @@
   /* Hide scrollbar but keep scroll functionality */
   .no-scrollbar::-webkit-scrollbar { display: none; }
   .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-  /* Neon glow text effect */
+  /* Neon glow text effect — Noelle cyan */
   .neon-glow {
+    color: hsl(var(--accent));
+    text-shadow: 0 0 10px hsl(var(--accent) / 0.7), 0 0 30px hsl(var(--accent) / 0.35), 0 0 60px hsl(var(--accent) / 0.15);
+  }
+  /* Purple glow text effect — Noelle primary */
+  .purple-glow {
     color: hsl(var(--primary));
     text-shadow: 0 0 10px hsl(var(--primary) / 0.8), 0 0 30px hsl(var(--primary) / 0.4), 0 0 60px hsl(var(--primary) / 0.2);
   }
   /* Neon glow box effect */
   .neon-border {
+    border-color: hsl(var(--accent));
+    box-shadow: 0 0 10px hsl(var(--accent) / 0.3), inset 0 0 10px hsl(var(--accent) / 0.05);
+  }
+  /* Purple border glow */
+  .purple-border {
     border-color: hsl(var(--primary));
     box-shadow: 0 0 10px hsl(var(--primary) / 0.3), inset 0 0 10px hsl(var(--primary) / 0.05);
   }
@@ -102,17 +112,23 @@
     letter-spacing: 0.01em;
     text-transform: uppercase;
   }
-  /* Glass card */
+  /* Glass card — Noelle indigo glass */
   .glass-card {
-    background: rgba(20, 20, 20, 0.8);
+    background: rgba(59, 45, 143, 0.25);
     backdrop-filter: blur(12px);
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.10);
+  }
+  /* Glass card elevated */
+  .glass-card-elevated {
+    background: rgba(59, 45, 143, 0.40);
+    backdrop-filter: blur(16px);
+    border: 1px solid rgba(255, 255, 255, 0.25);
   }
   /* Pill nav glassmorphism */
   .pill-nav {
-    background: rgba(0, 0, 0, 0.6);
+    background: rgba(59, 45, 143, 0.30);
     backdrop-filter: blur(16px);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.10);
     border-radius: 9999px;
   }
   /* Scroll offset for sections targeted by anchor links — clears the fixed header */

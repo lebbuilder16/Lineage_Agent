@@ -21,9 +21,9 @@ interface Props {
 function StatusIcon({ status }: { status: StepStatus }) {
   switch (status) {
     case "running":
-      return <Loader2 className="h-4 w-4 animate-spin text-neon" />;
+      return <Loader2 className="h-4 w-4 animate-spin text-[#53E9F6]" />;
     case "done":
-      return <CheckCircle2 className="h-4 w-4 text-neon" />;
+      return <CheckCircle2 className="h-4 w-4 text-[#622EC3]" />;
     case "error":
       return <XCircle className="h-4 w-4 text-destructive" />;
     default:

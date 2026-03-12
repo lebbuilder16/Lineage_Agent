@@ -54,13 +54,13 @@ export function RugBar({ rugRate }: { rugRate: number }) {
     critical: "bg-destructive",
     high: "bg-destructive/70",
     medium: "bg-warning",
-    low: "bg-neon",
+    low: "bg-[#622EC3]",
   }[level];
   const textColor = {
     critical: "text-destructive",
     high: "text-destructive/80",
     medium: "text-warning",
-    low: "text-neon",
+    low: "text-[#53E9F6]",
   }[level];
   return (
     <div className="space-y-1">
@@ -84,7 +84,7 @@ export function RugBar({ rugRate }: { rugRate: number }) {
 
 export const CONFIDENCE_CONFIG = {
   high: {
-    badge: "bg-neon/20 text-neon border-neon/30",
+    badge: "bg-[#622EC3]/20 text-[#B370F0] border-[#622EC3]/30",
     label: "High confidence",
   },
   medium: {

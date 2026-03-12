@@ -93,7 +93,7 @@ export default function SolTraceCard({ report, mint }: Props) {
       <div className="mt-3 border-t border-border/50 pt-2">
         <Link
           href={`/sol-trace/${mint}`}
-          className="text-xs text-primary hover:text-neon transition-colors font-medium"
+          className="text-xs text-primary hover:text-[#53E9F6] transition-colors font-medium"
         >
           Trace Full Flow Graph →
         </Link>

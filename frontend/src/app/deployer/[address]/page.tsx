@@ -14,7 +14,7 @@ interface Props {
 }
 
 const CONFIDENCE_CONFIG = {
-  high:   { badge: "bg-neon/20 text-neon border-neon/30",          label: "High confidence" },
+  high:   { badge: "bg-[#622EC3]/20 text-[#B370F0] border-[#622EC3]/30",          label: "High confidence" },
   medium: { badge: "bg-warning/20 text-warning border-warning/30", label: "Medium confidence" },
   low:    { badge: "bg-muted text-muted-foreground border-border",  label: "Low confidence" },
 } as const;
@@ -68,7 +68,7 @@ function TokenRow({ token }: { token: DeployerTokenSummary }) {
             "shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-full",
             isRugged
               ? "bg-destructive/20 text-destructive"
-              : "bg-neon/20 text-neon"
+              : "bg-[#622EC3]/20 text-[#B370F0]"
           )}
         >
           {isRugged ? "RUGGED" : "ACTIVE"}
@@ -98,7 +98,7 @@ function TokenRow({ token }: { token: DeployerTokenSummary }) {
         )}
         <Link
           href={`/lineage/${token.mint}`}
-          className="text-xs text-primary hover:text-neon transition-colors"
+          className="text-xs text-primary hover:text-[#53E9F6] transition-colors"
         >
           Lineage →
         </Link>
@@ -155,7 +155,7 @@ export default function DeployerPage({ params }: Props) {
       ? "text-destructive/80"
       : rugPct >= 25
       ? "text-warning"
-      : "text-neon";
+      : "text-[#53E9F6]";
 
   // Sort tokens: rugged first, then by created_at desc
   const sortedTokens = [...profile.tokens].sort((a, b) => {
@@ -213,7 +213,7 @@ export default function DeployerPage({ params }: Props) {
           <div
             className={cn(
               "h-full rounded-full transition-all",
-              rugPct >= 80 ? "bg-destructive" : rugPct >= 50 ? "bg-destructive/70" : rugPct >= 25 ? "bg-warning" : "bg-neon"
+              rugPct >= 80 ? "bg-destructive" : rugPct >= 50 ? "bg-destructive/70" : rugPct >= 25 ? "bg-warning" : "bg-[#622EC3]"
             )}
             style={{ width: `${Math.min(rugPct, 100)}%` }}
           />
