@@ -100,14 +100,14 @@ export const CONFIDENCE_CONFIG = {
 /* ── SIGNAL_COLORS / LABELS ────────────────────────────────────────── */
 
 export const SIGNAL_COLORS: Record<string, string> = {
-  dna_match: "bg-purple-500/20 text-purple-400 border-purple-500/30",
-  sol_transfer: "bg-orange-500/20 text-orange-400 border-orange-500/30",
-  timing_sync: "bg-yellow-500/20 text-yellow-400 border-yellow-500/30",
-  phash_cluster: "bg-teal-500/20 text-teal-400 border-teal-500/30",
-  cross_holding: "bg-blue-500/20 text-blue-400 border-blue-500/30",
-  funding_link: "bg-red-500/20 text-red-400 border-red-500/30",
-  shared_lp: "bg-orange-600/20 text-orange-300 border-orange-600/30",
-  sniper_ring: "bg-rose-500/20 text-rose-400 border-rose-500/30",
+  dna_match:    "bg-purple/20 text-[#B370F0] border-purple/30",
+  sol_transfer: "bg-amber/20 text-amber border-amber/30",
+  timing_sync:  "bg-warning/20 text-warning border-warning/30",
+  phash_cluster:"bg-[#72E4C5]/20 text-[#72E4C5] border-[#72E4C5]/30",
+  cross_holding:"bg-[#4D65DB]/20 text-[#4D65DB] border-[#4D65DB]/30",
+  funding_link: "bg-destructive/20 text-destructive border-destructive/30",
+  shared_lp:    "bg-amber/20 text-amber border-amber/30",
+  sniper_ring:  "bg-pink/20 text-pink border-pink/30",
 };
 
 export const SIGNAL_LABELS: Record<string, string> = {
@@ -137,7 +137,7 @@ export function CollapsibleSection({
     <div className="mt-2">
       <button
         onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center gap-1.5 text-[11px] font-semibold uppercase tracking-widest text-zinc-500 hover:text-zinc-300 transition-colors"
+        className="flex w-full items-center gap-1.5 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground hover:text-foreground transition-colors"
       >
         {open ? (
           <ChevronDown className="h-3 w-3" />
@@ -157,47 +157,47 @@ export function riskLevel(score: number | null) {
   if (score === null)
     return {
       label: "Unknown",
-      color: "text-zinc-400",
-      bg: "bg-zinc-900",
-      border: "border-zinc-700",
-      bar: "bg-zinc-600",
+      color: "text-muted-foreground",
+      bg: "bg-muted",
+      border: "border-border",
+      bar: "bg-muted-foreground/40",
     };
   if (score >= 75)
     return {
       label: "High Risk",
-      color: "text-red-300",
-      bg: "bg-red-950/50",
-      border: "border-red-500/40",
-      bar: "bg-red-500",
+      color: "text-destructive",
+      bg: "bg-destructive/10",
+      border: "border-destructive/40",
+      bar: "bg-destructive",
     };
   if (score >= 45)
     return {
       label: "Medium Risk",
-      color: "text-amber-300",
-      bg: "bg-amber-950/50",
-      border: "border-amber-500/40",
-      bar: "bg-amber-400",
+      color: "text-warning",
+      bg: "bg-warning/10",
+      border: "border-warning/40",
+      bar: "bg-warning",
     };
   return {
     label: "Low Risk",
-    color: "text-emerald-300",
-    bg: "bg-emerald-950/50",
-    border: "border-emerald-500/40",
-    bar: "bg-emerald-500",
+    color: "text-success",
+    bg: "bg-success/10",
+    border: "border-success/40",
+    bar: "bg-success",
   };
 }
 
 /* ── TAG_COLORS for AI findings ────────────────────────────────────── */
 
 export const TAG_COLORS: Record<string, string> = {
-  DEPLOYMENT: "border-violet-500/40 bg-violet-950/40 text-violet-300",
-  TIMING: "border-sky-500/40 bg-sky-950/40 text-sky-300",
-  BUNDLE: "border-orange-500/40 bg-orange-950/40 text-orange-300",
-  WALLET: "border-blue-500/40 bg-blue-950/40 text-blue-300",
-  LINEAGE: "border-pink-500/40 bg-pink-950/40 text-pink-300",
-  LIQUIDITY: "border-cyan-500/40 bg-cyan-950/40 text-cyan-300",
-  SOL_FLOW: "border-amber-500/40 bg-amber-950/40 text-amber-300",
-  OPERATOR: "border-red-500/40 bg-red-950/40 text-red-300",
+  DEPLOYMENT: "border-purple/40 bg-purple/10 text-[#B370F0]",
+  TIMING:     "border-[#53E9F6]/40 bg-[#53E9F6]/10 text-[#53E9F6]",
+  BUNDLE:     "border-amber/40 bg-amber/10 text-amber",
+  WALLET:     "border-[#4D65DB]/40 bg-[#4D65DB]/10 text-[#4D65DB]",
+  LINEAGE:    "border-pink/40 bg-pink/10 text-pink",
+  LIQUIDITY:  "border-[#72E4C5]/40 bg-[#72E4C5]/10 text-[#72E4C5]",
+  SOL_FLOW:   "border-amber/40 bg-amber/10 text-amber",
+  OPERATOR:   "border-destructive/40 bg-destructive/10 text-destructive",
 };
 
 export function parseTag(finding: string): {

@@ -1,6 +1,12 @@
 /* React Flow base styles */
 @import "@xyflow/react/dist/style.css";
 
+/* Plus Jakarta Sans — Avenir-equivalent (weights 400 / 500 / 800) */
+@import "@fontsource/plus-jakarta-sans/400.css";
+@import "@fontsource/plus-jakarta-sans/500.css";
+@import "@fontsource/plus-jakarta-sans/700.css";
+@import "@fontsource/plus-jakarta-sans/800.css";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -37,12 +43,28 @@
     --destructive-foreground: 0 0% 100%;
     --success: 124 49% 57%;          /* #5BC763 */
     --success-foreground: 0 0% 0%;
-    --warning: 35 85% 62%;           /* #F1AD4B */
+    --warning: 35 87% 62%;           /* #F2AD4B — Figma exact */
     --warning-foreground: 0 0% 0%;
     --border: 0 0% 17%;              /* #2B2B2B */
     --input: 0 0% 17%;
     --ring: 261 62% 47%;             /* purple ring */
-    --radius: 0.625rem;
+    --radius: 1rem;                  /* 16px — base card radius */
+
+    /* ── Gradients (from Figma file a6PHaT6GaxDYFGRuGNxTGZ) ───────── */
+    --gradient-primary: linear-gradient(135deg, #622EC3 0%, #4D65DB 29%, #379AEE 69%, #53E9F6 100%);
+    --gradient-purple:  linear-gradient(135deg, #622EC3 0%, #B370F0 100%);
+    --gradient-gold:    linear-gradient(135deg, #DC8E1F 0%, #F0B54F 50%, #F7E7AC 100%);
+    --gradient-chart:   linear-gradient(180deg, #08D0E6 0%, #0ECEA6 100%);
+
+    /* ── Shadows (from Figma DROP_SHADOW effects) ──────────────────── */
+    --shadow-card:        0 30px 50px rgba(0, 0, 0, 0.25);
+    --shadow-card-sm:     0 15px 30px rgba(0, 0, 0, 0.15);
+    --shadow-btn-primary: 0 15px 25px rgba(59, 45, 143, 0.25);
+    --shadow-btn-hover:   0 10px 20px rgba(59, 45, 143, 0.25);
+    --shadow-inner:       inset 0 0 10px rgba(0, 0, 0, 0.05);
+
+    /* ── Typography ─────────────────────────────────────────────────── */
+    --font-jakarta: "Plus Jakarta Sans", var(--font-geist-sans), ui-sans-serif, sans-serif;
   }
 }
 
@@ -85,25 +107,89 @@
   /* Hide scrollbar but keep scroll functionality */
   .no-scrollbar::-webkit-scrollbar { display: none; }
   .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-  /* Neon glow text effect — Noelle cyan */
+  /* Neon glow text effect — Noelle cyan (#53E9F6) */
   .neon-glow {
     color: hsl(var(--accent));
-    text-shadow: 0 0 10px hsl(var(--accent) / 0.7), 0 0 30px hsl(var(--accent) / 0.35), 0 0 60px hsl(var(--accent) / 0.15);
+    text-shadow:
+      0 0 12px rgba(83, 233, 246, 0.85),
+      0 0 30px rgba(83, 233, 246, 0.45),
+      0 0 60px rgba(83, 233, 246, 0.15);
   }
-  /* Purple glow text effect — Noelle primary */
+  /* Purple glow text effect — Noelle primary (#622EC3) */
   .purple-glow {
     color: hsl(var(--primary));
-    text-shadow: 0 0 10px hsl(var(--primary) / 0.8), 0 0 30px hsl(var(--primary) / 0.4), 0 0 60px hsl(var(--primary) / 0.2);
+    text-shadow:
+      0 0 12px rgba(98, 46, 195, 0.90),
+      0 0 30px rgba(98, 46, 195, 0.50),
+      0 0 60px rgba(98, 46, 195, 0.20);
   }
-  /* Neon glow box effect */
+  /* Neon glow box effect (Figma: blur=12, spread=0, #53E9F6) */
   .neon-border {
     border-color: hsl(var(--accent));
-    box-shadow: 0 0 10px hsl(var(--accent) / 0.3), inset 0 0 10px hsl(var(--accent) / 0.05);
+    box-shadow:
+      0 0 12px rgba(83, 233, 246, 0.40),
+      inset 0 0 12px rgba(83, 233, 246, 0.05);
   }
-  /* Purple border glow */
+  /* Purple border glow (Figma: blur=12, #622EC3) */
   .purple-border {
     border-color: hsl(var(--primary));
-    box-shadow: 0 0 10px hsl(var(--primary) / 0.3), inset 0 0 10px hsl(var(--primary) / 0.05);
+    box-shadow:
+      0 0 12px rgba(98, 46, 195, 0.40),
+      inset 0 0 12px rgba(98, 46, 195, 0.05);
+  }
+  /* Card shadows — from Figma DROP_SHADOW */
+  .card-shadow     { box-shadow: var(--shadow-card); }
+  .card-shadow-sm  { box-shadow: var(--shadow-card-sm); }
+  .btn-shadow      { box-shadow: var(--shadow-btn-primary); }
+  .btn-shadow-hover{ box-shadow: var(--shadow-btn-hover); }
+  /* Gradient backgrounds */
+  .bg-gradient-primary { background: var(--gradient-primary); }
+  .bg-gradient-purple  { background: var(--gradient-purple); }
+  .bg-gradient-gold    { background: var(--gradient-gold); }
+  .bg-gradient-chart   { background: var(--gradient-chart); }
+  /* Typography scale — Plus Jakarta Sans / Avenir equivalent */
+  .text-display {
+    font-family: var(--font-jakarta);
+    font-weight: 800;
+    font-size: 2.25rem;    /* 36px */
+    line-height: 1.0;
+    letter-spacing: -0.02em;
+  }
+  .text-title {
+    font-family: var(--font-jakarta);
+    font-weight: 800;
+    font-size: 1.5rem;     /* 24px */
+    line-height: 1.1;
+    letter-spacing: -0.01em;
+  }
+  .text-heading {
+    font-family: var(--font-jakarta);
+    font-weight: 500;
+    font-size: 1.125rem;   /* 18px */
+    line-height: 1.2;
+    letter-spacing: 0;
+  }
+  .text-body-noelle {
+    font-family: var(--font-jakarta);
+    font-weight: 500;
+    font-size: 0.875rem;   /* 14px */
+    line-height: 1.4;
+    letter-spacing: 0;
+  }
+  .text-label-noelle {
+    font-family: var(--font-jakarta);
+    font-weight: 800;
+    font-size: 0.625rem;   /* 10px — Avenir 900 */
+    line-height: 1.2;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+  }
+  .text-caption {
+    font-family: var(--font-jakarta);
+    font-weight: 400;
+    font-size: 0.8125rem;  /* 13px */
+    line-height: 1.4;
+    letter-spacing: 0;
   }
   /* Display heading — Syne font, uppercase */
   .display-heading {

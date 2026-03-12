@@ -15,21 +15,33 @@ export const colors = {
   },
   accent: {
     safe: "#5BC763",
+    gain: "#6EC62F",      // positive % labels (+4.36%, +13%)
     danger: "#DD5656",
-    warning: "#F1AD4B",
+    dangerDark: "#D65151", // error shape variant
+    warning: "#F2AD4B",  // fixed from #F1AD4B — matches Figma exactly
+    amber: "#DDA76E",    // gold arrows & chart circles
     ai: "#622EC3",
     aiLight: "#B370F0",
     cyan: "#53E9F6",
+    mint: "#72E4C5",     // teal-mint accent
+    pink: "#ED569D",     // hot pink icon accent
     blue: "#4D65DB",
   },
   text: {
     primary: "#FFFFFF",
     secondary: "#AAAAAA",
     muted: "#666666",
+    dim: "#878787",      // dates & category labels
+    label: "#A1A1A1",   // number labels
+  },
+  ui: {
+    grey1: "#BBBBBB",   // base elements
+    grey2: "#DDDDDD",   // lines & dividers
+    grey3: "#EEEEEE",   // near-white shapes & names
   },
   risk: {
     low: "#5BC763",
-    medium: "#F1AD4B",
+    medium: "#F2AD4B",
     high: "#E3A33D",
     critical: "#DD5656",
     insufficient_data: "#666666",
@@ -37,7 +49,7 @@ export const colors = {
   },
   verdict: {
     clean: "#5BC763",
-    suspicious: "#F1AD4B",
+    suspicious: "#F2AD4B",
     insider_dump: "#DD5656",
     confirmed_team_extraction: "#DD5656",
     suspected_team_extraction: "#E3A33D",

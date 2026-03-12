@@ -19,6 +19,12 @@ import {
   Inter_600SemiBold,
   Inter_700Bold,
 } from "@expo-google-fonts/inter";
+import {
+  PlusJakartaSans_400Regular,
+  PlusJakartaSans_500Medium,
+  PlusJakartaSans_700Bold,
+  PlusJakartaSans_800ExtraBold,
+} from "@expo-google-fonts/plus-jakarta-sans";
 import FlashMessage from "react-native-flash-message";
 import { colors } from "@/src/theme/colors";
 import { useAuthStore } from "@/src/store/auth";
@@ -85,6 +91,10 @@ function RootLayout() {
     Inter_500Medium,
     Inter_600SemiBold,
     Inter_700Bold,
+    PlusJakartaSans_400Regular,
+    PlusJakartaSans_500Medium,
+    PlusJakartaSans_700Bold,
+    PlusJakartaSans_800ExtraBold,
   });
   const { isAuthenticated, user, logout } = useAuthStore();
   const { addAlert } = useAlertsStore();

@@ -8,6 +8,7 @@ module.exports = {
         sans: ["var(--font-geist-sans)", "ui-sans-serif", "system-ui", "-apple-system", "sans-serif"],
         mono: ["var(--font-geist-mono)", "ui-monospace", "monospace"],
         display: ["var(--font-syne)", "ui-sans-serif", "system-ui", "sans-serif"],
+        avenir: ['"Plus Jakarta Sans"', "var(--font-geist-sans)", "ui-sans-serif", "sans-serif"],
       },
       colors: {
         border: "hsl(var(--border))",
@@ -15,9 +16,18 @@ module.exports = {
         ring: "hsl(var(--ring))",
         background: "hsl(var(--background))",
         foreground: "hsl(var(--foreground))",
-        neon: "#53E9F6",        /* Noelle cyan — replaces neon green */
+        neon: "#53E9F6",        /* Noelle cyan */
+        mint: "#72E4C5",        /* Noelle mint/teal accent */
         purple: "#622EC3",      /* Noelle primary purple */
         "purple-light": "#B370F0",
+        gain: "#6EC62F",        /* positive % labels */
+        amber: "#DDA76E",       /* gold arrows & chart circles */
+        pink: "#ED569D",        /* hot pink icon accent */
+        "text-dim": "#878787",  /* dates & category labels */
+        "text-label": "#A1A1A1", /* number labels */
+        "ui-grey1": "#BBBBBB",  /* base elements */
+        "ui-grey2": "#DDDDDD",  /* lines & dividers */
+        "ui-grey3": "#EEEEEE",  /* near-white shapes */
         primary: {
           DEFAULT: "hsl(var(--primary))",
           foreground: "hsl(var(--primary-foreground))",
@@ -59,7 +69,22 @@ module.exports = {
         lg: "var(--radius)",
         md: "calc(var(--radius) - 2px)",
         sm: "calc(var(--radius) - 4px)",
+        xs: "0.25rem",           /* 4px */
+        card: "1.5625rem",       /* 25px — Figma card radius */
         pill: "9999px",
+      },
+      backgroundImage: {
+        "gradient-primary": "linear-gradient(135deg, #622EC3 0%, #4D65DB 29%, #379AEE 69%, #53E9F6 100%)",
+        "gradient-purple":  "linear-gradient(135deg, #622EC3 0%, #B370F0 100%)",
+        "gradient-gold":    "linear-gradient(135deg, #DC8E1F 0%, #F0B54F 50%, #F7E7AC 100%)",
+        "gradient-chart":   "linear-gradient(180deg, #08D0E6 0%, #0ECEA6 100%)",
+      },
+      boxShadow: {
+        card:         "0 30px 50px rgba(0,0,0,0.25)",
+        "card-sm":    "0 15px 30px rgba(0,0,0,0.15)",
+        "btn-primary":"0 15px 25px rgba(59,45,143,0.25)",
+        "btn-hover":  "0 10px 20px rgba(59,45,143,0.25)",
+        inner:        "inset 0 0 10px rgba(0,0,0,0.05)",
       },
       fontSize: {
         "display-xl": ["clamp(2.25rem, 6vw, 4.5rem)", { lineHeight: "0.92", fontWeight: "800" }],
