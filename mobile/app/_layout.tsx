@@ -33,6 +33,7 @@ import {
 import { initSentry, sentrySetUser, Sentry } from "@/src/lib/sentry";
 import { registerUnauthorizedHandler } from "@/src/lib/api";
 import { ErrorBoundary } from "@/src/components/ErrorBoundary";
+import * as Updates from "expo-updates";
 
 // Initialise Sentry au démarrage de l'app (avant tout rendu)
 initSentry();
@@ -57,7 +58,28 @@ const queryClient = new QueryClient({
   },
 });
 
+/** Vérifie et applique les OTA updates EAS au démarrage (hors dev). */
+function useOtaUpdate() {
+  useEffect(() => {
+    if (__DEV__) return; // pas d'OTA en mode développement
+    (async () => {
+      try {
+        const check = await Updates.checkForUpdateAsync();
+        if (check.isAvailable) {
+          await Updates.fetchUpdateAsync();
+          await Updates.reloadAsync(); // recharge l'app avec la nouvelle version
+        }
+      } catch (_e) {
+        // En cas d'erreur réseau ou de runtime, on ignore silencieusement
+      }
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+}
+
 function RootLayout() {
+  useOtaUpdate();
+
   const [fontsLoaded] = useFonts({
     Inter_400Regular,
     Inter_500Medium,
