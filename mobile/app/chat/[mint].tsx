@@ -323,45 +323,30 @@ export default function ChatScreen() {
           signal: abortRef.current.signal as any,
         });
 
-        if (!response.ok || !response.body) {
+        if (!response.ok) {
           const errText = await response.text().catch(() => `HTTP ${response.status}`);
           throw new Error(errText);
         }
 
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
+        // Shared SSE parser — works for both streaming and buffered (non-streaming) responses.
+        // Returns true when the "done" sentinel is encountered.
         let accumulated = "";
-        // Persisted across chunks so event: and data: lines from the same
-        // SSE message are correctly associated even when split across reads.
         let currentEvent = "";
-
-        // eslint-disable-next-line no-constant-condition
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          const chunk = decoder.decode(value, { stream: true });
-          // SSE format: "event: <type>\ndata: <json>\n\n"
-          const lines = chunk.split("\n");
-          let streamDone = false;
-          for (const line of lines) {
+        const processLines = (rawChunk: string): boolean => {
+          for (const line of rawChunk.split("\n")) {
             if (line.startsWith("event: ")) {
               currentEvent = line.slice(7).trim();
             } else if (line.startsWith("data: ")) {
               const data = line.slice(6).trim();
-              if (currentEvent === "done" || data === "[DONE]") {
-                streamDone = true;
-                break;
-              }
+              if (currentEvent === "done" || data === "[DONE]") return true;
               if (currentEvent === "error") {
                 try {
-                  const parsed = JSON.parse(data);
-                  throw new Error(parsed?.detail ?? "Stream error");
+                  const errParsed = JSON.parse(data);
+                  throw new Error(errParsed?.detail ?? "Stream error");
                 } catch (e) {
                   throw e instanceof Error ? e : new Error("Stream error");
                 }
               }
-              // token event (or untyped)
               try {
                 const parsed = JSON.parse(data);
                 const delta = parsed?.text ?? "";
@@ -374,7 +359,6 @@ export default function ChatScreen() {
                   );
                 }
               } catch {
-                // non-JSON chunk — append raw only if non-empty and not sentinel
                 if (data && data !== "{}") {
                   accumulated += data;
                   setMessages((prev) =>
@@ -386,7 +370,23 @@ export default function ChatScreen() {
               }
             }
           }
-          if (streamDone) break;
+          return false;
+        };
+
+        if (!response.body) {
+          // Fallback for React Native environments where response.body is null
+          // even for successful streaming responses — read everything at once.
+          const rawText = await response.text();
+          processLines(rawText);
+        } else {
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+          let streamDone = false;
+          while (!streamDone) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            streamDone = processLines(decoder.decode(value, { stream: true }));
+          }
         }
 
         // Mark done
