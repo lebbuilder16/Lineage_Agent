@@ -21,7 +21,9 @@ import Animated, {
   FadeInDown,
   FadeIn,
 } from "react-native-reanimated";
+import { useTheme } from "@/src/theme/ThemeContext";
 import { colors } from "@/src/theme/colors";
+import { LinearGradient } from "expo-linear-gradient";
 import { Fonts } from "@/src/theme/fonts";
 import { HapticButton } from "@/src/components/ui/HapticButton";
 
@@ -78,7 +80,7 @@ const FAKE_ALERTS = [
     msg: "23-wallet coordinated buy",
   },
   {
-    color: "#C084FC",
+    color: colors.accent.aiLight,
     label: "ZOMBIE TOKEN",
     name: "$WIF2",
     msg: "Resurrected from rugged $WIF",
@@ -186,29 +188,38 @@ const SLIDES: SlideData[] = [
 function DotIndicator({ count, index }: { count: number; index: number }) {
   return (
     <View style={styles.dotsRow}>
-      {Array.from({ length: count }).map((_, i) => (
-        <View
-          key={i}
-          style={[styles.dot, i === index ? styles.dotActive : styles.dotInactive]}
-        />
-      ))}
+      {Array.from({ length: count }).map((_, i) =>
+        i === index ? (
+          <LinearGradient
+            key={i}
+            colors={["#622EC3", "#53E9F6"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={[styles.dot, styles.dotActive]}
+          />
+        ) : (
+          <View key={i} style={[styles.dot, styles.dotInactive]} />
+        )
+      )}
     </View>
   );
 }
 
 function SlideItem({ item }: { item: SlideData }) {
+  const { colors } = useTheme();
   return (
     <View style={styles.slide}>
       <View style={styles.previewBox}>
         <item.Preview />
       </View>
-      <Text style={styles.title}>{item.title}</Text>
-      <Text style={styles.description}>{item.description}</Text>
+      <Text style={[styles.title, { color: colors.text.primary }]}>{item.title}</Text>
+      <Text style={[styles.description, { color: colors.text.secondary }]}>{item.description}</Text>
     </View>
   );
 }
 
 export default function OnboardingScreen() {
+  const { colors } = useTheme();
   const [currentIndex, setCurrentIndex] = useState(0);
   const flatListRef = useRef<FlatList<SlideData>>(null);
   const isLast = currentIndex === SLIDES.length - 1;
@@ -235,11 +246,11 @@ export default function OnboardingScreen() {
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: colors.background.deep }]}>
       <View style={styles.brandHeader}>
-        <Text style={styles.brandLogo}>Lineage</Text>
-        <View style={styles.brandDot} />
-        <Text style={styles.brandSub}>Agent</Text>
+        <Text style={[styles.brandLogo, { color: colors.accent.cyan }]}>Lineage</Text>
+        <View style={[styles.brandDot, { backgroundColor: colors.accent.ai }]} />
+        <Text style={[styles.brandSub, { color: colors.text.secondary }]}>Agent</Text>
       </View>
 
       <FlatList
@@ -277,10 +288,7 @@ export default function OnboardingScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.background.deep,
-  },
+  container: { flex: 1 },
   brandHeader: {
     flexDirection: "row",
     alignItems: "center",
@@ -289,24 +297,9 @@ const styles = StyleSheet.create({
     paddingBottom: 8,
     gap: 6,
   },
-  brandLogo: {
-    fontFamily: Fonts.bold,
-    fontSize: 20,
-    color: colors.accent.cyan,
-    letterSpacing: 1,
-  },
-  brandDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: colors.accent.ai,
-  },
-  brandSub: {
-    fontFamily: Fonts.bold,
-    fontSize: 20,
-    color: colors.text.secondary,
-    letterSpacing: 1,
-  },
+  brandLogo: { fontFamily: Fonts.bold, fontSize: 20, letterSpacing: 1 },
+  brandDot: { width: 6, height: 6, borderRadius: 3 },
+  brandSub: { fontFamily: Fonts.bold, fontSize: 20, letterSpacing: 1 },
   slide: {
     width,
     paddingHorizontal: 24,
@@ -325,7 +318,6 @@ const styles = StyleSheet.create({
   title: {
     fontFamily: Fonts.bold,
     fontSize: 26,
-    color: colors.text.primary,
     textAlign: "center",
     marginBottom: 12,
     letterSpacing: -0.3,
@@ -333,7 +325,6 @@ const styles = StyleSheet.create({
   description: {
     fontFamily: Fonts.regular,
     fontSize: 15,
-    color: colors.text.secondary,
     textAlign: "center",
     lineHeight: 23,
     paddingHorizontal: 8,
@@ -344,29 +335,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 12,
   },
-  dotsRow: {
-    flexDirection: "row",
-    gap: 8,
-    marginBottom: 8,
-  },
-  dot: {
-    height: 8,
-    borderRadius: 4,
-  },
-  dotActive: {
-    backgroundColor: colors.accent.cyan,
-    width: 24,
-  },
-  dotInactive: {
-    backgroundColor: colors.text.muted,
-    width: 8,
-  },
-  btn: {
-    width: "100%",
-  },
-  skipBtn: {
-    width: "100%",
-  },
+  dotsRow: { flexDirection: "row", gap: 8, marginBottom: 8 },
+  dot: { height: 8, borderRadius: 4 },
+  dotActive: { width: 24 },
+  dotInactive: { backgroundColor: "rgba(255,255,255,0.3)", width: 8 },
+  btn: { width: "100%" },
+  skipBtn: { width: "100%" },
 });
 
 const preview = StyleSheet.create({

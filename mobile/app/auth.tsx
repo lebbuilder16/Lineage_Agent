@@ -32,7 +32,9 @@ import { toast } from "@/src/lib/toast";
 import { useAuthStore } from "@/src/store/auth";
 import { GlassCard } from "@/src/components/ui/GlassCard";
 import { HapticButton } from "@/src/components/ui/HapticButton";
+import { useTheme } from "@/src/theme/ThemeContext";
 import { colors } from "@/src/theme/colors";
+import { LinearGradient } from "expo-linear-gradient";
 import {
   buildPhantomConnectURL,
   buildPhantomUniversalConnectURL,
@@ -42,6 +44,7 @@ import {
 } from "@/src/lib/solanaWallet";
 
 function AnimatedOrb() {
+  const { colors } = useTheme();
   const scale = useSharedValue(1);
   const opacity = useSharedValue(0.7);
 
@@ -65,13 +68,19 @@ function AnimatedOrb() {
 
   return (
     <Animated.View style={[styles.orbContainer, orbStyle]}>
-      <View style={styles.orb} />
-      <View style={styles.orbGlow} />
+      <LinearGradient
+        colors={["#622EC3", "#4D65DB", "#379AEE", "#53E9F6"]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.orb}
+      />
+      <View style={[styles.orbGlow, { borderColor: `${colors.accent.ai}80` }]} />
     </Animated.View>
   );
 }
 
 export default function AuthScreen() {
+  const { colors } = useTheme();
   const setUser = useAuthStore((s) => s.setUser);
   const [loading, setLoading] = useState(false);
   const [hasBiometric, setHasBiometric] = useState(false);
@@ -88,7 +97,7 @@ export default function AuthScreen() {
   const resendIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // ── Privy SDK
-  const { ready } = usePrivy();
+  const { isReady } = usePrivy();
   const { sendCode, loginWithCode, state: emailState } = useLoginWithEmail({
     onError: (err) => {
       authErrorRef.current = err.message ?? "Please try again.";
@@ -372,23 +381,23 @@ export default function AuthScreen() {
   }, [otpCode, otpSent]);
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background.deep }]}>
       {/* Background mesh */}
-      <View style={styles.meshBg} />
+      <View style={[styles.meshBg, { backgroundColor: colors.background.deep }]} />
 
       <View style={styles.content}>
         {/* Logo area */}
         <Animated.View entering={FadeIn.duration(600)} style={styles.logoSection}>
           <AnimatedOrb />
-          <Text style={styles.appName}>Lineage Agent</Text>
-          <Text style={styles.tagline}>On-chain forensics, powered by AI</Text>
+          <Text style={[styles.appName, { color: colors.text.primary }]}>Lineage Agent</Text>
+          <Text style={[styles.tagline, { color: colors.text.muted }]}>On-chain forensics, powered by AI</Text>
         </Animated.View>
 
         {/* Auth card */}
         <Animated.View entering={FadeInDown.delay(300).springify()}>
           <GlassCard elevated style={styles.authCard}>
-            <Text style={styles.cardTitle}>Sign in to Lineage</Text>
-            <Text style={styles.cardSub}>
+            <Text style={[styles.cardTitle, { color: colors.text.primary }]}>Sign in to Lineage</Text>
+            <Text style={[styles.cardSub, { color: colors.text.secondary }]}>
               Enter your email — we'll send you a one-time sign-in code.
             </Text>
 
@@ -411,16 +420,16 @@ export default function AuthScreen() {
 
             {/* Divider */}
             <View style={styles.divider}>
-              <View style={styles.dividerLine} />
-              <Text style={styles.dividerText}>or sign in with email</Text>
-              <View style={styles.dividerLine} />
+              <View style={[styles.dividerLine, { backgroundColor: colors.glass.border }]} />
+              <Text style={[styles.dividerText, { color: colors.text.muted }]}>or sign in with email</Text>
+              <View style={[styles.dividerLine, { backgroundColor: colors.glass.border }]} />
             </View>
 
             {/* Dev mode input — removed in production build */}
             {__DEV__ && (
-              <View style={styles.devInput}>
+              <View style={[styles.devInput, { backgroundColor: colors.glass.bg, borderColor: colors.glass.border }]}>
                 <TextInput
-                  style={styles.devTextInput}
+                  style={[styles.devTextInput, { color: colors.text.primary }]}
                   placeholder="Dev: privy_id (leave blank = auto)"
                   placeholderTextColor={colors.text.muted}
                   value={devPrivyId}
@@ -434,7 +443,7 @@ export default function AuthScreen() {
             {!otpSent ? (
               <View style={styles.inputWrapper}>
                 <TextInput
-                  style={styles.textInput}
+                  style={[styles.textInput, { backgroundColor: colors.glass.bg, borderColor: colors.glass.border, color: colors.text.primary }]}
                   placeholder="Email address"
                   placeholderTextColor={colors.text.muted}
                   value={email}
@@ -449,9 +458,9 @@ export default function AuthScreen() {
               </View>
             ) : (
               <View style={styles.inputWrapper}>
-                <Text style={styles.otpHint}>Code sent to {email}</Text>
+                <Text style={[styles.otpHint, { color: colors.text.muted }]}>Code sent to {email}</Text>
                 <TextInput
-                  style={styles.textInput}
+                  style={[styles.textInput, { backgroundColor: colors.glass.bg, borderColor: colors.glass.border, color: colors.text.primary }]}
                   placeholder="6-digit code"
                   placeholderTextColor={colors.text.muted}
                   value={otpCode}
@@ -493,7 +502,7 @@ export default function AuthScreen() {
               label={loading ? "" : otpSent ? "Verify Code" : "Send Code"}
               hapticStyle="medium"
               onPress={handleConnect}
-              disabled={loading || !ready}
+              disabled={loading || !isReady}
               style={styles.connectBtn}
             >
               {loading && <ActivityIndicator color={colors.background.deep} />}
@@ -510,10 +519,10 @@ export default function AuthScreen() {
               />
             )}
 
-            <Text style={styles.disclaimer}>
+            <Text style={[styles.disclaimer, { color: colors.text.muted }]}>
               By connecting, you agree to the{" "}
               <Text
-                style={styles.link}
+                style={[styles.link, { color: colors.accent.blue }]}
                 onPress={() => Linking.openURL("https://lineageagent.io/terms").catch(() => {})}
               >
                 Terms of Service
@@ -533,8 +542,8 @@ export default function AuthScreen() {
         {/* Feature pills */}
         <Animated.View entering={FadeInDown.delay(500)} style={styles.features}>
           {["Lineage detection", "Bundle forensics", "AI analysis", "Push alerts"].map((f) => (
-            <View key={f} style={styles.featurePill}>
-              <Text style={styles.featureText}>{f}</Text>
+            <View key={f} style={[styles.featurePill, { borderColor: colors.glass.border, backgroundColor: colors.glass.bg }]}>
+              <Text style={[styles.featureText, { color: colors.text.muted }]}>{f}</Text>
             </View>
           ))}
         </Animated.View>
@@ -544,14 +553,14 @@ export default function AuthScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background.deep },
+  container: { flex: 1 },
   phantomBtn: {
     width: "100%",
     height: 52,
     borderRadius: 14,
-    backgroundColor: "#7C3AED",
+    backgroundColor: colors.accent.ai,
     borderWidth: 1,
-    borderColor: "#9B59F780",
+    borderColor: `${colors.accent.ai}80` as any,
     marginBottom: 4,
   },
   phantomBtnInner: {
@@ -573,105 +582,41 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     marginTop: 8,
   },
-  dividerLine: {
-    flex: 1,
-    height: 1,
-    backgroundColor: colors.glass.border,
-  },
-  dividerText: {
-    color: colors.text.muted,
-    fontSize: 12,
-  },
+  dividerLine: { flex: 1, height: 1 },
+  dividerText: { fontSize: 12 },
   meshBg: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: colors.background.deep,
-    // En production: remplacer par une vraie image de mesh gradient
     opacity: 0.8,
   },
   content: { flex: 1, paddingHorizontal: 20, justifyContent: "center", gap: 32 },
   logoSection: { alignItems: "center" },
   orbContainer: { marginBottom: 20 },
-  orb: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: colors.accent.ai,
-    opacity: 0.2,
-  },
-  orbGlow: {
-    ...StyleSheet.absoluteFillObject,
-    borderRadius: 40,
-    borderWidth: 2,
-    borderColor: `${colors.accent.ai}80`,
-  },
-  appName: {
-    color: colors.text.primary,
-    fontSize: 32,
-    fontWeight: "700",
-    letterSpacing: -1,
-  },
-  tagline: { color: colors.text.muted, fontSize: 15, marginTop: 6 },
+  orb: { width: 80, height: 80, borderRadius: 40 },
+  orbGlow: { ...StyleSheet.absoluteFillObject, borderRadius: 40, borderWidth: 2 },
+  appName: { fontSize: 32, fontWeight: "700", letterSpacing: -1 },
+  tagline: { fontSize: 15, marginTop: 6 },
   authCard: { padding: 24 },
-  cardTitle: { color: colors.text.primary, fontSize: 20, fontWeight: "700", marginBottom: 8 },
-  cardSub: { color: colors.text.secondary, fontSize: 14, lineHeight: 20, marginBottom: 24 },
-  devInput: {
-    backgroundColor: colors.glass.bg,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: colors.glass.border,
-    marginBottom: 16,
-    padding: 10,
-  },
-  devTextInput: { color: colors.text.primary, fontSize: 13 },
-  inputWrapper: {
-    marginBottom: 16,
-  },
+  cardTitle: { fontSize: 20, fontWeight: "700", marginBottom: 8 },
+  cardSub: { fontSize: 14, lineHeight: 20, marginBottom: 24 },
+  devInput: { borderRadius: 8, borderWidth: 1, marginBottom: 16, padding: 10 },
+  devTextInput: { fontSize: 13 },
+  inputWrapper: { marginBottom: 16 },
   textInput: {
-    backgroundColor: colors.glass.bg,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: colors.glass.border,
     paddingHorizontal: 14,
     paddingVertical: 12,
-    color: colors.text.primary,
     fontSize: 15,
   },
-  otpHint: {
-    color: colors.text.muted,
-    fontSize: 12,
-    marginBottom: 8,
-    textAlign: "center",
-  },
+  otpHint: { fontSize: 12, marginBottom: 8, textAlign: "center" },
   changeEmailBtn: { marginTop: 8, alignSelf: "center" },
-  otpActions: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginTop: 8,
-  },
+  otpActions: { flexDirection: "row", justifyContent: "space-between", marginTop: 8 },
   connectBtn: { width: "100%", height: 52, borderRadius: 14 },
-  connectBtnText: { color: colors.background.deep, fontSize: 16, fontWeight: "700" },
+  connectBtnText: { fontSize: 16, fontWeight: "700" },
   biometricBtn: { marginTop: 12, alignSelf: "center" },
-  disclaimer: {
-    color: colors.text.muted,
-    fontSize: 11,
-    textAlign: "center",
-    marginTop: 16,
-    lineHeight: 17,
-  },
-  link: { color: colors.accent.blue },
-  features: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-    justifyContent: "center",
-  },
-  featurePill: {
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: colors.glass.border,
-    backgroundColor: colors.glass.bg,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-  },
-  featureText: { color: colors.text.muted, fontSize: 12 },
+  disclaimer: { fontSize: 11, textAlign: "center", marginTop: 16, lineHeight: 17 },
+  link: {},
+  features: { flexDirection: "row", flexWrap: "wrap", gap: 8, justifyContent: "center" },
+  featurePill: { borderRadius: 999, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 6 },
+  featureText: { fontSize: 12 },
 });

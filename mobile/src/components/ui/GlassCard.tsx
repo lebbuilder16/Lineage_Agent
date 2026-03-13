@@ -1,10 +1,11 @@
 // src/components/ui/GlassCard.tsx
-// Card glassmorphique de base — Noelle Dark Design System
+// Card glassmorphique de base — Noelle Design System (Dark + Light adaptive)
 
 import React from "react";
-import { View, ViewStyle, StyleSheet, StyleProp } from "react-native";
+import { View, ViewStyle, StyleSheet, StyleProp, Platform } from "react-native";
 import { BlurView } from "expo-blur";
-import { colors } from "@/src/theme/colors";
+import { useTheme } from "@/src/theme/ThemeContext";
+import { shadows } from "@/src/theme/shadows";
 
 interface GlassCardProps {
   children: React.ReactNode;
@@ -13,6 +14,8 @@ interface GlassCardProps {
   noBorder?: boolean;
   borderColor?: string;
   intensity?: number;
+  /** Override background color */
+  bg?: string;
 }
 
 export function GlassCard({
@@ -21,41 +24,43 @@ export function GlassCard({
   elevated = false,
   noBorder = false,
   borderColor,
-  intensity = 20,
+  intensity = 18,
+  bg,
 }: GlassCardProps) {
+  const { colors, isDark } = useTheme();
+
+  const resolvedBorder = noBorder
+    ? "transparent"
+    : borderColor ?? (elevated ? colors.glass.borderBright : colors.glass.border);
+
+  const resolvedBg = bg ?? (elevated ? colors.glass.bgElevated : colors.glass.bg);
+
   return (
     <View
       style={[
         styles.container,
-        {
-          borderColor: noBorder
-            ? "transparent"
-            : borderColor ?? (elevated ? colors.glass.borderBright : colors.glass.border),
-          shadowColor: elevated ? "#622EC3" : "#3B2D8F",
-          shadowOffset: { width: 0, height: 4 },
-          shadowOpacity: elevated ? 0.35 : 0.18,
-          shadowRadius: elevated ? 16 : 8,
-          elevation: elevated ? 8 : 3,
-        },
+        elevated ? shadows.card : shadows.cardSm,
+        { borderColor: resolvedBorder },
         style,
       ]}
     >
-      <BlurView
-        intensity={intensity}
-        tint="dark"
-        style={StyleSheet.absoluteFill}
-      />
+      {/* Glass blur — iOS only; on Android we use solid bg */}
+      {Platform.OS === "ios" ? (
+        <BlurView
+          intensity={intensity}
+          tint={isDark ? "dark" : "light"}
+          style={StyleSheet.absoluteFill}
+        />
+      ) : null}
+
+      {/* Tinted overlay (always rendered, ensures color on Android) */}
       <View
         style={[
           StyleSheet.absoluteFill,
-          {
-            backgroundColor: elevated
-              ? colors.glass.bgElevated
-              : colors.glass.bg,
-            borderRadius: 16,
-          },
+          { backgroundColor: resolvedBg, borderRadius: 25 },
         ]}
       />
+
       <View style={styles.content}>{children}</View>
     </View>
   );
@@ -63,7 +68,7 @@ export function GlassCard({
 
 const styles = StyleSheet.create({
   container: {
-    borderRadius: 16,
+    borderRadius: 25,
     borderWidth: 1,
     overflow: "hidden",
   },
@@ -72,3 +77,4 @@ const styles = StyleSheet.create({
     zIndex: 1,
   },
 });
+

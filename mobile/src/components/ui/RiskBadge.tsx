@@ -1,13 +1,13 @@
 // src/components/ui/RiskBadge.tsx
-// Badge coloré affichant le niveau de risque ou un verdict
+// Badge coloré affichant le niveau de risque ou un verdict — Noelle Design System
 
 import React from "react";
 import { View, Text, StyleSheet } from "react-native";
-import { riskColor, verdictColor } from "@/theme/colors";
+import { riskColor, verdictColor, colors } from "@/src/theme/colors";
+import { typography } from "@/src/theme/typography";
 
 interface RiskBadgeProps {
   label: string;
-  /** Si fourni, utilise la palette "risk" ; sinon utilise "verdict" */
   riskLevel?: string;
   verdict?: string;
   size?: "sm" | "md" | "lg";
@@ -18,19 +18,19 @@ export function RiskBadge({ label, riskLevel, verdict, size = "md" }: RiskBadgeP
     ? riskColor(riskLevel)
     : verdict
     ? verdictColor(verdict)
-    : "#6B6B8A";
+    : colors.text.muted;
 
   const textSize = size === "sm" ? 10 : size === "lg" ? 14 : 12;
-  const paddingH = size === "sm" ? 6 : size === "lg" ? 12 : 8;
-  const paddingV = size === "sm" ? 2 : size === "lg" ? 6 : 3;
+  const paddingH = size === "sm" ? 8 : size === "lg" ? 14 : 10;
+  const paddingV = size === "sm" ? 3 : size === "lg" ? 7 : 4;
 
   return (
     <View
       style={[
         styles.badge,
         {
-          backgroundColor: `${color}20`,
-          borderColor: `${color}60`,
+          backgroundColor: `${color}1A`,
+          borderColor: `${color}55`,
           paddingHorizontal: paddingH,
           paddingVertical: paddingV,
         },
@@ -50,7 +50,7 @@ const styles = StyleSheet.create({
     alignSelf: "flex-start",
   },
   text: {
-    fontWeight: "700",
-    letterSpacing: 0.5,
+    fontFamily: "PlusJakartaSans_800ExtraBold",
+    letterSpacing: 0.8,
   },
 });

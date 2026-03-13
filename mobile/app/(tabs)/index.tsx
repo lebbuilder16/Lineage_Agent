@@ -1,5 +1,5 @@
 // app/(tabs)/index.tsx
-// Home Feed — Header contextuel + Stats animées + AI Brief dynamique + Live Alerts groupées
+// Home Feed — Noelle Design (Figma "17 Crypto Market")
 
 import React, { useCallback, useEffect, useRef } from "react";
 import {
@@ -15,6 +15,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
 import * as Haptics from "expo-haptics";
+import { LinearGradient } from "expo-linear-gradient";
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -40,7 +41,8 @@ import { EmptyRadar } from "@/src/components/ui/EmptyRadar";
 import { useAlertsStore } from "@/src/store/alerts";
 import { useWsState } from "@/src/hooks/useWsState";
 import { useNewAlerts } from "@/src/hooks/useNewAlerts";
-import { colors, riskLevelFromScore } from "@/src/theme/colors";
+import { darkColors as colors, riskLevelFromScore } from "@/src/theme/colors";
+import { useTheme } from "@/src/theme/ThemeContext";
 import { toast } from "@/src/lib/toast";
 import type { AlertItem } from "@/src/types/api";
 
@@ -79,7 +81,6 @@ function groupAlertsByTime(alerts: AlertItem[]): AlertGroup[] {
     .map(([label, items]) => ({ label, items }));
 }
 
-// Fallbacks quand risk_score absent (valeurs 0.0–1.0)
 const RISK_FALLBACK: Record<AlertItem["type"], number> = {
   rug: 0.95,
   death_clock: 0.9,
@@ -94,7 +95,7 @@ const ALERT_COLORS: Record<AlertItem["type"], string> = {
   rug: colors.accent.danger,
   bundle: colors.accent.warning,
   insider: colors.accent.warning,
-  zombie: "#C084FC",
+  zombie: colors.accent.aiLight,
   death_clock: colors.accent.danger,
 };
 
@@ -110,12 +111,9 @@ function AlertRow({ item, index, isNew = false }: { item: AlertItem; index: numb
   const color = ALERT_COLORS[item.type];
   const score = item.risk_score ?? RISK_FALLBACK[item.type];
   const riskLevel = riskLevelFromScore(score);
-
+  const { colors: tc } = useTheme();
   const scale = useSharedValue(1);
-  const pressStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: scale.value }],
-  }));
-
+  const pressStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
   const markRead = useAlertsStore((s) => s.markRead);
 
   return (
@@ -131,33 +129,28 @@ function AlertRow({ item, index, isNew = false }: { item: AlertItem; index: numb
       rightActionLabel="Read"
       leftActionLabel="View"
     >
-      <Animated.View
-        entering={isNew ? FadeInLeft.springify() : FadeInDown.delay(index * 50).springify()}
-      >
+      <Animated.View entering={isNew ? FadeInLeft.springify() : FadeInDown.delay(index * 50).springify()}>
         <Pressable
-          style={[styles.alertRow, !item.read && styles.alertRowUnread]}
+          style={[s.alertRow, { borderBottomColor: tc.glass.border }, !item.read && s.alertRowUnread]}
           onPressIn={() => { scale.value = withSpring(0.98, { damping: 20 }); }}
           onPressOut={() => { scale.value = withSpring(1, { damping: 20 }); }}
-          onPress={() => {
-            markRead(item.id);
-            router.push(`/lineage/${item.mint}`);
-          }}
+          onPress={() => { markRead(item.id); router.push(`/lineage/${item.mint}`); }}
         >
           <Animated.View style={pressStyle}>
-            <View style={styles.alertInner}>
-              <TokenImage uri={item.token_image} size={44} symbol={item.token_name} borderRadius={10} />
-              <View style={styles.alertContent}>
-                <View style={styles.alertTopRow}>
-                  <View style={[styles.alertTypeChip, { backgroundColor: `${color}20`, borderColor: `${color}40` }]}>
-                    <Text style={[styles.alertTypeText, { color }]}>{ALERT_LABELS[item.type]}</Text>
+            <View style={s.alertInner}>
+              <TokenImage uri={item.token_image} size={44} symbol={item.token_name} borderRadius={12} />
+              <View style={s.alertContent}>
+                <View style={s.alertTopRow}>
+                  <View style={[s.alertTypeChip, { backgroundColor: `${color}1A`, borderColor: `${color}44` }]}>
+                    <Text style={[s.alertTypeText, { color }]}>{ALERT_LABELS[item.type]}</Text>
                   </View>
-                  <Text style={styles.alertTime}>{formatRelative(item.timestamp)}</Text>
+                  <Text style={[s.alertTime, { color: tc.text.muted }]}>{formatRelative(item.timestamp)}</Text>
                 </View>
-                <Text style={styles.alertName} numberOfLines={1}>{item.token_name}</Text>
-                <Text style={styles.alertMsg} numberOfLines={2}>{item.message}</Text>
+                <Text style={[s.alertName, { color: tc.text.primary }]} numberOfLines={1}>{item.token_name}</Text>
+                <Text style={[s.alertMsg, { color: tc.text.muted }]} numberOfLines={2}>{item.message}</Text>
                 <RiskBadge label={riskLevel.toUpperCase()} riskLevel={riskLevel} size="sm" />
               </View>
-              {!item.read && <View style={styles.unreadDot} />}
+              {!item.read && <View style={[s.unreadDot, { backgroundColor: tc.accent.safe }]} />}
             </View>
           </Animated.View>
         </Pressable>
@@ -169,7 +162,8 @@ function AlertRow({ item, index, isNew = false }: { item: AlertItem; index: numb
 // ─── Stats Bar ────────────────────────────────────────────────────────────────
 
 function StatsBar() {
-  const queryClient = useQueryClient();
+  const qc = useQueryClient();
+  const { colors: tc } = useTheme();
   const { data, isLoading, isError } = useQuery({
     queryKey: ["global-stats"],
     queryFn: getGlobalStats,
@@ -178,60 +172,49 @@ function StatsBar() {
 
   if (isLoading) {
     return (
-      <Animated.View entering={FadeInDown.delay(0).springify()} style={styles.statsCard}>
-        <StatsBarSkeleton />
+      <Animated.View entering={FadeInDown.delay(0).springify()}>
+        <GlassCard style={s.statsCard}>
+          <StatsBarSkeleton />
+        </GlassCard>
       </Animated.View>
     );
   }
-
   if (isError || !data) {
     return (
-      <Animated.View entering={FadeInDown.delay(0).springify()} style={styles.statsCard}>
-        <TouchableOpacity
-          onPress={() => queryClient.invalidateQueries({ queryKey: ["global-stats"] })}
-        >
-          <Text style={styles.errorRetry}>⚠ Failed to load stats — tap to retry</Text>
-        </TouchableOpacity>
+      <Animated.View entering={FadeInDown.delay(0).springify()}>
+        <GlassCard style={s.statsCard}>
+          <TouchableOpacity onPress={() => qc.invalidateQueries({ queryKey: ["global-stats"] })}>
+            <Text style={[s.errorRetry, { color: tc.accent.warning }]}>⚠ Failed to load — tap to retry</Text>
+          </TouchableOpacity>
+        </GlassCard>
       </Animated.View>
     );
   }
 
   const rugRate = data.rug_rate_24h_pct;
-
   return (
-    <Animated.View entering={FadeInDown.delay(0).springify()} style={styles.statsCard}>
-      <View style={styles.statItem}>
-        <AnimatedNumber
-          value={data.total_scanned_24h ?? data.tokens_scanned_24h ?? 0}
-          fontSize={18}
-          fontWeight="700"
-        />
-        <Text style={styles.statLabel}>Scanned 24h</Text>
-      </View>
-      <View style={styles.statsDivider} />
-      <View style={styles.statItem}>
-        <View style={styles.statValueRow}>
-          <AnimatedNumber
-            value={data.rug_count_24h ?? data.tokens_rugged_24h ?? 0}
-            fontSize={18}
-            fontWeight="700"
-            color={colors.accent.danger}
-          />
-          {rugRate !== undefined && rugRate > 0 && (
-            <Text style={styles.rugRateBadge}>↑ {rugRate.toFixed(1)}%</Text>
-          )}
+    <Animated.View entering={FadeInDown.delay(0).springify()}>
+      <GlassCard style={s.statsCard}>
+        <View style={s.statItem}>
+          <AnimatedNumber value={data.total_scanned_24h ?? data.tokens_scanned_24h ?? 0} fontSize={20} fontWeight="700" />
+          <Text style={[s.statLabel, { color: tc.text.muted }]}>Scanned 24h</Text>
         </View>
-        <Text style={styles.statLabel}>Rugs 24h</Text>
-      </View>
-      <View style={styles.statsDivider} />
-      <View style={styles.statItem}>
-        <AnimatedNumber
-          value={data.active_deployers_24h ?? 0}
-          fontSize={18}
-          fontWeight="700"
-        />
-        <Text style={styles.statLabel}>Deployers</Text>
-      </View>
+        <View style={[s.statsDivider, { backgroundColor: tc.glass.border }]} />
+        <View style={s.statItem}>
+          <View style={s.statValueRow}>
+            <AnimatedNumber value={data.rug_count_24h ?? data.tokens_rugged_24h ?? 0} fontSize={20} fontWeight="700" color={tc.accent.danger} />
+            {rugRate !== undefined && rugRate > 0 && (
+              <Text style={[s.rugRateBadge, { color: tc.accent.danger, backgroundColor: `${tc.accent.danger}18` }]}>↑ {rugRate.toFixed(1)}%</Text>
+            )}
+          </View>
+          <Text style={[s.statLabel, { color: tc.text.muted }]}>Rugs 24h</Text>
+        </View>
+        <View style={[s.statsDivider, { backgroundColor: tc.glass.border }]} />
+        <View style={s.statItem}>
+          <AnimatedNumber value={data.active_deployers_24h ?? 0} fontSize={20} fontWeight="700" />
+          <Text style={[s.statLabel, { color: tc.text.muted }]}>Deployers</Text>
+        </View>
+      </GlassCard>
     </Animated.View>
   );
 }
@@ -239,6 +222,7 @@ function StatsBar() {
 // ─── AI Brief Card ────────────────────────────────────────────────────────────
 
 function AIBriefCard() {
+  const { colors: tc } = useTheme();
   const pulse = useSharedValue(0.6);
   const borderOpacity = useSharedValue(0.25);
 
@@ -250,33 +234,14 @@ function AIBriefCard() {
   });
 
   useEffect(() => {
-    pulse.value = withRepeat(
-      withSequence(withTiming(1, { duration: 1200 }), withTiming(0.6, { duration: 1200 })),
-      -1,
-      false
-    );
-    borderOpacity.value = withRepeat(
-      withSequence(withTiming(0.5, { duration: 2000 }), withTiming(0.15, { duration: 2000 })),
-      -1,
-      false
-    );
+    pulse.value = withRepeat(withSequence(withTiming(1, { duration: 1200 }), withTiming(0.6, { duration: 1200 })), -1, false);
+    borderOpacity.value = withRepeat(withSequence(withTiming(0.5, { duration: 2000 }), withTiming(0.15, { duration: 2000 })), -1, false);
   }, []);
 
-  const orbStyle = useAnimatedStyle(() => ({
-    opacity: pulse.value,
-    transform: [{ scale: 0.9 + pulse.value * 0.1 }],
-  }));
-
-  const borderStyle = useAnimatedStyle(() => ({
-    borderColor: `rgba(155, 89, 247, ${borderOpacity.value})`,
-  }));
+  const orbStyle = useAnimatedStyle(() => ({ opacity: pulse.value, transform: [{ scale: 0.9 + pulse.value * 0.1 }] }));
 
   const updatedLabel = data?.generated_at
-    ? (() => {
-        const diff = Date.now() - new Date(data.generated_at).getTime();
-        const m = Math.round(diff / 60_000);
-        return m < 1 ? "Just now" : `${m}m ago`;
-      })()
+    ? (() => { const m = Math.round((Date.now() - new Date(data.generated_at).getTime()) / 60_000); return m < 1 ? "Just now" : `${m}m ago`; })()
     : null;
 
   const briefText = data?.summary ?? data?.text ?? "";
@@ -284,60 +249,45 @@ function AIBriefCard() {
 
   return (
     <Animated.View entering={FadeInDown.delay(100).springify()}>
-      <Animated.View style={borderStyle}>
-        <GlassCard elevated style={styles.aiBrief}>
-          <View style={styles.aiBriefHeader}>
-            <Animated.View style={[styles.aiOrb, orbStyle]} />
-            <Text style={styles.aiBriefTitle}>AI Intelligence Brief</Text>
-            {updatedLabel && (
-              <Text style={styles.aiBriefTime}>Updated {updatedLabel}</Text>
-            )}
+      <GlassCard elevated style={s.aiBrief}>
+        {/* Gradient border top */}
+        <LinearGradient colors={["#622EC3", "#53E9F6"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={s.aiBriefGradientBar} />
+        <View style={s.aiBriefHeader}>
+          <Animated.View style={[s.aiOrb, orbStyle]} />
+          <Text style={[s.aiBriefTitle, { color: tc.accent.aiLight }]}>AI Intelligence Brief</Text>
+          {updatedLabel && <Text style={[s.aiBriefTime, { color: tc.text.muted }]}>Updated {updatedLabel}</Text>}
+        </View>
+        {isLoading && <AIBriefSkeleton />}
+        {isError && (
+          <View style={s.briefError}>
+            <Text style={[s.briefErrorText, { color: tc.text.muted }]}>Failed to load brief</Text>
+            <TouchableOpacity onPress={() => refetch()}>
+              <Text style={[s.briefRetryText, { color: tc.accent.ai }]}>Retry →</Text>
+            </TouchableOpacity>
           </View>
-
-          {isLoading && <AIBriefSkeleton />}
-
-          {isError && (
-            <View style={styles.briefError}>
-              <Text style={styles.briefErrorText}>Failed to load brief</Text>
-              <TouchableOpacity onPress={() => refetch()}>
-                <Text style={styles.briefRetryText}>Retry →</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-
-          {data && briefText.trim().length > 0 ? (
-            <View style={styles.briefWordsRow}>
-              {words.map((word: string, i: number) => (
-                <Animated.Text
-                  key={`${word}-${i}`}
-                  entering={FadeInDown.delay(i * 25).duration(180)}
-                  style={styles.aiBriefWord}
-                >
-                  {word}{" "}
-                </Animated.Text>
-              ))}
-            </View>
-          ) : data && !isLoading ? (
-            <Text style={styles.briefEmptyText}>No market intelligence available right now.</Text>
-          ) : null}
-
-          <TouchableOpacity
-            style={styles.aiBriefCta}
-            onPress={() => {
-              // Navigate to the most recent alerted token's chat, or fall back
-              // to the search screen if no alerts have been received yet.
-              const firstMint = useAlertsStore.getState().alerts[0]?.mint;
-              if (firstMint) {
-                router.push(`/chat/${firstMint}`);
-              } else {
-                router.push("/(tabs)/search");
-              }
-            }}
-          >
-            <Text style={styles.aiBriefCtaText}>Ask AI →</Text>
-          </TouchableOpacity>
-        </GlassCard>
-      </Animated.View>
+        )}
+        {data && briefText.trim().length > 0 ? (
+          <View style={s.briefWordsRow}>
+            {words.map((word: string, i: number) => (
+              <Animated.Text key={`${word}-${i}`} entering={FadeInDown.delay(i * 20).duration(160)} style={[s.aiBriefWord, { color: tc.text.secondary }]}>
+                {word}{" "}
+              </Animated.Text>
+            ))}
+          </View>
+        ) : data && !isLoading ? (
+          <Text style={[s.briefEmptyText, { color: tc.text.muted }]}>No market intelligence available right now.</Text>
+        ) : null}
+        <TouchableOpacity
+          style={s.aiBriefCta}
+          onPress={() => {
+            const firstMint = useAlertsStore.getState().alerts[0]?.mint;
+            if (firstMint) router.push(`/chat/${firstMint}`);
+            else router.push("/(tabs)/search");
+          }}
+        >
+          <Text style={[s.aiBriefCtaText, { color: tc.accent.ai }]}>Ask AI →</Text>
+        </TouchableOpacity>
+      </GlassCard>
     </Animated.View>
   );
 }
@@ -345,84 +295,66 @@ function AIBriefCard() {
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
 export default function HomeFeedScreen() {
+  const { colors: tc } = useTheme();
   const alerts = useAlertsStore((s) => s.alerts);
   const unreadCount = useAlertsStore((s) => s.unreadCount);
   const [refreshing, setRefreshing] = React.useState(false);
-  const queryClient = useQueryClient();
+  const qc = useQueryClient();
   const wsState = useWsState();
   const { newCount, clearNewAlerts } = useNewAlerts();
   const scrollRef = useRef<ScrollView>(null);
 
-  // Badge bell pop animation
   const bellScale = useSharedValue(1);
   const prevUnread = useRef(unreadCount);
   useEffect(() => {
     if (unreadCount > prevUnread.current) {
-      bellScale.value = withSequence(
-        withSpring(1.35, { damping: 8 }),
-        withSpring(1, { damping: 12 })
-      );
+      bellScale.value = withSequence(withSpring(1.35, { damping: 8 }), withSpring(1, { damping: 12 }));
     }
     prevUnread.current = unreadCount;
   }, [unreadCount]);
   const bellStyle = useAnimatedStyle(() => ({ transform: [{ scale: bellScale.value }] }));
 
-  // Dot WS color
-  const wsColor =
-    wsState === "connected" ? colors.accent.safe :
-    wsState === "reconnecting" ? colors.accent.warning :
-    colors.text.muted;
-  const wsLabel =
-    wsState === "connected" ? "LIVE" :
-    wsState === "reconnecting" ? "RECONNECTING" :
-    "OFFLINE";
+  const wsColor = wsState === "connected" ? tc.accent.safe : wsState === "reconnecting" ? tc.accent.warning : tc.text.muted;
+  const wsLabel = wsState === "connected" ? "LIVE" : wsState === "reconnecting" ? "RECONNECTING" : "OFFLINE";
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ["global-stats"] }),
-      queryClient.invalidateQueries({ queryKey: ["stats-brief"] }),
+      qc.invalidateQueries({ queryKey: ["global-stats"] }),
+      qc.invalidateQueries({ queryKey: ["stats-brief"] }),
     ]);
     setRefreshing(false);
     toast.success("Updated just now");
-  }, [queryClient]);
+  }, [qc]);
 
   const MAX_ALERTS = 50;
   const groups = groupAlertsByTime(alerts.slice(0, MAX_ALERTS));
 
   return (
-    <SafeAreaView style={styles.container} edges={["top"]}>
-      {/* Header */}
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.headerTitle}>Lineage Agent</Text>
-          <View style={styles.liveRow}>
-            <View style={[styles.liveDot, { backgroundColor: wsColor }]} />
-            <Text style={[styles.liveText, { color: wsColor }]}>{wsLabel}</Text>
+    <SafeAreaView style={[s.container, { backgroundColor: tc.background.deep }]} edges={["top"]}>
+      {/* ── Header ─────────────────────────────────────────────── */}
+      <View style={s.header}>
+        <View style={s.headerLeft}>
+          <Text style={[s.headerTitle, { color: tc.text.primary }]}>Lineage</Text>
+          <View style={[s.liveRow]}>
+            <View style={[s.liveDot, { backgroundColor: wsColor }]} />
+            <Text style={[s.liveText, { color: wsColor }]}>{wsLabel}</Text>
           </View>
         </View>
-        <View style={styles.headerRight}>
+        <View style={s.headerRight}>
           <Pressable
-            style={styles.headerSearch}
+            style={[s.headerSearch, { backgroundColor: tc.glass.bg, borderColor: tc.glass.border }]}
             onPress={() => router.push("/(tabs)/search")}
           >
-            <Text style={styles.headerSearchText}>⌕  Search tokens…</Text>
+            <Text style={[s.headerSearchText, { color: tc.text.muted }]}>⌕  Search tokens…</Text>
           </Pressable>
           <Animated.View style={bellStyle}>
-            <TouchableOpacity
-              style={styles.bellBtn}
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                router.push("/(tabs)/alerts");
-              }}
-            >
-              <Text style={styles.bellIcon}>◎</Text>
+            <TouchableOpacity style={s.bellBtn} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push("/(tabs)/alerts"); }}>
+              <Text style={[s.bellIcon, { color: tc.text.secondary }]}>◎</Text>
               {unreadCount > 0 && (
-                <View style={styles.bellBadge}>
-                  <Text style={styles.bellBadgeText}>
-                    {unreadCount > 9 ? "9+" : unreadCount}
-                  </Text>
+                <View style={[s.bellBadge, { backgroundColor: tc.accent.danger }]}>
+                  <Text style={s.bellBadgeText}>{unreadCount > 9 ? "9+" : unreadCount}</Text>
                 </View>
               )}
             </TouchableOpacity>
@@ -430,70 +362,41 @@ export default function HomeFeedScreen() {
         </View>
       </View>
 
-      {/* WS Status bar */}
       <WsStatusBar state={wsState} />
 
-      {/* Feed */}
+      {/* ── Feed ───────────────────────────────────────────────── */}
       <View style={{ flex: 1 }}>
-        <ScrollView
-          ref={scrollRef}
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.scroll}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={onRefresh}
-              tintColor={colors.accent.safe}
-            />
-          }
-        >
-          {/* Stats */}
-          <Text style={styles.sectionTitle}>Market Overview</Text>
+        <ScrollView ref={scrollRef} showsVerticalScrollIndicator={false} contentContainerStyle={s.scroll} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={tc.accent.cyan} />}>
+
+          <Text style={[s.sectionLabel, { color: tc.text.muted }]}>MARKET OVERVIEW</Text>
           <StatsBar />
 
-          {/* AI Brief */}
-          <Text style={styles.sectionTitle}>Intelligence Brief</Text>
+          <Text style={[s.sectionLabel, { color: tc.text.muted }]}>INTELLIGENCE BRIEF</Text>
           <AIBriefCard />
 
-          {/* Live Alerts */}
-          <View style={styles.sectionRow}>
-            <Text style={[styles.sectionTitle, { marginTop: 0, marginBottom: 0 }]}>Live Alerts</Text>
+          <View style={s.sectionRow}>
+            <Text style={[s.sectionLabel, { color: tc.text.muted, marginTop: 0, marginBottom: 0 }]}>LIVE ALERTS</Text>
             {alerts.length > MAX_ALERTS && (
               <TouchableOpacity onPress={() => router.push("/(tabs)/alerts")}>
-                <Text style={styles.seeAllText}>See all →</Text>
+                <Text style={[s.seeAllText, { color: tc.accent.safe }]}>See all →</Text>
               </TouchableOpacity>
             )}
           </View>
-          <GlassCard style={styles.alertList}>
+          <GlassCard style={s.alertList}>
             {alerts.length === 0 ? (
-              <EmptyRadar
-                message={
-                  wsState === "connected"
-                    ? "Monitoring all mints..."
-                    : "Connect to receive live alerts"
-                }
-              />
+              <EmptyRadar message={wsState === "connected" ? "Monitoring all mints..." : "Connect to receive live alerts"} />
             ) : (
               groups.map((group) => (
                 <View key={group.label}>
                   <TimeSectionHeader label={group.label} />
-                  {group.items.map((alert, i) => (
-                    <AlertRow key={alert.id} item={alert} index={i} />
-                  ))}
+                  {group.items.map((alert, i) => <AlertRow key={alert.id} item={alert} index={i} />)}
                 </View>
               ))
             )}
           </GlassCard>
         </ScrollView>
 
-        {/* New alerts banner (absolue, z-index élevé) */}
-        <NewAlertsBanner
-          count={newCount}
-          onPress={() => {
-            scrollRef.current?.scrollTo({ y: 0, animated: true });
-            clearNewAlerts();
-          }}
-        />
+        <NewAlertsBanner count={newCount} onPress={() => { scrollRef.current?.scrollTo({ y: 0, animated: true }); clearNewAlerts(); }} />
       </View>
     </SafeAreaView>
   );
@@ -501,151 +404,68 @@ export default function HomeFeedScreen() {
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background.deep },
+const s = StyleSheet.create({
+  container: { flex: 1 },
 
   // Header
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-  },
-  headerTitle: {
-    color: colors.text.primary,
-    fontSize: 20,
-    fontWeight: "700",
-    letterSpacing: -0.5,
-  },
-  liveRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 2 },
+  header: { flexDirection: "row", alignItems: "center", paddingHorizontal: 20, paddingVertical: 14, gap: 12 },
+  headerLeft: { gap: 2 },
+  headerTitle: { fontFamily: "PlusJakartaSans_800ExtraBold", fontSize: 22, letterSpacing: -0.5 },
+  liveRow: { flexDirection: "row", alignItems: "center", gap: 5 },
   liveDot: { width: 6, height: 6, borderRadius: 3 },
-  liveText: { fontSize: 10, fontWeight: "700", letterSpacing: 1 },
-  headerRight: { flexDirection: "row", alignItems: "center", gap: 8, flex: 1, marginLeft: 12 },
-  headerSearch: {
-    flex: 1,
-    backgroundColor: colors.glass.bg,
-    borderWidth: 1,
-    borderColor: colors.glass.border,
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  headerSearchText: { color: colors.text.muted, fontSize: 14 },
+  liveText: { fontFamily: "PlusJakartaSans_700Bold", fontSize: 9, letterSpacing: 1.2 },
+  headerRight: { flexDirection: "row", alignItems: "center", gap: 10, flex: 1 },
+  headerSearch: { flex: 1, borderWidth: 1, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 10 },
+  headerSearchText: { fontFamily: "PlusJakartaSans_400Regular", fontSize: 14 },
   bellBtn: { padding: 6, position: "relative" },
-  bellIcon: { color: colors.text.secondary, fontSize: 20 },
-  bellBadge: {
-    position: "absolute",
-    top: 0,
-    right: 0,
-    backgroundColor: colors.accent.danger,
-    borderRadius: 8,
-    minWidth: 16,
-    height: 16,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 2,
-  },
-  bellBadgeText: { color: "#fff", fontSize: 9, fontWeight: "700" },
+  bellIcon: { fontSize: 20 },
+  bellBadge: { position: "absolute", top: 0, right: 0, borderRadius: 8, minWidth: 16, height: 16, alignItems: "center", justifyContent: "center", paddingHorizontal: 2 },
+  bellBadgeText: { color: "#fff", fontSize: 9, fontFamily: "PlusJakartaSans_800ExtraBold" },
 
-  // Scroll
+  // Feed layout
   scroll: { paddingHorizontal: 16, paddingBottom: 100 },
-  sectionTitle: {
-    color: colors.text.muted,
-    fontSize: 11,
-    fontWeight: "700",
-    letterSpacing: 1.5,
-    textTransform: "uppercase",
-    marginTop: 20,
-    marginBottom: 10,
-  },
+  sectionLabel: { fontFamily: "PlusJakartaSans_800ExtraBold", fontSize: 10, letterSpacing: 1.8, marginTop: 22, marginBottom: 10 },
+  sectionRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 22, marginBottom: 10 },
+  seeAllText: { fontFamily: "PlusJakartaSans_700Bold", fontSize: 12 },
 
-  // Stats
-  statsCard: {
-    backgroundColor: colors.glass.bg,
-    borderWidth: 1,
-    borderColor: colors.glass.border,
-    borderRadius: 12,
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-  },
-  statItem: { flex: 1, alignItems: "center" },
-  statValueRow: { flexDirection: "row", alignItems: "center", gap: 4 },
-  statLabel: { color: colors.text.muted, fontSize: 10, marginTop: 3, textAlign: "center" },
-  statsDivider: { width: 1, height: 36, backgroundColor: colors.glass.border, alignSelf: "center" },
-  rugRateBadge: {
-    color: colors.accent.danger,
-    fontSize: 10,
-    fontWeight: "700",
-    backgroundColor: `${colors.accent.danger}18`,
-    paddingHorizontal: 5,
-    paddingVertical: 2,
-    borderRadius: 6,
-  },
-  errorRetry: {
-    color: colors.accent.warning,
-    fontSize: 12,
-    textAlign: "center",
-    paddingVertical: 8,
-  },
+  // Stats card
+  statsCard: { flexDirection: "row", alignItems: "center", paddingVertical: 18, paddingHorizontal: 20 },
+  statItem: { flex: 1, alignItems: "center", gap: 4 },
+  statValueRow: { flexDirection: "row", alignItems: "center", gap: 5 },
+  statLabel: { fontFamily: "PlusJakartaSans_500Medium", fontSize: 10 },
+  statsDivider: { width: 1, height: 38, alignSelf: "center" },
+  rugRateBadge: { fontFamily: "PlusJakartaSans_700Bold", fontSize: 10, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 8 },
+  errorRetry: { fontFamily: "PlusJakartaSans_500Medium", fontSize: 12, textAlign: "center", paddingVertical: 10 },
 
   // AI Brief
-  aiBrief: { padding: 16, marginBottom: 4 },
-  aiBriefHeader: { flexDirection: "row", alignItems: "center", marginBottom: 10 },
-  aiOrb: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: colors.accent.ai,
-    marginRight: 8,
-  },
-  aiBriefTitle: { color: colors.accent.ai, fontSize: 13, fontWeight: "700", flex: 1 },
-  aiBriefTime: { color: colors.text.muted, fontSize: 11 },
+  aiBrief: { paddingTop: 14, paddingHorizontal: 18, paddingBottom: 16, overflow: "hidden" },
+  aiBriefGradientBar: { height: 2, marginHorizontal: -18, marginBottom: 12 },
+  aiBriefHeader: { flexDirection: "row", alignItems: "center", marginBottom: 10, gap: 8 },
+  aiOrb: { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.accent.ai },
+  aiBriefTitle: { fontFamily: "PlusJakartaSans_700Bold", fontSize: 13, flex: 1 },
+  aiBriefTime: { fontFamily: "PlusJakartaSans_400Regular", fontSize: 11 },
   briefWordsRow: { flexDirection: "row", flexWrap: "wrap", marginBottom: 12 },
-  aiBriefWord: { color: colors.text.secondary, fontSize: 14, lineHeight: 22 },
+  aiBriefWord: { fontFamily: "PlusJakartaSans_400Regular", fontSize: 14, lineHeight: 22 },
   briefError: { flexDirection: "row", gap: 10, alignItems: "center", marginBottom: 10 },
-  briefErrorText: { color: colors.text.muted, fontSize: 13 },
-  briefRetryText: { color: colors.accent.ai, fontSize: 13, fontWeight: "600" },
-  briefEmptyText: { color: colors.text.muted, fontSize: 13, fontStyle: "italic", marginBottom: 12 },
-  aiBriefCta: { alignSelf: "flex-start" },
-  aiBriefCtaText: { color: colors.accent.ai, fontSize: 14, fontWeight: "600" },
-
-  sectionRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 20, marginBottom: 10 },
-  seeAllText: { color: colors.accent.safe, fontSize: 12, fontWeight: "600" },
+  briefErrorText: { fontFamily: "PlusJakartaSans_400Regular", fontSize: 13 },
+  briefRetryText: { fontFamily: "PlusJakartaSans_700Bold", fontSize: 13 },
+  briefEmptyText: { fontFamily: "PlusJakartaSans_400Regular", fontSize: 13, fontStyle: "italic", marginBottom: 12 },
+  aiBriefCta: { alignSelf: "flex-start", marginTop: 4 },
+  aiBriefCtaText: { fontFamily: "PlusJakartaSans_700Bold", fontSize: 14 },
 
   // Alert list
   alertList: { overflow: "hidden" },
-  alertRow: {
-    borderBottomWidth: 1,
-    borderBottomColor: colors.glass.border,
-  },
-  alertRowUnread: {
-    backgroundColor: "rgba(255,255,255,0.02)",
-  },
-  alertInner: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    gap: 12,
-  },
-  alertContent: { flex: 1, gap: 4 },
+  alertRow: { borderBottomWidth: StyleSheet.hairlineWidth },
+  alertRowUnread: { backgroundColor: "rgba(255,255,255,0.015)" },
+  alertInner: { flexDirection: "row", alignItems: "flex-start", paddingHorizontal: 16, paddingVertical: 13, gap: 12 },
+  alertContent: { flex: 1, gap: 5 },
   alertTopRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  alertTypeChip: {
-    borderWidth: 1,
-    borderRadius: 6,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-  },
-  alertTypeText: { fontSize: 10, fontWeight: "700", letterSpacing: 0.5 },
-  alertTime: { color: colors.text.muted, fontSize: 10 },
-  alertName: { color: colors.text.primary, fontSize: 13, fontWeight: "600" },
-  alertMsg: { color: colors.text.muted, fontSize: 11, lineHeight: 16 },
-  unreadDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 4,
-    backgroundColor: colors.accent.safe,
-    marginTop: 6,
-  },
+  alertTypeChip: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 3 },
+  alertTypeText: { fontFamily: "PlusJakartaSans_800ExtraBold", fontSize: 9, letterSpacing: 0.8 },
+  alertTime: { fontFamily: "PlusJakartaSans_400Regular", fontSize: 10 },
+  alertName: { fontFamily: "PlusJakartaSans_700Bold", fontSize: 13 },
+  alertMsg: { fontFamily: "PlusJakartaSans_400Regular", fontSize: 11, lineHeight: 16 },
+  unreadDot: { width: 7, height: 7, borderRadius: 4, marginTop: 6 },
 });
+
+

@@ -28,6 +28,7 @@ import { FamilyTreeView } from "@/src/components/lineage/FamilyTreeView";
 import { ScanTimeline } from "@/src/components/lineage/ScanTimeline";
 import { ScanDeltaPanel } from "@/src/components/lineage/ScanDeltaPanel";
 import { colors, verdictColor, riskLevelFromScore } from "@/src/theme/colors";
+import { useTheme } from "@/src/theme/ThemeContext";
 import { useAuthStore } from "@/src/store/auth";
 import type { LineageResult, ScanSnapshot, ScanDelta } from "@/src/types/api";
 
@@ -42,6 +43,7 @@ function formatMcap(v: number | null) {
 // ─── Header Token Info ─────────────────────────────────────────────────────────
 
 function TokenHeader({ data }: { data: LineageResult }) {
+  const { colors } = useTheme();
   const token = data.query_token;
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const qc = useQueryClient();
@@ -71,12 +73,12 @@ function TokenHeader({ data }: { data: LineageResult }) {
           borderRadius={16}
         />
         <View style={styles.tokenHeaderInfo}>
-          <Text style={styles.tokenName} numberOfLines={1}>
+          <Text style={[styles.tokenName, { color: colors.text.primary }]} numberOfLines={1}>
             {token?.name ?? "Unknown Token"}
           </Text>
-          <Text style={styles.tokenSymbol}>${token?.symbol}</Text>
+          <Text style={[styles.tokenSymbol, { color: colors.text.muted }]}>${token?.symbol}</Text>
           <View style={styles.tokenStats}>
-            <Text style={styles.tokenMcap}>{formatMcap(token?.market_cap_usd ?? null)}</Text>
+            <Text style={[styles.tokenMcap, { color: colors.text.primary }]}>{formatMcap(token?.market_cap_usd ?? null)}</Text>
             <RiskBadge
               label={data.query_is_root ? "ROOT" : "CLONE"}
               riskLevel={data.query_is_root ? "low" : "high"}
@@ -182,6 +184,7 @@ function calculateRiskScore(data: LineageResult): number {
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
 export default function LineageDetailScreen() {
+  const { colors } = useTheme();
   const { mint } = useLocalSearchParams<{ mint: string }>();
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const qc = useQueryClient();
@@ -236,10 +239,10 @@ export default function LineageDetailScreen() {
 
   if (isLoading) {
     return (
-      <SafeAreaView style={styles.container} edges={["top"]}>
+      <SafeAreaView style={[styles.container, { backgroundColor: colors.background.deep }]} edges={["top"]}>
         <View style={styles.loadingHeader}>
           <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-            <Text style={styles.backTxt}>‹ Back</Text>
+            <Text style={[styles.backTxt, { color: colors.accent.safe }]}>‹ Back</Text>
           </TouchableOpacity>
         </View>
         <View>
@@ -251,28 +254,28 @@ export default function LineageDetailScreen() {
 
   if (error || !data) {
     return (
-      <SafeAreaView style={styles.container} edges={["top"]}>
+      <SafeAreaView style={[styles.container, { backgroundColor: colors.background.deep }]} edges={["top"]}>
         <View style={styles.loadingHeader}>
           <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-            <Text style={styles.backTxt}>‹ Back</Text>
+            <Text style={[styles.backTxt, { color: colors.accent.safe }]}>‹ Back</Text>
           </TouchableOpacity>
         </View>
         <View style={styles.errorState}>
-          <Text style={styles.errorText}>Failed to load lineage data.</Text>
-          <Text style={styles.errorMint}>{mint}</Text>
+          <Text style={[styles.errorText, { color: colors.accent.danger }]}>Failed to load lineage data.</Text>
+          <Text style={[styles.errorMint, { color: colors.text.muted }]}>{mint}</Text>
         </View>
       </SafeAreaView>
     );
   }
 
   return (
-    <SafeAreaView style={styles.container} edges={["top"]}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background.deep }]} edges={["top"]}>
       {/* Nav header */}
-      <View style={styles.navHeader}>
+      <View style={[styles.navHeader, { borderBottomColor: colors.glass.border }]}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-          <Text style={styles.backTxt}>‹ Back</Text>
+          <Text style={[styles.backTxt, { color: colors.accent.safe }]}>‹ Back</Text>
         </TouchableOpacity>
-        <Text style={styles.navTitle} numberOfLines={1}>
+        <Text style={[styles.navTitle, { color: colors.text.primary }]} numberOfLines={1}>
           {data.query_token?.symbol ? `$${data.query_token.symbol}` : "Lineage"}
         </Text>
         <View style={{ width: 56 }} />
@@ -299,11 +302,11 @@ export default function LineageDetailScreen() {
         />
 
         {/* Family tree */}
-        <Text style={styles.sectionTitle}>Family Tree</Text>
+        <Text style={[styles.sectionTitle, { color: colors.text.muted }]}>Family Tree</Text>
         <GlassCard style={styles.treeCard}>
           <FamilyTreeView result={data} />
-          <View style={styles.treeMeta}>
-            <Text style={styles.treeMetaText}>{data.family_size} members · Confidence {Math.round(data.confidence * 100)}%</Text>
+          <View style={[styles.treeMeta, { borderTopColor: colors.glass.border }]}>
+            <Text style={[styles.treeMetaText, { color: colors.text.muted }]}>{data.family_size} members · Confidence {Math.round(data.confidence * 100)}%</Text>
           </View>
         </GlassCard>
 
@@ -315,29 +318,29 @@ export default function LineageDetailScreen() {
         {/* Scan delta evolution */}
         {delta && (
           <>
-            <Text style={styles.sectionTitle}>Evolution</Text>
+            <Text style={[styles.sectionTitle, { color: colors.text.muted }]}>Evolution</Text>
             <ScanDeltaPanel delta={delta} />
           </>
         )}
 
         {/* Forensic signals */}
-        <Text style={styles.sectionTitle}>Forensic Signals</Text>
+        <Text style={[styles.sectionTitle, { color: colors.text.muted }]}>Forensic Signals</Text>
         <ForensicSignalCards result={data} />
 
         {/* Deployer info */}
         {data.deployer_profile && (
           <>
-            <Text style={styles.sectionTitle}>Deployer</Text>
+            <Text style={[styles.sectionTitle, { color: colors.text.muted }]}>Deployer</Text>
             <TouchableOpacity
               onPress={() => router.push(`/deployer/${data.deployer_profile!.address}`)}
             >
               <GlassCard style={styles.deployerRow}>
-                <Text style={styles.deployerAddr}>
+                <Text style={[styles.deployerAddr, { color: colors.text.primary }]}>
                   {data.deployer_profile.address.slice(0, 8)}…{data.deployer_profile.address.slice(-6)}
                 </Text>
                 <View style={styles.deployerStats}>
-                  <Text style={styles.deployerStat}>{data.deployer_profile.total_tokens_launched} tokens</Text>
-                  <Text style={styles.deployerStat}>
+                  <Text style={[styles.deployerStat, { color: colors.text.secondary }]}>{data.deployer_profile.total_tokens_launched} tokens</Text>
+                  <Text style={[styles.deployerStat, { color: colors.text.secondary }]}>
                     {data.deployer_profile.rug_rate_pct.toFixed(0)}% rug rate
                   </Text>
                   <RiskBadge
@@ -356,58 +359,39 @@ export default function LineageDetailScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background.deep },
+  container: { flex: 1 },
   navHeader: {
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 16,
     paddingVertical: 12,
+    borderBottomWidth: 1,
   },
   backBtn: { width: 56 },
-  backTxt: { color: colors.accent.safe, fontSize: 16 },
-  navTitle: {
-    flex: 1,
-    textAlign: "center",
-    color: colors.text.primary,
-    fontSize: 16,
-    fontWeight: "600",
-  },
+  backTxt: { fontSize: 16, fontWeight: "500" },
+  navTitle: { flex: 1, textAlign: "center", fontSize: 16, fontWeight: "600" },
   scroll: { paddingHorizontal: 16, paddingBottom: 100 },
   loadingHeader: { paddingHorizontal: 16, paddingVertical: 12 },
   errorState: { flex: 1, alignItems: "center", justifyContent: "center" },
-  errorText: { color: colors.accent.danger, fontSize: 16, fontWeight: "600" },
-  errorMint: { color: colors.text.muted, fontSize: 11, marginTop: 8, fontFamily: "monospace" },
-  tokenHeader: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    justifyContent: "space-between",
-    marginTop: 8,
-    marginBottom: 16,
-  },
+  errorText: { fontSize: 16, fontWeight: "600" },
+  errorMint: { fontSize: 11, marginTop: 8, fontFamily: "monospace" },
+  tokenHeader: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", marginTop: 8, marginBottom: 16 },
   tokenHeaderLeft: { flexDirection: "row", flex: 1, gap: 14 },
   tokenHeaderInfo: { flex: 1 },
-  tokenName: { color: colors.text.primary, fontSize: 20, fontWeight: "700" },
-  tokenSymbol: { color: colors.text.muted, fontSize: 14, marginTop: 2 },
+  tokenName: { fontSize: 20, fontWeight: "700" },
+  tokenSymbol: { fontSize: 14, marginTop: 2 },
   tokenStats: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 8 },
-  tokenMcap: { color: colors.text.primary, fontSize: 14, fontWeight: "600" },
+  tokenMcap: { fontSize: 14, fontWeight: "600" },
   tokenHeaderRight: { alignItems: "center" },
   riskLabel: { fontSize: 10, fontWeight: "700", letterSpacing: 1, marginTop: 4 },
   actions: { flexDirection: "row", gap: 8, marginBottom: 20 },
   actionBtn: { flex: 1 },
-  sectionTitle: {
-    color: colors.text.muted,
-    fontSize: 11,
-    fontWeight: "700",
-    letterSpacing: 1.5,
-    textTransform: "uppercase",
-    marginTop: 20,
-    marginBottom: 10,
-  },
+  sectionTitle: { fontSize: 11, fontWeight: "700", letterSpacing: 1.5, textTransform: "uppercase", marginTop: 20, marginBottom: 10 },
   treeCard: { padding: 0, overflow: "hidden", marginBottom: 8 },
-  treeMeta: { padding: 12, borderTopWidth: 1, borderTopColor: colors.glass.border },
-  treeMetaText: { color: colors.text.muted, fontSize: 12, textAlign: "center" },
+  treeMeta: { padding: 12, borderTopWidth: 1 },
+  treeMetaText: { fontSize: 12, textAlign: "center" },
   deployerRow: { padding: 14 },
-  deployerAddr: { color: colors.text.primary, fontSize: 13, fontFamily: "monospace", marginBottom: 10 },
+  deployerAddr: { fontSize: 13, fontFamily: "monospace", marginBottom: 10 },
   deployerStats: { flexDirection: "row", alignItems: "center", gap: 10, flexWrap: "wrap" },
-  deployerStat: { color: colors.text.secondary, fontSize: 13 },
+  deployerStat: { fontSize: 13 },
 });

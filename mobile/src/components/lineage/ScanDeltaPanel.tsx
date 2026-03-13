@@ -12,23 +12,23 @@ interface Props {
 }
 
 const TREND_CONFIG = {
-  worsening: { icon: "↑", color: colors.accent.danger,  label: "Worsening", borderColor: "#FF3B5C44", bg: "#FF3B5C12" },
-  improving: { icon: "↓", color: colors.accent.safe,    label: "Improving", borderColor: "#00FF9D44", bg: "#00FF9D12" },
-  stable:    { icon: "→", color: colors.text.muted,     label: "Stable",    borderColor: "#ffffff18", bg: "#ffffff08" },
+  worsening: { icon: "↑", color: colors.accent.danger, label: "Worsening", borderColor: `${colors.accent.danger}44`, bg: `${colors.accent.danger}12` },
+  improving: { icon: "↓", color: colors.accent.safe,   label: "Improving", borderColor: `${colors.accent.safe}44`,   bg: `${colors.accent.safe}12` },
+  stable:    { icon: "→", color: colors.text.muted,    label: "Stable",    borderColor: "rgba(255,255,255,0.09)",     bg: "rgba(255,255,255,0.03)" },
 } as const;
 
 const FLAG_COLORS: Record<string, { bg: string; text: string }> = {
-  BUNDLE_CONFIRMED:          { bg: "#DC2626CC", text: "#fff" },
-  BUNDLE_SUSPECTED:          { bg: "#F97316CC", text: "#fff" },
-  COORDINATED_DUMP:          { bg: "#F59E0BCC", text: "#000" },
-  INSIDER_DUMP:              { bg: "#EF4444CC", text: "#fff" },
-  INSIDER_SUSPICIOUS:        { bg: "#EAB308CC", text: "#000" },
-  ZOMBIE_ALERT:              { bg: "#A855F7CC", text: "#fff" },
-  DEATH_CLOCK_CRITICAL:      { bg: "#991B1BCC", text: "#fff" },
-  DEATH_CLOCK_HIGH:          { bg: "#DC2626CC", text: "#fff" },
-  FACTORY_DETECTED:          { bg: "#6B7280CC", text: "#fff" },
-  CARTEL_LINKED:             { bg: "#7C3AEDCC", text: "#fff" },
-  SERIAL_RUGGER:             { bg: "#7F1D1DCC", text: "#fff" },
+  BUNDLE_CONFIRMED:          { bg: `${colors.accent.danger}CC`,  text: "#fff" },
+  BUNDLE_SUSPECTED:          { bg: `${colors.accent.warning}CC`, text: "#fff" },
+  COORDINATED_DUMP:          { bg: `${colors.accent.amber}CC`,   text: "#000" },
+  INSIDER_DUMP:              { bg: `${colors.accent.danger}CC`,  text: "#fff" },
+  INSIDER_SUSPICIOUS:        { bg: `${colors.accent.warning}CC`, text: "#000" },
+  ZOMBIE_ALERT:              { bg: `${colors.accent.aiLight}CC`, text: "#fff" },
+  DEATH_CLOCK_CRITICAL:      { bg: `${colors.risk.critical}EE`,  text: "#fff" },
+  DEATH_CLOCK_HIGH:          { bg: `${colors.accent.danger}CC`,  text: "#fff" },
+  FACTORY_DETECTED:          { bg: "rgba(107,114,128,0.80)",     text: "#fff" },
+  CARTEL_LINKED:             { bg: `${colors.accent.ai}CC`,      text: "#fff" },
+  SERIAL_RUGGER:             { bg: `${colors.risk.critical}CC`,  text: "#fff" },
 };
 
 function flagLabel(flag: string): string {

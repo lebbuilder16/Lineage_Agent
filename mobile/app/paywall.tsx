@@ -20,7 +20,9 @@ import Animated, {
   withSpring,
 } from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
+import { useTheme } from "@/src/theme/ThemeContext";
 import { colors } from "@/src/theme/colors";
+import { LinearGradient } from "expo-linear-gradient";
 import { GlassCard } from "@/src/components/ui/GlassCard";
 import { HapticButton } from "@/src/components/ui/HapticButton";
 import { useAuthStore } from "@/src/store/auth";
@@ -76,24 +78,25 @@ function FeatureRow({
   free,
   pro,
 }: (typeof FEATURES)[number]) {
+  const { colors } = useTheme();
   return (
     <View style={styles.featureRow}>
       <Text style={styles.featureIcon}>{icon}</Text>
-      <Text style={styles.featureLabel}>{label}</Text>
+      <Text style={[styles.featureLabel, { color: colors.text.primary }]}>{label}</Text>
       <View style={styles.featureFree}>
         {free === true ? (
           <Text style={[styles.featureCheck, { color: colors.accent.safe }]}>✓</Text>
         ) : free === false ? (
           <Text style={[styles.featureCheck, { color: colors.text.muted }]}>—</Text>
         ) : (
-          <Text style={styles.featureLimited}>{free}</Text>
+          <Text style={[styles.featureLimited, { color: colors.text.muted }]}>{free}</Text>
         )}
       </View>
       <View style={styles.featurePro}>
         {pro === true ? (
           <Text style={[styles.featureCheck, { color: colors.accent.ai }]}>✓</Text>
         ) : (
-          <Text style={styles.featureLimited}>{pro}</Text>
+          <Text style={[styles.featureLimited, { color: colors.text.muted }]}>{pro}</Text>
         )}
       </View>
     </View>
@@ -112,6 +115,7 @@ function PlanCard({
   selected: boolean;
   onSelect: () => void;
 }) {
+  const { colors } = useTheme();
   const scale = useSharedValue(1);
   const style = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
 
@@ -130,13 +134,13 @@ function PlanCard({
           borderColor={selected ? colors.accent.ai : undefined}
         >
           {plan.badge && (
-            <View style={styles.planBadge}>
-              <Text style={styles.planBadgeText}>{plan.badge}</Text>
+            <View style={[styles.planBadge, { backgroundColor: colors.accent.ai }]}>
+              <Text style={[styles.planBadgeText, { color: colors.background.deep }]}>{plan.badge}</Text>
             </View>
           )}
-          <Text style={styles.planLabel}>{plan.label}</Text>
-          <Text style={styles.planPrice}>{plan.price}</Text>
-          <Text style={styles.planPeriod}>{plan.period}</Text>
+          <Text style={[styles.planLabel, { color: colors.text.secondary }]}>{plan.label}</Text>
+          <Text style={[styles.planPrice, { color: colors.text.primary }]}>{plan.price}</Text>
+          <Text style={[styles.planPeriod, { color: colors.text.muted }]}>{plan.period}</Text>
         </GlassCard>
       </Animated.View>
     </TouchableOpacity>
@@ -147,6 +151,7 @@ function PlanCard({
 // Main screen
 // ─────────────────────────────────────────────────────────────
 export default function PaywallScreen() {
+  const { colors } = useTheme();
   const [selectedPlan, setSelectedPlan] = useState<string>("yearly");
   const [loading, setLoading] = useState(false);
   const [restoring, setRestoring] = useState(false);
@@ -245,7 +250,7 @@ export default function PaywallScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safe} edges={["bottom"]}>
+    <SafeAreaView style={[styles.safe, { backgroundColor: colors.background.mid }]} edges={["bottom"]}>
       <Stack.Screen
         options={{
           title: "Upgrade to Pro",
@@ -257,11 +262,16 @@ export default function PaywallScreen() {
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         {/* Hero */}
         <Animated.View entering={FadeInDown.duration(400)} style={styles.hero}>
-          <View style={styles.proOrb}>
-            <Text style={styles.proOrbText}>PRO</Text>
-          </View>
-          <Text style={styles.heroTitle}>Unlock everything</Text>
-          <Text style={styles.heroSubtitle}>
+          <LinearGradient
+            colors={["#622EC3", "#4D65DB", "#379AEE", "#53E9F6"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.proOrb}
+          >
+            <Text style={[styles.proOrbText, { color: "#fff" }]}>PRO</Text>
+          </LinearGradient>
+          <Text style={[styles.heroTitle, { color: colors.text.primary }]}>Unlock everything</Text>
+          <Text style={[styles.heroSubtitle, { color: colors.text.secondary }]}>
             Full forensic intelligence. Real-time AI. Zero limits.
           </Text>
         </Animated.View>
@@ -288,13 +298,13 @@ export default function PaywallScreen() {
         >
           {/* Header */}
           <View style={styles.featureHeader}>
-            <Text style={[styles.featureHeaderText, { flex: 1 }]}>Features</Text>
-            <Text style={[styles.featureHeaderText, styles.featureFree]}>Free</Text>
+            <Text style={[styles.featureHeaderText, { flex: 1, color: colors.text.muted }]}>Features</Text>
+            <Text style={[styles.featureHeaderText, styles.featureFree, { color: colors.text.muted }]}>Free</Text>
             <Text style={[styles.featureHeaderText, styles.featurePro, { color: colors.accent.ai }]}>
               Pro
             </Text>
           </View>
-          <View style={styles.divider} />
+          <View style={[styles.divider, { backgroundColor: colors.glass.border }]} />
           {FEATURES.map((f) => (
             <FeatureRow key={f.label} {...f} />
           ))}
@@ -315,7 +325,7 @@ export default function PaywallScreen() {
             {loading && <ActivityIndicator color={colors.background.deep} />}
           </HapticButton>
 
-          <Text style={styles.legal}>
+          <Text style={[styles.legal, { color: colors.text.muted }]}>
             Recurring billing. Cancel anytime. Prices in USD.{"\n"}
             Managed via Google Play / App Store.
           </Text>
@@ -324,12 +334,12 @@ export default function PaywallScreen() {
             {restoring ? (
               <ActivityIndicator color={colors.text.muted} size="small" />
             ) : (
-              <Text style={styles.restore}>Restore purchases</Text>
+              <Text style={[styles.restore, { color: colors.text.muted }]}>Restore purchases</Text>
             )}
           </TouchableOpacity>
 
           <TouchableOpacity onPress={() => router.back()}>
-            <Text style={styles.skip}>Continue with Free</Text>
+            <Text style={[styles.skip, { color: colors.text.secondary }]}>Continue with Free</Text>
           </TouchableOpacity>
         </Animated.View>
       </ScrollView>
@@ -341,7 +351,7 @@ export default function PaywallScreen() {
 // Styles
 // ─────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: colors.background.mid },
+  safe: { flex: 1 },
   content: { padding: 20, gap: 24, paddingBottom: 60 },
 
   hero: { alignItems: "center", gap: 10, paddingVertical: 16 },
@@ -349,9 +359,6 @@ const styles = StyleSheet.create({
     width: 80,
     height: 80,
     borderRadius: 40,
-    backgroundColor: `${colors.accent.ai}22`,
-    borderWidth: 2,
-    borderColor: colors.accent.ai,
     alignItems: "center",
     justifyContent: "center",
     shadowColor: colors.accent.ai,
@@ -360,15 +367,9 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 0 },
     elevation: 10,
   },
-  proOrbText: { color: colors.accent.ai, fontSize: 20, fontWeight: "900", letterSpacing: 2 },
-  heroTitle: { color: colors.text.primary, fontSize: 28, fontWeight: "800" },
-  heroSubtitle: {
-    color: colors.text.secondary,
-    fontSize: 14,
-    textAlign: "center",
-    lineHeight: 22,
-    paddingHorizontal: 16,
-  },
+  proOrbText: { fontSize: 20, fontWeight: "900", letterSpacing: 2 },
+  heroTitle: { fontSize: 28, fontWeight: "800" },
+  heroSubtitle: { fontSize: 14, textAlign: "center", lineHeight: 22, paddingHorizontal: 16 },
 
   plans: { flexDirection: "row", gap: 12 },
   planCard: { padding: 16, alignItems: "center", gap: 4, overflow: "visible" },
@@ -376,57 +377,41 @@ const styles = StyleSheet.create({
   planBadge: {
     position: "absolute",
     top: -10,
-    backgroundColor: colors.accent.ai,
     borderRadius: 10,
     paddingHorizontal: 10,
     paddingVertical: 3,
   },
-  planBadgeText: { color: colors.background.deep, fontSize: 10, fontWeight: "800" },
-  planLabel: { color: colors.text.secondary, fontSize: 12, fontWeight: "600", marginTop: 8 },
-  planPrice: { color: colors.text.primary, fontSize: 26, fontWeight: "800" },
-  planPeriod: { color: colors.text.muted, fontSize: 12 },
+  planBadgeText: { fontSize: 10, fontWeight: "800" },
+  planLabel: { fontSize: 12, fontWeight: "600", marginTop: 8 },
+  planPrice: { fontSize: 26, fontWeight: "800" },
+  planPeriod: { fontSize: 12 },
 
   featureTable: { gap: 0 },
-  featureHeader: {
-    flexDirection: "row",
-    paddingVertical: 8,
-    paddingHorizontal: 4,
-  },
+  featureHeader: { flexDirection: "row", paddingVertical: 8, paddingHorizontal: 4 },
   featureHeaderText: {
-    color: colors.text.muted,
     fontSize: 11,
     fontWeight: "700",
     letterSpacing: 1,
     textTransform: "uppercase",
   },
-  divider: {
-    height: 1,
-    backgroundColor: colors.glass.border,
-    marginBottom: 4,
-  },
+  divider: { height: 1, marginBottom: 4 },
   featureRow: {
     flexDirection: "row",
     alignItems: "center",
     paddingVertical: 10,
     borderBottomWidth: 1,
-    borderBottomColor: `${colors.glass.border}66`,
+    borderBottomColor: "rgba(255,255,255,0.06)",
   },
   featureIcon: { fontSize: 16, width: 28 },
-  featureLabel: { color: colors.text.primary, fontSize: 13, flex: 1 },
+  featureLabel: { fontSize: 13, flex: 1 },
   featureFree: { width: 48, alignItems: "center" },
   featurePro: { width: 48, alignItems: "center" },
   featureCheck: { fontSize: 16, fontWeight: "700" },
-  featureLimited: { color: colors.text.muted, fontSize: 11, textAlign: "center" },
+  featureLimited: { fontSize: 11, textAlign: "center" },
 
   ctaWrap: { gap: 12, alignItems: "center" },
   cta: { width: "100%" },
-  legal: {
-    color: colors.text.muted,
-    fontSize: 11,
-    textAlign: "center",
-    lineHeight: 16,
-    paddingHorizontal: 16,
-  },
-  restore: { color: colors.text.muted, fontSize: 13, textDecorationLine: "underline", paddingVertical: 4 },
-  skip: { color: colors.text.secondary, fontSize: 14, paddingVertical: 8 },
+  legal: { fontSize: 11, textAlign: "center", lineHeight: 16, paddingHorizontal: 16 },
+  restore: { fontSize: 13, textDecorationLine: "underline", paddingVertical: 4 },
+  skip: { fontSize: 14, paddingVertical: 8 },
 });

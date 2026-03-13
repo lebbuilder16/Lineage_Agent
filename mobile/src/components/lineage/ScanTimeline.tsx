@@ -11,10 +11,10 @@ interface Props {
 }
 
 function riskBucket(score: number): { label: string; bg: string; text: string } {
-  if (score >= 85) return { label: "EXTREME", bg: "#DC2626", text: "#fff" };
-  if (score >= 75) return { label: "HIGH",    bg: "#F97316", text: "#fff" };
-  if (score >= 50) return { label: "MED",     bg: "#EAB308", text: "#000" };
-  return                  { label: "LOW",     bg: "#16A34A", text: "#fff" };
+  if (score >= 85) return { label: "EXTREME", bg: colors.risk.critical,  text: "#fff" };
+  if (score >= 75) return { label: "HIGH",    bg: colors.accent.warning, text: "#fff" };
+  if (score >= 50) return { label: "MED",     bg: colors.accent.amber,   text: "#000" };
+  return                  { label: "LOW",     bg: colors.risk.low,       text: "#fff" };
 }
 
 function formatRelative(iso: string): string {

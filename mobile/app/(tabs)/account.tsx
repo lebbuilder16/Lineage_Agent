@@ -20,7 +20,8 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { GlassCard } from "@/src/components/ui/GlassCard";
 import { HapticButton } from "@/src/components/ui/HapticButton";
 import { WalletBadge } from "@/src/components/ui/WalletBadge";
-import { colors } from "@/src/theme/colors";
+import { useTheme } from "@/src/theme/ThemeContext";
+import { LinearGradient } from "expo-linear-gradient";
 import { useAuthStore } from "@/src/store/auth";
 import { usePrivy } from "@privy-io/expo";
 import {
@@ -43,6 +44,7 @@ function openSubscriptionManagement() {
 // ─── Components ───────────────────────────────────────────────────────────────
 
 function PlanBadge({ plan }: { plan: "free" | "pro" }) {
+  const { colors } = useTheme();
   const isPro = plan === "pro";
   const color = isPro ? colors.accent.ai : colors.text.muted;
   return (
@@ -63,11 +65,12 @@ function SettingRow({
   value: boolean;
   onToggle: (v: boolean) => void;
 }) {
+  const { colors } = useTheme();
   return (
     <View style={styles.settingRow}>
       <View style={styles.settingInfo}>
-        <Text style={styles.settingLabel}>{label}</Text>
-        {description && <Text style={styles.settingDesc}>{description}</Text>}
+        <Text style={[styles.settingLabel, { color: colors.text.primary }]}>{label}</Text>
+        {description && <Text style={[styles.settingDesc, { color: colors.text.muted }]}>{description}</Text>}
       </View>
       <Switch
         value={value}
@@ -80,10 +83,11 @@ function SettingRow({
 }
 
 function MenuRow({ label, onPress, danger = false }: { label: string; onPress: () => void; danger?: boolean }) {
+  const { colors } = useTheme();
   return (
     <TouchableOpacity style={styles.menuRow} onPress={onPress} activeOpacity={0.7}>
-      <Text style={[styles.menuLabel, danger && { color: colors.accent.danger }]}>{label}</Text>
-      <Text style={styles.menuArrow}>›</Text>
+      <Text style={[styles.menuLabel, { color: danger ? colors.accent.danger : colors.text.primary }]}>{label}</Text>
+      <Text style={[styles.menuArrow, { color: colors.text.muted }]}>›</Text>
     </TouchableOpacity>
   );
 }
@@ -91,6 +95,7 @@ function MenuRow({ label, onPress, danger = false }: { label: string; onPress: (
 // ─── Main screen ──────────────────────────────────────────────────────────────
 
 export default function AccountScreen() {
+  const { colors } = useTheme();
   const { user, isAuthenticated, isPro, logout } = useAuthStore();
   const { logout: privyLogout } = usePrivy();
   const queryClient = useQueryClient();
@@ -155,10 +160,10 @@ export default function AccountScreen() {
 
   if (!isAuthenticated) {
     return (
-      <SafeAreaView style={styles.container} edges={["top"]}>
+      <SafeAreaView style={[styles.container, { backgroundColor: colors.background.deep }]} edges={["top"]}>
         <View style={styles.guestGate}>
           <Text style={styles.guestIcon}>◉</Text>
-          <Text style={styles.guestTitle}>Not connected</Text>
+          <Text style={[styles.guestTitle, { color: colors.text.primary }]}>Not connected</Text>
           <HapticButton
             label="Connect Wallet"
             onPress={() => router.push("/auth")}
@@ -170,17 +175,25 @@ export default function AccountScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.container} edges={["top"]}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background.deep }]} edges={["top"]}>
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         {/* Profile card */}
         <GlassCard elevated style={styles.profileCard}>
-          <View style={styles.avatar}>
-            <Text style={styles.avatarText}>
-              {user?.wallet_address
-                ? user.wallet_address.slice(0, 2).toUpperCase()
-                : (user?.email?.[0]?.toUpperCase() ?? "?")}
-            </Text>
-          </View>
+          {/* Gradient border avatar */}
+          <LinearGradient
+            colors={["#622EC3", "#4D65DB", "#379AEE", "#53E9F6"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.avatarGradient}
+          >
+            <View style={[styles.avatar, { backgroundColor: colors.background.surface }]}>
+              <Text style={[styles.avatarText, { color: colors.accent.ai }]}>
+                {user?.wallet_address
+                  ? user.wallet_address.slice(0, 2).toUpperCase()
+                  : (user?.email?.[0]?.toUpperCase() ?? "?")}
+              </Text>
+            </View>
+          </LinearGradient>
           <View style={styles.profileInfo}>
             <WalletBadge
               address={user?.wallet_address}
@@ -195,30 +208,36 @@ export default function AccountScreen() {
         {/* Upgrade CTA (free users) */}
         {!isPro && (
           <TouchableOpacity
-            style={styles.upgradeCta}
             onPress={() => router.push("/paywall")}
             activeOpacity={0.8}
           >
-            <Text style={styles.upgradeText}>✦ Upgrade to Pro — unlock AI Chat, SOL Trace & more</Text>
+            <LinearGradient
+              colors={["#622EC3", "#4D65DB", "#379AEE", "#53E9F6"]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={styles.upgradeCta}
+            >
+              <Text style={styles.upgradeText}>✦ Upgrade to Pro — unlock AI Chat, SOL Trace &amp; more</Text>
+            </LinearGradient>
           </TouchableOpacity>
         )}
 
         {/* Subscription management (pro users) */}
         {isPro && (
           <>
-            <Text style={styles.sectionTitle}>Subscription</Text>
+            <Text style={[styles.sectionTitle, { color: colors.text.muted }]}>Subscription</Text>
             <GlassCard style={styles.settingsCard}>
               <View style={styles.proCard}>
                 <View>
-                  <Text style={styles.proTitle}>Pro Plan active ✦</Text>
-                  <Text style={styles.proSub}>Manage or cancel via the store</Text>
+                  <Text style={[styles.proTitle, { color: colors.text.primary }]}>Pro Plan active ✦</Text>
+                  <Text style={[styles.proSub, { color: colors.text.muted }]}>Manage or cancel via the store</Text>
                 </View>
                 <TouchableOpacity
-                  style={styles.manageBtn}
+                  style={[styles.manageBtn, { borderColor: `${colors.accent.ai}60` }]}
                   onPress={openSubscriptionManagement}
                   activeOpacity={0.8}
                 >
-                  <Text style={styles.manageBtnText}>Manage</Text>
+                  <Text style={[styles.manageBtnText, { color: colors.accent.ai }]}>Manage</Text>
                 </TouchableOpacity>
               </View>
             </GlassCard>
@@ -226,7 +245,7 @@ export default function AccountScreen() {
         )}
 
         {/* Notification settings */}
-        <Text style={styles.sectionTitle}>Push Notifications</Text>
+        <Text style={[styles.sectionTitle, { color: colors.text.muted }]}>Push Notifications</Text>
         <GlassCard style={styles.settingsCard}>
           <SettingRow
             label="Rug Confirmed"
@@ -262,7 +281,7 @@ export default function AccountScreen() {
         </GlassCard>
 
         {/* More */}
-        <Text style={styles.sectionTitle}>More</Text>
+        <Text style={[styles.sectionTitle, { color: colors.text.muted }]}>More</Text>
         <GlassCard style={styles.settingsCard}>
           <MenuRow
             label="Privacy Policy"
@@ -283,7 +302,7 @@ export default function AccountScreen() {
           />
           <View style={styles.separator} />
           <MenuRow
-            label={`Version ${Constants.expoConfig?.version ?? Constants.manifest?.version ?? "1.0.0"}`}
+            label={`Version ${Constants.expoConfig?.version ?? "1.0.0"}`}
             onPress={() => {}}
           />
         </GlassCard>
@@ -305,7 +324,7 @@ export default function AccountScreen() {
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background.deep },
+  container: { flex: 1 },
   scroll: { padding: 20, paddingBottom: 100 },
   profileCard: {
     flexDirection: "row",
@@ -314,80 +333,46 @@ const styles = StyleSheet.create({
     gap: 14,
     marginBottom: 12,
   },
+  avatarGradient: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    padding: 2,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   avatar: {
     width: 52,
     height: 52,
     borderRadius: 26,
-    backgroundColor: `${colors.accent.ai}30`,
-    borderWidth: 2,
-    borderColor: `${colors.accent.ai}60`,
     alignItems: "center",
     justifyContent: "center",
   },
-  avatarText: { color: colors.accent.ai, fontSize: 18, fontWeight: "700" },
+  avatarText: { fontSize: 18, fontWeight: "700" },
   profileInfo: { flex: 1, gap: 4 },
   walletBadge: {},
-  email: { color: colors.text.muted, fontSize: 12 },
-  planBadge: {
-    borderRadius: 8,
-    borderWidth: 1,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-  },
+  email: { fontSize: 12 },
+  planBadge: { borderRadius: 8, borderWidth: 1, paddingHorizontal: 10, paddingVertical: 4 },
   planText: { fontSize: 11, fontWeight: "700", letterSpacing: 1 },
-  upgradeCta: {
-    backgroundColor: `${colors.accent.ai}20`,
-    borderWidth: 1,
-    borderColor: `${colors.accent.ai}40`,
-    borderRadius: 12,
-    padding: 14,
-    marginBottom: 20,
-  },
-  upgradeText: { color: colors.accent.ai, fontSize: 13, fontWeight: "600", textAlign: "center" },
-  proCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    padding: 14,
-  },
-  proTitle: { color: colors.text.primary, fontSize: 15, fontWeight: "700" },
-  proSub: { color: colors.text.muted, fontSize: 12, marginTop: 3 },
-  manageBtn: {
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: `${colors.accent.ai}60`,
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-  },
-  manageBtnText: { color: colors.accent.ai, fontSize: 13, fontWeight: "600" },
-  sectionTitle: {
-    color: colors.text.muted,
-    fontSize: 11,
-    fontWeight: "700",
-    letterSpacing: 1.5,
-    textTransform: "uppercase",
-    marginBottom: 10,
-    marginTop: 20,
-  },
+  upgradeCta: { borderRadius: 14, padding: 14, marginBottom: 20, alignItems: "center" },
+  upgradeText: { color: "#FFFFFF", fontSize: 13, fontWeight: "700", textAlign: "center" },
+  proCard: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: 14 },
+  proTitle: { fontSize: 15, fontWeight: "700" },
+  proSub: { fontSize: 12, marginTop: 3 },
+  manageBtn: { borderRadius: 8, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 7 },
+  manageBtnText: { fontSize: 13, fontWeight: "600" },
+  sectionTitle: { fontSize: 11, fontWeight: "700", letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 10, marginTop: 20 },
   settingsCard: { overflow: "hidden" },
-  settingRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    padding: 14,
-  },
+  settingRow: { flexDirection: "row", alignItems: "center", padding: 14 },
   settingInfo: { flex: 1 },
-  settingLabel: { color: colors.text.primary, fontSize: 14, fontWeight: "500" },
-  settingDesc: { color: colors.text.muted, fontSize: 11, marginTop: 2 },
-  menuRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    padding: 14,
-  },
-  menuLabel: { flex: 1, color: colors.text.primary, fontSize: 14 },
-  menuArrow: { color: colors.text.muted, fontSize: 18 },
-  separator: { height: 1, backgroundColor: colors.glass.border, marginHorizontal: 14 },
+  settingLabel: { fontSize: 14, fontWeight: "500" },
+  settingDesc: { fontSize: 11, marginTop: 2 },
+  menuRow: { flexDirection: "row", alignItems: "center", padding: 14 },
+  menuLabel: { flex: 1, fontSize: 14 },
+  menuArrow: { fontSize: 18 },
+  separator: { height: 1, marginHorizontal: 14 },
   logoutWrap: { marginTop: 32 },
   guestGate: { flex: 1, alignItems: "center", justifyContent: "center", padding: 32 },
   guestIcon: { fontSize: 48, marginBottom: 16 },
-  guestTitle: { color: colors.text.primary, fontSize: 20, fontWeight: "700" },
+  guestTitle: { fontSize: 20, fontWeight: "700" },
 });

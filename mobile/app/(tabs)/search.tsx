@@ -21,7 +21,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { TokenCardSkeleton } from "@/src/components/ui/SkeletonLoader";
 import { TokenImage } from "@/src/components/ui/TokenImage";
 import { getGlobalStats, searchTokensPaginated } from "@/src/lib/api";
-import { colors } from "@/src/theme/colors";
+import { useTheme } from "@/src/theme/ThemeContext";
 import type { TokenSearchResult } from "@/src/types/api";
 
 const RECENT_KEY = "recent_searches";
@@ -71,25 +71,26 @@ const TokenCard = React.memo(function TokenCard({
   item: TokenSearchResult;
   index: number;
 }) {
+  const { colors } = useTheme();
   return (
     <Animated.View entering={FadeInDown.delay(Math.min(index, 12) * 40).springify()}>
       <TouchableOpacity
         activeOpacity={0.7}
         onPress={() => router.push(`/lineage/${item.mint}`)}
-        style={styles.tokenCard}
+        style={[styles.tokenCard, { borderBottomColor: colors.glass.border }]}
         accessibilityRole="button"
         accessibilityLabel={`View ${item.name || item.symbol} token lineage`}
       >
         <TokenImage uri={item.image_uri} size={48} symbol={item.symbol} />
         <View style={styles.tokenInfo}>
-          <Text numberOfLines={1} style={styles.tokenName}>
+          <Text numberOfLines={1} style={[styles.tokenName, { color: colors.text.primary }]}>
             {item.name || "Unknown Token"}
           </Text>
-          <Text style={styles.tokenSymbol}>${item.symbol}</Text>
+          <Text style={[styles.tokenSymbol, { color: colors.text.muted }]}>${item.symbol}</Text>
         </View>
         <View style={styles.tokenRight}>
-          <Text style={styles.tokenMcap}>{formatMcap(item.market_cap_usd)}</Text>
-          <Text numberOfLines={1} style={styles.tokenMono}>
+          <Text style={[styles.tokenMcap, { color: colors.text.primary }]}>{formatMcap(item.market_cap_usd)}</Text>
+          <Text numberOfLines={1} style={[styles.tokenMono, { color: colors.text.muted }]}>
             {item.mint.slice(0, 6)}…{item.mint.slice(-4)}
           </Text>
         </View>
@@ -179,15 +180,17 @@ export default function SearchScreen() {
   const showError = isError && debouncedQuery.length >= 2;
   const trendingNarratives = statsData?.top_narratives?.slice(0, 8) ?? [];
 
+  const { colors } = useTheme();
+
   return (
-    <SafeAreaView edges={["top"]} style={styles.container}>
+    <SafeAreaView edges={["top"]} style={[styles.container, { backgroundColor: colors.background.deep }]}>
       <View style={styles.header}>
-        <Text style={styles.title}>Search</Text>
-        <Text style={styles.subtitle}>Tokens, symbols, mint addresses</Text>
+        <Text style={[styles.title, { color: colors.text.primary }]}>Search</Text>
+        <Text style={[styles.subtitle, { color: colors.text.muted }]}>Tokens, symbols, mint addresses</Text>
       </View>
 
-      <View style={styles.searchWrap}>
-        <Text style={styles.searchIcon}>⌕</Text>
+      <View style={[styles.searchWrap, { backgroundColor: colors.glass.bg, borderColor: `${colors.accent.ai}44` }]}>
+        <Text style={[styles.searchIcon, { color: colors.text.muted }]}>⊕</Text>
         <TextInput
           autoCapitalize="none"
           autoCorrect={false}
@@ -197,7 +200,7 @@ export default function SearchScreen() {
           placeholderTextColor={colors.text.muted}
           returnKeyType="search"
           selectionColor={colors.accent.cyan}
-          style={styles.input}
+          style={[styles.input, { color: colors.text.primary }]}
           value={query}
         />
         {isFetching ? <View style={styles.loadingDot} /> : null}
@@ -221,9 +224,9 @@ export default function SearchScreen() {
           {recentSearches.length > 0 ? (
             <Animated.View entering={FadeIn}>
               <View style={styles.sectionHeader}>
-                <Text style={styles.sectionTitle}>Recent</Text>
+                <Text style={[styles.sectionTitle, { color: colors.text.secondary }]}>Recent</Text>
                 <TouchableOpacity onPress={handleClearRecent}>
-                  <Text style={styles.clearBtn}>Clear</Text>
+                  <Text style={[styles.clearBtn, { color: colors.accent.blue }]}>Clear</Text>
                 </TouchableOpacity>
               </View>
               <View style={styles.chipRow}>
@@ -232,10 +235,10 @@ export default function SearchScreen() {
                     activeOpacity={0.7}
                     key={term}
                     onPress={() => handleSelectSuggestion(term)}
-                    style={styles.chip}
+                    style={[styles.chip, { backgroundColor: colors.glass.bg, borderColor: colors.glass.border }]}
                   >
                     <Text style={styles.chipIcon}>🕐 </Text>
-                    <Text style={styles.chipText}>{term}</Text>
+                    <Text style={[styles.chipText, { color: colors.text.primary }]}>{term}</Text>
                   </TouchableOpacity>
                 ))}
               </View>
@@ -245,7 +248,7 @@ export default function SearchScreen() {
           {trendingNarratives.length > 0 ? (
             <Animated.View entering={FadeIn.delay(100)}>
               <View style={styles.sectionHeader}>
-                <Text style={styles.sectionTitle}>Trending Narratives</Text>
+                <Text style={[styles.sectionTitle, { color: colors.text.secondary }]}>Trending Narratives</Text>
               </View>
               <View style={styles.chipRow}>
                 {trendingNarratives.map(({ count, narrative }) => (
@@ -253,10 +256,10 @@ export default function SearchScreen() {
                     activeOpacity={0.7}
                     key={narrative}
                     onPress={() => handleSelectSuggestion(narrative)}
-                    style={[styles.chip, styles.chipTrending]}
+                    style={[styles.chip, { backgroundColor: colors.glass.bg, borderColor: `${colors.accent.blue}44` }]}
                   >
-                    <Text style={styles.chipText}>{narrative}</Text>
-                    <Text style={styles.chipCount}> {count}</Text>
+                    <Text style={[styles.chipText, { color: colors.text.primary }]}>{narrative}</Text>
+                    <Text style={[styles.chipCount, { color: colors.text.muted }]}> {count}</Text>
                   </TouchableOpacity>
                 ))}
               </View>
@@ -305,95 +308,46 @@ export default function SearchScreen() {
 }
 
 const styles = StyleSheet.create({
-  chip: {
-    alignItems: "center",
-    backgroundColor: colors.glass.bg,
-    borderColor: colors.glass.border,
-    borderRadius: 20,
-    borderWidth: 1,
-    flexDirection: "row",
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-  },
-  chipCount: { color: colors.text.muted, fontSize: 11 },
+  chip: { alignItems: "center", borderRadius: 20, borderWidth: 1, flexDirection: "row", paddingHorizontal: 12, paddingVertical: 6 },
+  chipCount: { fontSize: 11 },
   chipIcon: { fontSize: 12 },
   chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  chipText: { color: colors.text.primary, fontSize: 13 },
-  chipTrending: { borderColor: `${colors.accent.blue}44` },
-  clearBtn: { color: colors.accent.blue, fontSize: 13 },
-  container: { backgroundColor: colors.background.deep, flex: 1 },
+  chipText: { fontSize: 13 },
+  clearBtn: { fontSize: 13 },
+  container: { flex: 1 },
   empty: { alignItems: "center", paddingTop: 60 },
-  emptyIcon: { color: colors.text.muted, fontSize: 40, marginBottom: 12 },
-  emptyText: { color: colors.text.muted, fontSize: 14 },
-  retryBtn: {
-    marginTop: 16,
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    backgroundColor: colors.glass.bg,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: colors.glass.border,
-  },
-  retryBtnText: { color: colors.accent.cyan, fontSize: 14, fontWeight: "600" },
+  emptyIcon: { fontSize: 40, marginBottom: 12 },
+  emptyText: { fontSize: 14 },
+  retryBtn: { marginTop: 16, paddingHorizontal: 20, paddingVertical: 10, borderRadius: 8, borderWidth: 1 },
+  retryBtnText: { fontSize: 14, fontWeight: "600" },
   header: { paddingBottom: 4, paddingHorizontal: 20, paddingTop: 8 },
   hint: { alignItems: "center", paddingTop: 60 },
-  hintText: { color: colors.text.muted, fontSize: 13 },
-  input: {
-    color: colors.text.primary,
-    flex: 1,
-    fontSize: 15,
-    height: "100%",
-  },
+  hintText: { fontSize: 13 },
+  input: { flex: 1, fontSize: 15, height: "100%" },
   list: { paddingBottom: 100, paddingHorizontal: 16 },
-  loadingDot: {
-    backgroundColor: colors.accent.cyan,
-    borderRadius: 4,
-    height: 8,
-    width: 8,
-  },
-  searchIcon: { color: colors.text.muted, fontSize: 18, marginRight: 8 },
+  loadingDot: { borderRadius: 4, height: 8, width: 8 },
+  searchIcon: { fontSize: 18, marginRight: 8 },
   searchWrap: {
     alignItems: "center",
-    backgroundColor: colors.glass.bg,
-    borderColor: "rgba(98, 46, 195, 0.35)",
-    borderRadius: 12,
+    borderRadius: 16,
     borderWidth: 1,
     flexDirection: "row",
-    height: 48,
+    height: 50,
     marginHorizontal: 16,
     marginVertical: 12,
     paddingHorizontal: 14,
   },
-  sectionHeader: {
-    alignItems: "center",
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: 10,
-    marginTop: 20,
-  },
-  sectionTitle: {
-    color: colors.text.secondary,
-    fontSize: 13,
-    fontWeight: "600",
-    letterSpacing: 0.8,
-    textTransform: "uppercase",
-  },
-  subtitle: { color: colors.text.muted, fontSize: 13, marginTop: 2 },
+  sectionHeader: { alignItems: "center", flexDirection: "row", justifyContent: "space-between", marginBottom: 10, marginTop: 20 },
+  sectionTitle: { fontSize: 11, fontWeight: "700", letterSpacing: 1.2, textTransform: "uppercase" },
+  subtitle: { fontSize: 13, marginTop: 2 },
   suggestionsPad: { paddingBottom: 100, paddingHorizontal: 16 },
   suggestionsScroll: { flex: 1 },
-  title: { color: colors.text.primary, fontSize: 28, fontWeight: "700", letterSpacing: -0.5 },
-  tokenCard: {
-    alignItems: "center",
-    borderBottomColor: colors.glass.border,
-    borderBottomWidth: 1,
-    flexDirection: "row",
-    gap: 12,
-    paddingVertical: 14,
-  },
+  title: { fontSize: 28, fontWeight: "800", letterSpacing: -0.5 },
+  tokenCard: { alignItems: "center", borderBottomWidth: 1, flexDirection: "row", gap: 12, paddingVertical: 14 },
   tokenInfo: { flex: 1 },
-  tokenMcap: { color: colors.text.primary, fontSize: 14, fontWeight: "600" },
-  tokenMono: { color: colors.text.muted, fontFamily: "monospace", fontSize: 10, marginTop: 3 },
-  tokenName: { color: colors.text.primary, fontSize: 15, fontWeight: "600" },
+  tokenMcap: { fontSize: 14, fontWeight: "600" },
+  tokenMono: { fontFamily: "monospace", fontSize: 10, marginTop: 3 },
+  tokenName: { fontSize: 15, fontWeight: "600" },
   tokenRight: { alignItems: "flex-end" },
-  tokenSymbol: { color: colors.text.muted, fontSize: 12, marginTop: 3 },
+  tokenSymbol: { fontSize: 12, marginTop: 3 },
 });

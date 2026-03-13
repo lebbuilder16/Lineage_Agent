@@ -27,6 +27,7 @@ import {
 } from "@expo-google-fonts/plus-jakarta-sans";
 import FlashMessage from "react-native-flash-message";
 import { colors } from "@/src/theme/colors";
+import { ThemeProvider } from "@/src/theme/ThemeContext";
 import { useAuthStore } from "@/src/store/auth";
 import { useAlertsStore } from "@/src/store/alerts";
 import { initRevenueCat, loginToRevenueCat } from "@/src/lib/purchases";
@@ -174,6 +175,7 @@ function RootLayout() {
   if (!fontsLoaded) return null;
 
   return (
+    <ThemeProvider>
     <ErrorBoundary>
       <PrivyProvider appId={PRIVY_APP_ID}>
         <GestureHandlerRootView style={{ flex: 1, backgroundColor: colors.background.deep }}>
@@ -220,6 +222,7 @@ function RootLayout() {
         </GestureHandlerRootView>
       </PrivyProvider>
     </ErrorBoundary>
+    </ThemeProvider>
   );
 }
 
