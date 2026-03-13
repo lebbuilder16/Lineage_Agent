@@ -1,39 +1,53 @@
 // src/theme/colors.ts
-// Tokens de couleur centraux — Noelle Design System (Dark + Light)
+// Aurora Glass Design System — dark-only
 
-// ─── Accent / Risk / Verdict tokens (same in both modes) ─────────────────────
-const accent = {
-  safe: "#5BC763",
-  gain: "#6EC62F",
-  danger: "#DD5656",
-  dangerDark: "#D65151",
-  warning: "#F2AD4B",
-  amber: "#DDA76E",
-  ai: "#622EC3",
-  aiLight: "#B370F0",
-  cyan: "#53E9F6",
-  mint: "#72E4C5",
-  pink: "#ED569D",
-  blue: "#4D65DB",
+// ─── Aurora palette ────────────────────────────────────────────────────────────
+export const aurora = {
+  // Brand
+  primary:   "#091A7A",   // deep navy
+  secondary: "#ADC8FF",  // sky blue — interactive / active
+  accent:    "#FF3366",  // neon pink — CTA / highlights
+  // Status
+  success:   "#00FF88",  // neon green
+  warning:   "#FF9933",  // orange
+  error:     "#FF0033",  // red
+  // Background
+  bgMain:    "#020617",  // near-black
+  bgApp:     "#040816",  // app shell
+  bgCard:    "rgba(255, 255, 255, 0.03)",
+  bgGlass:   "rgba(255, 255, 255, 0.05)",
+  // Text
+  white:     "#FFFFFF",
+  white60:   "rgba(255,255,255,0.60)",
+  white40:   "rgba(255,255,255,0.40)",
+  white20:   "rgba(255,255,255,0.20)",
+  // Borders
+  border:    "rgba(255, 255, 255, 0.10)",
+  borderBright: "rgba(255, 255, 255, 0.20)",
+  // Shadows / glows
+  glowBlue:  "rgba(173, 200, 255, 0.20)",
+  glowPink:  "rgba(255, 51, 102, 0.40)",
+  glowGreen: "rgba(0, 255, 136, 0.40)",
 } as const;
 
+// ─── Risk / Verdict tokens (unchanged — used across business logic) ───────────
 const risk = {
-  low: "#5BC763",
-  medium: "#F2AD4B",
-  high: "#E3A33D",
-  critical: "#DD5656",
+  low:               "#00FF88",
+  medium:            "#FF9933",
+  high:              "#FF9933",
+  critical:          "#FF0033",
   insufficient_data: "#666666",
-  first_rug: "#DD5656",
+  first_rug:         "#FF0033",
 } as const;
 
 const verdict = {
-  clean: "#5BC763",
-  suspicious: "#F2AD4B",
-  insider_dump: "#DD5656",
-  confirmed_team_extraction: "#DD5656",
-  suspected_team_extraction: "#E3A33D",
-  coordinated_dump_unknown_team: "#F1AD4B",
-  early_buyers_no_link_proven: "#5BC763",
+  clean:                          "#00FF88",
+  suspicious:                     "#FF9933",
+  insider_dump:                   "#FF0033",
+  confirmed_team_extraction:      "#FF0033",
+  suspected_team_extraction:      "#FF9933",
+  coordinated_dump_unknown_team:  "#FF9933",
+  early_buyers_no_link_proven:    "#00FF88",
 } as const;
 
 const ui = {
@@ -42,57 +56,51 @@ const ui = {
   grey3: "#EEEEEE",
 } as const;
 
-// ─── Dark palette ─────────────────────────────────────────────────────────────
+// ─── Backward-compat accent object ────────────────────────────────────────────
+const accent = {
+  safe:      aurora.success,
+  gain:      aurora.success,
+  danger:    aurora.error,
+  dangerDark:aurora.error,
+  warning:   aurora.warning,
+  amber:     aurora.warning,
+  ai:        aurora.primary,
+  aiLight:   aurora.secondary,
+  cyan:      aurora.secondary,
+  mint:      aurora.success,
+  pink:      aurora.accent,
+  blue:      aurora.secondary,
+} as const;
+
+// ─── Dark palette (Aurora Glass) ──────────────────────────────────────────────
 export const darkColors = {
   background: {
-    deep: "#000000",
-    mid: "#181818",
-    surface: "#282828",
+    deep:    aurora.bgMain,
+    mid:     aurora.bgApp,
+    surface: aurora.bgCard,
   },
   glass: {
-    bg: "rgba(59, 45, 143, 0.25)",
-    bgElevated: "rgba(59, 45, 143, 0.40)",
-    border: "rgba(255, 255, 255, 0.10)",
-    borderBright: "rgba(255, 255, 255, 0.25)",
+    bg:          aurora.bgGlass,
+    bgElevated:  "rgba(255, 255, 255, 0.08)",
+    border:      aurora.border,
+    borderBright:aurora.borderBright,
   },
   text: {
-    primary: "#FFFFFF",
-    secondary: "#AAAAAA",
-    muted: "#666666",
-    dim: "#878787",
-    label: "#A1A1A1",
+    primary:   aurora.white,
+    secondary: aurora.white60,
+    muted:     aurora.white40,
+    dim:       aurora.white20,
+    label:     aurora.white60,
   },
+  aurora,
   accent,
   risk,
   verdict,
   ui,
 } as const;
 
-// ─── Light palette (derived from Noelle Dark) ─────────────────────────────────
-export const lightColors = {
-  background: {
-    deep: "#FFFFFF",
-    mid: "#F5F4FF",
-    surface: "#EBEBFF",
-  },
-  glass: {
-    bg: "rgba(98, 46, 195, 0.06)",
-    bgElevated: "rgba(98, 46, 195, 0.11)",
-    border: "rgba(98, 46, 195, 0.15)",
-    borderBright: "rgba(98, 46, 195, 0.30)",
-  },
-  text: {
-    primary: "#0B0B1E",
-    secondary: "#4A4A6A",
-    muted: "#7A7A9A",
-    dim: "#ADADC9",
-    label: "#6A6A8A",
-  },
-  accent,
-  risk,
-  verdict,
-  ui,
-} as const;
+// Light palette kept minimal — app is dark-only
+export const lightColors = darkColors;
 
 // ─── Default export (dark — maintained for backward compat) ───────────────────
 // NOTE: Components should use useTheme() instead for adaptive colors.

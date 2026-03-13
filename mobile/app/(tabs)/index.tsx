@@ -41,12 +41,20 @@ import { EmptyRadar } from "@/src/components/ui/EmptyRadar";
 import { useAlertsStore } from "@/src/store/alerts";
 import { useWsState } from "@/src/hooks/useWsState";
 import { useNewAlerts } from "@/src/hooks/useNewAlerts";
-import { darkColors as colors, riskLevelFromScore } from "@/src/theme/colors";
+import { darkColors as colors, aurora } from "@/src/theme/colors";
+import { Fonts } from "@/src/theme/fonts";
 import { useTheme } from "@/src/theme/ThemeContext";
 import { toast } from "@/src/lib/toast";
 import type { AlertItem } from "@/src/types/api";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function riskLevelFromScore(score: number): string {
+  if (score >= 0.9) return "critical";
+  if (score >= 0.75) return "high";
+  if (score >= 0.5) return "medium";
+  return "low";
+}
 
 function formatRelative(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime();
@@ -92,11 +100,11 @@ const RISK_FALLBACK: Record<AlertItem["type"], number> = {
 // ─── Alert Row ────────────────────────────────────────────────────────────────
 
 const ALERT_COLORS: Record<AlertItem["type"], string> = {
-  rug: colors.accent.danger,
-  bundle: colors.accent.warning,
-  insider: colors.accent.warning,
-  zombie: colors.accent.aiLight,
-  death_clock: colors.accent.danger,
+  rug: aurora.accent,
+  bundle: aurora.warning,
+  insider: aurora.warning,
+  zombie: aurora.secondary,
+  death_clock: aurora.accent,
 };
 
 const ALERT_LABELS: Record<AlertItem["type"], string> = {
@@ -410,48 +418,48 @@ const s = StyleSheet.create({
   // Header
   header: { flexDirection: "row", alignItems: "center", paddingHorizontal: 20, paddingVertical: 14, gap: 12 },
   headerLeft: { gap: 2 },
-  headerTitle: { fontFamily: "PlusJakartaSans_800ExtraBold", fontSize: 22, letterSpacing: -0.5 },
+  headerTitle: { fontFamily: Fonts.bold, fontSize: 22, letterSpacing: -0.5 },
   liveRow: { flexDirection: "row", alignItems: "center", gap: 5 },
   liveDot: { width: 6, height: 6, borderRadius: 3 },
-  liveText: { fontFamily: "PlusJakartaSans_700Bold", fontSize: 9, letterSpacing: 1.2 },
+  liveText: { fontFamily: Fonts.semiBold, fontSize: 9, letterSpacing: 1.2 },
   headerRight: { flexDirection: "row", alignItems: "center", gap: 10, flex: 1 },
   headerSearch: { flex: 1, borderWidth: 1, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 10 },
-  headerSearchText: { fontFamily: "PlusJakartaSans_400Regular", fontSize: 14 },
+  headerSearchText: { fontFamily: Fonts.regular, fontSize: 14 },
   bellBtn: { padding: 6, position: "relative" },
   bellIcon: { fontSize: 20 },
   bellBadge: { position: "absolute", top: 0, right: 0, borderRadius: 8, minWidth: 16, height: 16, alignItems: "center", justifyContent: "center", paddingHorizontal: 2 },
-  bellBadgeText: { color: "#fff", fontSize: 9, fontFamily: "PlusJakartaSans_800ExtraBold" },
+  bellBadgeText: { color: "#fff", fontSize: 9, fontFamily: Fonts.bold },
 
   // Feed layout
   scroll: { paddingHorizontal: 16, paddingBottom: 100 },
-  sectionLabel: { fontFamily: "PlusJakartaSans_800ExtraBold", fontSize: 10, letterSpacing: 1.8, marginTop: 22, marginBottom: 10 },
+  sectionLabel: { fontFamily: Fonts.bold, fontSize: 10, letterSpacing: 1.8, marginTop: 22, marginBottom: 10 },
   sectionRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 22, marginBottom: 10 },
-  seeAllText: { fontFamily: "PlusJakartaSans_700Bold", fontSize: 12 },
+  seeAllText: { fontFamily: Fonts.semiBold, fontSize: 12 },
 
   // Stats card
   statsCard: { flexDirection: "row", alignItems: "center", paddingVertical: 18, paddingHorizontal: 20 },
   statItem: { flex: 1, alignItems: "center", gap: 4 },
   statValueRow: { flexDirection: "row", alignItems: "center", gap: 5 },
-  statLabel: { fontFamily: "PlusJakartaSans_500Medium", fontSize: 10 },
+  statLabel: { fontFamily: Fonts.medium, fontSize: 10 },
   statsDivider: { width: 1, height: 38, alignSelf: "center" },
-  rugRateBadge: { fontFamily: "PlusJakartaSans_700Bold", fontSize: 10, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 8 },
-  errorRetry: { fontFamily: "PlusJakartaSans_500Medium", fontSize: 12, textAlign: "center", paddingVertical: 10 },
+  rugRateBadge: { fontFamily: Fonts.semiBold, fontSize: 10, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 8 },
+  errorRetry: { fontFamily: Fonts.medium, fontSize: 12, textAlign: "center", paddingVertical: 10 },
 
   // AI Brief
   aiBrief: { paddingTop: 14, paddingHorizontal: 18, paddingBottom: 16, overflow: "hidden" },
   aiBriefGradientBar: { height: 2, marginHorizontal: -18, marginBottom: 12 },
   aiBriefHeader: { flexDirection: "row", alignItems: "center", marginBottom: 10, gap: 8 },
-  aiOrb: { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.accent.ai },
-  aiBriefTitle: { fontFamily: "PlusJakartaSans_700Bold", fontSize: 13, flex: 1 },
-  aiBriefTime: { fontFamily: "PlusJakartaSans_400Regular", fontSize: 11 },
+  aiOrb: { width: 10, height: 10, borderRadius: 5, backgroundColor: aurora.secondary },
+  aiBriefTitle: { fontFamily: Fonts.semiBold, fontSize: 13, flex: 1 },
+  aiBriefTime: { fontFamily: Fonts.regular, fontSize: 11 },
   briefWordsRow: { flexDirection: "row", flexWrap: "wrap", marginBottom: 12 },
-  aiBriefWord: { fontFamily: "PlusJakartaSans_400Regular", fontSize: 14, lineHeight: 22 },
+  aiBriefWord: { fontFamily: Fonts.regular, fontSize: 14, lineHeight: 22 },
   briefError: { flexDirection: "row", gap: 10, alignItems: "center", marginBottom: 10 },
-  briefErrorText: { fontFamily: "PlusJakartaSans_400Regular", fontSize: 13 },
-  briefRetryText: { fontFamily: "PlusJakartaSans_700Bold", fontSize: 13 },
-  briefEmptyText: { fontFamily: "PlusJakartaSans_400Regular", fontSize: 13, fontStyle: "italic", marginBottom: 12 },
+  briefErrorText: { fontFamily: Fonts.regular, fontSize: 13 },
+  briefRetryText: { fontFamily: Fonts.semiBold, fontSize: 13 },
+  briefEmptyText: { fontFamily: Fonts.regular, fontSize: 13, fontStyle: "italic", marginBottom: 12 },
   aiBriefCta: { alignSelf: "flex-start", marginTop: 4 },
-  aiBriefCtaText: { fontFamily: "PlusJakartaSans_700Bold", fontSize: 14 },
+  aiBriefCtaText: { fontFamily: Fonts.semiBold, fontSize: 14 },
 
   // Alert list
   alertList: { overflow: "hidden" },
@@ -461,10 +469,10 @@ const s = StyleSheet.create({
   alertContent: { flex: 1, gap: 5 },
   alertTopRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   alertTypeChip: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 3 },
-  alertTypeText: { fontFamily: "PlusJakartaSans_800ExtraBold", fontSize: 9, letterSpacing: 0.8 },
-  alertTime: { fontFamily: "PlusJakartaSans_400Regular", fontSize: 10 },
-  alertName: { fontFamily: "PlusJakartaSans_700Bold", fontSize: 13 },
-  alertMsg: { fontFamily: "PlusJakartaSans_400Regular", fontSize: 11, lineHeight: 16 },
+  alertTypeText: { fontFamily: Fonts.bold, fontSize: 9, letterSpacing: 0.8 },
+  alertTime: { fontFamily: Fonts.regular, fontSize: 10 },
+  alertName: { fontFamily: Fonts.semiBold, fontSize: 13 },
+  alertMsg: { fontFamily: Fonts.regular, fontSize: 11, lineHeight: 16 },
   unreadDot: { width: 7, height: 7, borderRadius: 4, marginTop: 6 },
 });
 

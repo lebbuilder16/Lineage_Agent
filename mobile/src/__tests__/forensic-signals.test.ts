@@ -206,10 +206,10 @@ describe("CartelCommunity type — fields used by CartelCard", () => {
 
 describe("Fonts theme helper", () => {
   it("exports all four weight constants", () => {
-    expect(Fonts.regular).toBe("Inter_400Regular");
-    expect(Fonts.medium).toBe("Inter_500Medium");
-    expect(Fonts.semiBold).toBe("Inter_600SemiBold");
-    expect(Fonts.bold).toBe("Inter_700Bold");
+    expect(Fonts.regular).toBe("Lexend_400Regular");
+    expect(Fonts.medium).toBe("Lexend_500Medium");
+    expect(Fonts.semiBold).toBe("Lexend_600SemiBold");
+    expect(Fonts.bold).toBe("Lexend_700Bold");
   });
 
   it("all font values are non-empty strings", () => {

@@ -33,7 +33,8 @@ import { useAuthStore } from "@/src/store/auth";
 import { GlassCard } from "@/src/components/ui/GlassCard";
 import { HapticButton } from "@/src/components/ui/HapticButton";
 import { useTheme } from "@/src/theme/ThemeContext";
-import { colors } from "@/src/theme/colors";
+import { aurora } from "@/src/theme/colors";
+import { Fonts } from "@/src/theme/fonts";
 import { LinearGradient } from "expo-linear-gradient";
 import {
   buildPhantomConnectURL,
@@ -41,7 +42,6 @@ import {
 } from "@/src/lib/solanaWallet";
 
 function AnimatedOrb() {
-  const { colors } = useTheme();
   const scale = useSharedValue(1);
   const opacity = useSharedValue(0.7);
 
@@ -66,18 +66,18 @@ function AnimatedOrb() {
   return (
     <Animated.View style={[styles.orbContainer, orbStyle]}>
       <LinearGradient
-        colors={["#622EC3", "#4D65DB", "#379AEE", "#53E9F6"]}
+        colors={[aurora.primary, "#1A3AC7", "#2D5FE8", aurora.secondary]}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         style={styles.orb}
       />
-      <View style={[styles.orbGlow, { borderColor: `${colors.accent.ai}80` }]} />
+      <View style={[styles.orbGlow, { borderColor: `${aurora.secondary}80` }]} />
     </Animated.View>
   );
 }
 
 export default function AuthScreen() {
-  const { colors } = useTheme();
+  const { colors: _ } = useTheme();
   const setUser = useAuthStore((s) => s.setUser);
   const [loading, setLoading] = useState(false);
   const [hasBiometric, setHasBiometric] = useState(false);
@@ -305,23 +305,25 @@ export default function AuthScreen() {
   }, [otpCode, otpSent]);
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background.deep }]}>
-      {/* Background mesh */}
-      <View style={[styles.meshBg, { backgroundColor: colors.background.deep }]} />
+    <SafeAreaView style={styles.container}>
+      {/* Background glow */}
+      <View style={styles.bgGlow} />
 
       <View style={styles.content}>
         {/* Logo area */}
         <Animated.View entering={FadeIn.duration(600)} style={styles.logoSection}>
           <AnimatedOrb />
-          <Text style={[styles.appName, { color: colors.text.primary }]}>Lineage Agent</Text>
-          <Text style={[styles.tagline, { color: colors.text.muted }]}>On-chain forensics, powered by AI</Text>
+          <Text style={styles.appName}>
+            LINEAGE <Text style={{ color: aurora.secondary }}>AGENT</Text>
+          </Text>
+          <Text style={styles.tagline}>On-chain forensics, powered by AI</Text>
         </Animated.View>
 
         {/* Auth card */}
         <Animated.View entering={FadeInDown.delay(300).springify()}>
           <GlassCard elevated style={styles.authCard}>
-            <Text style={[styles.cardTitle, { color: colors.text.primary }]}>Sign in to Lineage</Text>
-            <Text style={[styles.cardSub, { color: colors.text.secondary }]}>
+            <Text style={styles.cardTitle}>Sign in to Lineage</Text>
+            <Text style={styles.cardSub}>
               Enter your email — we'll send you a one-time sign-in code.
             </Text>
 
@@ -330,7 +332,7 @@ export default function AuthScreen() {
               hapticStyle="medium"
               onPress={handlePhantomConnect}
               disabled={walletLoading || loading}
-              style={styles.phantomBtn}
+              style={StyleSheet.flatten([styles.phantomBtn, { backgroundColor: aurora.primary, borderColor: `${aurora.secondary}80` }])}
             >
               {walletLoading ? (
                 <ActivityIndicator color="#fff" />
@@ -344,18 +346,18 @@ export default function AuthScreen() {
 
             {/* Divider */}
             <View style={styles.divider}>
-              <View style={[styles.dividerLine, { backgroundColor: colors.glass.border }]} />
-              <Text style={[styles.dividerText, { color: colors.text.muted }]}>or sign in with email</Text>
-              <View style={[styles.dividerLine, { backgroundColor: colors.glass.border }]} />
+              <View style={[styles.dividerLine, { backgroundColor: aurora.border }]} />
+              <Text style={[styles.dividerText, { color: aurora.white40 }]}>or sign in with email</Text>
+              <View style={[styles.dividerLine, { backgroundColor: aurora.border }]} />
             </View>
 
             {/* Dev mode input — removed in production build */}
             {__DEV__ && (
-              <View style={[styles.devInput, { backgroundColor: colors.glass.bg, borderColor: colors.glass.border }]}>
+              <View style={[styles.devInput, { backgroundColor: aurora.bgGlass, borderColor: aurora.border }]}>
                 <TextInput
-                  style={[styles.devTextInput, { color: colors.text.primary }]}
+                  style={[styles.devTextInput, { color: aurora.white }]}
                   placeholder="Dev: privy_id (leave blank = auto)"
-                  placeholderTextColor={colors.text.muted}
+                  placeholderTextColor={aurora.white40}
                   value={devPrivyId}
                   onChangeText={setDevPrivyId}
                   autoCapitalize="none"
@@ -367,9 +369,9 @@ export default function AuthScreen() {
             {!otpSent ? (
               <View style={styles.inputWrapper}>
                 <TextInput
-                  style={[styles.textInput, { backgroundColor: colors.glass.bg, borderColor: colors.glass.border, color: colors.text.primary }]}
+                  style={[styles.textInput, { backgroundColor: aurora.bgGlass, borderColor: aurora.border, color: aurora.white }]}
                   placeholder="Email address"
-                  placeholderTextColor={colors.text.muted}
+                  placeholderTextColor={aurora.white40}
                   value={email}
                   onChangeText={setEmail}
                   autoCapitalize="none"
@@ -382,11 +384,11 @@ export default function AuthScreen() {
               </View>
             ) : (
               <View style={styles.inputWrapper}>
-                <Text style={[styles.otpHint, { color: colors.text.muted }]}>Code sent to {email}</Text>
+                <Text style={[styles.otpHint, { color: aurora.white40 }]}>Code sent to {email}</Text>
                 <TextInput
-                  style={[styles.textInput, { backgroundColor: colors.glass.bg, borderColor: colors.glass.border, color: colors.text.primary }]}
+                  style={[styles.textInput, { backgroundColor: aurora.bgGlass, borderColor: aurora.secondary, color: aurora.white }]}
                   placeholder="6-digit code"
-                  placeholderTextColor={colors.text.muted}
+                  placeholderTextColor={aurora.white40}
                   value={otpCode}
                   onChangeText={setOtpCode}
                   keyboardType="number-pad"
@@ -429,7 +431,7 @@ export default function AuthScreen() {
               disabled={loading || !isReady}
               style={styles.connectBtn}
             >
-              {loading && <ActivityIndicator color={colors.background.deep} />}
+              {loading && <ActivityIndicator color={aurora.bgMain} />}
             </HapticButton>
 
             {hasBiometric && (
@@ -443,10 +445,10 @@ export default function AuthScreen() {
               />
             )}
 
-            <Text style={[styles.disclaimer, { color: colors.text.muted }]}>
+            <Text style={styles.disclaimer}>
               By connecting, you agree to the{" "}
               <Text
-                style={[styles.link, { color: colors.accent.blue }]}
+                style={styles.link}
                 onPress={() => Linking.openURL("https://lineageagent.io/terms").catch(() => {})}
               >
                 Terms of Service
@@ -466,8 +468,8 @@ export default function AuthScreen() {
         {/* Feature pills */}
         <Animated.View entering={FadeInDown.delay(500)} style={styles.features}>
           {["Lineage detection", "Bundle forensics", "AI analysis", "Push alerts"].map((f) => (
-            <View key={f} style={[styles.featurePill, { borderColor: colors.glass.border, backgroundColor: colors.glass.bg }]}>
-              <Text style={[styles.featureText, { color: colors.text.muted }]}>{f}</Text>
+            <View key={f} style={[styles.featurePill, { borderColor: aurora.border, backgroundColor: aurora.bgGlass }]}>
+              <Text style={[styles.featureText, { color: aurora.white40 }]}>{f}</Text>
             </View>
           ))}
         </Animated.View>
@@ -477,70 +479,61 @@ export default function AuthScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
+  container: { flex: 1, backgroundColor: aurora.bgMain },
+  bgGlow: {
+    position: "absolute",
+    top: "25%",
+    left: "25%",
+    width: 300,
+    height: 300,
+    borderRadius: 150,
+    backgroundColor: aurora.primary,
+    opacity: 0.4,
+  },
   phantomBtn: {
     width: "100%",
     height: 52,
     borderRadius: 14,
-    backgroundColor: colors.accent.ai,
     borderWidth: 1,
-    borderColor: `${colors.accent.ai}80` as any,
     marginBottom: 4,
   },
-  phantomBtnInner: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-  },
+  phantomBtnInner: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
   phantomIcon: { fontSize: 20 },
-  phantomBtnLabel: {
-    color: "#fff",
-    fontSize: 15,
-    fontWeight: "700",
-  },
-  divider: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    marginBottom: 16,
-    marginTop: 8,
-  },
+  phantomBtnLabel: { color: aurora.white, fontSize: 15, fontFamily: Fonts.bold },
+  divider: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 16, marginTop: 8 },
   dividerLine: { flex: 1, height: 1 },
-  dividerText: { fontSize: 12 },
-  meshBg: {
-    ...StyleSheet.absoluteFillObject,
-    opacity: 0.8,
-  },
+  dividerText: { fontSize: 12, fontFamily: Fonts.regular },
+  meshBg: { ...StyleSheet.absoluteFillObject, opacity: 0.8 },
   content: { flex: 1, paddingHorizontal: 20, justifyContent: "center", gap: 32 },
   logoSection: { alignItems: "center" },
   orbContainer: { marginBottom: 20 },
   orb: { width: 80, height: 80, borderRadius: 40 },
   orbGlow: { ...StyleSheet.absoluteFillObject, borderRadius: 40, borderWidth: 2 },
-  appName: { fontSize: 32, fontWeight: "700", letterSpacing: -1 },
-  tagline: { fontSize: 15, marginTop: 6 },
+  appName: { fontSize: 28, fontFamily: Fonts.bold, letterSpacing: -0.5, color: aurora.white },
+  tagline: { fontSize: 15, marginTop: 6, fontFamily: Fonts.regular, color: aurora.white40 },
   authCard: { padding: 24 },
-  cardTitle: { fontSize: 20, fontWeight: "700", marginBottom: 8 },
-  cardSub: { fontSize: 14, lineHeight: 20, marginBottom: 24 },
+  cardTitle: { fontSize: 20, fontFamily: Fonts.bold, marginBottom: 8, color: aurora.white },
+  cardSub: { fontSize: 14, lineHeight: 20, marginBottom: 24, fontFamily: Fonts.regular, color: aurora.white60 },
   devInput: { borderRadius: 8, borderWidth: 1, marginBottom: 16, padding: 10 },
-  devTextInput: { fontSize: 13 },
+  devTextInput: { fontSize: 13, fontFamily: Fonts.regular },
   inputWrapper: { marginBottom: 16 },
   textInput: {
-    borderRadius: 10,
+    borderRadius: 12,
     borderWidth: 1,
     paddingHorizontal: 14,
     paddingVertical: 12,
     fontSize: 15,
+    fontFamily: Fonts.regular,
   },
-  otpHint: { fontSize: 12, marginBottom: 8, textAlign: "center" },
+  otpHint: { fontSize: 12, marginBottom: 8, textAlign: "center", fontFamily: Fonts.regular },
   changeEmailBtn: { marginTop: 8, alignSelf: "center" },
   otpActions: { flexDirection: "row", justifyContent: "space-between", marginTop: 8 },
   connectBtn: { width: "100%", height: 52, borderRadius: 14 },
-  connectBtnText: { fontSize: 16, fontWeight: "700" },
+  connectBtnText: { fontSize: 16, fontFamily: Fonts.bold },
   biometricBtn: { marginTop: 12, alignSelf: "center" },
-  disclaimer: { fontSize: 11, textAlign: "center", marginTop: 16, lineHeight: 17 },
-  link: {},
+  disclaimer: { fontSize: 11, textAlign: "center", marginTop: 16, lineHeight: 17, fontFamily: Fonts.regular, color: aurora.white40 },
+  link: { color: aurora.secondary },
   features: { flexDirection: "row", flexWrap: "wrap", gap: 8, justifyContent: "center" },
   featurePill: { borderRadius: 999, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 6 },
-  featureText: { fontSize: 12 },
+  featureText: { fontSize: 12, fontFamily: Fonts.regular },
 });

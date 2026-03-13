@@ -21,6 +21,7 @@ import { GlassCard } from "@/src/components/ui/GlassCard";
 import { HapticButton } from "@/src/components/ui/HapticButton";
 import { WalletBadge } from "@/src/components/ui/WalletBadge";
 import { useTheme } from "@/src/theme/ThemeContext";
+import { Fonts } from "@/src/theme/fonts";
 import { LinearGradient } from "expo-linear-gradient";
 import { useAuthStore } from "@/src/store/auth";
 import { usePrivy } from "@privy-io/expo";
@@ -348,24 +349,24 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  avatarText: { fontSize: 18, fontWeight: "700" },
+  avatarText: { fontFamily: Fonts.bold, fontSize: 18 },
   profileInfo: { flex: 1, gap: 4 },
   walletBadge: {},
   email: { fontSize: 12 },
   planBadge: { borderRadius: 8, borderWidth: 1, paddingHorizontal: 10, paddingVertical: 4 },
-  planText: { fontSize: 11, fontWeight: "700", letterSpacing: 1 },
+  planText: { fontFamily: Fonts.bold, fontSize: 11, letterSpacing: 1 },
   upgradeCta: { borderRadius: 14, padding: 14, marginBottom: 20, alignItems: "center" },
-  upgradeText: { color: "#FFFFFF", fontSize: 13, fontWeight: "700", textAlign: "center" },
+  upgradeText: { fontFamily: Fonts.bold, color: "#FFFFFF", fontSize: 13, textAlign: "center" },
   proCard: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: 14 },
-  proTitle: { fontSize: 15, fontWeight: "700" },
+  proTitle: { fontFamily: Fonts.bold, fontSize: 15 },
   proSub: { fontSize: 12, marginTop: 3 },
   manageBtn: { borderRadius: 8, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 7 },
-  manageBtnText: { fontSize: 13, fontWeight: "600" },
-  sectionTitle: { fontSize: 11, fontWeight: "700", letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 10, marginTop: 20 },
+  manageBtnText: { fontFamily: Fonts.semiBold, fontSize: 13 },
+  sectionTitle: { fontFamily: Fonts.bold, fontSize: 11, letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 10, marginTop: 20 },
   settingsCard: { overflow: "hidden" },
   settingRow: { flexDirection: "row", alignItems: "center", padding: 14 },
   settingInfo: { flex: 1 },
-  settingLabel: { fontSize: 14, fontWeight: "500" },
+  settingLabel: { fontFamily: Fonts.medium, fontSize: 14 },
   settingDesc: { fontSize: 11, marginTop: 2 },
   menuRow: { flexDirection: "row", alignItems: "center", padding: 14 },
   menuLabel: { flex: 1, fontSize: 14 },
@@ -374,5 +375,5 @@ const styles = StyleSheet.create({
   logoutWrap: { marginTop: 32 },
   guestGate: { flex: 1, alignItems: "center", justifyContent: "center", padding: 32 },
   guestIcon: { fontSize: 48, marginBottom: 16 },
-  guestTitle: { fontSize: 20, fontWeight: "700" },
+  guestTitle: { fontFamily: Fonts.bold, fontSize: 20 },
 });

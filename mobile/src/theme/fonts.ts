@@ -1,9 +1,10 @@
 // src/theme/fonts.ts
-// Inter font family constants — matches the fonts loaded in app/_layout.tsx
+// Lexend font family constants — Aurora Glass Design System
 
 export const Fonts = {
-  regular: "Inter_400Regular",
-  medium: "Inter_500Medium",
-  semiBold: "Inter_600SemiBold",
-  bold: "Inter_700Bold",
+  light:    "Lexend_300Light",
+  regular:  "Lexend_400Regular",
+  medium:   "Lexend_500Medium",
+  semiBold: "Lexend_600SemiBold",
+  bold:     "Lexend_700Bold",
 } as const;

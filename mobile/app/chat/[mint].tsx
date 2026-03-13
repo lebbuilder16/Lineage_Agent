@@ -31,6 +31,7 @@ import { getChatStreamUrl } from "@/src/lib/api";
 import { useTheme } from "@/src/theme/ThemeContext";
 import { HapticButton } from "@/src/components/ui/HapticButton";
 import { GlassCard } from "@/src/components/ui/GlassCard";
+import { Fonts } from "@/src/theme/fonts";
 
 // ─────────────────────────────────────────────────────────────
 // Types
@@ -75,7 +76,7 @@ function InlineParts({ raw, baseStyle }: { raw: string; baseStyle: object }) {
     <>
       {tokens.map((t, i) => {
         if (t.kind === "bold")
-          return <Text key={i} style={[baseStyle, { fontWeight: "800" }]}>{t.content}</Text>;
+          return <Text key={i} style={[baseStyle, { fontFamily: Fonts.bold }]}>{t.content}</Text>;
         if (t.kind === "italic")
           return <Text key={i} style={[baseStyle, { fontStyle: "italic" }]}>{t.content}</Text>;
         if (t.kind === "code")
@@ -103,8 +104,8 @@ function MarkdownText({ text, textStyle }: { text: string; textStyle: object }) 
           const content = (h1 ?? h2 ?? h3)![1];
           const fontSize = level === 1 ? 18 : level === 2 ? 16 : 14;
           return (
-            <Text key={i} style={[textStyle, { fontWeight: "800", fontSize, marginTop: 6 }]}>
-              <InlineParts raw={content} baseStyle={[textStyle, { fontWeight: "800", fontSize }]} />
+            <Text key={i} style={[textStyle, { fontFamily: Fonts.bold, fontSize, marginTop: 6 }]}>
+              <InlineParts raw={content} baseStyle={[textStyle, { fontFamily: Fonts.bold, fontSize }]} />
             </Text>
           );
         }
@@ -454,7 +455,7 @@ export default function ChatScreen() {
           headerRight: () =>
             isStreaming ? (
               <TouchableOpacity onPress={stopStreaming} style={{ marginRight: 8 }}>
-                <Text style={{ color: colors.accent.danger, fontWeight: "600" }}>Stop</Text>
+                <Text style={{ color: colors.accent.danger, fontFamily: Fonts.semiBold }}>Stop</Text>
               </TouchableOpacity>
             ) : null,
         }}
@@ -556,8 +557,8 @@ const base = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  aiOrbText: { fontSize: 22, fontWeight: "800" },
-  emptyTitle: { fontSize: 20, fontWeight: "700" },
+  aiOrbText: { fontSize: 22, fontFamily: Fonts.bold },
+  emptyTitle: { fontSize: 20, fontFamily: Fonts.bold },
   emptySubtitle: {
     fontSize: 14,
     textAlign: "center",
@@ -585,7 +586,7 @@ const base = StyleSheet.create({
     marginTop: 4,
     flexShrink: 0,
   },
-  aiAvatarText: { fontSize: 9, fontWeight: "800" },
+  aiAvatarText: { fontSize: 9, fontFamily: Fonts.bold },
 
   // Typing dots
   dots: { flexDirection: "row", gap: 4, padding: 4 },
@@ -625,13 +626,13 @@ const base = StyleSheet.create({
     justifyContent: "center",
   },
   sendBtnDisabled: { opacity: 0.6 },
-  sendIcon: { fontSize: 20, fontWeight: "800" },
+  sendIcon: { fontSize: 20, fontFamily: Fonts.bold },
 
   // Premium gate
   gateWrap: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24 },
   gateCard: { padding: 28, alignItems: "center", gap: 12 },
   gateEmoji: { fontSize: 48 },
-  gateTitle: { fontSize: 22, fontWeight: "800" },
+  gateTitle: { fontSize: 22, fontFamily: Fonts.bold },
   gateDesc: {
     fontSize: 14,
     textAlign: "center",

@@ -16,6 +16,7 @@ import Animated, { FadeIn, FadeInDown } from "react-native-reanimated";
 import { useAlertsStore } from "@/src/store/alerts";
 import { HapticButton } from "@/src/components/ui/HapticButton";
 import { useTheme } from "@/src/theme/ThemeContext";
+import { Fonts } from "@/src/theme/fonts";
 import { LinearGradient } from "expo-linear-gradient";
 import type { AlertItem } from "@/src/types/api";
 
@@ -214,8 +215,8 @@ const styles = StyleSheet.create({
     paddingTop: 8,
     paddingBottom: 14,
   },
-  title: { fontSize: 28, fontWeight: "800", letterSpacing: -0.5 },
-  unreadCount: { fontSize: 12, fontWeight: "600", marginTop: 2 },
+  title: { fontFamily: Fonts.bold, fontSize: 28, letterSpacing: -0.5 },
+  unreadCount: { fontFamily: Fonts.semiBold, fontSize: 12, marginTop: 2 },
   filters: {
     flexDirection: "row",
     paddingHorizontal: 16,
@@ -225,7 +226,7 @@ const styles = StyleSheet.create({
   },
   chip: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 999, borderWidth: 1 },
   chipActive: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 999 },
-  chipText: { fontSize: 12, fontWeight: "700", letterSpacing: 0.3 },
+  chipText: { fontFamily: Fonts.semiBold, fontSize: 12, letterSpacing: 0.3 },
   chipTextActive: { color: "#FFFFFF" },
   list: { paddingBottom: 110 },
   alertCard: {
@@ -240,13 +241,13 @@ const styles = StyleSheet.create({
   alertTypeChip: { borderWidth: 1, borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2 },
   alertBody: { flex: 1, gap: 3 },
   alertHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  alertType: { fontSize: 10, fontWeight: "700", letterSpacing: 0.5 },
+  alertType: { fontFamily: Fonts.bold, fontSize: 10, letterSpacing: 0.5 },
   alertTime: { fontSize: 11 },
-  alertToken: { fontSize: 14, fontWeight: "700", marginTop: 2 },
+  alertToken: { fontFamily: Fonts.semiBold, fontSize: 14, marginTop: 2 },
   alertMsg: { fontSize: 12, marginTop: 2, lineHeight: 17 },
   unreadBadge: { width: 8, height: 8, borderRadius: 4, alignSelf: "center" },
   empty: { alignItems: "center", paddingTop: 80, paddingHorizontal: 32 },
   emptyIcon: { fontSize: 52, marginBottom: 18 },
-  emptyTitle: { fontSize: 18, fontWeight: "700" },
+  emptyTitle: { fontFamily: Fonts.bold, fontSize: 18 },
   emptySub: { fontSize: 13, textAlign: "center", marginTop: 8, lineHeight: 20 },
 });

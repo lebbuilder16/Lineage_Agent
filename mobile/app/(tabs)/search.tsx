@@ -22,6 +22,7 @@ import { TokenCardSkeleton } from "@/src/components/ui/SkeletonLoader";
 import { TokenImage } from "@/src/components/ui/TokenImage";
 import { getGlobalStats, searchTokensPaginated } from "@/src/lib/api";
 import { useTheme } from "@/src/theme/ThemeContext";
+import { Fonts } from "@/src/theme/fonts";
 import type { TokenSearchResult } from "@/src/types/api";
 
 const RECENT_KEY = "recent_searches";
@@ -319,7 +320,7 @@ const styles = StyleSheet.create({
   emptyIcon: { fontSize: 40, marginBottom: 12 },
   emptyText: { fontSize: 14 },
   retryBtn: { marginTop: 16, paddingHorizontal: 20, paddingVertical: 10, borderRadius: 8, borderWidth: 1 },
-  retryBtnText: { fontSize: 14, fontWeight: "600" },
+  retryBtnText: { fontFamily: Fonts.semiBold, fontSize: 14 },
   header: { paddingBottom: 4, paddingHorizontal: 20, paddingTop: 8 },
   hint: { alignItems: "center", paddingTop: 60 },
   hintText: { fontSize: 13 },
@@ -338,16 +339,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
   },
   sectionHeader: { alignItems: "center", flexDirection: "row", justifyContent: "space-between", marginBottom: 10, marginTop: 20 },
-  sectionTitle: { fontSize: 11, fontWeight: "700", letterSpacing: 1.2, textTransform: "uppercase" },
+  sectionTitle: { fontFamily: Fonts.bold, fontSize: 11, letterSpacing: 1.2, textTransform: "uppercase" },
   subtitle: { fontSize: 13, marginTop: 2 },
   suggestionsPad: { paddingBottom: 100, paddingHorizontal: 16 },
   suggestionsScroll: { flex: 1 },
-  title: { fontSize: 28, fontWeight: "800", letterSpacing: -0.5 },
+  title: { fontFamily: Fonts.bold, fontSize: 28, letterSpacing: -0.5 },
   tokenCard: { alignItems: "center", borderBottomWidth: 1, flexDirection: "row", gap: 12, paddingVertical: 14 },
   tokenInfo: { flex: 1 },
-  tokenMcap: { fontSize: 14, fontWeight: "600" },
+  tokenMcap: { fontFamily: Fonts.semiBold, fontSize: 14 },
   tokenMono: { fontFamily: "monospace", fontSize: 10, marginTop: 3 },
-  tokenName: { fontSize: 15, fontWeight: "600" },
+  tokenName: { fontFamily: Fonts.semiBold, fontSize: 15 },
   tokenRight: { alignItems: "flex-end" },
   tokenSymbol: { fontSize: 12, marginTop: 3 },
 });

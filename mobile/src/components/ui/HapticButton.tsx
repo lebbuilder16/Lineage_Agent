@@ -21,6 +21,7 @@ import Animated, {
 import { LinearGradient } from "expo-linear-gradient";
 import { useTheme } from "@/src/theme/ThemeContext";
 import { typography } from "@/src/theme/typography";
+import { Fonts } from "@/src/theme/fonts";
 
 type HapticFeedback = "light" | "medium" | "heavy";
 
@@ -152,15 +153,15 @@ export function HapticButton({
 const sizeStyles = {
   sm: StyleSheet.create({
     container: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 100 },
-    text: { ...typography.caption, fontFamily: "PlusJakartaSans_700Bold", fontSize: 12 },
+    text: { ...typography.caption, fontFamily: Fonts.bold, fontSize: 12 },
   }),
   md: StyleSheet.create({
     container: { paddingHorizontal: 24, paddingVertical: 14, borderRadius: 100 },
-    text: { ...typography.body, fontFamily: "PlusJakartaSans_700Bold" },
+    text: { ...typography.body, fontFamily: Fonts.bold },
   }),
   lg: StyleSheet.create({
     container: { paddingHorizontal: 32, paddingVertical: 18, borderRadius: 100 },
-    text: { ...typography.heading, fontFamily: "PlusJakartaSans_700Bold" },
+    text: { ...typography.heading, fontFamily: Fonts.bold },
   }),
 };
 

@@ -1,19 +1,15 @@
 // app/(tabs)/_layout.tsx
-// Tab bar Noelle — verre + indicateur gradient actif + alertes badge
+// Tab bar Aurora Glass — floating pill + secondary #ADC8FF active indicator
 
 import React from "react";
 import { Tabs } from "expo-router";
-import { View, Text, StyleSheet, Platform, Pressable } from "react-native";
+import { View, Text, StyleSheet, Platform } from "react-native";
 import { BlurView } from "expo-blur";
-import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/src/theme/ThemeContext";
-import { colors } from "@/src/theme/colors";
+import { aurora } from "@/src/theme/colors";
 import { useAlertsStore } from "@/src/store/alerts";
 import { ErrorBoundary } from "@/src/components/ErrorBoundary";
-import type { BottomTabBarButtonProps } from "@react-navigation/bottom-tabs";
-
-const GRADIENT: [string, string] = ["#622EC3", "#53E9F6"];
 
 function TabIcon({
   name,
@@ -28,14 +24,7 @@ function TabIcon({
 }) {
   return (
     <View style={iconStyles.wrap}>
-      {focused && (
-        <LinearGradient
-          colors={GRADIENT}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={iconStyles.glow}
-        />
-      )}
+      {focused && <View style={iconStyles.glow} />}
       <Ionicons name={focused ? nameActive : name} size={22} color={color} />
     </View>
   );
@@ -52,14 +41,7 @@ function AlertsTabIcon({
 }) {
   return (
     <View style={iconStyles.wrap}>
-      {focused && (
-        <LinearGradient
-          colors={GRADIENT}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={iconStyles.glow}
-        />
-      )}
+      {focused && <View style={iconStyles.glow} />}
       <Ionicons
         name={focused ? "notifications" : "notifications-outline"}
         size={22}
@@ -75,7 +57,6 @@ function AlertsTabIcon({
 }
 
 export default function TabsLayout() {
-  const { colors, isDark } = useTheme();
   const unreadCount = useAlertsStore((s) => s.unreadCount);
 
   return (
@@ -85,30 +66,26 @@ export default function TabsLayout() {
           headerShown: false,
           tabBarStyle: [
             styles.tabBar,
-            { borderTopColor: "rgba(98, 46, 195, 0.22)" },
+            { borderTopColor: aurora.border },
           ],
           tabBarBackground: () =>
             Platform.OS === "ios" ? (
               <BlurView
                 intensity={70}
-                tint={isDark ? "dark" : "light"}
+                tint="dark"
                 style={StyleSheet.absoluteFill}
               />
             ) : (
               <View
                 style={[
                   StyleSheet.absoluteFill,
-                  {
-                    backgroundColor: isDark
-                      ? "rgba(0,0,0,0.96)"
-                      : "rgba(255,255,255,0.96)",
-                  },
+                  { backgroundColor: "rgba(2,6,23,0.96)" },
                 ]}
               />
             ),
-          tabBarActiveTintColor: colors.accent.cyan,
-          tabBarInactiveTintColor: colors.text.muted,
-          tabBarLabelStyle: [styles.tabLabel, { color: colors.text.muted }],
+          tabBarActiveTintColor: aurora.secondary,
+          tabBarInactiveTintColor: "rgba(255,255,255,0.35)",
+          tabBarLabelStyle: [styles.tabLabel],
         }}
       >
         <Tabs.Screen
@@ -178,29 +155,36 @@ const styles = StyleSheet.create({
   },
   tabLabel: {
     fontSize: 10,
-    fontFamily: "PlusJakartaSans_700Bold",
+    fontFamily: "Lexend_600SemiBold",
     marginTop: 2,
   },
 });
 
 const iconStyles = StyleSheet.create({
-  wrap: { position: "relative", alignItems: "center", justifyContent: "center", width: 32, height: 32 },
+  wrap: {
+    width: 40,
+    height: 30,
+    alignItems: "center",
+    justifyContent: "center",
+    position: "relative",
+  },
   glow: {
     position: "absolute",
-    top: 2,
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    opacity: 0.18,
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: `${aurora.secondary}1A`,
+    borderRadius: 20,
   },
   badge: {
     position: "absolute",
-    top: -2,
-    right: -4,
+    top: -4,
+    right: -6,
     minWidth: 16,
     height: 16,
     borderRadius: 8,
-    backgroundColor: colors.accent.danger,
+    backgroundColor: aurora.accent,
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 3,
@@ -208,7 +192,7 @@ const iconStyles = StyleSheet.create({
   badgeText: {
     color: "#fff",
     fontSize: 9,
-    fontFamily: "PlusJakartaSans_800ExtraBold",
+    fontWeight: "700",
   },
 });
 

@@ -6,6 +6,7 @@ import { View, Text, StyleSheet } from "react-native";
 import { riskColor, verdictColor } from "@/src/theme/colors";
 import { useTheme } from "@/src/theme/ThemeContext";
 import { typography } from "@/src/theme/typography";
+import { Fonts } from "@/src/theme/fonts";
 
 interface RiskBadgeProps {
   label: string;
@@ -52,7 +53,7 @@ const styles = StyleSheet.create({
     alignSelf: "flex-start",
   },
   text: {
-    fontFamily: "PlusJakartaSans_800ExtraBold",
+    fontFamily: Fonts.bold,
     letterSpacing: 0.8,
   },
 });
