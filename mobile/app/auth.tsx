@@ -1,5 +1,5 @@
 // app/auth.tsx
-// Auth screen — connexion via Privy (email OTP) + Phantom Wallet deeplink
+// Auth screen — Figma Make "Secure Access" design + Privy (email OTP) + Phantom Wallet deeplink
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
@@ -9,7 +9,7 @@ import {
   TextInput,
   ActivityIndicator,
   Alert,
-  Platform,
+  TouchableOpacity,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { router } from "expo-router";
@@ -20,19 +20,17 @@ import Animated, {
   FadeIn,
   FadeInDown,
   useSharedValue,
+  withTiming,
   useAnimatedStyle,
   withRepeat,
-  withSequence,
-  withTiming,
 } from "react-native-reanimated";
+import Svg, { Path, Circle, Polyline, Line, Rect } from "react-native-svg";
 import { usePrivy, useLoginWithEmail } from "@privy-io/expo";
 import { loginWithPrivy, getCurrentUser } from "@/src/lib/api";
 import { sentryCaptureError } from "@/src/lib/sentry";
 import { toast } from "@/src/lib/toast";
 import { useAuthStore } from "@/src/store/auth";
-import { GlassCard } from "@/src/components/ui/GlassCard";
 import { HapticButton } from "@/src/components/ui/HapticButton";
-import { useTheme } from "@/src/theme/ThemeContext";
 import { aurora } from "@/src/theme/colors";
 import { Fonts } from "@/src/theme/fonts";
 import { LinearGradient } from "expo-linear-gradient";
@@ -41,39 +39,64 @@ import {
   buildPhantomUniversalConnectURL,
 } from "@/src/lib/solanaWallet";
 
-function AnimatedOrb() {
-  const scale = useSharedValue(1);
-  const opacity = useSharedValue(0.7);
-
-  useEffect(() => {
-    scale.value = withRepeat(
-      withSequence(withTiming(1.15, { duration: 2000 }), withTiming(1, { duration: 2000 })),
-      -1,
-      false
-    );
-    opacity.value = withRepeat(
-      withSequence(withTiming(1, { duration: 2000 }), withTiming(0.6, { duration: 2000 })),
-      -1,
-      false
-    );
-  }, []);
-
-  const orbStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: scale.value }],
-    opacity: opacity.value,
-  }));
-
+// ── Lucide-style SVG icons (inline, no dependency) ───────────────────────────
+function ShieldCheckIcon({ size = 24, color = "#ADC8FF" }) {
   return (
-    <Animated.View style={[styles.orbContainer, orbStyle]}>
-      <LinearGradient
-        colors={[aurora.primary, "#1A3AC7", "#2D5FE8", aurora.secondary]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={styles.orb}
-      />
-      <View style={[styles.orbGlow, { borderColor: `${aurora.secondary}80` }]} />
-    </Animated.View>
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <Path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+      <Polyline points="9 12 11 14 15 10" />
+    </Svg>
   );
+}
+function WalletIcon({ size = 20, color = "#fff" }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <Rect x="1" y="4" width="22" height="16" rx="2" ry="2" />
+      <Line x1="1" y1="10" x2="23" y2="10" />
+    </Svg>
+  );
+}
+function MailIcon({ size = 18, color = "rgba(255,255,255,0.4)" }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <Path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
+      <Polyline points="22,6 12,13 2,6" />
+    </Svg>
+  );
+}
+function ArrowRightIcon({ size = 18, color = "#ADC8FF" }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <Line x1="5" y1="12" x2="19" y2="12" />
+      <Polyline points="12 5 19 12 12 19" />
+    </Svg>
+  );
+}
+function FingerprintIcon({ size = 24, color = "#fff" }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <Path d="M2 12C2 6.5 6.5 2 12 2a10 10 0 0 1 8 4" />
+      <Path d="M5 19.5C5.5 18 6 15 6 12s1.6-4.5 4-5" />
+      <Path d="M10 22a26.29 26.29 0 0 0 1.99-3.6" />
+      <Path d="M14 13.87a4 4 0 0 0-.48-1.87" />
+      <Path d="M17.75 12c.05-.17.17-3.38-2.25-5.5" />
+      <Circle cx="12" cy="12" r="2" />
+      <Path d="M14.89 19.2a8 8 0 0 1-1.15 2.8" />
+      <Path d="M18.14 17.8a12 12 0 0 0 1.86-5.8" />
+    </Svg>
+  );
+}
+
+// Spinning fingerprint loader for wallet connect
+function SpinningFingerprint() {
+  const rotation = useSharedValue(0);
+  useEffect(() => {
+    rotation.value = withRepeat(withTiming(360, { duration: 1000 }), -1, false);
+  }, []);
+  const style = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${rotation.value}deg` }],
+  }));
+  return <Animated.View style={style}><FingerprintIcon size={24} color="#fff" /></Animated.View>;
 }
 
 export default function AuthScreen() {
@@ -340,72 +363,90 @@ export default function AuthScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Background glow */}
+      {/* Background glow — top-right, secondary colour, exact Figma Make spec */}
       <View style={styles.bgGlow} />
 
-      <View style={styles.content}>
-        {/* Logo area */}
-        <Animated.View entering={FadeIn.duration(600)} style={styles.logoSection}>
-          <AnimatedOrb />
-          <Text style={styles.appName}>
-            LINEAGE <Text style={{ color: aurora.secondary }}>AGENT</Text>
+      <Animated.ScrollView
+        entering={FadeIn.duration(400)}
+        style={styles.scroll}
+        contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        {/* ── Header ──────────────────────────────────────────────────────── */}
+        <Animated.View entering={FadeIn.duration(500)} style={styles.header}>
+          {/* Shield icon in glass square */}
+          <View style={styles.iconBox}>
+            <ShieldCheckIcon size={24} color={aurora.secondary} />
+          </View>
+          <Text style={styles.title}>Secure Access</Text>
+          <Text style={styles.subtitle}>
+            Connect your wallet or login to synchronize your intel node.
           </Text>
-          <Text style={styles.tagline}>On-chain forensics, powered by AI</Text>
         </Animated.View>
 
-        {/* Auth card */}
-        <Animated.View entering={FadeInDown.delay(300).springify()}>
-          <GlassCard elevated style={styles.authCard}>
-            <Text style={styles.cardTitle}>Sign in to Lineage</Text>
-            <Text style={styles.cardSub}>
-              Enter your email — we'll send you a one-time sign-in code.
-            </Text>
+        {/* ── Body ────────────────────────────────────────────────────────── */}
+        <Animated.View entering={FadeInDown.delay(200).duration(500)} style={styles.body}>
 
-            {/* Phantom Wallet option */}
-            <HapticButton
-              hapticStyle="medium"
+          {/* Phantom Wallet button — purple gradient + Wallet icon */}
+          <View style={styles.walletSection}>
+            <TouchableOpacity
+              activeOpacity={0.9}
               onPress={handlePhantomConnect}
               disabled={walletLoading || loading}
-              style={StyleSheet.flatten([styles.phantomBtn, { backgroundColor: aurora.primary, borderColor: `${aurora.secondary}80` }])}
+              style={styles.phantomBtn}
             >
-              {walletLoading ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <View style={styles.phantomBtnInner}>
-                  <Text style={styles.phantomIcon}>👻</Text>
-                  <Text style={styles.phantomBtnLabel}>Connect Phantom Wallet</Text>
-                </View>
-              )}
-            </HapticButton>
+              <LinearGradient
+                colors={["#AB9FF2", "#512DA8"]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.phantomGradient}
+              >
+                {walletLoading ? (
+                  <SpinningFingerprint />
+                ) : (
+                  <>
+                    <WalletIcon size={20} color="#fff" />
+                    <Text style={styles.phantomBtnLabel}>Connect Phantom Wallet</Text>
+                  </>
+                )}
+              </LinearGradient>
+            </TouchableOpacity>
 
             {/* Divider */}
             <View style={styles.divider}>
-              <View style={[styles.dividerLine, { backgroundColor: aurora.border }]} />
-              <Text style={[styles.dividerText, { color: aurora.white40 }]}>or sign in with email</Text>
-              <View style={[styles.dividerLine, { backgroundColor: aurora.border }]} />
+              <View style={styles.dividerLine} />
+              <Text style={styles.dividerText}>OR STANDARD LOGIN</Text>
+              <View style={styles.dividerLine} />
             </View>
+          </View>
 
-            {/* Dev mode input — removed in production build */}
-            {__DEV__ && (
-              <View style={[styles.devInput, { backgroundColor: aurora.bgGlass, borderColor: aurora.border }]}>
-                <TextInput
-                  style={[styles.devTextInput, { color: aurora.white }]}
-                  placeholder="Dev: privy_id (leave blank = auto)"
-                  placeholderTextColor={aurora.white40}
-                  value={devPrivyId}
-                  onChangeText={setDevPrivyId}
-                  autoCapitalize="none"
-                />
-              </View>
-            )}
+          {/* Dev mode input — removed in production build */}
+          {__DEV__ && (
+            <View style={styles.devInput}>
+              <TextInput
+                style={styles.devTextInput}
+                placeholder="Dev: privy_id (leave blank = auto)"
+                placeholderTextColor={aurora.white40}
+                value={devPrivyId}
+                onChangeText={setDevPrivyId}
+                autoCapitalize="none"
+              />
+            </View>
+          )}
 
-            {/* Email input */}
-            {!otpSent ? (
-              <View style={styles.inputWrapper}>
+          {/* ── Email / OTP form ─────────────────────────────────────────── */}
+          {!otpSent ? (
+            <View style={styles.fieldGroup}>
+              <Text style={styles.fieldLabel}>EMAIL ADDRESS</Text>
+              <View style={styles.inputRow}>
+                <View style={styles.inputIcon}>
+                  <MailIcon size={18} />
+                </View>
                 <TextInput
-                  style={[styles.textInput, { backgroundColor: aurora.bgGlass, borderColor: aurora.border, color: aurora.white }]}
-                  placeholder="Email address"
-                  placeholderTextColor={aurora.white40}
+                  style={styles.textInput}
+                  placeholder="agent@solana.com"
+                  placeholderTextColor="rgba(255,255,255,0.20)"
                   value={email}
                   onChangeText={setEmail}
                   autoCapitalize="none"
@@ -416,13 +457,16 @@ export default function AuthScreen() {
                   onSubmitEditing={handleConnect}
                 />
               </View>
-            ) : (
-              <View style={styles.inputWrapper}>
-                <Text style={[styles.otpHint, { color: aurora.white40 }]}>Code sent to {email}</Text>
+            </View>
+          ) : (
+            <View style={styles.fieldGroup}>
+              <Text style={styles.fieldLabel}>VERIFICATION CODE</Text>
+              <Text style={styles.otpHint}>Code sent to {email}</Text>
+              <View style={[styles.inputRow, { borderColor: aurora.secondary }]}>
                 <TextInput
-                  style={[styles.textInput, { backgroundColor: aurora.bgGlass, borderColor: aurora.secondary, color: aurora.white }]}
+                  style={[styles.textInput, { paddingLeft: 16 }]}
                   placeholder="6-digit code"
-                  placeholderTextColor={aurora.white40}
+                  placeholderTextColor="rgba(255,255,255,0.20)"
                   value={otpCode}
                   onChangeText={setOtpCode}
                   keyboardType="number-pad"
@@ -431,143 +475,282 @@ export default function AuthScreen() {
                   onSubmitEditing={handleConnect}
                   autoFocus
                 />
-                <View style={styles.otpActions}>
-                  <HapticButton
-                    label="Change email"
-                    variant="ghost"
-                    size="sm"
-                    hapticStyle="light"
-                    onPress={() => {
-                      setOtpSent(false);
-                      setOtpCode("");
-                      setResendCooldown(0);
-                      if (resendIntervalRef.current) clearInterval(resendIntervalRef.current);
-                    }}
-                    style={styles.changeEmailBtn}
-                  />
-                  <HapticButton
-                    label={resendCooldown > 0 ? `Resend (${resendCooldown}s)` : "Resend code"}
-                    variant="ghost"
-                    size="sm"
-                    hapticStyle="light"
-                    disabled={resendCooldown > 0 || loading}
-                    onPress={handleResend}
-                    style={styles.changeEmailBtn}
-                  />
-                </View>
               </View>
-            )}
-
-            <HapticButton
-              label={loading ? "" : otpSent ? "Verify Code" : "Send Code"}
-              hapticStyle="medium"
-              onPress={handleConnect}
-              disabled={loading || !isReady}
-              style={styles.connectBtn}
-            >
-              {loading && <ActivityIndicator color={aurora.bgMain} />}
-            </HapticButton>
-
-            {hasBiometric && (
-              <HapticButton
-                label="Use Face ID / Fingerprint"
-                variant="ghost"
-                size="sm"
-                hapticStyle="light"
-                onPress={checkBiometric}
-                style={styles.biometricBtn}
-              />
-            )}
-
-            <Text style={styles.disclaimer}>
-              By connecting, you agree to the{" "}
-              <Text
-                style={styles.link}
-                onPress={() => Linking.openURL("https://lineageagent.io/terms").catch(() => {})}
-              >
-                Terms of Service
-              </Text>
-              {" "}and{" "}
-              <Text
-                style={styles.link}
-                onPress={() => Linking.openURL("https://lineageagent.io/privacy").catch(() => {})}
-              >
-                Privacy Policy
-              </Text>
-              .
-            </Text>
-          </GlassCard>
-        </Animated.View>
-
-        {/* Feature pills */}
-        <Animated.View entering={FadeInDown.delay(500)} style={styles.features}>
-          {["Lineage detection", "Bundle forensics", "AI analysis", "Push alerts"].map((f) => (
-            <View key={f} style={[styles.featurePill, { borderColor: aurora.border, backgroundColor: aurora.bgGlass }]}>
-              <Text style={[styles.featureText, { color: aurora.white40 }]}>{f}</Text>
+              <View style={styles.otpActions}>
+                <TouchableOpacity
+                  onPress={() => {
+                    setOtpSent(false);
+                    setOtpCode("");
+                    setResendCooldown(0);
+                    if (resendIntervalRef.current) clearInterval(resendIntervalRef.current);
+                  }}
+                >
+                  <Text style={styles.otpActionText}>Change email</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  disabled={resendCooldown > 0 || loading}
+                  onPress={handleResend}
+                >
+                  <Text style={[styles.otpActionText, (resendCooldown > 0 || loading) && { opacity: 0.4 }]}>
+                    {resendCooldown > 0 ? `Resend (${resendCooldown}s)` : "Resend code"}
+                  </Text>
+                </TouchableOpacity>
+              </View>
             </View>
-          ))}
+          )}
+
+          {/* Sign In button — glass card + ArrowRight icon (Figma Make spec) */}
+          <TouchableOpacity
+            activeOpacity={0.85}
+            onPress={handleConnect}
+            disabled={loading || !isReady}
+            style={[styles.signInBtn, (loading || !isReady) && { opacity: 0.6 }]}
+          >
+            {loading ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <>
+                <Text style={styles.signInBtnText}>
+                  {otpSent ? "Verify Code" : "Sign In"}
+                </Text>
+                <ArrowRightIcon size={18} color={aurora.secondary} />
+              </>
+            )}
+          </TouchableOpacity>
+
+          {hasBiometric && (
+            <HapticButton
+              label="Use Face ID / Fingerprint"
+              variant="ghost"
+              size="sm"
+              hapticStyle="light"
+              onPress={checkBiometric}
+              style={styles.biometricBtn}
+            />
+          )}
         </Animated.View>
-      </View>
+
+        {/* Footer */}
+        <View style={styles.footer}>
+          <Text style={styles.footerText}>
+            Don't have an account?{" "}
+            <Text style={styles.footerLink}>Request Access</Text>
+          </Text>
+        </View>
+      </Animated.ScrollView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: aurora.bgMain },
+  container: {
+    flex: 1,
+    backgroundColor: aurora.bgMain,
+  },
+  // Top-right corner glow — secondary colour (#ADC8FF), Figma Make spec
   bgGlow: {
     position: "absolute",
-    top: "25%",
-    left: "25%",
-    width: 300,
-    height: 300,
-    borderRadius: 150,
-    backgroundColor: aurora.primary,
-    opacity: 0.4,
+    top: 0,
+    right: 0,
+    width: 256,
+    height: 256,
+    borderRadius: 128,
+    backgroundColor: aurora.secondary,
+    opacity: 0.2,
+    // Simulate blur with a larger, softer circle — RN has no CSS blur on View
+  },
+  scroll: { flex: 1 },
+  content: {
+    paddingHorizontal: 24,
+    paddingTop: 64,
+    paddingBottom: 32,
+    flexGrow: 1,
+  },
+  // ── Header
+  header: {
+    marginBottom: 40,
+  },
+  iconBox: {
+    width: 48,
+    height: 48,
+    backgroundColor: "rgba(255,255,255,0.05)",
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.10)",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 24,
+  },
+  title: {
+    fontSize: 28,
+    fontFamily: Fonts.bold,
+    color: "#ffffff",
+    marginBottom: 8,
+    letterSpacing: -0.5,
+    lineHeight: 34,
+  },
+  subtitle: {
+    fontSize: 14,
+    fontFamily: Fonts.regular,
+    color: "rgba(255,255,255,0.60)",
+    lineHeight: 21,
+  },
+  // ── Body
+  body: {
+    flex: 1,
+  },
+  // ── Wallet section
+  walletSection: {
+    marginBottom: 32,
   },
   phantomBtn: {
     width: "100%",
-    height: 52,
-    borderRadius: 14,
-    borderWidth: 1,
-    marginBottom: 4,
+    height: 56,
+    borderRadius: 20,
+    overflow: "hidden",
+    // Purple outer glow
+    shadowColor: "#512DA8",
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.3,
+    shadowRadius: 20,
+    elevation: 8,
   },
-  phantomBtnInner: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
-  phantomIcon: { fontSize: 20 },
-  phantomBtnLabel: { color: aurora.white, fontSize: 15, fontFamily: Fonts.bold },
-  divider: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 16, marginTop: 8 },
-  dividerLine: { flex: 1, height: 1 },
-  dividerText: { fontSize: 12, fontFamily: Fonts.regular },
-  meshBg: { ...StyleSheet.absoluteFillObject, opacity: 0.8 },
-  content: { flex: 1, paddingHorizontal: 20, justifyContent: "center", gap: 32 },
-  logoSection: { alignItems: "center" },
-  orbContainer: { marginBottom: 20 },
-  orb: { width: 80, height: 80, borderRadius: 40 },
-  orbGlow: { ...StyleSheet.absoluteFillObject, borderRadius: 40, borderWidth: 2 },
-  appName: { fontSize: 28, fontFamily: Fonts.bold, letterSpacing: -0.5, color: aurora.white },
-  tagline: { fontSize: 15, marginTop: 6, fontFamily: Fonts.regular, color: aurora.white40 },
-  authCard: { padding: 24 },
-  cardTitle: { fontSize: 20, fontFamily: Fonts.bold, marginBottom: 8, color: aurora.white },
-  cardSub: { fontSize: 14, lineHeight: 20, marginBottom: 24, fontFamily: Fonts.regular, color: aurora.white60 },
-  devInput: { borderRadius: 8, borderWidth: 1, marginBottom: 16, padding: 10 },
-  devTextInput: { fontSize: 13, fontFamily: Fonts.regular },
-  inputWrapper: { marginBottom: 16 },
+  phantomGradient: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 12,
+    borderWidth: 1,
+    borderColor: "rgba(171,159,242,0.50)",
+    borderRadius: 20,
+  },
+  phantomBtnLabel: {
+    color: "#ffffff",
+    fontSize: 14,
+    fontFamily: Fonts.bold,
+  },
+  divider: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 16,
+    marginTop: 24,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: "rgba(255,255,255,0.10)",
+  },
+  dividerText: {
+    fontSize: 10,
+    fontFamily: Fonts.semiBold,
+    color: "rgba(255,255,255,0.40)",
+    letterSpacing: 1.5,
+  },
+  // ── Form fields
+  fieldGroup: {
+    marginBottom: 16,
+  },
+  fieldLabel: {
+    fontSize: 10,
+    fontFamily: Fonts.medium,
+    color: "rgba(255,255,255,0.50)",
+    letterSpacing: 0.8,
+    marginBottom: 6,
+    marginLeft: 8,
+  },
+  inputRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    height: 56,
+    backgroundColor: "rgba(255,255,255,0.05)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.10)",
+    borderRadius: 20,
+    overflow: "hidden",
+  },
+  inputIcon: {
+    paddingLeft: 16,
+    paddingRight: 0,
+    justifyContent: "center",
+    alignItems: "center",
+  },
   textInput: {
-    borderRadius: 12,
-    borderWidth: 1,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 15,
+    flex: 1,
+    paddingLeft: 12,
+    paddingRight: 16,
+    fontSize: 14,
     fontFamily: Fonts.regular,
+    color: "#ffffff",
+    height: "100%",
   },
-  otpHint: { fontSize: 12, marginBottom: 8, textAlign: "center", fontFamily: Fonts.regular },
-  changeEmailBtn: { marginTop: 8, alignSelf: "center" },
-  otpActions: { flexDirection: "row", justifyContent: "space-between", marginTop: 8 },
-  connectBtn: { width: "100%", height: 52, borderRadius: 14 },
-  connectBtnText: { fontSize: 16, fontFamily: Fonts.bold },
-  biometricBtn: { marginTop: 12, alignSelf: "center" },
-  disclaimer: { fontSize: 11, textAlign: "center", marginTop: 16, lineHeight: 17, fontFamily: Fonts.regular, color: aurora.white40 },
-  link: { color: aurora.secondary },
-  features: { flexDirection: "row", flexWrap: "wrap", gap: 8, justifyContent: "center" },
-  featurePill: { borderRadius: 999, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 6 },
-  featureText: { fontSize: 12, fontFamily: Fonts.regular },
+  otpHint: {
+    fontSize: 11,
+    fontFamily: Fonts.regular,
+    color: "rgba(255,255,255,0.40)",
+    marginBottom: 6,
+    marginLeft: 8,
+  },
+  otpActions: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: 10,
+    paddingHorizontal: 4,
+  },
+  otpActionText: {
+    fontSize: 12,
+    fontFamily: Fonts.medium,
+    color: aurora.secondary,
+  },
+  // ── Sign In button — glass card with ArrowRight
+  signInBtn: {
+    width: "100%",
+    height: 56,
+    backgroundColor: "rgba(255,255,255,0.05)",
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.20)",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    marginTop: 32,
+  },
+  signInBtnText: {
+    fontSize: 14,
+    fontFamily: Fonts.bold,
+    color: "#ffffff",
+  },
+  biometricBtn: {
+    marginTop: 16,
+    alignSelf: "center",
+  },
+  // ── Dev input
+  devInput: {
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: aurora.border,
+    backgroundColor: aurora.bgGlass,
+    marginBottom: 16,
+    padding: 10,
+  },
+  devTextInput: {
+    fontSize: 13,
+    fontFamily: Fonts.regular,
+    color: aurora.white,
+  },
+  // ── Footer
+  footer: {
+    marginTop: 32,
+    alignItems: "center",
+  },
+  footerText: {
+    fontSize: 11,
+    fontFamily: Fonts.regular,
+    color: "rgba(255,255,255,0.40)",
+  },
+  footerLink: {
+    color: aurora.secondary,
+    fontFamily: Fonts.medium,
+  },
 });
