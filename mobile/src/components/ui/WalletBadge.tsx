@@ -10,7 +10,7 @@ import {
   StyleSheet,
   Clipboard,
 } from "react-native";
-import { colors } from "@/src/theme/colors";
+import { useTheme } from "@/src/theme/ThemeContext";
 import { toast } from "@/src/lib/toast";
 
 interface WalletBadgeProps {
@@ -21,6 +21,7 @@ interface WalletBadgeProps {
 }
 
 export function WalletBadge({ address, onLink, style }: WalletBadgeProps) {
+  const { colors } = useTheme();
   const handleCopy = () => {
     if (!address) return;
     Clipboard.setString(address);
@@ -30,12 +31,12 @@ export function WalletBadge({ address, onLink, style }: WalletBadgeProps) {
   if (!address) {
     return (
       <TouchableOpacity
-        style={[styles.unlinkBadge, style]}
+        style={[styles.unlinkBadge, { backgroundColor: `${colors.accent.ai}18`, borderColor: `${colors.accent.ai}50` }, style]}
         onPress={onLink}
         activeOpacity={0.7}
       >
         <Text style={styles.phantomIcon}>👻</Text>
-        <Text style={styles.unlinkText}>Link Phantom Wallet</Text>
+        <Text style={[styles.unlinkText, { color: colors.accent.aiLight }]}>Link Phantom Wallet</Text>
       </TouchableOpacity>
     );
   }
@@ -44,13 +45,13 @@ export function WalletBadge({ address, onLink, style }: WalletBadgeProps) {
 
   return (
     <TouchableOpacity
-      style={[styles.badge, style]}
+      style={[styles.badge, { backgroundColor: `${colors.accent.ai}20`, borderColor: `${colors.accent.ai}60` }, style]}
       onPress={handleCopy}
       activeOpacity={0.75}
     >
       <Text style={styles.phantomIcon}>👻</Text>
-      <Text style={styles.address}>{truncated}</Text>
-      <Text style={styles.copyHint}>tap to copy</Text>
+      <Text style={[styles.address, { color: colors.accent.aiLight }]}>{truncated}</Text>
+      <Text style={[styles.copyHint, { color: colors.text.muted }]}>tap to copy</Text>
     </TouchableOpacity>
   );
 }
@@ -63,9 +64,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderRadius: 8,
-    backgroundColor: `${colors.accent.ai}20` as any,
     borderWidth: 1,
-    borderColor: `${colors.accent.ai}60` as any,
     alignSelf: "flex-start",
   },
   unlinkBadge: {
@@ -75,25 +74,20 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 10,
-    backgroundColor: `${colors.accent.ai}18` as any,
     borderWidth: 1,
-    borderColor: `${colors.accent.ai}50` as any,
     borderStyle: "dashed",
   },
   phantomIcon: { fontSize: 14 },
   address: {
-    color: colors.accent.aiLight,
     fontSize: 13,
     fontWeight: "600",
     letterSpacing: 0.3,
   },
   copyHint: {
-    color: colors.text.muted,
     fontSize: 10,
     marginLeft: 2,
   },
   unlinkText: {
-    color: colors.accent.aiLight,
     fontSize: 13,
     fontWeight: "600",
   },

@@ -13,6 +13,7 @@ import { GlassCard } from "@/src/components/ui/GlassCard";
 import { RiskBadge } from "@/src/components/ui/RiskBadge";
 import { RiskGauge } from "@/src/components/ui/RiskGauge";
 import { colors } from "@/src/theme/colors";
+import { useTheme } from "@/src/theme/ThemeContext";
 import type { LineageResult } from "@/src/types/api";
 import { router } from "expo-router";
 
@@ -41,6 +42,7 @@ function Section({
   accent: string;
   children: React.ReactNode;
 }) {
+  const { colors: tc } = useTheme();
   return (
     <GlassCard style={[styles.card, { borderColor: accent }]}>
       <Text style={[styles.cardTitle, { color: accent }]}>{title}</Text>
@@ -50,10 +52,11 @@ function Section({
 }
 
 function Row({ label, value }: { label: string; value: string | number }) {
+  const { colors: tc } = useTheme();
   return (
     <View style={styles.row}>
-      <Text style={styles.rowLabel}>{label}</Text>
-      <Text style={styles.rowValue}>{value}</Text>
+      <Text style={[styles.rowLabel, { color: tc.text.muted }]}>{label}</Text>
+      <Text style={[styles.rowValue, { color: tc.text.primary }]}>{value}</Text>
     </View>
   );
 }
@@ -62,6 +65,7 @@ function Row({ label, value }: { label: string; value: string | number }) {
 // Individual signal cards
 // ─────────────────────────────────────────────────────────────
 function DeathClockCard({ data }: { data: NonNullable<LineageResult["death_clock"]> }) {
+  const { colors: tc } = useTheme();
   const died = data.predicted_window_start
     ? new Date(data.predicted_window_start).toLocaleDateString()
     : "Unknown";
@@ -75,7 +79,7 @@ function DeathClockCard({ data }: { data: NonNullable<LineageResult["death_clock
       <Row label="Est. death" value={died} />
       <Row label="Confidence" value={data.confidence_level} />
       {data.confidence_note && (
-        <Text style={styles.noteText} numberOfLines={3}>{data.confidence_note}</Text>
+        <Text style={[styles.noteText, { color: tc.text.secondary }]} numberOfLines={3}>{data.confidence_note}</Text>
       )}
     </Section>
   );
@@ -113,8 +117,9 @@ function BundleCard({ data }: { data: NonNullable<LineageResult["bundle_report"]
 }
 
 function OperatorCard({ data }: { data: NonNullable<LineageResult["operator_fingerprint"]> }) {
+  const { colors: tc } = useTheme();
   return (
-    <Section title="🕵️ OPERATOR" accent="#9B8CF7">
+    <Section title="🕵️ OPERATOR" accent={tc.accent.aiLight}>
       <Row label="Confidence" value={data.confidence} />
       <Row label="Linked wallets" value={data.linked_wallets?.length ?? 0} />
       <Row label="Upload svc" value={data.upload_service ?? "Unknown"} />
@@ -124,9 +129,10 @@ function OperatorCard({ data }: { data: NonNullable<LineageResult["operator_fing
 }
 
 function LiquidityCard({ data }: { data: NonNullable<LineageResult["liquidity_arch"]> }) {
+  const { colors: tc } = useTheme();
   const auth = data.authenticity_score ?? 0;
   return (
-    <Section title="💧 LIQUIDITY" accent="#00C8FF">
+    <Section title="💧 LIQUIDITY" accent={tc.accent.cyan}>
       <View style={styles.gaugeWrap}>
         <RiskGauge score={auth} size={64} strokeWidth={6} />
       </View>
@@ -138,10 +144,11 @@ function LiquidityCard({ data }: { data: NonNullable<LineageResult["liquidity_ar
 }
 
 function FactoryCard({ data }: { data: NonNullable<LineageResult["factory_rhythm"]> }) {
+  const { colors: tc } = useTheme();
   const intervalH = data.median_interval_hours ?? 0;
   const ratePerDay = intervalH > 0 ? (24 / intervalH).toFixed(1) : "?";
   return (
-    <Section title="🏭 FACTORY" accent="#FFB547">
+    <Section title="🏗️ FACTORY" accent={tc.accent.amber}>
       <Row label="Deploy rate" value={`${ratePerDay}/day`} />
       <Row label="Regularity" value={`${Math.round((data.regularity_score ?? 0) * 100)}%`} />
       <Row label="Tokens" value={data.tokens_launched ?? 0} />
@@ -165,9 +172,10 @@ function InsiderCard({ data }: { data: NonNullable<LineageResult["insider_sell"]
 }
 
 function OperatorImpactCard({ data }: { data: NonNullable<LineageResult["operator_impact"]> }) {
+  const { colors: tc } = useTheme();
   const rugRisk = Math.min((data.rug_rate_pct ?? 0) / 100, 1);
   return (
-    <Section title="🎯 OPERATOR IMPACT" accent="#C084FC">
+    <Section title="🎯 OPERATOR IMPACT" accent={tc.accent.aiLight}>
       <View style={styles.gaugeWrap}>
         <RiskGauge score={rugRisk} size={64} strokeWidth={6} />
       </View>
@@ -218,6 +226,7 @@ function SolFlowCard({ data }: { data: NonNullable<LineageResult["sol_flow"]> })
 // Main component
 // ─────────────────────────────────────────────────────────────
 export function ForensicSignalCards({ result }: { result: LineageResult }) {
+  const { colors: tc } = useTheme();
   const cards: React.ReactNode[] = [];
 
   if (result.death_clock) cards.push(<DeathClockCard key="dc" data={result.death_clock} />);
@@ -233,7 +242,7 @@ export function ForensicSignalCards({ result }: { result: LineageResult }) {
   if (cards.length === 0) {
     return (
       <View style={styles.empty}>
-        <Text style={styles.emptyText}>No forensic signals detected</Text>
+        <Text style={[styles.emptyText, { color: tc.text.muted }]}>No forensic signals detected</Text>
       </View>
     );
   }
@@ -266,10 +275,10 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     marginVertical: 2,
   },
-  rowLabel: { color: colors.text.muted, fontSize: 11 },
-  rowValue: { color: colors.text.primary, fontSize: 11, fontWeight: "600" },
+  rowLabel: { fontSize: 11 },
+  rowValue: { fontSize: 11, fontWeight: "600" },
   gaugeWrap: { alignItems: "center", marginBottom: 10 },
-  noteText: { color: colors.text.secondary, fontSize: 10, marginTop: 6, lineHeight: 14 },
+  noteText: { fontSize: 10, marginTop: 6, lineHeight: 14 },
   empty: { alignItems: "center", padding: 24 },
-  emptyText: { color: colors.text.muted, fontSize: 13 },
+  emptyText: { fontSize: 13 },
 });

@@ -32,6 +32,7 @@ export const ONBOARDING_KEY = "onboarding_done";
 
 // ── RiskPreview: animated risk bar to 87% (Slide 1)
 function RiskPreview() {
+  const { colors: tc } = useTheme();
   const barWidth = useSharedValue(0);
   useEffect(() => {
     barWidth.value = withDelay(400, withSpring(87, { mass: 1, damping: 14 }));
@@ -40,26 +41,26 @@ function RiskPreview() {
     width: `${barWidth.value}%` as unknown as number,
   }));
   return (
-    <Animated.View entering={FadeInDown.delay(200).springify()} style={preview.card}>
-      <View style={preview.cardHeader}>
-        <View style={[preview.statusDot, { backgroundColor: colors.accent.danger }]} />
-        <Text style={preview.cardTitle}>$PEPE2 — Clone detected</Text>
-        <View style={preview.criticalBadge}>
-          <Text style={preview.criticalText}>CRITICAL</Text>
+    <Animated.View entering={FadeInDown.delay(200).springify()} style={[basePrev.card, { backgroundColor: tc.glass.bgElevated, borderColor: "rgba(98, 46, 195, 0.40)" }]}>
+      <View style={basePrev.cardHeader}>
+        <View style={[basePrev.statusDot, { backgroundColor: tc.accent.danger }]} />
+        <Text style={[basePrev.cardTitle, { color: tc.text.primary }]}>$PEPE2 — Clone detected</Text>
+        <View style={[basePrev.criticalBadge, { backgroundColor: `${tc.accent.danger}22` }]}>
+          <Text style={[basePrev.criticalText, { color: tc.accent.danger }]}>CRITICAL</Text>
         </View>
       </View>
-      <View style={preview.barTrack}>
+      <View style={[basePrev.barTrack, { backgroundColor: tc.glass.bg }]}>
         <Animated.View
-          style={[preview.barFill, barStyle, { backgroundColor: colors.accent.danger }]}
+          style={[basePrev.barFill, barStyle, { backgroundColor: tc.accent.danger }]}
         />
       </View>
-      <View style={preview.cardRow}>
-        <Text style={preview.cardSub}>Risk score</Text>
-        <Text style={[preview.cardValue, { color: colors.accent.danger }]}>87 / 100</Text>
+      <View style={basePrev.cardRow}>
+        <Text style={[basePrev.cardSub, { color: tc.text.muted }]}>Risk score</Text>
+        <Text style={[basePrev.cardValue, { color: tc.accent.danger }]}>87 / 100</Text>
       </View>
-      <View style={preview.cardRow}>
-        <Text style={preview.cardSub}>Deployer history</Text>
-        <Text style={[preview.cardValue, { color: colors.accent.warning }]}>14 rug pulls</Text>
+      <View style={basePrev.cardRow}>
+        <Text style={[basePrev.cardSub, { color: tc.text.muted }]}>Deployer history</Text>
+        <Text style={[basePrev.cardValue, { color: tc.accent.warning }]}>14 rug pulls</Text>
       </View>
     </Animated.View>
   );
@@ -88,22 +89,23 @@ const FAKE_ALERTS = [
 ] as const;
 
 function AlertsPreview() {
+  const { colors: tc } = useTheme();
   return (
     <View style={{ gap: 8, width: "100%" }}>
       {FAKE_ALERTS.map((a, i) => (
         <Animated.View
           key={a.name}
           entering={FadeInDown.delay(i * 130 + 200).springify()}
-          style={preview.alertRow}
+          style={[basePrev.alertRow, { backgroundColor: tc.glass.bgElevated, borderColor: tc.glass.border }]}
         >
-          <View style={[preview.alertDot, { backgroundColor: a.color }]} />
+          <View style={[basePrev.alertDot, { backgroundColor: a.color }]} />
           <View style={{ flex: 1 }}>
-            <Text style={[preview.alertType, { color: a.color }]}>{a.label}</Text>
-            <Text style={preview.alertMsg} numberOfLines={1}>
+            <Text style={[basePrev.alertType, { color: a.color }]}>{a.label}</Text>
+            <Text style={[basePrev.alertMsg, { color: tc.text.muted }]} numberOfLines={1}>
               {a.msg}
             </Text>
           </View>
-          <Text style={preview.alertToken}>{a.name}</Text>
+          <Text style={[basePrev.alertToken, { color: tc.text.secondary }]}>{a.name}</Text>
         </Animated.View>
       ))}
     </View>
@@ -112,6 +114,7 @@ function AlertsPreview() {
 
 // ── AIPreview: chat bubbles with typing dots → response (Slide 3)
 function AIPreview() {
+  const { colors: tc } = useTheme();
   const [showReply, setShowReply] = useState(false);
   const dotOpacity = useSharedValue(0.4);
   useEffect(() => {
@@ -121,29 +124,29 @@ function AIPreview() {
   }, []);
   const dotStyle = useAnimatedStyle(() => ({ opacity: dotOpacity.value }));
   return (
-    <Animated.View entering={FadeIn.delay(200)} style={preview.chatBox}>
+    <Animated.View entering={FadeIn.delay(200)} style={basePrev.chatBox}>
       <Animated.View
         entering={FadeInDown.delay(100)}
-        style={[preview.bubble, preview.bubbleUser]}
+        style={[basePrev.bubble, basePrev.bubbleUser, { backgroundColor: tc.accent.ai }]}
       >
-        <Text style={preview.bubbleUserText}>Is this token safe to buy?</Text>
+        <Text style={[basePrev.bubbleUserText, { color: tc.background.deep }]}>Is this token safe to buy?</Text>
       </Animated.View>
-      <View style={preview.bubbleAIRow}>
-        <View style={preview.aiChip}>
-          <Text style={preview.aiChipText}>AI</Text>
+      <View style={basePrev.bubbleAIRow}>
+        <View style={[basePrev.aiChip, { backgroundColor: `${tc.accent.ai}22`, borderColor: tc.accent.ai }]}>
+          <Text style={[basePrev.aiChipText, { color: tc.accent.ai }]}>AI</Text>
         </View>
         <Animated.View
           entering={FadeInDown.delay(350)}
-          style={[preview.bubble, preview.bubbleAI]}
+          style={[basePrev.bubble, basePrev.bubbleAI, { backgroundColor: tc.glass.bgElevated, borderColor: tc.glass.border }]}
         >
           {showReply ? (
-            <Animated.Text entering={FadeIn} style={preview.bubbleAIText}>
+            <Animated.Text entering={FadeIn} style={[basePrev.bubbleAIText, { color: tc.text.primary }]}>
               {"⚠️ High risk.\n3rd-gen clone of $WIF.\nSame deployer: 14 prior rugs."}
             </Animated.Text>
           ) : (
-            <Animated.View style={[preview.dotsRow, dotStyle]}>
+            <Animated.View style={[basePrev.dotsRow, dotStyle]}>
               {[0, 1, 2].map((i) => (
-                <View key={i} style={preview.dot} />
+                <View key={i} style={[basePrev.dot, { backgroundColor: tc.accent.ai }]} />
               ))}
             </Animated.View>
           )}
@@ -186,6 +189,7 @@ const SLIDES: SlideData[] = [
 ];
 
 function DotIndicator({ count, index }: { count: number; index: number }) {
+  const { colors: tc } = useTheme();
   return (
     <View style={styles.dotsRow}>
       {Array.from({ length: count }).map((_, i) =>
@@ -198,7 +202,7 @@ function DotIndicator({ count, index }: { count: number; index: number }) {
             style={[styles.dot, styles.dotActive]}
           />
         ) : (
-          <View key={i} style={[styles.dot, styles.dotInactive]} />
+          <View key={i} style={[styles.dot, styles.dotInactive, { backgroundColor: tc.glass.borderBright }]} />
         )
       )}
     </View>
@@ -338,18 +342,16 @@ const styles = StyleSheet.create({
   dotsRow: { flexDirection: "row", gap: 8, marginBottom: 8 },
   dot: { height: 8, borderRadius: 4 },
   dotActive: { width: 24 },
-  dotInactive: { backgroundColor: "rgba(255,255,255,0.3)", width: 8 },
+  dotInactive: { width: 8 },
   btn: { width: "100%" },
   skipBtn: { width: "100%" },
 });
 
-const preview = StyleSheet.create({
+const basePrev = StyleSheet.create({
   card: {
     width: "100%",
-    backgroundColor: colors.glass.bgElevated,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: "rgba(98, 46, 195, 0.40)",
     padding: 16,
     gap: 10,
   },
@@ -365,25 +367,21 @@ const preview = StyleSheet.create({
   },
   cardTitle: {
     flex: 1,
-    color: colors.text.primary,
     fontSize: 13,
     fontWeight: "600",
   },
   criticalBadge: {
-    backgroundColor: `${colors.accent.danger}22`,
     borderRadius: 6,
     paddingHorizontal: 8,
     paddingVertical: 3,
   },
   criticalText: {
-    color: colors.accent.danger,
     fontSize: 10,
     fontWeight: "800",
   },
   barTrack: {
     height: 6,
     borderRadius: 3,
-    backgroundColor: colors.glass.bg,
     overflow: "hidden",
   },
   barFill: {
@@ -395,7 +393,6 @@ const preview = StyleSheet.create({
     justifyContent: "space-between",
   },
   cardSub: {
-    color: colors.text.muted,
     fontSize: 12,
   },
   cardValue: {
@@ -406,10 +403,8 @@ const preview = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
-    backgroundColor: colors.glass.bgElevated,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: colors.glass.border,
     padding: 12,
   },
   alertDot: {
@@ -424,12 +419,10 @@ const preview = StyleSheet.create({
     letterSpacing: 0.5,
   },
   alertMsg: {
-    color: colors.text.muted,
     fontSize: 11,
     marginTop: 2,
   },
   alertToken: {
-    color: colors.text.secondary,
     fontSize: 12,
     fontWeight: "700",
   },
@@ -446,15 +439,12 @@ const preview = StyleSheet.create({
     width: 26,
     height: 26,
     borderRadius: 13,
-    backgroundColor: `${colors.accent.ai}22`,
     borderWidth: 1,
-    borderColor: colors.accent.ai,
     alignItems: "center",
     justifyContent: "center",
     marginTop: 4,
   },
   aiChipText: {
-    color: colors.accent.ai,
     fontSize: 8,
     fontWeight: "800",
   },
@@ -466,20 +456,15 @@ const preview = StyleSheet.create({
   },
   bubbleUser: {
     alignSelf: "flex-end",
-    backgroundColor: colors.accent.ai,
   },
   bubbleAI: {
     flex: 1,
-    backgroundColor: colors.glass.bgElevated,
     borderWidth: 1,
-    borderColor: colors.glass.border,
   },
   bubbleUserText: {
-    color: colors.background.deep,
     fontSize: 13,
   },
   bubbleAIText: {
-    color: colors.text.primary,
     fontSize: 13,
     lineHeight: 20,
   },
@@ -492,6 +477,5 @@ const preview = StyleSheet.create({
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: colors.accent.ai,
   },
 });

@@ -26,8 +26,7 @@ import {
   PlusJakartaSans_800ExtraBold,
 } from "@expo-google-fonts/plus-jakarta-sans";
 import FlashMessage from "react-native-flash-message";
-import { colors } from "@/src/theme/colors";
-import { ThemeProvider } from "@/src/theme/ThemeContext";
+import { ThemeProvider, useTheme } from "@/src/theme/ThemeContext";
 import { useAuthStore } from "@/src/store/auth";
 import { useAlertsStore } from "@/src/store/alerts";
 import { initRevenueCat, loginToRevenueCat } from "@/src/lib/purchases";
@@ -82,6 +81,55 @@ function useOtaUpdate() {
     })();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+}
+
+/** Inner shell rendered inside ThemeProvider so useTheme() works reactively */
+function ThemedShell() {
+  const { colors: tc, isDark } = useTheme();
+  return (
+    <GestureHandlerRootView style={{ flex: 1, backgroundColor: tc.background.deep }}>
+      <QueryClientProvider client={queryClient}>
+        <StatusBar style={isDark ? "light" : "dark"} backgroundColor={tc.background.deep} />
+        <Stack
+          screenOptions={{
+            headerShown: false,
+            contentStyle: { backgroundColor: tc.background.deep },
+            animation: "fade_from_bottom",
+          }}
+        >
+          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+          <Stack.Screen
+            name="lineage/[mint]"
+            options={{
+              animation: "slide_from_right",
+              presentation: "card",
+            }}
+          />
+          <Stack.Screen
+            name="deployer/[address]"
+            options={{ animation: "slide_from_right" }}
+          />
+          <Stack.Screen
+            name="chat/[mint]"
+            options={{
+              animation: "slide_from_bottom",
+              presentation: "modal",
+            }}
+          />
+          <Stack.Screen
+            name="paywall"
+            options={{
+              animation: "slide_from_bottom",
+              presentation: "modal",
+            }}
+          />
+          <Stack.Screen name="auth" options={{ headerShown: false }} />
+          <Stack.Screen name="onboarding" options={{ headerShown: false, animation: "fade" }} />
+        </Stack>
+        <FlashMessage position="top" />
+      </QueryClientProvider>
+    </GestureHandlerRootView>
+  );
 }
 
 function RootLayout() {
@@ -178,48 +226,7 @@ function RootLayout() {
     <ThemeProvider>
     <ErrorBoundary>
       <PrivyProvider appId={PRIVY_APP_ID}>
-        <GestureHandlerRootView style={{ flex: 1, backgroundColor: colors.background.deep }}>
-          <QueryClientProvider client={queryClient}>
-            <StatusBar style="light" backgroundColor={colors.background.deep} />
-            <Stack
-              screenOptions={{
-                headerShown: false,
-                contentStyle: { backgroundColor: colors.background.deep },
-                animation: "fade_from_bottom",
-              }}
-            >
-              <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-              <Stack.Screen
-                name="lineage/[mint]"
-                options={{
-                  animation: "slide_from_right",
-                  presentation: "card",
-                }}
-              />
-              <Stack.Screen
-                name="deployer/[address]"
-                options={{ animation: "slide_from_right" }}
-              />
-              <Stack.Screen
-                name="chat/[mint]"
-                options={{
-                  animation: "slide_from_bottom",
-                  presentation: "modal",
-                }}
-              />
-              <Stack.Screen
-                name="paywall"
-                options={{
-                  animation: "slide_from_bottom",
-                  presentation: "modal",
-                }}
-              />
-              <Stack.Screen name="auth" options={{ headerShown: false }} />
-              <Stack.Screen name="onboarding" options={{ headerShown: false, animation: "fade" }} />
-            </Stack>
-            <FlashMessage position="top" />
-          </QueryClientProvider>
-        </GestureHandlerRootView>
+        <ThemedShell />
       </PrivyProvider>
     </ErrorBoundary>
     </ThemeProvider>

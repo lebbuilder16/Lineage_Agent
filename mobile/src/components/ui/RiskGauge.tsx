@@ -11,6 +11,7 @@ import Animated, {
 } from "react-native-reanimated";
 import Svg, { Circle } from "react-native-svg";
 import { riskColor, riskLevelFromScore } from "@/src/theme/colors";
+import { useTheme } from "@/src/theme/ThemeContext";
 
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
@@ -27,6 +28,7 @@ export function RiskGauge({
   strokeWidth = 6,
   showLabel = true,
 }: RiskGaugeProps) {
+  const { colors } = useTheme();
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
   const progress = useSharedValue(0);
@@ -54,7 +56,7 @@ export function RiskGauge({
           cx={size / 2}
           cy={size / 2}
           r={radius}
-          stroke="rgba(255,255,255,0.08)"
+          stroke={colors.glass.border}
           strokeWidth={strokeWidth}
           fill="none"
         />

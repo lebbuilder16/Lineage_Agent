@@ -18,7 +18,7 @@ import { GlassCard } from "@/src/components/ui/GlassCard";
 import { RiskBadge } from "@/src/components/ui/RiskBadge";
 import { HapticButton } from "@/src/components/ui/HapticButton";
 import { Skeleton } from "@/src/components/ui/SkeletonLoader";
-import { colors } from "@/src/theme/colors";
+import { useTheme } from "@/src/theme/ThemeContext";
 import { getDeployerProfile } from "@/src/lib/api";
 
 // ─────────────────────────────────────────────────────────────
@@ -35,15 +35,16 @@ function BarStat({
   max: number;
   accent: string;
 }) {
+  const { colors } = useTheme();
   const pct = Math.min(value / max, 1);
   return (
-    <View style={styles.barWrap}>
-      <View style={styles.barHeader}>
-        <Text style={styles.barLabel}>{label}</Text>
-        <Text style={[styles.barVal, { color: accent }]}>{value}</Text>
+    <View style={base.barWrap}>
+      <View style={base.barHeader}>
+        <Text style={[base.barLabel, { color: colors.text.secondary }]}>{label}</Text>
+        <Text style={[base.barVal, { color: accent }]}>{value}</Text>
       </View>
-      <View style={styles.barTrack}>
-        <View style={[styles.barFill, { width: `${pct * 100}%` as any, backgroundColor: accent }]} />
+      <View style={[base.barTrack, { backgroundColor: colors.glass.bg }]}>
+        <View style={[base.barFill, { width: `${pct * 100}%` as any, backgroundColor: accent }]} />
       </View>
     </View>
   );
@@ -53,6 +54,7 @@ function BarStat({
 // Main screen
 // ─────────────────────────────────────────────────────────────
 export default function DeployerScreen() {
+  const { colors } = useTheme();
   const { address } = useLocalSearchParams<{ address: string }>();
   const [visibleCount, setVisibleCount] = useState(10);
   const { data: profile, isLoading, error, refetch } = useQuery({
@@ -71,7 +73,7 @@ export default function DeployerScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safe} edges={["bottom"]}>
+    <SafeAreaView style={[base.safe, { backgroundColor: colors.background.deep }]} edges={["bottom"]}>
       <Stack.Screen
         options={{
           title: abbreviate(address ?? ""),
@@ -86,7 +88,7 @@ export default function DeployerScreen() {
       />
 
       {isLoading && (
-        <ScrollView contentContainerStyle={styles.content}>
+        <ScrollView contentContainerStyle={base.content}>
           {[...Array(4)].map((_, i) => (
             <Skeleton key={i} width="100%" height={80} borderRadius={12} style={{ marginBottom: 12 }} />
           ))}
@@ -94,8 +96,8 @@ export default function DeployerScreen() {
       )}
 
       {!!error && (
-        <View style={styles.errorWrap}>
-          <Text style={styles.errorText}>Failed to load deployer profile</Text>
+        <View style={base.errorWrap}>
+          <Text style={[base.errorText, { color: colors.accent.danger }]}>Failed to load deployer profile</Text>
           <View style={{ flexDirection: "row", gap: 10 }}>
             <HapticButton label="Retry" onPress={() => refetch()} variant="primary" size="sm" />
             <HapticButton label="Go Back" onPress={() => router.back()} variant="secondary" size="sm" />
@@ -104,28 +106,28 @@ export default function DeployerScreen() {
       )}
 
       {profile && (
-        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <ScrollView contentContainerStyle={base.content} showsVerticalScrollIndicator={false}>
           {/* Header card */}
-          <GlassCard style={styles.headerCard} elevated>
-            <View style={styles.headerRow}>
-              <View style={styles.avatarCircle}>
-                <Text style={styles.avatarText}>
+          <GlassCard style={base.headerCard} elevated>
+            <View style={base.headerRow}>
+              <View style={[base.avatarCircle, { backgroundColor: colors.glass.bgElevated, borderColor: colors.glass.border }]}>
+                <Text style={[base.avatarText, { color: colors.accent.ai }]}>
                   {(address ?? "?").slice(0, 2).toUpperCase()}
                 </Text>
               </View>
               <View style={{ flex: 1, marginLeft: 14 }}>
-                <Text style={styles.addressText}>{abbreviate(address ?? "")}</Text>
-                <Text style={styles.chainText}>{profile.chain ?? "Solana"}</Text>
+                <Text style={[base.addressText, { color: colors.text.primary }]}>{abbreviate(address ?? "")}</Text>
+                <Text style={[base.chainText, { color: colors.text.muted }]}>{profile.chain ?? "Solana"}</Text>
               </View>
             </View>
 
             {/* Rug rate gauge */}
-            <View style={styles.rugWrap}>
-              <View style={styles.rugHeader}>
-                <Text style={styles.rugLabel}>Rug Rate</Text>
+            <View style={base.rugWrap}>
+              <View style={base.rugHeader}>
+                <Text style={[base.rugLabel, { color: colors.text.secondary }]}>Rug Rate</Text>
                 <Text
                   style={[
-                    styles.rugPct,
+                    base.rugPct,
                     {
                       color:
                         (profile.rug_rate_pct ?? 0) > 60
@@ -139,10 +141,10 @@ export default function DeployerScreen() {
                   {Math.round(profile.rug_rate_pct ?? 0)}%
                 </Text>
               </View>
-              <View style={styles.rugTrack}>
+              <View style={[base.rugTrack, { backgroundColor: colors.glass.bg }]}>
                 <View
                   style={[
-                    styles.rugFill,
+                    base.rugFill,
                     {
                       width: `${Math.min(profile.rug_rate_pct ?? 0, 100)}%` as any,
                       backgroundColor:
@@ -159,8 +161,8 @@ export default function DeployerScreen() {
           </GlassCard>
 
           {/* Stats */}
-          <GlassCard style={styles.statsCard}>
-            <Text style={styles.sectionTitle}>ACTIVITY STATS</Text>
+          <GlassCard style={base.statsCard}>
+            <Text style={[base.sectionTitle, { color: colors.text.muted }]}>ACTIVITY STATS</Text>
             <BarStat
               label="Total tokens deployed"
               value={profile.total_tokens_launched ?? 0}
@@ -182,15 +184,15 @@ export default function DeployerScreen() {
           </GlassCard>
 
           {/* Risk profile */}
-          <GlassCard style={styles.riskCard}>
-            <Text style={styles.sectionTitle}>NARRATIVES</Text>
-            <View style={styles.pillRow}>
+          <GlassCard style={base.riskCard}>
+            <Text style={[base.sectionTitle, { color: colors.text.muted }]}>NARRATIVES</Text>
+            <View style={base.pillRow}>
               {profile.preferred_narrative ? (
-                <View style={styles.flagPill}>
-                  <Text style={styles.flagText}>{profile.preferred_narrative}</Text>
+                <View style={[base.flagPill, { backgroundColor: `${colors.accent.danger}22`, borderColor: colors.accent.danger }]}>
+                  <Text style={[base.flagText, { color: colors.accent.danger }]}>{profile.preferred_narrative}</Text>
                 </View>
               ) : (
-                <Text style={styles.noFlagsText}>No preferred narrative</Text>
+                <Text style={[base.noFlagsText, { color: colors.accent.safe }]}>No preferred narrative</Text>
               )}
             </View>
           </GlassCard>
@@ -198,27 +200,27 @@ export default function DeployerScreen() {
           {/* Known tokens */}
           {profile.tokens && profile.tokens.length > 0 && (
             <View>
-              <Text style={styles.sectionHeader}>DEPLOYED TOKENS</Text>
+              <Text style={[base.sectionHeader, { color: colors.text.muted }]}>DEPLOYED TOKENS</Text>
               {profile.tokens.slice(0, visibleCount).map((t) => (
                 <TouchableOpacity
                   key={t.mint}
                   onPress={() => router.push(`/lineage/${t.mint}`)}
-                  style={styles.tokenRow}
+                  style={base.tokenRow}
                   accessibilityLabel={`View lineage of token ${t.name || t.symbol}`}
                   accessibilityRole="button"
                 >
-                  <GlassCard style={styles.tokenCard}>
-                    <View style={styles.tokenRowInner}>
+                  <GlassCard style={base.tokenCard}>
+                    <View style={base.tokenRowInner}>
                       <View style={{ flex: 1 }}>
-                        <Text style={styles.tokenName}>{t.name || t.symbol}</Text>
-                        <Text style={styles.tokenMint}>{abbreviate(t.mint)}</Text>
+                        <Text style={[base.tokenName, { color: colors.text.primary }]}>{t.name || t.symbol}</Text>
+                        <Text style={[base.tokenMint, { color: colors.text.muted }]}>{abbreviate(t.mint)}</Text>
                       </View>
                       {t.rugged_at && (
-                        <View style={[styles.flagPill, { borderColor: colors.accent.danger }]}>
-                          <Text style={[styles.flagText, { color: colors.accent.danger }]}>RUGGED</Text>
+                        <View style={[base.flagPill, { borderColor: colors.accent.danger }]}>
+                          <Text style={[base.flagText, { color: colors.accent.danger }]}>RUGGED</Text>
                         </View>
                       )}
-                      <Text style={styles.chevron}>›</Text>
+                      <Text style={[base.chevron, { color: colors.text.muted }]}>›</Text>
                     </View>
                   </GlassCard>
                 </TouchableOpacity>
@@ -226,11 +228,11 @@ export default function DeployerScreen() {
               {visibleCount < profile.tokens.length && (
                 <TouchableOpacity
                   onPress={() => setVisibleCount((n) => n + 10)}
-                  style={styles.loadMoreBtn}
+                  style={[base.loadMoreBtn, { borderColor: colors.glass.border, backgroundColor: colors.glass.bg }]}
                   accessibilityLabel="Load more tokens"
                   accessibilityRole="button"
                 >
-                  <Text style={styles.loadMoreText}>
+                  <Text style={[base.loadMoreText, { color: colors.accent.ai }]}>
                     Load more ({profile.tokens.length - visibleCount} remaining)
                   </Text>
                 </TouchableOpacity>
@@ -243,40 +245,32 @@ export default function DeployerScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: colors.background.deep },
+const base = StyleSheet.create({
+  safe: { flex: 1 },
   content: { padding: 16, gap: 12, paddingBottom: 40 },
   errorWrap: { flex: 1, alignItems: "center", justifyContent: "center", gap: 16 },
-  errorText: { color: colors.accent.danger, fontSize: 15 },
+  errorText: { fontSize: 15 },
   headerCard: { padding: 16 },
   headerRow: { flexDirection: "row", alignItems: "center" },
   avatarCircle: {
     width: 52,
     height: 52,
     borderRadius: 26,
-    backgroundColor: colors.glass.bgElevated,
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1,
-    borderColor: colors.glass.border,
   },
-  avatarText: { color: colors.accent.ai, fontSize: 18, fontWeight: "800" },
-  addressText: { color: colors.text.primary, fontSize: 16, fontWeight: "700", fontFamily: "monospace" },
-  chainText: { color: colors.text.muted, fontSize: 12, marginTop: 2 },
+  avatarText: { fontSize: 18, fontWeight: "800" },
+  addressText: { fontSize: 16, fontWeight: "700", fontFamily: "monospace" },
+  chainText: { fontSize: 12, marginTop: 2 },
   rugWrap: { marginTop: 14 },
   rugHeader: { flexDirection: "row", justifyContent: "space-between", marginBottom: 6 },
-  rugLabel: { color: colors.text.secondary, fontSize: 13 },
+  rugLabel: { fontSize: 13 },
   rugPct: { fontSize: 16, fontWeight: "800" },
-  rugTrack: {
-    height: 8,
-    backgroundColor: colors.glass.bg,
-    borderRadius: 4,
-    overflow: "hidden",
-  },
+  rugTrack: { height: 8, borderRadius: 4, overflow: "hidden" },
   rugFill: { height: 8, borderRadius: 4 },
   statsCard: { padding: 16 },
   sectionTitle: {
-    color: colors.text.muted,
     fontSize: 10,
     fontWeight: "800",
     letterSpacing: 1.5,
@@ -284,24 +278,21 @@ const styles = StyleSheet.create({
   },
   barWrap: { marginBottom: 10 },
   barHeader: { flexDirection: "row", justifyContent: "space-between", marginBottom: 4 },
-  barLabel: { color: colors.text.secondary, fontSize: 12 },
+  barLabel: { fontSize: 12 },
   barVal: { fontSize: 12, fontWeight: "700" },
-  barTrack: { height: 6, backgroundColor: colors.glass.bg, borderRadius: 3, overflow: "hidden" },
+  barTrack: { height: 6, borderRadius: 3, overflow: "hidden" },
   barFill: { height: 6, borderRadius: 3 },
   riskCard: { padding: 16 },
   pillRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   flagPill: {
-    backgroundColor: `${colors.accent.danger}22`,
-    borderColor: colors.accent.danger,
     borderWidth: 1,
     borderRadius: 20,
     paddingHorizontal: 10,
     paddingVertical: 4,
   },
-  flagText: { color: colors.accent.danger, fontSize: 11, fontWeight: "600" },
-  noFlagsText: { color: colors.accent.safe, fontSize: 13 },
+  flagText: { fontSize: 11, fontWeight: "600" },
+  noFlagsText: { fontSize: 13 },
   sectionHeader: {
-    color: colors.text.muted,
     fontSize: 10,
     fontWeight: "800",
     letterSpacing: 1.5,
@@ -311,17 +302,15 @@ const styles = StyleSheet.create({
   tokenRow: { marginBottom: 8 },
   tokenCard: { padding: 12 },
   tokenRowInner: { flexDirection: "row", alignItems: "center", gap: 10 },
-  tokenName: { color: colors.text.primary, fontSize: 14, fontWeight: "600" },
-  tokenMint: { color: colors.text.muted, fontSize: 11, fontFamily: "monospace", marginTop: 2 },
-  chevron: { color: colors.text.muted, fontSize: 20 },
+  tokenName: { fontSize: 14, fontWeight: "600" },
+  tokenMint: { fontSize: 11, fontFamily: "monospace", marginTop: 2 },
+  chevron: { fontSize: 20 },
   loadMoreBtn: {
     alignItems: "center",
     paddingVertical: 14,
     marginTop: 4,
     borderWidth: 1,
-    borderColor: colors.glass.border,
     borderRadius: 12,
-    backgroundColor: colors.glass.bg,
   },
-  loadMoreText: { color: colors.accent.ai, fontSize: 14, fontWeight: "600" },
+  loadMoreText: { fontSize: 14, fontWeight: "600" },
 });

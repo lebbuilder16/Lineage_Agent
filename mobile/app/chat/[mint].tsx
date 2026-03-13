@@ -28,7 +28,7 @@ import Animated, {
 import * as Haptics from "expo-haptics";
 import { useAuthStore } from "@/src/store/auth";
 import { getChatStreamUrl } from "@/src/lib/api";
-import { colors } from "@/src/theme/colors";
+import { useTheme } from "@/src/theme/ThemeContext";
 import { HapticButton } from "@/src/components/ui/HapticButton";
 import { GlassCard } from "@/src/components/ui/GlassCard";
 
@@ -69,6 +69,7 @@ function parseInline(raw: string): InlineToken[] {
 }
 
 function InlineParts({ raw, baseStyle }: { raw: string; baseStyle: object }) {
+  const { colors } = useTheme();
   const tokens = parseInline(raw);
   return (
     <>
@@ -79,7 +80,7 @@ function InlineParts({ raw, baseStyle }: { raw: string; baseStyle: object }) {
           return <Text key={i} style={[baseStyle, { fontStyle: "italic" }]}>{t.content}</Text>;
         if (t.kind === "code")
           return (
-            <Text key={i} style={[baseStyle, mdStyles.inlineCode]}>{t.content}</Text>
+            <Text key={i} style={[baseStyle, baseMd.inlineCode, { backgroundColor: colors.glass.bg }]}>{t.content}</Text>
           );
         return <Text key={i} style={baseStyle}>{t.content}</Text>;
       })}
@@ -88,6 +89,7 @@ function InlineParts({ raw, baseStyle }: { raw: string; baseStyle: object }) {
 }
 
 function MarkdownText({ text, textStyle }: { text: string; textStyle: object }) {
+  const { colors } = useTheme();
   const lines = text.split("\n");
   return (
     <View style={{ gap: 4 }}>
@@ -110,8 +112,8 @@ function MarkdownText({ text, textStyle }: { text: string; textStyle: object }) 
         const bullet = line.match(/^[-*]\s+(.*)/);
         if (bullet) {
           return (
-            <View key={i} style={mdStyles.bulletRow}>
-              <Text style={[textStyle, mdStyles.bulletDot]}>•</Text>
+            <View key={i} style={baseMd.bulletRow}>
+              <Text style={[textStyle, baseMd.bulletDot]}>•</Text>
               <Text style={[textStyle, { flex: 1 }]}>
                 <InlineParts raw={bullet[1]} baseStyle={textStyle} />
               </Text>
@@ -122,9 +124,9 @@ function MarkdownText({ text, textStyle }: { text: string; textStyle: object }) 
         const quote = line.match(/^>\s+(.*)/);
         if (quote) {
           return (
-            <View key={i} style={mdStyles.quoteBar}>
-              <Text style={[textStyle, mdStyles.quoteText]}>
-                <InlineParts raw={quote[1]} baseStyle={[textStyle, mdStyles.quoteText]} />
+            <View key={i} style={[baseMd.quoteBar, { borderLeftColor: colors.accent.ai }]}>
+              <Text style={[textStyle, baseMd.quoteText, { color: colors.text.secondary }]}>
+                <InlineParts raw={quote[1]} baseStyle={[textStyle, baseMd.quoteText, { color: colors.text.secondary }]} />
               </Text>
             </View>
           );
@@ -142,10 +144,9 @@ function MarkdownText({ text, textStyle }: { text: string; textStyle: object }) 
   );
 }
 
-const mdStyles = StyleSheet.create({
+const baseMd = StyleSheet.create({
   inlineCode: {
     fontFamily: "monospace",
-    backgroundColor: "rgba(255,255,255,0.12)",
     paddingHorizontal: 4,
     borderRadius: 4,
     fontSize: 12,
@@ -154,11 +155,10 @@ const mdStyles = StyleSheet.create({
   bulletDot: { marginTop: 2, minWidth: 12 },
   quoteBar: {
     borderLeftWidth: 3,
-    borderLeftColor: colors.accent.ai,
     paddingLeft: 8,
     paddingVertical: 2,
   },
-  quoteText: { color: colors.text.secondary, fontStyle: "italic" },
+  quoteText: { fontStyle: "italic" },
 });
 
 // Suggestions rapides
@@ -174,6 +174,7 @@ const QUICK_PROMPTS = [
 // Typing indicator
 // ─────────────────────────────────────────────────────────────
 function TypingDots() {
+  const { colors } = useTheme();
   const dot1 = useSharedValue(0.3);
   const dot2 = useSharedValue(0.3);
   const dot3 = useSharedValue(0.3);
@@ -199,10 +200,10 @@ function TypingDots() {
   const s3 = useAnimatedStyle(() => ({ opacity: dot3.value }));
 
   return (
-    <View style={styles.dots}>
-      <Animated.View style={[styles.dot, s1]} />
-      <Animated.View style={[styles.dot, s2]} />
-      <Animated.View style={[styles.dot, s3]} />
+    <View style={base.dots}>
+      <Animated.View style={[base.dot, { backgroundColor: colors.accent.ai }, s1]} />
+      <Animated.View style={[base.dot, { backgroundColor: colors.accent.ai }, s2]} />
+      <Animated.View style={[base.dot, { backgroundColor: colors.accent.ai }, s3]} />
     </View>
   );
 }
@@ -211,26 +212,33 @@ function TypingDots() {
 // Message bubble
 // ─────────────────────────────────────────────────────────────
 function Bubble({ msg }: { msg: Message }) {
+  const { colors } = useTheme();
   const isUser = msg.role === "user";
   return (
     <Animated.View
       entering={FadeInDown.springify().damping(18)}
-      style={[styles.bubbleWrap, isUser ? styles.bubbleRight : styles.bubbleLeft]}
+      style={[base.bubbleWrap, isUser ? base.bubbleRight : base.bubbleLeft]}
     >
       {!isUser && (
-        <View style={styles.aiAvatar}>
-          <Text style={styles.aiAvatarText}>AI</Text>
+        <View style={[base.aiAvatar, { backgroundColor: `${colors.accent.ai}22`, borderColor: colors.accent.ai }]}>
+          <Text style={[base.aiAvatarText, { color: colors.accent.ai }]}>AI</Text>
         </View>
       )}
-      <View style={[styles.bubble, isUser ? styles.bubbleUser : styles.bubbleAI]}>
+      <View style={[
+        base.bubble,
+        isUser
+          ? { backgroundColor: colors.accent.ai }
+          : { backgroundColor: colors.glass.bgElevated, borderWidth: 1, borderColor: colors.glass.border },
+        isUser ? base.bubbleUserRadius : base.bubbleAIRadius,
+      ]}>
         {msg.streaming && msg.text === "" ? (
           <TypingDots />
         ) : isUser ? (
-          <Text style={styles.bubbleUserText}>
+          <Text style={[base.bubbleUserText, { color: colors.background.deep }]}>
             {msg.text}
           </Text>
         ) : (
-          <MarkdownText text={msg.text} textStyle={styles.bubbleAIText} />
+          <MarkdownText text={msg.text} textStyle={[base.bubbleAIText, { color: colors.text.primary }]} />
         )}
         {msg.streaming && msg.text !== "" && (
           <Text style={{ color: colors.accent.ai }}>▌</Text>
@@ -244,12 +252,13 @@ function Bubble({ msg }: { msg: Message }) {
 // Premium Gate overlay
 // ─────────────────────────────────────────────────────────────
 function PremiumGate() {
+  const { colors } = useTheme();
   return (
-    <View style={styles.gateWrap}>
-      <GlassCard elevated style={styles.gateCard}>
-        <Text style={styles.gateEmoji}>🔒</Text>
-        <Text style={styles.gateTitle}>AI Chat is Pro-only</Text>
-        <Text style={styles.gateDesc}>
+    <View style={base.gateWrap}>
+      <GlassCard elevated style={base.gateCard}>
+        <Text style={base.gateEmoji}>🔒</Text>
+        <Text style={[base.gateTitle, { color: colors.text.primary }]}>AI Chat is Pro-only</Text>
+        <Text style={[base.gateDesc, { color: colors.text.secondary }]}>
           Get unlimited AI forensic analysis, streaming answers,
           and voice mode with a Pro subscription.
         </Text>
@@ -260,7 +269,7 @@ function PremiumGate() {
           style={{ marginTop: 16 }}
         />
         <TouchableOpacity onPress={() => router.back()} style={{ marginTop: 12 }}>
-          <Text style={styles.gateBack}>Go back</Text>
+          <Text style={[base.gateBack, { color: colors.text.muted }]}>Go back</Text>
         </TouchableOpacity>
       </GlassCard>
     </View>
@@ -273,6 +282,7 @@ function PremiumGate() {
 export default function ChatScreen() {
   const { mint } = useLocalSearchParams<{ mint: string }>();
   const { isPro, isAuthenticated } = useAuthStore();
+  const { colors } = useTheme();
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
@@ -421,7 +431,7 @@ export default function ChatScreen() {
   // ── Auth gate (Pro no longer required — all authenticated users can use AI analysis)
   if (!isAuthenticated) {
     return (
-      <SafeAreaView style={styles.safe}>
+      <SafeAreaView style={[base.safe, { backgroundColor: colors.background.deep }]}>
         <Stack.Screen
           options={{
             title: "AI Analysis",
@@ -435,7 +445,7 @@ export default function ChatScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.safe} edges={["bottom"]}>
+    <SafeAreaView style={[base.safe, { backgroundColor: colors.background.deep }]} edges={["bottom"]}>
       <Stack.Screen
         options={{
           title: `AI — ${abbreviate(mint ?? "")}`,
@@ -457,17 +467,17 @@ export default function ChatScreen() {
         {/* Messages */}
         <ScrollView
           ref={scrollRef}
-          style={styles.feed}
-          contentContainerStyle={styles.feedContent}
+          style={base.feed}
+          contentContainerStyle={base.feedContent}
           showsVerticalScrollIndicator={false}
         >
           {messages.length === 0 && (
-            <Animated.View entering={FadeIn.delay(100)} style={styles.emptyWrap}>
-              <View style={styles.aiOrbLarge}>
-                <Text style={styles.aiOrbText}>AI</Text>
+            <Animated.View entering={FadeIn.delay(100)} style={base.emptyWrap}>
+              <View style={[base.aiOrbLarge, { backgroundColor: `${colors.accent.ai}33`, borderColor: colors.accent.ai }]}>
+                <Text style={[base.aiOrbText, { color: colors.accent.ai }]}>AI</Text>
               </View>
-              <Text style={styles.emptyTitle}>Forensic AI ready</Text>
-              <Text style={styles.emptySubtitle}>
+              <Text style={[base.emptyTitle, { color: colors.text.primary }]}>Forensic AI ready</Text>
+              <Text style={[base.emptySubtitle, { color: colors.text.secondary }]}>
                 Ask me anything about this token's activity, risk, or origins.
               </Text>
             </Animated.View>
@@ -483,24 +493,24 @@ export default function ChatScreen() {
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.quickPrompts}
+            contentContainerStyle={base.quickPrompts}
           >
             {QUICK_PROMPTS.map((p) => (
               <TouchableOpacity
                 key={p}
-                style={styles.quickPill}
+                style={[base.quickPill, { backgroundColor: colors.glass.bg, borderColor: colors.glass.border }]}
                 onPress={() => sendMessage(p)}
               >
-                <Text style={styles.quickPillText}>{p}</Text>
+                <Text style={[base.quickPillText, { color: colors.text.secondary }]}>{p}</Text>
               </TouchableOpacity>
             ))}
           </ScrollView>
         )}
 
         {/* Input bar */}
-        <GlassCard style={styles.inputBar} noBorder>
+        <GlassCard style={base.inputBar} noBorder>
           <TextInput
-            style={styles.input}
+            style={[base.input, { color: colors.text.primary }]}
             value={input}
             onChangeText={setInput}
             placeholder="Ask about this token…"
@@ -512,14 +522,14 @@ export default function ChatScreen() {
             maxLength={500}
           />
           <TouchableOpacity
-            style={[styles.sendBtn, isStreaming && styles.sendBtnDisabled]}
+            style={[base.sendBtn, { backgroundColor: colors.accent.ai }, isStreaming && base.sendBtnDisabled]}
             onPress={() => sendMessage(input)}
             disabled={isStreaming || !input.trim()}
           >
             {isStreaming ? (
               <ActivityIndicator size="small" color={colors.background.deep} />
             ) : (
-              <Text style={styles.sendIcon}>↑</Text>
+              <Text style={[base.sendIcon, { color: colors.background.deep }]}>↑</Text>
             )}
           </TouchableOpacity>
         </GlassCard>
@@ -531,8 +541,8 @@ export default function ChatScreen() {
 // ─────────────────────────────────────────────────────────────
 // Styles
 // ─────────────────────────────────────────────────────────────
-const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: colors.background.deep },
+const base = StyleSheet.create({
+  safe: { flex: 1 },
   feed: { flex: 1 },
   feedContent: { padding: 16, gap: 12, paddingBottom: 8 },
 
@@ -542,16 +552,13 @@ const styles = StyleSheet.create({
     width: 72,
     height: 72,
     borderRadius: 36,
-    backgroundColor: `${colors.accent.ai}33`,
     borderWidth: 2,
-    borderColor: colors.accent.ai,
     alignItems: "center",
     justifyContent: "center",
   },
-  aiOrbText: { color: colors.accent.ai, fontSize: 22, fontWeight: "800" },
-  emptyTitle: { color: colors.text.primary, fontSize: 20, fontWeight: "700" },
+  aiOrbText: { fontSize: 22, fontWeight: "800" },
+  emptyTitle: { fontSize: 20, fontWeight: "700" },
   emptySubtitle: {
-    color: colors.text.secondary,
     fontSize: 14,
     textAlign: "center",
     paddingHorizontal: 32,
@@ -562,54 +569,37 @@ const styles = StyleSheet.create({
   bubbleLeft: { alignSelf: "flex-start" },
   bubbleRight: { alignSelf: "flex-end", flexDirection: "row-reverse" },
   bubble: { borderRadius: 16, padding: 12, maxWidth: "100%", flexShrink: 1 },
-  bubbleUser: {
-    backgroundColor: colors.accent.ai,
-    borderBottomRightRadius: 4,
-  },
-  bubbleAI: {
-    backgroundColor: colors.glass.bgElevated,
-    borderWidth: 1,
-    borderColor: colors.glass.border,
-    borderBottomLeftRadius: 4,
-  },
-  bubbleUserText: { color: colors.background.deep, fontSize: 14, lineHeight: 20 },
-  bubbleAIText: { color: colors.text.primary, fontSize: 14, lineHeight: 22 },
+  bubbleUserRadius: { borderBottomRightRadius: 4 },
+  bubbleAIRadius: { borderBottomLeftRadius: 4 },
+  bubbleUserText: { fontSize: 14, lineHeight: 20 },
+  bubbleAIText: { fontSize: 14, lineHeight: 22 },
 
   // AI avatar
   aiAvatar: {
     width: 30,
     height: 30,
     borderRadius: 15,
-    backgroundColor: `${colors.accent.ai}22`,
     borderWidth: 1,
-    borderColor: colors.accent.ai,
     alignItems: "center",
     justifyContent: "center",
     marginTop: 4,
     flexShrink: 0,
   },
-  aiAvatarText: { color: colors.accent.ai, fontSize: 9, fontWeight: "800" },
+  aiAvatarText: { fontSize: 9, fontWeight: "800" },
 
   // Typing dots
   dots: { flexDirection: "row", gap: 4, padding: 4 },
-  dot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: colors.accent.ai,
-  },
+  dot: { width: 6, height: 6, borderRadius: 3 },
 
   // Quick prompts
   quickPrompts: { paddingHorizontal: 16, paddingVertical: 8, gap: 8 },
   quickPill: {
-    backgroundColor: colors.glass.bg,
     borderWidth: 1,
-    borderColor: colors.glass.border,
     borderRadius: 20,
     paddingHorizontal: 14,
     paddingVertical: 8,
   },
-  quickPillText: { color: colors.text.secondary, fontSize: 12 },
+  quickPillText: { fontSize: 12 },
 
   // Input
   inputBar: {
@@ -622,7 +612,6 @@ const styles = StyleSheet.create({
   },
   input: {
     flex: 1,
-    color: colors.text.primary,
     fontSize: 15,
     maxHeight: 120,
     paddingVertical: 8,
@@ -632,23 +621,21 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: colors.accent.ai,
     alignItems: "center",
     justifyContent: "center",
   },
   sendBtnDisabled: { opacity: 0.6 },
-  sendIcon: { color: colors.background.deep, fontSize: 20, fontWeight: "800" },
+  sendIcon: { fontSize: 20, fontWeight: "800" },
 
   // Premium gate
   gateWrap: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24 },
   gateCard: { padding: 28, alignItems: "center", gap: 12 },
   gateEmoji: { fontSize: 48 },
-  gateTitle: { color: colors.text.primary, fontSize: 22, fontWeight: "800" },
+  gateTitle: { fontSize: 22, fontWeight: "800" },
   gateDesc: {
-    color: colors.text.secondary,
     fontSize: 14,
     textAlign: "center",
     lineHeight: 22,
   },
-  gateBack: { color: colors.text.muted, fontSize: 14 },
+  gateBack: { fontSize: 14 },
 });

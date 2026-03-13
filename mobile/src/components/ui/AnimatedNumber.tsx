@@ -10,7 +10,7 @@ import Animated, {
   withTiming,
   Easing,
 } from "react-native-reanimated";
-import { colors } from "@/src/theme/colors";
+import { useTheme } from "@/src/theme/ThemeContext";
 
 const AnimatedTextInput = Animated.createAnimatedComponent(TextInput);
 
@@ -25,10 +25,12 @@ interface AnimatedNumberProps {
 export function AnimatedNumber({
   value,
   duration = 600,
-  color = colors.text.primary,
+  color,
   fontSize = 16,
   fontWeight = "600",
 }: AnimatedNumberProps) {
+  const { colors } = useTheme();
+  const resolvedColor = color ?? colors.text.primary;
   const sv = useSharedValue(0);
 
   useEffect(() => {
@@ -48,7 +50,7 @@ export function AnimatedNumber({
 
   return (
     <AnimatedTextInput
-      style={[styles.text, { color, fontSize, fontWeight }]}
+      style={[styles.text, { color: resolvedColor, fontSize, fontWeight }]}
       animatedProps={animatedProps}
       editable={false}
       underlineColorAndroid="transparent"

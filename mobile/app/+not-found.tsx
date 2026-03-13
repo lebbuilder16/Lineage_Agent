@@ -5,19 +5,20 @@ import React from "react";
 import { View, Text, StyleSheet } from "react-native";
 import { router, usePathname, Stack } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { colors } from "@/src/theme/colors";
+import { useTheme } from "@/src/theme/ThemeContext";
 import { HapticButton } from "@/src/components/ui/HapticButton";
 
 export default function NotFoundScreen() {
+  const { colors } = useTheme();
   const path = usePathname();
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={[styles.safe, { backgroundColor: colors.background.deep }]}>
       <Stack.Screen options={{ title: "Not Found", headerShown: false }} />
       <View style={styles.content}>
-        <Text style={styles.code}>404</Text>
-        <Text style={styles.title}>Page not found</Text>
-        <Text style={styles.subtitle} numberOfLines={2}>
+        <Text style={[styles.code, { color: colors.accent.ai }]}>404</Text>
+        <Text style={[styles.title, { color: colors.text.primary }]}>Page not found</Text>
+        <Text style={[styles.subtitle, { color: colors.text.muted }]} numberOfLines={2}>
           {path}
         </Text>
         <HapticButton
@@ -33,7 +34,7 @@ export default function NotFoundScreen() {
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: colors.background.deep },
+  safe: { flex: 1 },
   content: {
     flex: 1,
     alignItems: "center",
@@ -44,17 +45,14 @@ const styles = StyleSheet.create({
   code: {
     fontSize: 72,
     fontWeight: "900",
-    color: colors.accent.ai,
     opacity: 0.6,
   },
   title: {
     fontSize: 22,
     fontWeight: "800",
-    color: colors.text.primary,
   },
   subtitle: {
     fontSize: 13,
-    color: colors.text.muted,
     fontFamily: "monospace",
     textAlign: "center",
     marginTop: 4,

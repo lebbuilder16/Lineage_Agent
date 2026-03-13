@@ -80,7 +80,7 @@ function FeatureRow({
 }: (typeof FEATURES)[number]) {
   const { colors } = useTheme();
   return (
-    <View style={styles.featureRow}>
+    <View style={[styles.featureRow, { borderBottomColor: colors.glass.border }]}>
       <Text style={styles.featureIcon}>{icon}</Text>
       <Text style={[styles.featureLabel, { color: colors.text.primary }]}>{label}</Text>
       <View style={styles.featureFree}>
@@ -400,7 +400,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: 10,
     borderBottomWidth: 1,
-    borderBottomColor: "rgba(255,255,255,0.06)",
   },
   featureIcon: { fontSize: 16, width: 28 },
   featureLabel: { fontSize: 13, flex: 1 },

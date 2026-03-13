@@ -5,6 +5,7 @@ import React from "react";
 import { View, Text, ScrollView, StyleSheet } from "react-native";
 import type { ScanSnapshot } from "@/src/types/api";
 import { colors } from "@/src/theme/colors";
+import { useTheme } from "@/src/theme/ThemeContext";
 
 interface Props {
   snapshots: ScanSnapshot[];
@@ -31,11 +32,12 @@ function formatRelative(iso: string): string {
  * Affiché uniquement si ≥ 1 snapshot.
  */
 export function ScanTimeline({ snapshots }: Props) {
+  const { colors: tc } = useTheme();
   if (snapshots.length === 0) return null;
 
   return (
     <View style={styles.wrapper}>
-      <Text style={styles.label}>HISTORY</Text>
+      <Text style={[styles.label, { color: tc.text.muted }]}>HISTORY</Text>
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
@@ -50,7 +52,7 @@ export function ScanTimeline({ snapshots }: Props) {
                   {snap.risk_score}
                 </Text>
               </View>
-              <Text style={styles.time}>{formatRelative(snap.scanned_at)}</Text>
+              <Text style={[styles.time, { color: tc.text.muted }]}>{formatRelative(snap.scanned_at)}</Text>
             </View>
           );
         })}
@@ -67,7 +69,6 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   label: {
-    color: colors.text.muted,
     fontSize: 9,
     fontWeight: "700",
     letterSpacing: 1.5,
@@ -95,7 +96,6 @@ const styles = StyleSheet.create({
     fontVariant: ["tabular-nums"],
   },
   time: {
-    color: colors.text.muted,
     fontSize: 9,
   },
 });

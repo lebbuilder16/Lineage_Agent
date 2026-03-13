@@ -6,16 +6,13 @@ import { View, Text, StyleSheet } from "react-native";
 import Animated, { FadeInDown } from "react-native-reanimated";
 import type { ScanDelta } from "@/src/types/api";
 import { colors } from "@/src/theme/colors";
+import { useTheme } from "@/src/theme/ThemeContext";
 
 interface Props {
   delta: ScanDelta;
 }
 
-const TREND_CONFIG = {
-  worsening: { icon: "↑", color: colors.accent.danger, label: "Worsening", borderColor: `${colors.accent.danger}44`, bg: `${colors.accent.danger}12` },
-  improving: { icon: "↓", color: colors.accent.safe,   label: "Improving", borderColor: `${colors.accent.safe}44`,   bg: `${colors.accent.safe}12` },
-  stable:    { icon: "→", color: colors.text.muted,    label: "Stable",    borderColor: "rgba(255,255,255,0.09)",     bg: "rgba(255,255,255,0.03)" },
-} as const;
+const TREND_CONFIG_STABLE_ICON = "→";
 
 const FLAG_COLORS: Record<string, { bg: string; text: string }> = {
   BUNDLE_CONFIRMED:          { bg: `${colors.accent.danger}CC`,  text: "#fff" },
@@ -53,6 +50,14 @@ function flagLabel(flag: string): string {
  * Nécessite ≥ 2 scans (delta fourni par l'API).
  */
 export function ScanDeltaPanel({ delta }: Props) {
+  const { colors: tc } = useTheme();
+
+  const TREND_CONFIG = {
+    worsening: { icon: "↑", color: tc.accent.danger, label: "Worsening", borderColor: `${tc.accent.danger}44`, bg: `${tc.accent.danger}12` },
+    improving: { icon: "↓", color: tc.accent.safe,   label: "Improving", borderColor: `${tc.accent.safe}44`,   bg: `${tc.accent.safe}12` },
+    stable:    { icon: TREND_CONFIG_STABLE_ICON, color: tc.text.muted, label: "Stable", borderColor: tc.glass.border, bg: tc.glass.bg },
+  };
+
   const cfg = TREND_CONFIG[delta.trend as keyof typeof TREND_CONFIG];
   const prev = delta.previous_scan;
   const curr = delta.current_scan;
@@ -62,10 +67,10 @@ export function ScanDeltaPanel({ delta }: Props) {
 
   const scoreColor =
     delta.risk_score_delta > 5
-      ? colors.accent.danger
+      ? tc.accent.danger
       : delta.risk_score_delta < -5
-      ? colors.accent.safe
-      : colors.text.secondary;
+      ? tc.accent.safe
+      : tc.text.secondary;
 
   return (
     <Animated.View
@@ -77,14 +82,14 @@ export function ScanDeltaPanel({ delta }: Props) {
         <View style={styles.headerLeft}>
           <Text style={[styles.trendIcon, { color: cfg.color }]}>{cfg.icon}</Text>
           <Text style={[styles.trendLabel, { color: cfg.color }]}>{cfg.label}</Text>
-          <Text style={styles.scanNumbers}>
+          <Text style={[styles.scanNumbers, { color: tc.text.muted }]}>
             #{prev.scan_number} → #{curr.scan_number}
           </Text>
         </View>
         {/* Score arrow */}
         <View style={styles.scoreRow}>
-          <Text style={styles.scorePrev}>{prev.risk_score}</Text>
-          <Text style={styles.scoreArrow}>→</Text>
+          <Text style={[styles.scorePrev, { color: tc.text.muted }]}>{prev.risk_score}</Text>
+          <Text style={[styles.scoreArrow, { color: tc.text.muted }]}>→</Text>
           <Text style={[styles.scoreCurr, { color: cfg.color }]}>{curr.risk_score}</Text>
           <Text style={[styles.scoreDelta, { color: scoreColor }]}>
             ({scoreDeltaStr})
@@ -98,7 +103,7 @@ export function ScanDeltaPanel({ delta }: Props) {
           {delta.new_flags.map((f: string) => {
             const fc = FLAG_COLORS[f] ?? { bg: "#4B5563CC", text: "#fff" };
             return (
-              <View key={f} style={[styles.flagChip, { backgroundColor: fc.bg, borderColor: "#FF3B5C66" }]}>
+              <View key={f} style={[styles.flagChip, { backgroundColor: fc.bg, borderColor: `${colors.accent.danger}66` }]}>
                 <Text style={[styles.flagText, { color: fc.text }]}>🆕 {flagLabel(f)}</Text>
               </View>
             );
@@ -110,7 +115,7 @@ export function ScanDeltaPanel({ delta }: Props) {
       {delta.resolved_flags.length > 0 && (
         <View style={styles.flagRow}>
           {delta.resolved_flags.map((f: string) => (
-            <View key={f} style={[styles.flagChip, { backgroundColor: "#00FF9D15", borderColor: "#00FF9D33" }]}>
+            <View key={f} style={[styles.flagChip, { backgroundColor: `${colors.accent.safe}15`, borderColor: `${colors.accent.safe}33` }]}>
               <Text style={[styles.flagText, { color: colors.accent.safe }]}>✅ {flagLabel(f)}</Text>
             </View>
           ))}
@@ -121,12 +126,12 @@ export function ScanDeltaPanel({ delta }: Props) {
       {(delta.family_size_delta !== 0 || delta.rug_count_delta !== 0) && (
         <View style={styles.contextRow}>
           {delta.family_size_delta !== 0 && (
-            <Text style={styles.contextText}>
+            <Text style={[styles.contextText, { color: tc.text.muted }]}>
               Family {delta.family_size_delta > 0 ? `+${delta.family_size_delta}` : delta.family_size_delta} clones
             </Text>
           )}
           {delta.rug_count_delta !== 0 && (
-            <Text style={styles.contextText}>
+            <Text style={[styles.contextText, { color: tc.text.muted }]}>
               Deployer {delta.rug_count_delta > 0 ? `+${delta.rug_count_delta}` : delta.rug_count_delta} rugs
             </Text>
           )}
@@ -135,7 +140,7 @@ export function ScanDeltaPanel({ delta }: Props) {
 
       {/* LLM narrative */}
       {delta.narrative ? (
-        <Text style={styles.narrative}>{delta.narrative}</Text>
+        <Text style={[styles.narrative, { color: tc.text.secondary, borderTopColor: tc.glass.border }]}>{delta.narrative}</Text>
       ) : null}
     </Animated.View>
   );
@@ -160,10 +165,10 @@ const styles = StyleSheet.create({
   },
   trendIcon: { fontSize: 14, fontWeight: "800" },
   trendLabel: { fontSize: 12, fontWeight: "700" },
-  scanNumbers: { color: colors.text.muted, fontSize: 11 },
+  scanNumbers: { fontSize: 11 },
   scoreRow: { flexDirection: "row", alignItems: "center", gap: 4 },
-  scorePrev: { color: colors.text.muted, fontSize: 12, fontVariant: ["tabular-nums"] },
-  scoreArrow: { color: colors.text.muted, fontSize: 11 },
+  scorePrev: { fontSize: 12, fontVariant: ["tabular-nums"] },
+  scoreArrow: { fontSize: 11 },
   scoreCurr: { fontSize: 13, fontWeight: "700", fontVariant: ["tabular-nums"] },
   scoreDelta: { fontSize: 10, fontVariant: ["tabular-nums"] },
   flagRow: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
@@ -175,14 +180,12 @@ const styles = StyleSheet.create({
   },
   flagText: { fontSize: 10, fontWeight: "600" },
   contextRow: { flexDirection: "row", gap: 12 },
-  contextText: { color: colors.text.muted, fontSize: 10 },
+  contextText: { fontSize: 10 },
   narrative: {
-    color: colors.text.secondary,
     fontSize: 11,
     fontStyle: "italic",
     lineHeight: 16,
     borderTopWidth: 1,
-    borderTopColor: "rgba(255,255,255,0.06)",
     paddingTop: 8,
   },
 });

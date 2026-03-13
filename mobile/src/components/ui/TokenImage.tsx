@@ -4,7 +4,7 @@
 import React, { useState } from "react";
 import { View, Text, StyleSheet } from "react-native";
 import { Image } from "expo-image";
-import { colors } from "@/src/theme/colors";
+import { useTheme } from "@/src/theme/ThemeContext";
 
 interface TokenImageProps {
   uri: string;
@@ -14,6 +14,7 @@ interface TokenImageProps {
 }
 
 export function TokenImage({ uri, size = 48, symbol, borderRadius }: TokenImageProps) {
+  const { colors } = useTheme();
   const [error, setError] = useState(false);
   const radius = borderRadius ?? size * 0.25;
 
@@ -26,10 +27,12 @@ export function TokenImage({ uri, size = 48, symbol, borderRadius }: TokenImageP
             width: size,
             height: size,
             borderRadius: radius,
+            backgroundColor: colors.glass.bg,
+            borderColor: colors.glass.border,
           },
         ]}
       >
-        <Text style={[styles.fallbackText, { fontSize: size * 0.35 }]}>
+        <Text style={[styles.fallbackText, { fontSize: size * 0.35, color: colors.text.muted }]}>
           {(symbol ?? "?").slice(0, 2).toUpperCase()}
         </Text>
       </View>
@@ -49,14 +52,11 @@ export function TokenImage({ uri, size = 48, symbol, borderRadius }: TokenImageP
 
 const styles = StyleSheet.create({
   fallback: {
-    backgroundColor: colors.glass.bg,
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1,
-    borderColor: colors.glass.border,
   },
   fallbackText: {
-    color: colors.text.muted,
     fontWeight: "700",
   },
 });

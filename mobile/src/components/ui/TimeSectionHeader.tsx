@@ -3,18 +3,19 @@
 
 import React from "react";
 import { View, Text, StyleSheet } from "react-native";
-import { colors } from "@/src/theme/colors";
+import { useTheme } from "@/src/theme/ThemeContext";
 
 interface TimeSectionHeaderProps {
   label: string;
 }
 
 export function TimeSectionHeader({ label }: TimeSectionHeaderProps) {
+  const { colors } = useTheme();
   return (
     <View style={styles.row}>
-      <View style={styles.line} />
-      <Text style={styles.label}>{label.toUpperCase()}</Text>
-      <View style={styles.line} />
+      <View style={[styles.line, { backgroundColor: colors.glass.border }]} />
+      <Text style={[styles.label, { color: colors.text.muted }]}>{label.toUpperCase()}</Text>
+      <View style={[styles.line, { backgroundColor: colors.glass.border }]} />
     </View>
   );
 }
@@ -27,15 +28,6 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     gap: 10,
   },
-  line: {
-    flex: 1,
-    height: 1,
-    backgroundColor: colors.glass.border,
-  },
-  label: {
-    color: colors.text.muted,
-    fontSize: 10,
-    fontWeight: "600",
-    letterSpacing: 1.5,
-  },
+  line: { flex: 1, height: 1 },
+  label: { fontSize: 10, fontWeight: "600", letterSpacing: 1.5 },
 });

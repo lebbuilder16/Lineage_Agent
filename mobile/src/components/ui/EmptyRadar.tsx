@@ -11,13 +11,14 @@ import Animated, {
   withTiming,
   withDelay,
 } from "react-native-reanimated";
-import { colors } from "@/src/theme/colors";
+import { useTheme } from "@/src/theme/ThemeContext";
 
 interface EmptyRadarProps {
   message?: string;
 }
 
 function PulsingRing({ size, delay }: { size: number; delay: number }) {
+  const { colors } = useTheme();
   const scale = useSharedValue(1);
   const opacity = useSharedValue(0.5);
 
@@ -68,6 +69,7 @@ function PulsingRing({ size, delay }: { size: number; delay: number }) {
 }
 
 export function EmptyRadar({ message = "Monitoring all mints..." }: EmptyRadarProps) {
+  const { colors } = useTheme();
   return (
     <View style={styles.container}>
       <View style={styles.radarWrapper}>
@@ -75,9 +77,9 @@ export function EmptyRadar({ message = "Monitoring all mints..." }: EmptyRadarPr
         <PulsingRing size={80} delay={200} />
         <PulsingRing size={40} delay={0} />
         {/* Dot central */}
-        <View style={styles.dot} />
+        <View style={[styles.dot, { backgroundColor: colors.accent.safe }]} />
       </View>
-      <Text style={styles.message}>{message}</Text>
+      <Text style={[styles.message, { color: colors.text.muted }]}>{message}</Text>
     </View>
   );
 }
@@ -104,10 +106,8 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: colors.accent.safe,
   },
   message: {
-    color: colors.text.muted,
     fontSize: 13,
     fontWeight: "500",
     textAlign: "center",

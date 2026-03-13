@@ -12,7 +12,7 @@ import {
 } from "react-native";
 import { router } from "expo-router";
 import { TokenImage } from "@/src/components/ui/TokenImage";
-import { colors } from "@/src/theme/colors";
+import { useTheme } from "@/src/theme/ThemeContext";
 import type { LineageResult, DerivativeInfo } from "@/src/types/api";
 
 interface NodeProps {
@@ -26,6 +26,7 @@ interface NodeProps {
 }
 
 function TreeNode({ mint, name, symbol, imageUri, isRoot, isQuery, generation }: NodeProps) {
+  const { colors } = useTheme();
   const borderColor = isRoot
     ? colors.accent.safe
     : isQuery
@@ -40,11 +41,11 @@ function TreeNode({ mint, name, symbol, imageUri, isRoot, isQuery, generation }:
       onPress={() => router.push(`/lineage/${mint}`)}
       activeOpacity={0.75}
     >
-      <View style={[styles.node, { borderColor }]}>
+      <View style={[styles.node, { borderColor, backgroundColor: colors.glass.bg }]}>
         <TokenImage uri={imageUri} size={48} symbol={symbol} borderRadius={10} />
-        {isRoot && <View style={styles.rootCrown}><Text style={styles.crownText}>★</Text></View>}
+        {isRoot && <View style={[styles.rootCrown, { backgroundColor: colors.accent.safe }]}><Text style={[styles.crownText, { color: colors.background.deep }]}>★</Text></View>}
       </View>
-      <Text style={styles.nodeName} numberOfLines={1}>{name || symbol}</Text>
+      <Text style={[styles.nodeName, { color: colors.text.primary }]} numberOfLines={1}>{name || symbol}</Text>
       <Text style={[styles.nodeGen, { color: borderColor }]}>
         {isRoot ? "ROOT" : `Gen ${generation}`}
       </Text>
@@ -53,6 +54,7 @@ function TreeNode({ mint, name, symbol, imageUri, isRoot, isQuery, generation }:
 }
 
 export function FamilyTreeView({ result }: { result: LineageResult }) {
+  const { colors } = useTheme();
   const { root, derivatives, query_token, query_is_root, mint } = result;
 
   // Organiser par génération
@@ -84,7 +86,7 @@ export function FamilyTreeView({ result }: { result: LineageResult }) {
       {/* Connector */}
       {maxGen > 0 && (
         <View style={styles.connector}>
-          <View style={styles.connectorLine} />
+          <View style={[styles.connectorLine, { backgroundColor: colors.glass.border }]} />
         </View>
       )}
 
@@ -95,7 +97,7 @@ export function FamilyTreeView({ result }: { result: LineageResult }) {
         if (items.length === 0) return null;
         return (
           <View key={gen}>
-            <Text style={styles.genLabel}>Generation {gen}</Text>
+            <Text style={[styles.genLabel, { color: colors.text.muted }]}>Generation {gen}</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.genScroll}>
               <View style={styles.genRow}>
                 {items.map((d) => (
@@ -114,7 +116,7 @@ export function FamilyTreeView({ result }: { result: LineageResult }) {
             </ScrollView>
             {gen < maxGen && (
               <View style={styles.connector}>
-                <View style={styles.connectorLine} />
+                <View style={[styles.connectorLine, { backgroundColor: colors.glass.border }]} />
               </View>
             )}
           </View>
@@ -124,7 +126,7 @@ export function FamilyTreeView({ result }: { result: LineageResult }) {
       {/* Empty state */}
       {maxGen === 0 && !root && (
         <View style={styles.emptyTree}>
-          <Text style={styles.emptyTreeText}>No family tree data available</Text>
+          <Text style={[styles.emptyTreeText, { color: colors.text.muted }]}>No family tree data available</Text>
         </View>
       )}
     </View>
@@ -141,7 +143,6 @@ const styles = StyleSheet.create({
   },
   genScroll: { marginVertical: 4 },
   genLabel: {
-    color: colors.text.muted,
     fontSize: 10,
     fontWeight: "700",
     letterSpacing: 1,
@@ -157,19 +158,16 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: colors.glass.bg,
   },
   rootCrown: {
     position: "absolute",
     top: -8,
     right: -8,
-    backgroundColor: colors.accent.safe,
     borderRadius: 8,
     padding: 2,
   },
-  crownText: { fontSize: 10, color: colors.background.deep },
+  crownText: { fontSize: 10 },
   nodeName: {
-    color: colors.text.primary,
     fontSize: 10,
     fontWeight: "600",
     marginTop: 6,
@@ -180,8 +178,7 @@ const styles = StyleSheet.create({
   connectorLine: {
     width: 1,
     height: 20,
-    backgroundColor: colors.glass.border,
   },
   emptyTree: { alignItems: "center", padding: 24 },
-  emptyTreeText: { color: colors.text.muted, fontSize: 13 },
+  emptyTreeText: { fontSize: 13 },
 });

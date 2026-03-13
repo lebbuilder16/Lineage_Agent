@@ -9,34 +9,36 @@ import Animated, {
   withSpring,
 } from "react-native-reanimated";
 import type { WsConnectionState } from "@/src/lib/websocket";
-import { colors } from "@/src/theme/colors";
+import { useTheme } from "@/src/theme/ThemeContext";
 
 interface WsStatusBarProps {
   state: WsConnectionState;
 }
 
-const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
-  reconnecting: {
-    label: "◌  Reconnecting...",
-    color: colors.accent.warning,
-    bg: `${colors.accent.warning}15`,
-  },
-  connecting: {
-    label: "◌  Connecting...",
-    color: colors.accent.warning,
-    bg: `${colors.accent.warning}15`,
-  },
-  disconnected: {
-    label: "⊗  Offline — alerts paused",
-    color: colors.text.muted,
-    bg: `${colors.text.muted}15`,
-  },
-};
-
 export function WsStatusBar({ state }: WsStatusBarProps) {
+  const { colors } = useTheme();
   const height = useSharedValue(0);
 
   const isVisible = state !== "connected";
+
+  const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
+    reconnecting: {
+      label: "◌  Reconnecting...",
+      color: colors.accent.warning,
+      bg: `${colors.accent.warning}15`,
+    },
+    connecting: {
+      label: "◌  Connecting...",
+      color: colors.accent.warning,
+      bg: `${colors.accent.warning}15`,
+    },
+    disconnected: {
+      label: "⊗  Offline — alerts paused",
+      color: colors.text.muted,
+      bg: `${colors.text.muted}15`,
+    },
+  };
+
   const config = isVisible ? (STATUS_CONFIG[state] ?? null) : null;
 
   useEffect(() => {

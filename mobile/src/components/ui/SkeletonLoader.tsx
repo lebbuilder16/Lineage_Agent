@@ -11,6 +11,7 @@ import Animated, {
   withTiming,
   Easing,
 } from "react-native-reanimated";
+import { useTheme } from "@/src/theme/ThemeContext";
 
 interface SkeletonProps {
   width?: number | string;
@@ -20,6 +21,7 @@ interface SkeletonProps {
 }
 
 export function Skeleton({ width = "100%", height = 16, borderRadius = 8, style }: SkeletonProps) {
+  const { colors } = useTheme();
   const opacity = useSharedValue(0.3);
 
   useEffect(() => {
@@ -42,7 +44,7 @@ export function Skeleton({ width = "100%", height = 16, borderRadius = 8, style 
           width: width as any,
           height,
           borderRadius,
-          backgroundColor: "rgba(255,255,255,0.12)",
+          backgroundColor: colors.glass.bg,
         },
         animatedStyle,
         style,
@@ -104,6 +106,7 @@ export function ShimmerSkeleton({
   borderRadius = 8,
   style,
 }: ShimmerSkeletonProps) {
+  const { colors } = useTheme();
   const translateX = useSharedValue(-200);
 
   useEffect(() => {
@@ -125,7 +128,7 @@ export function ShimmerSkeleton({
           width: width as any,
           height,
           borderRadius,
-          backgroundColor: "rgba(255,255,255,0.07)",
+          backgroundColor: colors.glass.bg,
           overflow: "hidden",
         },
         style,
@@ -138,7 +141,7 @@ export function ShimmerSkeleton({
             top: 0,
             bottom: 0,
             width: 120,
-            backgroundColor: "rgba(255,255,255,0.13)",
+            backgroundColor: colors.glass.bgElevated,
           },
           shimmerStyle,
         ]}
@@ -163,12 +166,13 @@ export function AIBriefSkeleton() {
 // ─── Stats Bar Skeleton ───────────────────────────────────────────────────────
 
 export function StatsBarSkeleton() {
+  const { colors } = useTheme();
   return (
     <View style={{ flexDirection: "row", gap: 12, alignItems: "center" }}>
       <ShimmerSkeleton width={undefined} height={36} borderRadius={8} style={{ flex: 1 }} />
-      <View style={{ width: 1, height: 28, backgroundColor: "rgba(255,255,255,0.08)" }} />
+      <View style={{ width: 1, height: 28, backgroundColor: colors.glass.border }} />
       <ShimmerSkeleton width={undefined} height={36} borderRadius={8} style={{ flex: 1 }} />
-      <View style={{ width: 1, height: 28, backgroundColor: "rgba(255,255,255,0.08)" }} />
+      <View style={{ width: 1, height: 28, backgroundColor: colors.glass.border }} />
       <ShimmerSkeleton width={undefined} height={36} borderRadius={8} style={{ flex: 1 }} />
     </View>
   );

@@ -111,7 +111,7 @@ function AlertRow({ item, index, isNew = false }: { item: AlertItem; index: numb
   const color = ALERT_COLORS[item.type];
   const score = item.risk_score ?? RISK_FALLBACK[item.type];
   const riskLevel = riskLevelFromScore(score);
-  const { colors: tc } = useTheme();
+  const { colors: tc, isDark } = useTheme();
   const scale = useSharedValue(1);
   const pressStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
   const markRead = useAlertsStore((s) => s.markRead);
@@ -131,7 +131,7 @@ function AlertRow({ item, index, isNew = false }: { item: AlertItem; index: numb
     >
       <Animated.View entering={isNew ? FadeInLeft.springify() : FadeInDown.delay(index * 50).springify()}>
         <Pressable
-          style={[s.alertRow, { borderBottomColor: tc.glass.border }, !item.read && s.alertRowUnread]}
+          style={[s.alertRow, { borderBottomColor: tc.glass.border }, !item.read && { backgroundColor: isDark ? "rgba(255,255,255,0.015)" : "rgba(0,0,0,0.02)" }]}
           onPressIn={() => { scale.value = withSpring(0.98, { damping: 20 }); }}
           onPressOut={() => { scale.value = withSpring(1, { damping: 20 }); }}
           onPress={() => { markRead(item.id); router.push(`/lineage/${item.mint}`); }}
@@ -456,7 +456,7 @@ const s = StyleSheet.create({
   // Alert list
   alertList: { overflow: "hidden" },
   alertRow: { borderBottomWidth: StyleSheet.hairlineWidth },
-  alertRowUnread: { backgroundColor: "rgba(255,255,255,0.015)" },
+  alertRowUnread: {},
   alertInner: { flexDirection: "row", alignItems: "flex-start", paddingHorizontal: 16, paddingVertical: 13, gap: 12 },
   alertContent: { flex: 1, gap: 5 },
   alertTopRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },

@@ -8,7 +8,7 @@ import Animated, {
   useAnimatedStyle,
   withSpring,
 } from "react-native-reanimated";
-import { colors } from "@/src/theme/colors";
+import { useTheme } from "@/src/theme/ThemeContext";
 
 interface NewAlertsBannerProps {
   count: number;
@@ -16,6 +16,7 @@ interface NewAlertsBannerProps {
 }
 
 export function NewAlertsBanner({ count, onPress }: NewAlertsBannerProps) {
+  const { colors } = useTheme();
   const translateY = useSharedValue(-48);
 
   useEffect(() => {
@@ -33,8 +34,12 @@ export function NewAlertsBanner({ count, onPress }: NewAlertsBannerProps) {
 
   return (
     <Animated.View style={[styles.wrapper, animStyle]} pointerEvents="box-none">
-      <TouchableOpacity style={styles.pill} onPress={onPress} activeOpacity={0.8}>
-        <Text style={styles.text}>▲ {count} new alert{count > 1 ? "s" : ""}</Text>
+      <TouchableOpacity
+        style={[styles.pill, { backgroundColor: `${colors.accent.safe}18`, borderColor: `${colors.accent.safe}50` }]}
+        onPress={onPress}
+        activeOpacity={0.8}
+      >
+        <Text style={[styles.text, { color: colors.accent.safe }]}>▲ {count} new alert{count > 1 ? "s" : ""}</Text>
       </TouchableOpacity>
     </Animated.View>
   );
@@ -50,15 +55,12 @@ const styles = StyleSheet.create({
     zIndex: 20,
   },
   pill: {
-    backgroundColor: `${colors.accent.safe}18`,
-    borderColor: `${colors.accent.safe}50`,
     borderWidth: 1,
     borderRadius: 999,
     paddingHorizontal: 16,
     paddingVertical: 6,
   },
   text: {
-    color: colors.accent.safe,
     fontSize: 12,
     fontWeight: "600",
     letterSpacing: 0.3,

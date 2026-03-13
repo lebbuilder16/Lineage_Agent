@@ -3,7 +3,8 @@
 
 import React from "react";
 import { View, Text, StyleSheet } from "react-native";
-import { riskColor, verdictColor, colors } from "@/src/theme/colors";
+import { riskColor, verdictColor } from "@/src/theme/colors";
+import { useTheme } from "@/src/theme/ThemeContext";
 import { typography } from "@/src/theme/typography";
 
 interface RiskBadgeProps {
@@ -14,6 +15,7 @@ interface RiskBadgeProps {
 }
 
 export function RiskBadge({ label, riskLevel, verdict, size = "md" }: RiskBadgeProps) {
+  const { colors } = useTheme();
   const color = riskLevel
     ? riskColor(riskLevel)
     : verdict
