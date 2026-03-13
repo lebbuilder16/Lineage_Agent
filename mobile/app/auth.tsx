@@ -92,22 +92,40 @@ export default function AuthScreen() {
   const resendIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // ── Privy SDK
-  const { isReady } = usePrivy();
+  // isReady: wait for Privy to initialise before allowing any auth attempt.
+  // user: watch for Privy-side state change as a backup path for loginWithCode.
+  const { isReady, user: privyAuthUser } = usePrivy();
   const { sendCode, loginWithCode, state: emailState } = useLoginWithEmail({
-    onLoginSuccess: (user) => {
-      // Privy SDK fires this callback with the authenticated PrivyUser
-      _handlePrivyUser(user.id, (user as any).email?.address);
-    },
+    // onLoginSuccess is deliberately omitted here — we use the return value of
+    // loginWithCode() instead (see handleConnect below). Using both simultaneously
+    // would call _handlePrivyUser twice, causing duplicate backend requests and
+    // navigation races. (Privy Expo v0.7.0 type: loginWithCode → Promise<PrivyUser | undefined>)
     onError: (err) => {
       authErrorRef.current = err.message ?? "Please try again.";
     },
   });
 
-  // Fallback: if onLoginSuccess didn't fire (edge case), clear loading
+  // ── Dedup guard — prevents _handlePrivyUser from being called twice
+  // (can happen if loginWithCode() returns a user AND the backup privyAuthUser
+  // effect fires in the same render cycle).
+  const privyHandledRef = useRef(false);
+
+  // Backup path: if loginWithCode() resolves but returns undefined (edge case in
+  // older SDK versions), Privy still sets usePrivy().user. React to that change
+  // while we're actively in an OTP loading state.
+  useEffect(() => {
+    if (!loading || !privyAuthUser) return;
+    const emailAccount = (privyAuthUser.linked_accounts as any[])?.find(
+      (a: any) => a.type === "email"
+    );
+    _handlePrivyUser(privyAuthUser.id, emailAccount?.address);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [privyAuthUser]);
+
+  // Safety net: if emailState reaches 'done' but loading is still true after
+  // 3 s, something went wrong — clear the spinner so the user can retry.
   useEffect(() => {
     if (emailState.status === "done" && loading) {
-      // onLoginSuccess should have already handled it;
-      // if loading is still true after a short delay, something went wrong
       const id = setTimeout(() => setLoading(false), 3000);
       return () => clearTimeout(id);
     }
@@ -116,12 +134,15 @@ export default function AuthScreen() {
 
   const _handlePrivyUser = useCallback(
     async (privyId: string, email?: string) => {
+      if (privyHandledRef.current) return; // prevent double-call
+      privyHandledRef.current = true;
       setLoading(true);
       try {
         const user = await loginWithPrivy(privyId, undefined, email);
         await setUser(user);
         router.replace("/(tabs)");
       } catch (e: any) {
+        privyHandledRef.current = false; // allow retry after error
         sentryCaptureError(e, { context: "auth_email" });
         Alert.alert("Connection failed", e.message ?? "Please try again.");
       } finally {
@@ -259,12 +280,18 @@ export default function AuthScreen() {
       }
       try {
         authErrorRef.current = null;
-        const privyUser = await loginWithCode({ code: trimmedCode });
-        // If onLoginSuccess callback fires, it handles the login.
-        // As a safety net, also handle the return value:
+        privyHandledRef.current = false; // reset before each attempt
+        // Official Privy Expo quickstart: always pass email to loginWithCode so
+        // the SDK can match the OTP to the right session.
+        const privyUser = await loginWithCode({ code: trimmedCode, email: email.trim() });
         if (privyUser?.id) {
-          _handlePrivyUser(privyUser.id, (privyUser as any).email?.address);
+          // Extract email from linked_accounts (PrivyUser has no top-level .email field)
+          const emailAccount = (privyUser.linked_accounts as any[])?.find(
+            (a: any) => a.type === "email"
+          );
+          _handlePrivyUser(privyUser.id, emailAccount?.address);
         }
+        // If privyUser is undefined, the backup useEffect handles it via usePrivy().user
       } catch (e: any) {
         const msg =
           authErrorRef.current ??
