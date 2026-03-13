@@ -175,7 +175,7 @@ export default function AuthScreen() {
       phantomTimeoutRef.current = null;
     }, 120_000);
 
-    const deepUrl = buildPhantomConnectURL("lineage");
+    const deepUrl = await buildPhantomConnectURL("lineage");
 
     // Try the native phantom:// scheme first, fall back to universal link
     const canOpen = await Linking.canOpenURL(deepUrl).catch(() => false);
@@ -185,7 +185,7 @@ export default function AuthScreen() {
         await Linking.openURL(deepUrl);
       } else {
         // Universal link: also works as a web redirect on Android
-        const universalUrl = buildPhantomUniversalConnectURL("lineage");
+        const universalUrl = await buildPhantomUniversalConnectURL("lineage");
         await Linking.openURL(universalUrl);
       }
     } catch {

@@ -28,14 +28,14 @@ let _connectNonce: Uint8Array | null = null;
  * Returns the URL to open (use Linking.openURL or Linking.canOpenURL first).
  * Call this once per connect attempt — it regenerates the ephemeral keypair.
  */
-export function buildPhantomConnectURL(appScheme = "lineage"): string {
+export async function buildPhantomConnectURL(appScheme = "lineage"): Promise<string> {
   // New keypair + nonce for every connect attempt
   _dappKeypair = nacl.box.keyPair();
   _connectNonce = nacl.randomBytes(24);
 
-  // Persist to SecureStore so cold-starts (Phantom deep-link reopens the app)
-  // can restore the keypair before calling decryptPhantomResponse.
-  void _savePhantomSession();
+  // Await the save so the keypair is guaranteed on disk before the caller
+  // calls Linking.openURL() and the OS backgrounds/kills this app.
+  await _savePhantomSession();
 
   const dappPubKeyB58 = bs58.encode(_dappKeypair.publicKey);
   const nonce = bs58.encode(_connectNonce);
@@ -55,8 +55,8 @@ export function buildPhantomConnectURL(appScheme = "lineage"): string {
 /**
  * Universal link fallback for Android when `phantom://` scheme is not registered.
  */
-export function buildPhantomUniversalConnectURL(appScheme = "lineage"): string {
-  if (!_dappKeypair || !_connectNonce) buildPhantomConnectURL(appScheme); // ensure session exists
+export async function buildPhantomUniversalConnectURL(appScheme = "lineage"): Promise<string> {
+  if (!_dappKeypair || !_connectNonce) await buildPhantomConnectURL(appScheme); // ensure session exists + saved
   const dappPubKeyB58 = bs58.encode(_dappKeypair!.publicKey);
   // Reuse the nonce from buildPhantomConnectURL — regenerating it would cause NaCl decryption failure
   const nonce = bs58.encode(_connectNonce!);
