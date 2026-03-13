@@ -13,7 +13,6 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import {
   decryptPhantomResponse,
   parsePhantomCallbackParams,
-  restorePhantomSession,
 } from "@/src/lib/solanaWallet";
 import { loginWithPrivy } from "@/src/lib/api";
 import { useAuthStore } from "@/src/store/auth";
@@ -41,10 +40,9 @@ export default function PhantomConnectScreen() {
     async function handle() {
       handled.current = true;
 
-      // Restore keypair from SecureStore in case the app was cold-started
-      await restorePhantomSession();
-
-      // Prefer params parsed by Expo Router; fall back to raw initial URL
+      // Prefer params parsed by Expo Router; fall back to raw initial URL.
+      // decryptPhantomResponse is async and self-heals the keypair from SecureStore
+      // internally, so no explicit restorePhantomSession call is needed here.
       let params: Record<string, string> = {};
 
       if (searchParams.phantom_encryption_public_key || searchParams.errorCode) {
@@ -53,7 +51,8 @@ export default function PhantomConnectScreen() {
           if (v !== undefined) params[k] = String(v);
         }
       } else {
-        // Cold-start: read from the raw launch URL
+        // Cold-start OR warm-start where Expo Router params aren't ready yet:
+        // read from the raw URL supplied by the OS.
         const url = await Linking.getInitialURL();
         if (url) params = parsePhantomCallbackParams(url);
       }
@@ -77,7 +76,7 @@ export default function PhantomConnectScreen() {
         return;
       }
 
-      const result = decryptPhantomResponse(
+      const result = await decryptPhantomResponse(
         phantom_encryption_public_key,
         nonce,
         data

@@ -79,16 +79,35 @@ export type PhantomConnectResult =
 
 /**
  * Decrypts the callback URL parameters sent by Phantom after user approval.
+ * Self-healing: if the keypair was lost (JS reload, OS reclaim), restores from SecureStore.
  *
  * @param phantomEncPubKeyB58 - `phantom_encryption_public_key` query param
  * @param nonceB58            - `nonce` query param from Phantom callback
  * @param dataB58             - `data` query param from Phantom callback
  */
-export function decryptPhantomResponse(
+export async function decryptPhantomResponse(
   phantomEncPubKeyB58: string,
   nonceB58: string,
   dataB58: string
-): PhantomConnectResult {
+): Promise<PhantomConnectResult> {
+  // If keypair was lost (cold-start, JS hot-reload, OS memory reclaim), restore it now.
+  if (!_dappKeypair) {
+    try {
+      const sk = await SecureStore.getItemAsync(_SK_KEY);
+      const pk = await SecureStore.getItemAsync(_PK_KEY);
+      if (sk && pk) {
+        _dappKeypair = { secretKey: bs58.decode(sk), publicKey: bs58.decode(pk) };
+        const nonce = await SecureStore.getItemAsync(_NONCE_KEY);
+        if (nonce) _connectNonce = bs58.decode(nonce);
+        console.log("[Phantom] decryptPhantomResponse: restored keypair from SecureStore");
+      } else {
+        console.error("[Phantom] decryptPhantomResponse: SecureStore empty — sk:", !!sk, "pk:", !!pk);
+      }
+    } catch (e) {
+      console.error("[Phantom] decryptPhantomResponse: SecureStore restore error:", e);
+    }
+  }
+
   if (!_dappKeypair) {
     return { ok: false, error: "No active connect session — call buildPhantomConnectURL first." };
   }
@@ -177,13 +196,16 @@ export async function restorePhantomSession(): Promise<void> {
     const sk = await SecureStore.getItemAsync(_SK_KEY);
     const pk = await SecureStore.getItemAsync(_PK_KEY);
     const nonce = await SecureStore.getItemAsync(_NONCE_KEY);
-    if (!sk || !pk || !nonce) return;
+    if (!sk || !pk || !nonce) {
+      console.warn("[Phantom] restorePhantomSession: SecureStore missing keys", { sk: !!sk, pk: !!pk, nonce: !!nonce });
+      return;
+    }
     _dappKeypair = {
       secretKey: bs58.decode(sk),
       publicKey: bs58.decode(pk),
     };
     _connectNonce = bs58.decode(nonce);
-  } catch {
-    // SecureStore unavailable or data corrupted — leave null, decryption will fail gracefully
+  } catch (e) {
+    console.error("[Phantom] restorePhantomSession failed:", e);
   }
 }
