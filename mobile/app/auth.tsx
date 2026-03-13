@@ -38,9 +38,6 @@ import { LinearGradient } from "expo-linear-gradient";
 import {
   buildPhantomConnectURL,
   buildPhantomUniversalConnectURL,
-  decryptPhantomResponse,
-  isPhantomCallback,
-  parsePhantomCallbackParams,
 } from "@/src/lib/solanaWallet";
 
 function AnimatedOrb() {
@@ -91,8 +88,6 @@ export default function AuthScreen() {
   const [walletLoading, setWalletLoading] = useState(false);
   const [resendCooldown, setResendCooldown] = useState(0);
   const authErrorRef = useRef<string | null>(null);
-  // Tracks whether we're in an active Phantom deeplink flow
-  const phantomPendingRef = useRef(false);
   const phantomTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const resendIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -103,76 +98,6 @@ export default function AuthScreen() {
       authErrorRef.current = err.message ?? "Please try again.";
     },
   });
-
-  // ── Phantom deeplink callback listener ────────────────────────────────
-  const _handlePhantomCallback = useCallback(
-    async (url: string) => {
-      if (!isPhantomCallback(url) || !phantomPendingRef.current) return;
-      phantomPendingRef.current = false;
-      if (phantomTimeoutRef.current) {
-        clearTimeout(phantomTimeoutRef.current);
-        phantomTimeoutRef.current = null;
-      }
-      const params = parsePhantomCallbackParams(url);
-
-      // User rejected in Phantom
-      if (params.errorCode) {
-        setWalletLoading(false);
-        Alert.alert(
-          "Wallet connection cancelled",
-          params.errorMessage ?? "You rejected the connection request."
-        );
-        return;
-      }
-
-      const { phantom_encryption_public_key, nonce, data } = params;
-      if (!phantom_encryption_public_key || !nonce || !data) {
-        setWalletLoading(false);
-        Alert.alert("Error", "Incomplete response from Phantom.");
-        return;
-      }
-
-      const result = decryptPhantomResponse(
-        phantom_encryption_public_key,
-        nonce,
-        data
-      );
-
-      if (!result.ok) {
-        setWalletLoading(false);
-        Alert.alert("Decryption error", result.error);
-        return;
-      }
-
-      // Use the Solana public key as unique identifier on our backend
-      try {
-        const user = await loginWithPrivy(result.publicKey, result.publicKey);
-        await setUser(user);
-        router.replace("/(tabs)");
-      } catch (e: any) {
-        sentryCaptureError(e, { context: "auth_phantom" });
-        Alert.alert("Connection failed", e.message ?? "Please try again.");
-      } finally {
-        setWalletLoading(false);
-      }
-    },
-    [setUser]
-  );
-
-  useEffect(() => {
-    // Listen for Phantom deeplink callbacks while this screen is mounted
-    const subscription = Linking.addEventListener("url", ({ url }) => {
-      _handlePhantomCallback(url);
-    });
-
-    // Handle case where app was cold-started by the deeplink
-    Linking.getInitialURL().then((url) => {
-      if (url) _handlePhantomCallback(url);
-    });
-
-    return () => subscription.remove();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   // Privy v2: onComplete removed — watch emailState.status instead
   useEffect(() => {
@@ -239,15 +164,15 @@ export default function AuthScreen() {
 
   const handlePhantomConnect = async () => {
     setWalletLoading(true);
-    phantomPendingRef.current = true;
 
-    // Auto-reset if Phantom doesn't callback within 120s
+    // Phantom callback is handled exclusively by the phantom-connect.tsx screen
+    // (deep link route). This timeout is only a safety net if Phantom never
+    // brings the app back.
     if (phantomTimeoutRef.current) clearTimeout(phantomTimeoutRef.current);
     phantomTimeoutRef.current = setTimeout(() => {
-      if (!phantomPendingRef.current) return;
-      phantomPendingRef.current = false;
       setWalletLoading(false);
       Alert.alert("Connection timed out", "Phantom didn't respond. Please try again.");
+      phantomTimeoutRef.current = null;
     }, 120_000);
 
     const deepUrl = buildPhantomConnectURL("lineage");
@@ -264,7 +189,6 @@ export default function AuthScreen() {
         await Linking.openURL(universalUrl);
       }
     } catch {
-      phantomPendingRef.current = false;
       if (phantomTimeoutRef.current) {
         clearTimeout(phantomTimeoutRef.current);
         phantomTimeoutRef.current = null;
