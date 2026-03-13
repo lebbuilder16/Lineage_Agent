@@ -11,8 +11,7 @@
   },
   "dependencies": {
     "@ethersproject/shims": "^5.8.0",
-    "@expo-google-fonts/inter": "^0.3.0",
-    "@expo-google-fonts/plus-jakarta-sans": "^0.4.2",
+    "@expo-google-fonts/lexend": "^0.3.0",
     "@privy-io/expo": "^0.7.0",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@sentry/react-native": "^8.3.0",

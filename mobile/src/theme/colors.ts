@@ -1,20 +1,20 @@
 // src/theme/colors.ts
-// Tokens de couleur centraux — Noelle Design System (Dark + Light)
+// Tokens de couleur centraux — Aurora Glass Design System (Dark + Light)
 
 // ─── Accent / Risk / Verdict tokens (same in both modes) ─────────────────────
 const accent = {
-  safe: "#5BC763",
-  gain: "#6EC62F",
-  danger: "#DD5656",
-  dangerDark: "#D65151",
+  safe: "#00FF88",      // Aurora neon green
+  gain: "#00E87A",
+  danger: "#FF3366",    // Aurora neon pink
+  dangerDark: "#E02255",
   warning: "#F2AD4B",
   amber: "#DDA76E",
   ai: "#622EC3",
   aiLight: "#B370F0",
-  cyan: "#53E9F6",
+  cyan: "#ADC8FF",      // Aurora light blue
   mint: "#72E4C5",
-  pink: "#ED569D",
-  blue: "#4D65DB",
+  pink: "#FF3366",      // Aurora neon pink alias
+  blue: "#091A7A",      // Aurora deep blue
 } as const;
 
 const risk = {
@@ -42,25 +42,25 @@ const ui = {
   grey3: "#EEEEEE",
 } as const;
 
-// ─── Dark palette ─────────────────────────────────────────────────────────────
+// ─── Dark palette — Aurora Glass ──────────────────────────────────────────────
 export const darkColors = {
   background: {
-    deep: "#000000",
-    mid: "#181818",
-    surface: "#282828",
+    deep: "#091A7A",      // Aurora primary deep blue
+    mid: "#0F2280",
+    surface: "#1A3090",
   },
   glass: {
-    bg: "rgba(59, 45, 143, 0.25)",
-    bgElevated: "rgba(59, 45, 143, 0.40)",
-    border: "rgba(255, 255, 255, 0.10)",
-    borderBright: "rgba(255, 255, 255, 0.25)",
+    bg: "rgba(173, 200, 255, 0.10)",       // ADC8FF glass tint
+    bgElevated: "rgba(173, 200, 255, 0.18)",
+    border: "rgba(173, 200, 255, 0.20)",
+    borderBright: "rgba(173, 200, 255, 0.40)",
   },
   text: {
     primary: "#FFFFFF",
-    secondary: "#AAAAAA",
-    muted: "#666666",
-    dim: "#878787",
-    label: "#A1A1A1",
+    secondary: "#C8D9FF",
+    muted: "#7A96CC",
+    dim: "#5A78BB",
+    label: "#ADC8FF",
   },
   accent,
   risk,
@@ -68,25 +68,25 @@ export const darkColors = {
   ui,
 } as const;
 
-// ─── Light palette (derived from Noelle Dark) ─────────────────────────────────
+// ─── Light palette — Aurora Glass ─────────────────────────────────────────────
 export const lightColors = {
   background: {
-    deep: "#FFFFFF",
-    mid: "#F5F4FF",
-    surface: "#EBEBFF",
+    deep: "#ADC8FF",      // Aurora light blue
+    mid: "#C8D9FF",
+    surface: "#DDE9FF",
   },
   glass: {
-    bg: "rgba(98, 46, 195, 0.06)",
-    bgElevated: "rgba(98, 46, 195, 0.11)",
-    border: "rgba(98, 46, 195, 0.15)",
-    borderBright: "rgba(98, 46, 195, 0.30)",
+    bg: "rgba(9, 26, 122, 0.08)",
+    bgElevated: "rgba(9, 26, 122, 0.13)",
+    border: "rgba(9, 26, 122, 0.15)",
+    borderBright: "rgba(9, 26, 122, 0.30)",
   },
   text: {
-    primary: "#0B0B1E",
-    secondary: "#4A4A6A",
-    muted: "#7A7A9A",
-    dim: "#ADADC9",
-    label: "#6A6A8A",
+    primary: "#091A7A",
+    secondary: "#1A3090",
+    muted: "#3A5080",
+    dim: "#5A78BB",
+    label: "#2A408A",
   },
   accent,
   risk,

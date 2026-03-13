@@ -1,16 +1,15 @@
 // src/theme/typography.ts
-// Typographie — Noelle Dark Design System
-// Source: Figma file a6PHaT6GaxDYFGRuGNxTGZ (extracted via API)
-// Font: Plus Jakarta Sans (Avenir equivalent — weights 400/500/700/800)
+// Typographie — Aurora Glass Design System
+// Font: Lexend (weights 400/500/700/800)
 
 import { TextStyle } from "react-native";
 
 // Font family references (loaded via useFonts in _layout.tsx)
 export const fontFamily = {
-  regular:   "PlusJakartaSans_400Regular",
-  medium:    "PlusJakartaSans_500Medium",
-  bold:      "PlusJakartaSans_700Bold",
-  extraBold: "PlusJakartaSans_800ExtraBold",
+  regular:   "Lexend_400Regular",
+  medium:    "Lexend_500Medium",
+  bold:      "Lexend_700Bold",
+  extraBold: "Lexend_800ExtraBold",
 } as const;
 
 // Typography scale — derived from Figma Avenir usage

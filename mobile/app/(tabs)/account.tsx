@@ -181,7 +181,7 @@ export default function AccountScreen() {
         <GlassCard elevated style={styles.profileCard}>
           {/* Gradient border avatar */}
           <LinearGradient
-            colors={["#622EC3", "#4D65DB", "#379AEE", "#53E9F6"]}
+            colors={["#FF3366", "#622EC3", "#091A7A", "#00FF88"]}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
             style={styles.avatarGradient}
@@ -212,12 +212,12 @@ export default function AccountScreen() {
             activeOpacity={0.8}
           >
             <LinearGradient
-              colors={["#622EC3", "#4D65DB", "#379AEE", "#53E9F6"]}
+              colors={["#FF3366", "#622EC3", "#091A7A", "#00FF88"]}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 0 }}
               style={styles.upgradeCta}
             >
-              <Text style={styles.upgradeText}>✦ Upgrade to Pro — unlock AI Chat, SOL Trace &amp; more</Text>
+              <Text style={styles.upgradeText}>✦ Upgrade to Pro — unlock AI Chat, SOL Trace & more</Text>
             </LinearGradient>
           </TouchableOpacity>
         )}

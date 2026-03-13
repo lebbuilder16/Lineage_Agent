@@ -52,7 +52,7 @@ const styles = StyleSheet.create({
     alignSelf: "flex-start",
   },
   text: {
-    fontFamily: "PlusJakartaSans_800ExtraBold",
+    fontFamily: "Lexend_800ExtraBold",
     letterSpacing: 0.8,
   },
 });

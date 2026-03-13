@@ -14,17 +14,12 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { PrivyProvider } from "@privy-io/expo";
 import {
   useFonts,
-  Inter_400Regular,
-  Inter_500Medium,
-  Inter_600SemiBold,
-  Inter_700Bold,
-} from "@expo-google-fonts/inter";
-import {
-  PlusJakartaSans_400Regular,
-  PlusJakartaSans_500Medium,
-  PlusJakartaSans_700Bold,
-  PlusJakartaSans_800ExtraBold,
-} from "@expo-google-fonts/plus-jakarta-sans";
+  Lexend_400Regular,
+  Lexend_500Medium,
+  Lexend_600SemiBold,
+  Lexend_700Bold,
+  Lexend_800ExtraBold,
+} from "@expo-google-fonts/lexend";
 import FlashMessage from "react-native-flash-message";
 import { ThemeProvider, useTheme } from "@/src/theme/ThemeContext";
 import { useAuthStore } from "@/src/store/auth";
@@ -137,14 +132,11 @@ function RootLayout() {
   useOtaUpdate();
 
   const [fontsLoaded] = useFonts({
-    Inter_400Regular,
-    Inter_500Medium,
-    Inter_600SemiBold,
-    Inter_700Bold,
-    PlusJakartaSans_400Regular,
-    PlusJakartaSans_500Medium,
-    PlusJakartaSans_700Bold,
-    PlusJakartaSans_800ExtraBold,
+    Lexend_400Regular,
+    Lexend_500Medium,
+    Lexend_600SemiBold,
+    Lexend_700Bold,
+    Lexend_800ExtraBold,
   });
   const { isAuthenticated, user, logout } = useAuthStore();
   const { addAlert } = useAlertsStore();

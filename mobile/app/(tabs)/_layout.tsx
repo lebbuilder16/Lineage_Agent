@@ -13,7 +13,7 @@ import { useAlertsStore } from "@/src/store/alerts";
 import { ErrorBoundary } from "@/src/components/ErrorBoundary";
 import type { BottomTabBarButtonProps } from "@react-navigation/bottom-tabs";
 
-const GRADIENT: [string, string] = ["#622EC3", "#53E9F6"];
+const GRADIENT: [string, string] = ["#FF3366", "#00FF88"];
 
 function TabIcon({
   name,
@@ -178,7 +178,7 @@ const styles = StyleSheet.create({
   },
   tabLabel: {
     fontSize: 10,
-    fontFamily: "PlusJakartaSans_700Bold",
+    fontFamily: "Lexend_700Bold",
     marginTop: 2,
   },
 });
@@ -208,7 +208,7 @@ const iconStyles = StyleSheet.create({
   badgeText: {
     color: "#fff",
     fontSize: 9,
-    fontFamily: "PlusJakartaSans_800ExtraBold",
+    fontFamily: "Lexend_800ExtraBold",
   },
 });
 

@@ -251,7 +251,7 @@ function AIBriefCard() {
     <Animated.View entering={FadeInDown.delay(100).springify()}>
       <GlassCard elevated style={s.aiBrief}>
         {/* Gradient border top */}
-        <LinearGradient colors={["#622EC3", "#53E9F6"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={s.aiBriefGradientBar} />
+        <LinearGradient colors={["#FF3366", "#00FF88"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={s.aiBriefGradientBar} />
         <View style={s.aiBriefHeader}>
           <Animated.View style={[s.aiOrb, orbStyle]} />
           <Text style={[s.aiBriefTitle, { color: tc.accent.aiLight }]}>AI Intelligence Brief</Text>
@@ -410,48 +410,48 @@ const s = StyleSheet.create({
   // Header
   header: { flexDirection: "row", alignItems: "center", paddingHorizontal: 20, paddingVertical: 14, gap: 12 },
   headerLeft: { gap: 2 },
-  headerTitle: { fontFamily: "PlusJakartaSans_800ExtraBold", fontSize: 22, letterSpacing: -0.5 },
+  headerTitle: { fontFamily: "Lexend_800ExtraBold", fontSize: 22, letterSpacing: -0.5 },
   liveRow: { flexDirection: "row", alignItems: "center", gap: 5 },
   liveDot: { width: 6, height: 6, borderRadius: 3 },
-  liveText: { fontFamily: "PlusJakartaSans_700Bold", fontSize: 9, letterSpacing: 1.2 },
+  liveText: { fontFamily: "Lexend_700Bold", fontSize: 9, letterSpacing: 1.2 },
   headerRight: { flexDirection: "row", alignItems: "center", gap: 10, flex: 1 },
   headerSearch: { flex: 1, borderWidth: 1, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 10 },
-  headerSearchText: { fontFamily: "PlusJakartaSans_400Regular", fontSize: 14 },
-  bellBtn: { padding: 6, position: "relative" },
+  headerSearchText: { fontFamily: "Lexend_400Regular", fontSize: 14 },
+  bellBtn: { padding: 10, minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center", position: "relative" },
   bellIcon: { fontSize: 20 },
   bellBadge: { position: "absolute", top: 0, right: 0, borderRadius: 8, minWidth: 16, height: 16, alignItems: "center", justifyContent: "center", paddingHorizontal: 2 },
-  bellBadgeText: { color: "#fff", fontSize: 9, fontFamily: "PlusJakartaSans_800ExtraBold" },
+  bellBadgeText: { color: "#fff", fontSize: 9, fontFamily: "Lexend_800ExtraBold" },
 
   // Feed layout
   scroll: { paddingHorizontal: 16, paddingBottom: 100 },
-  sectionLabel: { fontFamily: "PlusJakartaSans_800ExtraBold", fontSize: 10, letterSpacing: 1.8, marginTop: 22, marginBottom: 10 },
+  sectionLabel: { fontFamily: "Lexend_800ExtraBold", fontSize: 10, letterSpacing: 1.8, marginTop: 22, marginBottom: 10 },
   sectionRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 22, marginBottom: 10 },
-  seeAllText: { fontFamily: "PlusJakartaSans_700Bold", fontSize: 12 },
+  seeAllText: { fontFamily: "Lexend_700Bold", fontSize: 12 },
 
   // Stats card
   statsCard: { flexDirection: "row", alignItems: "center", paddingVertical: 18, paddingHorizontal: 20 },
   statItem: { flex: 1, alignItems: "center", gap: 4 },
   statValueRow: { flexDirection: "row", alignItems: "center", gap: 5 },
-  statLabel: { fontFamily: "PlusJakartaSans_500Medium", fontSize: 10 },
+  statLabel: { fontFamily: "Lexend_500Medium", fontSize: 10 },
   statsDivider: { width: 1, height: 38, alignSelf: "center" },
-  rugRateBadge: { fontFamily: "PlusJakartaSans_700Bold", fontSize: 10, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 8 },
-  errorRetry: { fontFamily: "PlusJakartaSans_500Medium", fontSize: 12, textAlign: "center", paddingVertical: 10 },
+  rugRateBadge: { fontFamily: "Lexend_700Bold", fontSize: 10, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 8 },
+  errorRetry: { fontFamily: "Lexend_500Medium", fontSize: 12, textAlign: "center", paddingVertical: 10 },
 
   // AI Brief
   aiBrief: { paddingTop: 14, paddingHorizontal: 18, paddingBottom: 16, overflow: "hidden" },
   aiBriefGradientBar: { height: 2, marginHorizontal: -18, marginBottom: 12 },
   aiBriefHeader: { flexDirection: "row", alignItems: "center", marginBottom: 10, gap: 8 },
   aiOrb: { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.accent.ai },
-  aiBriefTitle: { fontFamily: "PlusJakartaSans_700Bold", fontSize: 13, flex: 1 },
-  aiBriefTime: { fontFamily: "PlusJakartaSans_400Regular", fontSize: 11 },
+  aiBriefTitle: { fontFamily: "Lexend_700Bold", fontSize: 13, flex: 1 },
+  aiBriefTime: { fontFamily: "Lexend_400Regular", fontSize: 11 },
   briefWordsRow: { flexDirection: "row", flexWrap: "wrap", marginBottom: 12 },
-  aiBriefWord: { fontFamily: "PlusJakartaSans_400Regular", fontSize: 14, lineHeight: 22 },
+  aiBriefWord: { fontFamily: "Lexend_400Regular", fontSize: 14, lineHeight: 22 },
   briefError: { flexDirection: "row", gap: 10, alignItems: "center", marginBottom: 10 },
-  briefErrorText: { fontFamily: "PlusJakartaSans_400Regular", fontSize: 13 },
-  briefRetryText: { fontFamily: "PlusJakartaSans_700Bold", fontSize: 13 },
-  briefEmptyText: { fontFamily: "PlusJakartaSans_400Regular", fontSize: 13, fontStyle: "italic", marginBottom: 12 },
+  briefErrorText: { fontFamily: "Lexend_400Regular", fontSize: 13 },
+  briefRetryText: { fontFamily: "Lexend_700Bold", fontSize: 13 },
+  briefEmptyText: { fontFamily: "Lexend_400Regular", fontSize: 13, fontStyle: "italic", marginBottom: 12 },
   aiBriefCta: { alignSelf: "flex-start", marginTop: 4 },
-  aiBriefCtaText: { fontFamily: "PlusJakartaSans_700Bold", fontSize: 14 },
+  aiBriefCtaText: { fontFamily: "Lexend_700Bold", fontSize: 14 },
 
   // Alert list
   alertList: { overflow: "hidden" },
@@ -461,10 +461,10 @@ const s = StyleSheet.create({
   alertContent: { flex: 1, gap: 5 },
   alertTopRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   alertTypeChip: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 3 },
-  alertTypeText: { fontFamily: "PlusJakartaSans_800ExtraBold", fontSize: 9, letterSpacing: 0.8 },
-  alertTime: { fontFamily: "PlusJakartaSans_400Regular", fontSize: 10 },
-  alertName: { fontFamily: "PlusJakartaSans_700Bold", fontSize: 13 },
-  alertMsg: { fontFamily: "PlusJakartaSans_400Regular", fontSize: 11, lineHeight: 16 },
+  alertTypeText: { fontFamily: "Lexend_800ExtraBold", fontSize: 9, letterSpacing: 0.8 },
+  alertTime: { fontFamily: "Lexend_400Regular", fontSize: 10 },
+  alertName: { fontFamily: "Lexend_700Bold", fontSize: 13 },
+  alertMsg: { fontFamily: "Lexend_400Regular", fontSize: 11, lineHeight: 16 },
   unreadDot: { width: 7, height: 7, borderRadius: 4, marginTop: 6 },
 });
 

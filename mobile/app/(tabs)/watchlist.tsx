@@ -198,7 +198,7 @@ const styles = StyleSheet.create({
   watchAddr: { fontSize: 11, fontFamily: "monospace", marginTop: 3 },
   roleTag: { borderRadius: 6, borderWidth: 1, paddingHorizontal: 6, paddingVertical: 2 },
   roleText: { fontSize: 9, fontWeight: "700", letterSpacing: 0.5 },
-  removeBtn: { padding: 4 },
+  removeBtn: { padding: 10, minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center" },
   removeTxt: { fontSize: 14 },
   authGate: { flex: 1, alignItems: "center", justifyContent: "center", padding: 32 },
   authIcon: { fontSize: 48, marginBottom: 16 },

@@ -36,12 +36,12 @@ interface HapticButtonProps extends TouchableOpacityProps {
 
 const AnimatedTouchable = Animated.createAnimatedComponent(TouchableOpacity);
 
-// Noelle gradient stops (4-stop, from Figma)
+// Aurora Glass gradient stops (4-stop)
 const GRADIENT: [string, string, string, string] = [
+  "#FF3366",
   "#622EC3",
-  "#4D65DB",
-  "#379AEE",
-  "#53E9F6",
+  "#091A7A",
+  "#00FF88",
 ];
 const GRADIENT_LOCATIONS: [number, number, number, number] = [0, 0.29, 0.69, 1];
 
@@ -152,15 +152,15 @@ export function HapticButton({
 const sizeStyles = {
   sm: StyleSheet.create({
     container: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 100 },
-    text: { ...typography.caption, fontFamily: "PlusJakartaSans_700Bold", fontSize: 12 },
+    text: { ...typography.caption, fontFamily: "Lexend_700Bold", fontSize: 12 },
   }),
   md: StyleSheet.create({
     container: { paddingHorizontal: 24, paddingVertical: 14, borderRadius: 100 },
-    text: { ...typography.body, fontFamily: "PlusJakartaSans_700Bold" },
+    text: { ...typography.body, fontFamily: "Lexend_700Bold" },
   }),
   lg: StyleSheet.create({
     container: { paddingHorizontal: 32, paddingVertical: 18, borderRadius: 100 },
-    text: { ...typography.heading, fontFamily: "PlusJakartaSans_700Bold" },
+    text: { ...typography.heading, fontFamily: "Lexend_700Bold" },
   }),
 };
 
