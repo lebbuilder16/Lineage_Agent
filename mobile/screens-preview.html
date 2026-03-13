@@ -1,0 +1,1602 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lineage Agent — Screens Preview</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg-deep: #000000;
+    --bg-mid: #181818;
+    --bg-surface: #282828;
+    --glass-bg: rgba(59,45,143,0.25);
+    --glass-elevated: rgba(59,45,143,0.40);
+    --glass-border: rgba(255,255,255,0.10);
+    --glass-border-bright: rgba(255,255,255,0.18);
+    --safe: #5BC763;
+    --danger: #DD5656;
+    --warning: #F2AD4B;
+    --ai: #622EC3;
+    --ai-light: #B370F0;
+    --cyan: #53E9F6;
+    --blue: #4D65DB;
+    --text-primary: #FFFFFF;
+    --text-secondary: #AAAAAA;
+    --text-muted: #666666;
+    --text-dim: #878787;
+    --grad-primary: linear-gradient(135deg, #622EC3, #4D65DB, #379AEE, #53E9F6);
+    --grad-purple: linear-gradient(135deg, #622EC3, #B370F0);
+    --grad-gold: linear-gradient(135deg, #DC8E1F, #F0B54F, #F7E7AC);
+    --phone-w: 375px;
+    --phone-h: 812px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: #0A0A0F;
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    color: var(--text-primary);
+    padding: 40px 20px;
+    min-height: 100vh;
+  }
+
+  h1.page-title {
+    text-align: center;
+    font-size: 28px;
+    font-weight: 800;
+    background: var(--grad-primary);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin-bottom: 8px;
+  }
+  .page-subtitle {
+    text-align: center;
+    color: var(--text-secondary);
+    font-size: 14px;
+    margin-bottom: 48px;
+  }
+
+  .screens-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 40px;
+    justify-content: center;
+    max-width: 1600px;
+    margin: 0 auto;
+  }
+
+  .screen-wrapper {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .screen-label {
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+  }
+
+  /* Phone frame */
+  .phone {
+    width: var(--phone-w);
+    height: var(--phone-h);
+    background: var(--bg-deep);
+    border-radius: 48px;
+    border: 2px solid rgba(255,255,255,0.12);
+    overflow: hidden;
+    position: relative;
+    box-shadow:
+      0 0 0 6px #111,
+      0 0 0 8px #222,
+      0 40px 80px rgba(0,0,0,0.8);
+    flex-shrink: 0;
+  }
+
+  /* Status bar */
+  .status-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 14px 24px 0;
+    height: 44px;
+  }
+  .status-time { font-size: 15px; font-weight: 700; }
+  .status-icons { display: flex; gap: 6px; align-items: center; font-size: 12px; opacity: 0.9; }
+
+  /* Screen content */
+  .screen-content {
+    height: calc(100% - 44px);
+    overflow: hidden;
+    position: relative;
+  }
+
+  /* ===================== AUTH SCREEN ===================== */
+  .auth-bg {
+    position: absolute; inset: 0;
+    background: radial-gradient(ellipse at 50% -10%, rgba(98,46,195,0.6) 0%, rgba(77,101,219,0.3) 40%, transparent 70%),
+                linear-gradient(180deg, #060610 0%, #0A0A1A 100%);
+  }
+  .auth-orb {
+    position: absolute;
+    top: 80px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 100px;
+    height: 100px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(98,46,195,0.8), rgba(83,233,246,0.3));
+    box-shadow: 0 0 60px rgba(98,46,195,0.5), 0 0 120px rgba(83,233,246,0.2);
+    animation: pulse 3s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%,100% { transform: translateX(-50%) scale(1); opacity: 0.9; }
+    50% { transform: translateX(-50%) scale(1.08); opacity: 1; }
+  }
+  .auth-content {
+    position: relative;
+    z-index: 1;
+    padding: 0 24px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding-top: 65px;
+  }
+  .auth-logo {
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    background: var(--glass-elevated);
+    border: 1px solid rgba(179,112,240,0.4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 32px;
+    margin-bottom: 24px;
+    backdrop-filter: blur(12px);
+  }
+  .auth-title {
+    font-size: 28px;
+    font-weight: 800;
+    text-align: center;
+    letter-spacing: -0.01em;
+    line-height: 1.2;
+    margin-bottom: 8px;
+    background: var(--grad-primary);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .auth-subtitle {
+    font-size: 13px;
+    color: var(--text-secondary);
+    text-align: center;
+    margin-bottom: 32px;
+  }
+  .glass-input {
+    width: 100%;
+    padding: 14px 18px;
+    background: rgba(59,45,143,0.25);
+    border: 1px solid rgba(255,255,255,0.10);
+    border-radius: 16px;
+    color: var(--text-primary);
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-size: 14px;
+    margin-bottom: 12px;
+    backdrop-filter: blur(12px);
+  }
+  .glass-input::placeholder { color: var(--text-muted); }
+  .btn-primary {
+    width: 100%;
+    padding: 16px;
+    background: var(--grad-primary);
+    border: none;
+    border-radius: 16px;
+    color: white;
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+    margin-bottom: 16px;
+    box-shadow: 0 8px 24px rgba(98,46,195,0.4);
+    text-align: center;
+  }
+  .auth-divider {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    margin: 4px 0 16px;
+    color: var(--text-muted);
+    font-size: 12px;
+  }
+  .auth-divider::before, .auth-divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: rgba(255,255,255,0.08);
+  }
+  .feature-pills {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: center;
+    margin-top: 8px;
+  }
+  .pill {
+    padding: 6px 12px;
+    background: rgba(59,45,143,0.3);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 100px;
+    font-size: 11px;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .btn-wallet {
+    width: 100%;
+    padding: 14px;
+    background: transparent;
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 16px;
+    color: white;
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-size: 14px;
+    font-weight: 600;
+    text-align: center;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+  }
+
+  /* ===================== HOME FEED ===================== */
+  .home-bg {
+    position: absolute; inset: 0;
+    background: linear-gradient(180deg, #060610 0%, #000000 100%);
+  }
+  .home-content {
+    position: relative;
+    z-index: 1;
+    padding: 8px 16px 0;
+    height: 100%;
+    overflow: hidden;
+  }
+  .home-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+    padding-top: 4px;
+  }
+  .home-title {
+    font-size: 22px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+  }
+  .live-badge {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 10px;
+    background: rgba(91,199,99,0.15);
+    border: 1px solid rgba(91,199,99,0.3);
+    border-radius: 100px;
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--safe);
+    letter-spacing: 0.1em;
+  }
+  .live-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--safe);
+    animation: blink 1.5s ease-in-out infinite;
+  }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+  .stats-bar {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+  .stat-chip {
+    flex: 1;
+    padding: 10px 8px;
+    background: rgba(59,45,143,0.2);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 14px;
+    text-align: center;
+  }
+  .stat-chip .val {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--cyan);
+  }
+  .stat-chip .lbl {
+    font-size: 9px;
+    color: var(--text-muted);
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-top: 2px;
+  }
+  .ai-brief {
+    border-radius: 18px;
+    overflow: hidden;
+    margin-bottom: 12px;
+    border: 1px solid rgba(179,112,240,0.2);
+    background: rgba(59,45,143,0.2);
+  }
+  .ai-brief-header {
+    background: var(--grad-purple);
+    padding: 8px 14px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+  .ai-orb-sm {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(255,255,255,0.9), rgba(179,112,240,0.6));
+    flex-shrink: 0;
+  }
+  .ai-brief-body {
+    padding: 12px 14px;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--text-secondary);
+  }
+  .ai-brief-body strong { color: var(--text-primary); }
+  .section-header {
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+    margin-top: 4px;
+  }
+  .alert-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 14px;
+    margin-bottom: 6px;
+  }
+  .token-avatar {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    font-weight: 700;
+  }
+  .alert-info { flex: 1; min-width: 0; }
+  .alert-name { font-size: 13px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .alert-msg { font-size: 11px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
+  .risk-badge {
+    padding: 3px 8px;
+    border-radius: 100px;
+    font-size: 10px;
+    font-weight: 700;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .rb-danger { background: rgba(221,86,86,0.2); color: var(--danger); border: 1px solid rgba(221,86,86,0.3); }
+  .rb-warning { background: rgba(242,173,75,0.2); color: var(--warning); border: 1px solid rgba(242,173,75,0.3); }
+  .rb-safe { background: rgba(91,199,99,0.2); color: var(--safe); border: 1px solid rgba(91,199,99,0.3); }
+  .rb-ai { background: rgba(98,46,195,0.2); color: var(--ai-light); border: 1px solid rgba(98,46,195,0.3); }
+  .unread-dot {
+    width: 6px; height: 6px; border-radius: 50%; background: var(--cyan); flex-shrink: 0;
+  }
+
+  /* ===================== TAB BAR ===================== */
+  .tab-bar {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 82px;
+    background: rgba(24,24,24,0.85);
+    border-top: 1px solid rgba(255,255,255,0.08);
+    display: flex;
+    align-items: center;
+    justify-content: space-around;
+    padding-bottom: 20px;
+    backdrop-filter: blur(20px);
+  }
+  .tab-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    padding: 4px 12px;
+    border-radius: 12px;
+    cursor: pointer;
+  }
+  .tab-icon { font-size: 22px; }
+  .tab-label { font-size: 10px; font-weight: 600; color: var(--text-muted); }
+  .tab-item.active .tab-icon { filter: drop-shadow(0 0 8px rgba(83,233,246,0.6)); }
+  .tab-item.active .tab-label {
+    background: var(--grad-primary);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .tab-badge {
+    position: absolute;
+    top: -2px;
+    right: -4px;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--danger);
+    font-size: 8px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .tab-icon-wrap { position: relative; }
+
+  /* ===================== SEARCH ===================== */
+  .search-content { padding: 8px 16px; position: relative; z-index: 1; }
+  .search-title { font-size: 22px; font-weight: 800; margin-bottom: 12px; padding-top: 4px; }
+  .search-input-wrap {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    background: rgba(40,40,40,0.9);
+    border: 1px solid rgba(255,255,255,0.10);
+    border-radius: 16px;
+    margin-bottom: 16px;
+  }
+  .search-input-wrap input {
+    background: none;
+    border: none;
+    color: var(--text-primary);
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-size: 14px;
+    outline: none;
+    flex: 1;
+  }
+  .search-section-title {
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 10px;
+  }
+  .trending-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 6px 12px;
+    background: rgba(59,45,143,0.25);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 100px;
+    font-size: 11px;
+    color: var(--text-secondary);
+    margin: 0 6px 6px 0;
+  }
+  .token-card {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 16px;
+    margin-bottom: 8px;
+  }
+  .token-info { flex: 1; min-width: 0; }
+  .token-name { font-size: 14px; font-weight: 700; }
+  .token-symbol { font-size: 11px; color: var(--text-secondary); }
+  .token-mint {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--text-muted);
+    margin-top: 2px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .token-mcap { font-size: 13px; font-weight: 700; color: var(--cyan); text-align: right; }
+  .token-mcap-lbl { font-size: 9px; color: var(--text-muted); text-align: right; margin-top: 2px; }
+
+  /* ===================== LINEAGE DETAIL ===================== */
+  .lineage-content { padding: 8px 16px; overflow: hidden; height: 100%; position: relative; z-index: 1; }
+  .lineage-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 16px;
+    padding-top: 4px;
+  }
+  .lineage-token-info { flex: 1; }
+  .lineage-token-name { font-size: 18px; font-weight: 800; }
+  .lineage-token-symbol { font-size: 12px; color: var(--text-secondary); }
+  .lineage-mcap { font-size: 12px; color: var(--text-muted); }
+  /* Risk Gauge */
+  .risk-gauge-wrap { position: relative; width: 64px; height: 64px; flex-shrink: 0; }
+  .risk-gauge-svg { position: absolute; inset: 0; }
+  .risk-gauge-label {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    font-size: 14px; font-weight: 700; color: var(--danger);
+    line-height: 1.1;
+  }
+  .risk-gauge-label span { font-size: 8px; color: var(--text-muted); font-weight: 600; }
+  .quick-actions {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+  .quick-btn {
+    flex: 1;
+    padding: 10px 8px;
+    border-radius: 14px;
+    text-align: center;
+    font-size: 11px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+  }
+  .quick-btn-ai { background: rgba(98,46,195,0.25); border: 1px solid rgba(98,46,195,0.4); color: var(--ai-light); }
+  .quick-btn-watch { background: rgba(59,45,143,0.3); border: 1px solid rgba(255,255,255,0.12); }
+  .quick-btn-share { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.10); color: var(--text-secondary); }
+  .family-card {
+    border-radius: 18px;
+    overflow: hidden;
+    margin-bottom: 12px;
+    border: 1px solid rgba(255,255,255,0.08);
+    background: rgba(40,40,40,0.6);
+  }
+  .family-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 14px;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+  }
+  .family-card-title { font-size: 13px; font-weight: 700; }
+  .family-badge {
+    padding: 3px 10px;
+    border-radius: 100px;
+    font-size: 10px;
+    font-weight: 700;
+    background: rgba(91,199,99,0.15);
+    color: var(--safe);
+    border: 1px solid rgba(91,199,99,0.3);
+  }
+  .family-tree-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+  }
+  .tree-node {
+    width: 28px; height: 28px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 10px; font-weight: 700;
+    flex-shrink: 0;
+  }
+  .node-root { background: rgba(91,199,99,0.15); border: 1.5px solid var(--safe); color: var(--safe); }
+  .node-gen1 { background: rgba(242,173,75,0.15); border: 1.5px solid var(--warning); color: var(--warning); }
+  .node-gen2 { background: rgba(221,86,86,0.15); border: 1.5px solid var(--danger); color: var(--danger); }
+  .node-query { background: rgba(98,46,195,0.25); border: 1.5px solid var(--ai-light); color: var(--ai-light); }
+  .forensic-cards-row {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    padding-bottom: 4px;
+    scrollbar-width: none;
+  }
+  .forensic-card {
+    min-width: 130px;
+    padding: 12px;
+    background: rgba(59,45,143,0.2);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 16px;
+  }
+  .forensic-title { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-secondary); margin-bottom: 6px; }
+  .forensic-score { font-size: 22px; font-weight: 700; }
+  .forensic-desc { font-size: 10px; color: var(--text-muted); margin-top: 4px; line-height: 1.4; }
+
+  /* ===================== ALERTS ===================== */
+  .alerts-content { padding: 8px 16px; position: relative; z-index: 1; }
+  .filter-chips {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    padding-bottom: 4px;
+    scrollbar-width: none;
+    margin-bottom: 12px;
+  }
+  .filter-chip {
+    padding: 6px 14px;
+    border-radius: 100px;
+    font-size: 11px;
+    font-weight: 700;
+    white-space: nowrap;
+    border: 1px solid rgba(255,255,255,0.08);
+    background: rgba(255,255,255,0.04);
+    color: var(--text-secondary);
+    flex-shrink: 0;
+  }
+  .filter-chip.active {
+    background: var(--grad-primary);
+    border-color: transparent;
+    color: white;
+  }
+  .alert-card {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 12px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 16px;
+    margin-bottom: 8px;
+  }
+  .alert-type-icon {
+    width: 36px; height: 36px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    flex-shrink: 0;
+  }
+  .icon-rug { background: rgba(221,86,86,0.15); }
+  .icon-bundle { background: rgba(242,173,75,0.15); }
+  .icon-insider { background: rgba(83,233,246,0.15); }
+  .icon-zombie { background: rgba(179,112,240,0.15); }
+  .alert-card-info { flex: 1; min-width: 0; }
+  .alert-card-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 3px;
+  }
+  .alert-card-name { font-size: 13px; font-weight: 700; }
+  .alert-card-time { font-size: 10px; color: var(--text-muted); }
+  .alert-card-msg { font-size: 11px; color: var(--text-secondary); line-height: 1.4; }
+  .mark-all-btn {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 10px;
+  }
+  .mark-all-btn button {
+    padding: 5px 12px;
+    background: transparent;
+    border: 1px solid rgba(255,255,255,0.10);
+    border-radius: 100px;
+    color: var(--text-secondary);
+    font-size: 11px;
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  /* ===================== ACCOUNT ===================== */
+  .account-content { padding: 8px 16px; position: relative; z-index: 1; }
+  .account-header { font-size: 22px; font-weight: 800; margin-bottom: 16px; padding-top: 4px; }
+  .profile-card {
+    padding: 20px;
+    background: rgba(59,45,143,0.2);
+    border: 1px solid rgba(179,112,240,0.2);
+    border-radius: 20px;
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+  .avatar-ring {
+    width: 56px; height: 56px;
+    border-radius: 50%;
+    background: var(--grad-primary);
+    padding: 2px;
+    flex-shrink: 0;
+  }
+  .avatar-inner {
+    width: 100%; height: 100%;
+    border-radius: 50%;
+    background: var(--bg-mid);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 22px;
+  }
+  .profile-info { flex: 1; }
+  .profile-email { font-size: 14px; font-weight: 700; margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pro-badge-inline {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 10px;
+    border-radius: 100px;
+    font-size: 10px;
+    font-weight: 800;
+    background: var(--grad-gold);
+    color: #3a2200;
+    letter-spacing: 0.05em;
+  }
+  .settings-section { margin-bottom: 16px; }
+  .settings-title {
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+  }
+  .settings-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 14px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 14px;
+    margin-bottom: 6px;
+    font-size: 13px;
+  }
+  .settings-row-left { display: flex; align-items: center; gap: 10px; }
+  .toggle {
+    width: 38px; height: 22px;
+    border-radius: 100px;
+    background: var(--grad-primary);
+    position: relative;
+    flex-shrink: 0;
+  }
+  .toggle::after {
+    content: '';
+    position: absolute;
+    top: 3px; left: 18px;
+    width: 16px; height: 16px;
+    border-radius: 50%;
+    background: white;
+  }
+  .toggle.off { background: rgba(255,255,255,0.15); }
+  .toggle.off::after { left: 3px; }
+  .settings-row-arrow { color: var(--text-muted); font-size: 14px; }
+  .danger-btn {
+    width: 100%;
+    padding: 14px;
+    background: rgba(221,86,86,0.1);
+    border: 1px solid rgba(221,86,86,0.3);
+    border-radius: 16px;
+    color: var(--danger);
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    text-align: center;
+    cursor: pointer;
+  }
+
+  /* ===================== ONBOARDING ===================== */
+  .onboarding-bg {
+    position: absolute; inset: 0;
+    background: radial-gradient(ellipse at 50% 30%, rgba(98,46,195,0.5) 0%, rgba(77,101,219,0.2) 50%, transparent 70%),
+                linear-gradient(180deg, #070710 0%, #000005 100%);
+  }
+  .onboarding-content {
+    position: relative; z-index: 1;
+    padding: 0 24px;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+  }
+  .onboarding-skip {
+    align-self: flex-end;
+    padding: 12px 0;
+    font-size: 13px;
+    color: var(--text-secondary);
+    font-weight: 600;
+  }
+  .onboarding-preview {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+  }
+  .ob-icon { font-size: 64px; margin-bottom: 8px; }
+  .ob-title { font-size: 26px; font-weight: 800; text-align: center; line-height: 1.2; letter-spacing: -0.02em; }
+  .ob-desc { font-size: 14px; color: var(--text-secondary); text-align: center; line-height: 1.6; }
+  .ob-card {
+    width: 100%;
+    padding: 14px;
+    background: rgba(40,40,40,0.6);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 16px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .ob-card-icon {
+    width: 40px; height: 40px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    flex-shrink: 0;
+  }
+  .ob-risk-bar {
+    height: 6px; border-radius: 100px;
+    background: rgba(255,255,255,0.1);
+    overflow: hidden;
+    margin-top: 6px;
+  }
+  .ob-risk-fill {
+    height: 100%;
+    border-radius: 100px;
+    background: linear-gradient(90deg, var(--safe), var(--warning), var(--danger));
+    width: 87%;
+  }
+  .ob-dots {
+    display: flex; gap: 8px; justify-content: center;
+    margin-bottom: 12px;
+  }
+  .ob-dot { width: 8px; height: 8px; border-radius: 50%; background: rgba(255,255,255,0.15); }
+  .ob-dot.active { background: white; }
+  .ob-actions {
+    display: flex; flex-direction: column; gap: 8px;
+    margin-bottom: 24px;
+  }
+  .ob-next {
+    padding: 16px;
+    background: var(--grad-primary);
+    border: none;
+    border-radius: 16px;
+    color: white;
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-size: 15px;
+    font-weight: 700;
+    text-align: center;
+    box-shadow: 0 8px 24px rgba(98,46,195,0.35);
+  }
+
+  /* ===================== PAYWALL ===================== */
+  .paywall-bg {
+    position: absolute; inset: 0;
+    background: radial-gradient(ellipse at 50% -20%, rgba(98,46,195,0.6) 0%, rgba(77,101,219,0.2) 50%, transparent 70%),
+                linear-gradient(180deg, #080812 0%, #000000 100%);
+  }
+  .paywall-content {
+    position: relative; z-index: 1;
+    padding: 12px 20px;
+    height: 100%;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .paywall-close {
+    align-self: flex-end;
+    width: 28px; height: 28px;
+    background: rgba(255,255,255,0.1);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    color: var(--text-secondary);
+    margin-bottom: 8px;
+  }
+  .paywall-hero {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+  .paywall-orb {
+    width: 64px; height: 64px;
+    border-radius: 50%;
+    background: var(--grad-primary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 28px;
+    box-shadow: 0 0 40px rgba(98,46,195,0.5);
+  }
+  .paywall-title { font-size: 22px; font-weight: 800; text-align: center; letter-spacing: -0.02em; }
+  .paywall-subtitle { font-size: 12px; color: var(--text-secondary); text-align: center; }
+  .plan-cards { display: flex; gap: 8px; margin-bottom: 14px; }
+  .plan-card {
+    flex: 1;
+    padding: 14px 10px;
+    border-radius: 18px;
+    border: 1.5px solid rgba(255,255,255,0.10);
+    background: rgba(255,255,255,0.04);
+    text-align: center;
+    position: relative;
+  }
+  .plan-card.selected {
+    border-color: rgba(98,46,195,0.6);
+    background: rgba(59,45,143,0.25);
+  }
+  .plan-period { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-secondary); margin-bottom: 4px; }
+  .plan-price { font-size: 22px; font-weight: 800; }
+  .plan-price span { font-size: 11px; font-weight: 500; color: var(--text-secondary); }
+  .plan-savings {
+    position: absolute;
+    top: -8px; right: 8px;
+    padding: 2px 8px;
+    background: var(--grad-gold);
+    border-radius: 100px;
+    font-size: 9px;
+    font-weight: 800;
+    color: #3a2200;
+  }
+  .features-list { flex: 1; overflow: hidden; }
+  .feature-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+    font-size: 11px;
+  }
+  .feature-check { font-size: 12px; width: 16px; text-align: center; flex-shrink: 0; }
+  .feature-label { flex: 1; color: var(--text-secondary); }
+  .feature-free { font-size: 10px; color: var(--text-muted); width: 30px; text-align: center; }
+  .feature-pro { font-size: 10px; font-weight: 700; color: var(--cyan); width: 30px; text-align: center; }
+  .paywall-cta {
+    margin-top: 12px;
+    padding: 15px;
+    background: var(--grad-primary);
+    border: none;
+    border-radius: 16px;
+    color: white;
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-size: 14px;
+    font-weight: 700;
+    text-align: center;
+    box-shadow: 0 8px 24px rgba(98,46,195,0.4);
+  }
+  .paywall-free { text-align: center; font-size: 11px; color: var(--text-muted); margin-top: 8px; }
+
+  /* Scrollable content override for screens */
+  .scroll-fade {
+    position: absolute;
+    bottom: 82px;
+    left: 0; right: 0;
+    height: 40px;
+    background: linear-gradient(transparent, #000);
+    pointer-events: none;
+  }
+
+  /* Responsive */
+  @media (max-width: 600px) {
+    :root { --phone-w: 320px; --phone-h: 693px; }
+    .screens-grid { gap: 24px; }
+  }
+</style>
+</head>
+<body>
+
+<h1 class="page-title">Lineage Agent · Mobile Screens</h1>
+<p class="page-subtitle">Design System "Noelle" — React Native / Expo · Dark Theme</p>
+
+<div class="screens-grid">
+
+  <!-- ============ AUTH ============ -->
+  <div class="screen-wrapper">
+    <div class="screen-label">01 · Authentication</div>
+    <div class="phone">
+      <div class="status-bar">
+        <span class="status-time">9:41</span>
+        <span class="status-icons">▲▲▲ ▼ ▬</span>
+      </div>
+      <div class="screen-content">
+        <div class="auth-bg"></div>
+        <div class="auth-orb"></div>
+        <div class="auth-content">
+          <div class="auth-logo">🔮</div>
+          <div class="auth-title">Lineage Agent</div>
+          <div class="auth-subtitle">On-chain intelligence for Solana tokens</div>
+          <input class="glass-input" placeholder="your@email.com" value="alex@trader.xyz" readonly>
+          <div class="btn-primary">Continue with Email →</div>
+          <div class="auth-divider">OR</div>
+          <div class="btn-wallet">👻 Connect Phantom Wallet</div>
+          <div class="feature-pills">
+            <div class="pill">🧬 Lineage Scan</div>
+            <div class="pill">💀 Death Clock</div>
+            <div class="pill">🔔 Live Alerts</div>
+            <div class="pill">🤖 AI Chat</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ ONBOARDING ============ -->
+  <div class="screen-wrapper">
+    <div class="screen-label">02 · Onboarding</div>
+    <div class="phone">
+      <div class="status-bar">
+        <span class="status-time">9:41</span>
+        <span class="status-icons">▲▲▲ ▼ ▬</span>
+      </div>
+      <div class="screen-content">
+        <div class="onboarding-bg"></div>
+        <div class="onboarding-content">
+          <div class="onboarding-skip">Skip</div>
+          <div class="onboarding-preview">
+            <div class="ob-icon">🧬</div>
+            <div class="ob-title">Detect Rug Families Before They Strike</div>
+            <div class="ob-desc">We trace every token's lineage across deployer wallets, cloned images, and shared patterns.</div>
+            <div class="ob-card">
+              <div class="ob-card-icon" style="background:rgba(221,86,86,0.15)">⚠️</div>
+              <div style="flex:1">
+                <div style="font-size:12px;font-weight:700">$MOON — High Risk</div>
+                <div class="ob-risk-bar"><div class="ob-risk-fill"></div></div>
+                <div style="font-size:10px;color:var(--text-muted);margin-top:3px">87 · Same deployer as 3 rugs</div>
+              </div>
+            </div>
+            <div class="ob-card">
+              <div class="ob-card-icon" style="background:rgba(83,233,246,0.15)">🕵️</div>
+              <div style="flex:1">
+                <div style="font-size:12px;font-weight:700">Operator Fingerprint</div>
+                <div style="font-size:10px;color:var(--text-secondary);margin-top:2px">4 linked wallets · Factory pattern detected</div>
+              </div>
+            </div>
+          </div>
+          <div class="ob-dots">
+            <div class="ob-dot active"></div>
+            <div class="ob-dot"></div>
+            <div class="ob-dot"></div>
+          </div>
+          <div class="ob-actions">
+            <div class="ob-next">Next →</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ HOME FEED ============ -->
+  <div class="screen-wrapper">
+    <div class="screen-label">03 · Home Feed</div>
+    <div class="phone">
+      <div class="status-bar">
+        <span class="status-time">9:41</span>
+        <span class="status-icons">▲▲▲ ▼ ▬</span>
+      </div>
+      <div class="screen-content">
+        <div class="home-bg"></div>
+        <div class="home-content">
+          <div class="home-header">
+            <div>
+              <div class="home-title">Radar</div>
+              <div style="font-size:11px;color:var(--text-secondary)">Live intelligence feed</div>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center">
+              <div class="live-badge"><div class="live-dot"></div>LIVE</div>
+              <div class="tab-icon-wrap">
+                <div style="font-size:22px">🔔</div>
+                <div class="tab-badge">3</div>
+              </div>
+            </div>
+          </div>
+          <div class="stats-bar">
+            <div class="stat-chip"><div class="val">12,483</div><div class="lbl">Scanned</div></div>
+            <div class="stat-chip"><div class="val" style="color:var(--danger)">347</div><div class="lbl">Rugs</div></div>
+            <div class="stat-chip"><div class="val" style="color:var(--warning)">89</div><div class="lbl">Deployers</div></div>
+          </div>
+          <div class="ai-brief">
+            <div class="ai-brief-header"><div class="ai-orb-sm"></div>AI INTELLIGENCE BRIEF</div>
+            <div class="ai-brief-body">
+              <strong>3 high-risk operators</strong> active today. Deployer <code style="font-family:JetBrains Mono;font-size:10px;color:var(--cyan)">Gx7k…9mP</code> launched 2 tokens in 4h — <strong>factory pattern detected</strong>. Death clock confidence at 91% for $LUNAX.
+            </div>
+          </div>
+          <div class="section-header">Just Now</div>
+          <div class="alert-row">
+            <div class="unread-dot"></div>
+            <div class="token-avatar" style="background:rgba(221,86,86,0.15);color:var(--danger)">🔥</div>
+            <div class="alert-info">
+              <div class="alert-name">$LUNAX · Rug Confirmed</div>
+              <div class="alert-msg">Deployer extracted 847 SOL · Liquidity drained</div>
+            </div>
+            <div class="risk-badge rb-danger">RUG</div>
+          </div>
+          <div class="alert-row">
+            <div class="unread-dot"></div>
+            <div class="token-avatar" style="background:rgba(242,173,75,0.15);color:var(--warning)">📦</div>
+            <div class="alert-info">
+              <div class="alert-name">$SOLPUMP · Bundle</div>
+              <div class="alert-msg">Team wallets coordinated dump · $123K SOL</div>
+            </div>
+            <div class="risk-badge rb-warning">BUNDLE</div>
+          </div>
+          <div class="section-header" style="margin-top:6px">Last Hour</div>
+          <div class="alert-row">
+            <div class="token-avatar" style="background:rgba(83,233,246,0.15);color:var(--cyan)">🧠</div>
+            <div class="alert-info">
+              <div class="alert-name">$ARTAI · Insider</div>
+              <div class="alert-msg">Dev wallet sold 94% over 6h · Price −78%</div>
+            </div>
+            <div class="risk-badge rb-ai">INSIDER</div>
+          </div>
+          <div class="alert-row">
+            <div class="token-avatar" style="background:rgba(179,112,240,0.15);color:var(--ai-light)">🧟</div>
+            <div class="alert-info">
+              <div class="alert-name">$MOON2 · Zombie</div>
+              <div class="alert-msg">97% image match with $MOON · Same deployer</div>
+            </div>
+            <div class="risk-badge" style="background:rgba(179,112,240,0.2);color:var(--ai-light);border:1px solid rgba(179,112,240,0.3)">ZOMBIE</div>
+          </div>
+        </div>
+        <div class="scroll-fade"></div>
+        <div class="tab-bar">
+          <div class="tab-item active"><div class="tab-icon">📡</div><div class="tab-label">Feed</div></div>
+          <div class="tab-item"><div class="tab-icon">🔍</div><div class="tab-label">Search</div></div>
+          <div class="tab-item"><div class="tab-icon">⭐</div><div class="tab-label">Watchlist</div></div>
+          <div class="tab-item">
+            <div class="tab-icon-wrap">
+              <div class="tab-icon">🔔</div>
+              <div class="tab-badge">3</div>
+            </div>
+            <div class="tab-label">Alerts</div>
+          </div>
+          <div class="tab-item"><div class="tab-icon">👤</div><div class="tab-label">Account</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ SEARCH ============ -->
+  <div class="screen-wrapper">
+    <div class="screen-label">04 · Search</div>
+    <div class="phone">
+      <div class="status-bar">
+        <span class="status-time">9:41</span>
+        <span class="status-icons">▲▲▲ ▼ ▬</span>
+      </div>
+      <div class="screen-content">
+        <div class="home-bg"></div>
+        <div class="search-content">
+          <div class="search-title">Search</div>
+          <div class="search-input-wrap">
+            <span>🔍</span>
+            <input placeholder="Token name, symbol, or mint address…" readonly>
+            <span style="color:var(--text-muted);font-size:12px">⌨</span>
+          </div>
+          <div class="search-section-title">🔥 Trending Narratives</div>
+          <div style="margin-bottom:14px">
+            <div class="trending-pill">🤖 AI Agents</div>
+            <div class="trending-pill">🎮 GameFi</div>
+            <div class="trending-pill">🐶 Memecoins</div>
+            <div class="trending-pill">🟣 DePIN</div>
+            <div class="trending-pill">⚡ L2</div>
+          </div>
+          <div class="search-section-title">🕐 Recent Searches</div>
+          <div class="token-card">
+            <div class="token-avatar" style="background:rgba(83,233,246,0.1);color:var(--cyan);width:44px;height:44px;font-size:16px;flex-shrink:0">⚡</div>
+            <div class="token-info">
+              <div class="token-name">Lightning Finance</div>
+              <div class="token-symbol">$LIFI</div>
+              <div class="token-mint">Gx7kN…9mPqR</div>
+            </div>
+            <div>
+              <div class="token-mcap">$4.2M</div>
+              <div class="token-mcap-lbl">Market Cap</div>
+            </div>
+          </div>
+          <div class="token-card">
+            <div class="token-avatar" style="background:rgba(221,86,86,0.1);color:var(--danger);width:44px;height:44px;font-size:16px;flex-shrink:0">🌕</div>
+            <div class="token-info">
+              <div class="token-name">MoonShot v2</div>
+              <div class="token-symbol">$MOON2</div>
+              <div class="token-mint">9pLmQ…3kWxZ</div>
+            </div>
+            <div>
+              <div class="token-mcap" style="color:var(--danger)">$180K</div>
+              <div class="token-mcap-lbl">Market Cap</div>
+            </div>
+          </div>
+          <div class="token-card">
+            <div class="token-avatar" style="background:rgba(91,199,99,0.1);color:var(--safe);width:44px;height:44px;font-size:16px;flex-shrink:0">🧠</div>
+            <div class="token-info">
+              <div class="token-name">ArtificialAI</div>
+              <div class="token-symbol">$ARTAI</div>
+              <div class="token-mint">4dXvP…7nRkL</div>
+            </div>
+            <div>
+              <div class="token-mcap" style="color:var(--safe)">$12.8M</div>
+              <div class="token-mcap-lbl">Market Cap</div>
+            </div>
+          </div>
+        </div>
+        <div class="scroll-fade"></div>
+        <div class="tab-bar">
+          <div class="tab-item"><div class="tab-icon">📡</div><div class="tab-label">Feed</div></div>
+          <div class="tab-item active"><div class="tab-icon">🔍</div><div class="tab-label">Search</div></div>
+          <div class="tab-item"><div class="tab-icon">⭐</div><div class="tab-label">Watchlist</div></div>
+          <div class="tab-item"><div class="tab-icon">🔔</div><div class="tab-label">Alerts</div></div>
+          <div class="tab-item"><div class="tab-icon">👤</div><div class="tab-label">Account</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ LINEAGE DETAIL ============ -->
+  <div class="screen-wrapper">
+    <div class="screen-label">05 · Token Lineage</div>
+    <div class="phone">
+      <div class="status-bar">
+        <span class="status-time">9:41</span>
+        <span class="status-icons">▲▲▲ ▼ ▬</span>
+      </div>
+      <div class="screen-content">
+        <div class="home-bg"></div>
+        <div class="lineage-content">
+          <!-- Back + header -->
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;padding-top:4px">
+            <span style="color:var(--text-secondary);font-size:14px">← Back</span>
+            <div style="flex:1;text-align:right">
+              <div class="risk-badge rb-danger" style="display:inline-block">⚠ HIGH RISK</div>
+            </div>
+          </div>
+          <div class="lineage-header">
+            <div class="token-avatar" style="background:rgba(221,86,86,0.15);width:52px;height:52px;font-size:22px;flex-shrink:0;border-radius:14px">🌕</div>
+            <div class="lineage-token-info">
+              <div class="lineage-token-name">MoonShot v2</div>
+              <div class="lineage-token-symbol">$MOON2 · Clone Generation 2</div>
+              <div class="lineage-mcap">MCap $180K · 9pLm…WxZ</div>
+            </div>
+            <!-- Risk Gauge SVG -->
+            <div class="risk-gauge-wrap">
+              <svg viewBox="0 0 64 64" class="risk-gauge-svg">
+                <circle cx="32" cy="32" r="26" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="6"/>
+                <circle cx="32" cy="32" r="26" fill="none" stroke="#DD5656" stroke-width="6"
+                  stroke-dasharray="163" stroke-dashoffset="40"
+                  stroke-linecap="round"
+                  transform="rotate(-90 32 32)"/>
+              </svg>
+              <div class="risk-gauge-label">87<span>RISK</span></div>
+            </div>
+          </div>
+          <div class="quick-actions">
+            <div class="quick-btn quick-btn-ai">🤖 AI Analysis</div>
+            <div class="quick-btn quick-btn-watch">⭐ Track</div>
+            <div class="quick-btn quick-btn-share">↗ Share</div>
+          </div>
+          <!-- Family Tree -->
+          <div class="family-card">
+            <div class="family-card-header">
+              <div class="family-card-title">🧬 Token Family · 7 members</div>
+              <div class="family-badge">Confidence 94%</div>
+            </div>
+            <div class="family-tree-row">
+              <div class="tree-node node-root">👑</div>
+              <div style="flex:1;font-size:12px;font-weight:700">$MOON <span style="color:var(--text-muted);font-weight:400">· Root</span></div>
+              <div style="font-size:10px;color:var(--safe)">RUG ✓</div>
+            </div>
+            <div class="family-tree-row">
+              <div style="width:16px"></div>
+              <div class="tree-node node-gen1">G1</div>
+              <div style="flex:1;font-size:12px;font-weight:700">$MOON+ <span style="color:var(--text-muted);font-weight:400">· Gen 1</span></div>
+              <div style="font-size:10px;color:var(--warning)">RUG ✓</div>
+            </div>
+            <div class="family-tree-row" style="background:rgba(98,46,195,0.08)">
+              <div style="width:32px"></div>
+              <div class="tree-node node-query">●</div>
+              <div style="flex:1;font-size:12px;font-weight:700;color:var(--ai-light)">$MOON2 <span style="font-weight:400;color:var(--text-secondary)">· This token</span></div>
+              <div class="risk-badge rb-danger" style="font-size:9px;padding:2px 6px">87</div>
+            </div>
+          </div>
+          <!-- Forensic cards -->
+          <div class="section-header">Forensic Signals</div>
+          <div class="forensic-cards-row">
+            <div class="forensic-card">
+              <div class="forensic-title">💀 Death Clock</div>
+              <div class="forensic-score" style="color:var(--danger)">91%</div>
+              <div class="forensic-desc">Rug in 3–7 days · High confidence</div>
+            </div>
+            <div class="forensic-card">
+              <div class="forensic-title">🧟 Zombie</div>
+              <div class="forensic-score" style="color:var(--ai-light)">97%</div>
+              <div class="forensic-desc">Image match · Same deployer</div>
+            </div>
+            <div class="forensic-card">
+              <div class="forensic-title">📦 Bundle</div>
+              <div class="forensic-score" style="color:var(--warning)">847 SOL</div>
+              <div class="forensic-desc">Team extraction · Confirmed</div>
+            </div>
+            <div class="forensic-card">
+              <div class="forensic-title">🏭 Factory</div>
+              <div class="forensic-score" style="color:var(--warning)">Score 82</div>
+              <div class="forensic-desc">12 tokens · 4.2h interval</div>
+            </div>
+          </div>
+        </div>
+        <div class="scroll-fade"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ ALERTS ============ -->
+  <div class="screen-wrapper">
+    <div class="screen-label">06 · Alerts</div>
+    <div class="phone">
+      <div class="status-bar">
+        <span class="status-time">9:41</span>
+        <span class="status-icons">▲▲▲ ▼ ▬</span>
+      </div>
+      <div class="screen-content">
+        <div class="home-bg"></div>
+        <div class="alerts-content">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;padding-top:4px">
+            <div style="font-size:22px;font-weight:800">Alerts</div>
+            <div style="font-size:11px;color:var(--text-secondary)">3 unread</div>
+          </div>
+          <div class="filter-chips">
+            <div class="filter-chip active">All</div>
+            <div class="filter-chip">🔥 Rug</div>
+            <div class="filter-chip">📦 Bundle</div>
+            <div class="filter-chip">🕵️ Insider</div>
+            <div class="filter-chip">🧟 Zombie</div>
+          </div>
+          <div class="mark-all-btn"><button>✓ Mark all read</button></div>
+          <div class="alert-card">
+            <div class="alert-type-icon icon-rug">🔥</div>
+            <div class="alert-card-info">
+              <div class="alert-card-top">
+                <div class="alert-card-name">$LUNAX · Rug Confirmed</div>
+                <div class="alert-card-time">2 min ago</div>
+              </div>
+              <div class="alert-card-msg">Deployer drained 847 SOL · Liquidity removed · Sell now</div>
+            </div>
+            <div class="unread-dot" style="margin-left:4px"></div>
+          </div>
+          <div class="alert-card">
+            <div class="alert-type-icon icon-bundle">📦</div>
+            <div class="alert-card-info">
+              <div class="alert-card-top">
+                <div class="alert-card-name">$SOLPUMP · Bundle Exit</div>
+                <div class="alert-card-time">18 min ago</div>
+              </div>
+              <div class="alert-card-msg">Coordinated team dump · 6 wallets · $123K extracted</div>
+            </div>
+            <div class="unread-dot" style="margin-left:4px"></div>
+          </div>
+          <div class="alert-card">
+            <div class="alert-type-icon icon-insider">🕵️</div>
+            <div class="alert-card-info">
+              <div class="alert-card-top">
+                <div class="alert-card-name">$ARTAI · Insider Sell</div>
+                <div class="alert-card-time">41 min ago</div>
+              </div>
+              <div class="alert-card-msg">Dev sold 94% over 6h · Price down −78%</div>
+            </div>
+            <div class="unread-dot" style="margin-left:4px"></div>
+          </div>
+          <div class="alert-card" style="opacity:0.55">
+            <div class="alert-type-icon icon-zombie">🧟</div>
+            <div class="alert-card-info">
+              <div class="alert-card-top">
+                <div class="alert-card-name">$MOON2 · Zombie Detected</div>
+                <div class="alert-card-time">2h ago</div>
+              </div>
+              <div class="alert-card-msg">97% image similarity to $MOON · Same operator</div>
+            </div>
+          </div>
+        </div>
+        <div class="scroll-fade"></div>
+        <div class="tab-bar">
+          <div class="tab-item"><div class="tab-icon">📡</div><div class="tab-label">Feed</div></div>
+          <div class="tab-item"><div class="tab-icon">🔍</div><div class="tab-label">Search</div></div>
+          <div class="tab-item"><div class="tab-icon">⭐</div><div class="tab-label">Watchlist</div></div>
+          <div class="tab-item active">
+            <div class="tab-icon-wrap">
+              <div class="tab-icon">🔔</div>
+            </div>
+            <div class="tab-label">Alerts</div>
+          </div>
+          <div class="tab-item"><div class="tab-icon">👤</div><div class="tab-label">Account</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ ACCOUNT ============ -->
+  <div class="screen-wrapper">
+    <div class="screen-label">07 · Account</div>
+    <div class="phone">
+      <div class="status-bar">
+        <span class="status-time">9:41</span>
+        <span class="status-icons">▲▲▲ ▼ ▬</span>
+      </div>
+      <div class="screen-content">
+        <div class="home-bg"></div>
+        <div class="account-content">
+          <div class="account-header">Account</div>
+          <div class="profile-card">
+            <div class="avatar-ring">
+              <div class="avatar-inner">👤</div>
+            </div>
+            <div class="profile-info">
+              <div class="profile-email">alex@trader.xyz</div>
+              <div style="display:flex;align-items:center;gap:8px">
+                <div class="pro-badge-inline">⭐ PRO</div>
+                <div style="font-size:11px;color:var(--text-secondary)">Phantom linked</div>
+              </div>
+            </div>
+          </div>
+          <div class="settings-section">
+            <div class="settings-title">Notifications</div>
+            <div class="settings-row">
+              <div class="settings-row-left">🔥 <span>Rug Alerts</span></div>
+              <div class="toggle"></div>
+            </div>
+            <div class="settings-row">
+              <div class="settings-row-left">📦 <span>Bundle Extraction</span></div>
+              <div class="toggle"></div>
+            </div>
+            <div class="settings-row">
+              <div class="settings-row-left">🕵️ <span>Insider Sell</span></div>
+              <div class="toggle off"></div>
+            </div>
+            <div class="settings-row">
+              <div class="settings-row-left">🧟 <span>Zombie Token</span></div>
+              <div class="toggle"></div>
+            </div>
+            <div class="settings-row">
+              <div class="settings-row-left">💀 <span>Death Clock</span></div>
+              <div class="toggle"></div>
+            </div>
+          </div>
+          <div class="settings-section">
+            <div class="settings-title">Subscription</div>
+            <div class="settings-row">
+              <div class="settings-row-left">💎 <span>Manage Subscription</span></div>
+              <div class="settings-row-arrow">›</div>
+            </div>
+          </div>
+          <div class="settings-section">
+            <div class="settings-title">Legal</div>
+            <div class="settings-row">
+              <div class="settings-row-left">📄 <span>Privacy Policy</span></div>
+              <div class="settings-row-arrow">›</div>
+            </div>
+            <div class="settings-row">
+              <div class="settings-row-left">📋 <span>Terms of Service</span></div>
+              <div class="settings-row-arrow">›</div>
+            </div>
+          </div>
+          <div class="danger-btn">Disconnect Wallet</div>
+          <div style="text-align:center;font-size:10px;color:var(--text-muted);margin-top:10px">v1.0.0 · Lineage Agent</div>
+        </div>
+        <div class="scroll-fade"></div>
+        <div class="tab-bar">
+          <div class="tab-item"><div class="tab-icon">📡</div><div class="tab-label">Feed</div></div>
+          <div class="tab-item"><div class="tab-icon">🔍</div><div class="tab-label">Search</div></div>
+          <div class="tab-item"><div class="tab-icon">⭐</div><div class="tab-label">Watchlist</div></div>
+          <div class="tab-item"><div class="tab-icon">🔔</div><div class="tab-label">Alerts</div></div>
+          <div class="tab-item active"><div class="tab-icon">👤</div><div class="tab-label">Account</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ PAYWALL ============ -->
+  <div class="screen-wrapper">
+    <div class="screen-label">08 · Paywall · Pro</div>
+    <div class="phone">
+      <div class="status-bar">
+        <span class="status-time">9:41</span>
+        <span class="status-icons">▲▲▲ ▼ ▬</span>
+      </div>
+      <div class="screen-content">
+        <div class="paywall-bg"></div>
+        <div class="paywall-content">
+          <div class="paywall-close">✕</div>
+          <div class="paywall-hero">
+            <div class="paywall-orb">🔮</div>
+            <div class="paywall-title">Upgrade to Pro</div>
+            <div class="paywall-subtitle">Unlock full on-chain intelligence · No limits</div>
+          </div>
+          <div class="plan-cards">
+            <div class="plan-card">
+              <div class="plan-period">Monthly</div>
+              <div class="plan-price">$9<span>.99/mo</span></div>
+            </div>
+            <div class="plan-card selected">
+              <div class="plan-savings">SAVE 33%</div>
+              <div class="plan-period">Yearly</div>
+              <div class="plan-price">$79<span>.99/yr</span></div>
+            </div>
+          </div>
+          <div class="features-list">
+            <div class="feature-row">
+              <div class="feature-check">✓</div>
+              <div class="feature-label">Live Alerts</div>
+              <div class="feature-free" style="font-size:10px">5/d</div>
+              <div class="feature-pro">∞</div>
+            </div>
+            <div class="feature-row">
+              <div class="feature-check">✓</div>
+              <div class="feature-label">Full Lineage Scan</div>
+              <div class="feature-free">—</div>
+              <div class="feature-pro">✓</div>
+            </div>
+            <div class="feature-row">
+              <div class="feature-check">✓</div>
+              <div class="feature-label">Death Clock AI</div>
+              <div class="feature-free">—</div>
+              <div class="feature-pro">✓</div>
+            </div>
+            <div class="feature-row">
+              <div class="feature-check">✓</div>
+              <div class="feature-label">AI Chat Analysis</div>
+              <div class="feature-free">—</div>
+              <div class="feature-pro">✓</div>
+            </div>
+            <div class="feature-row">
+              <div class="feature-check">✓</div>
+              <div class="feature-label">Operator Fingerprint</div>
+              <div class="feature-free">—</div>
+              <div class="feature-pro">✓</div>
+            </div>
+            <div class="feature-row">
+              <div class="feature-check">✓</div>
+              <div class="feature-label">Bundle Extraction</div>
+              <div class="feature-free">—</div>
+              <div class="feature-pro">✓</div>
+            </div>
+            <div class="feature-row">
+              <div class="feature-check">✓</div>
+              <div class="feature-label">Scan History</div>
+              <div class="feature-free" style="font-size:10px">3</div>
+              <div class="feature-pro">∞</div>
+            </div>
+          </div>
+          <div class="paywall-cta">Start Pro — $79.99 / year →</div>
+          <div class="paywall-free">Continue with Free · Restore Purchases</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div style="text-align:center;margin-top:48px;padding-bottom:40px">
+  <div style="font-size:11px;font-weight:800;letter-spacing:0.15em;text-transform:uppercase;color:var(--text-muted)">
+    Lineage Agent · Design System "Noelle" · React Native / Expo · 2024
+  </div>
+</div>
+
+</body>
+</html>
