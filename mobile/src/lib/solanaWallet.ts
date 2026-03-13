@@ -4,6 +4,14 @@
 
 import nacl from "tweetnacl";
 import bs58 from "bs58";
+import * as SecureStore from "expo-secure-store";
+
+// ── SecureStore keys for ephemeral session persistence ────────────────────
+// Written when buildPhantomConnectURL() is called so that if Phantom cold-starts
+// the app via deep link, the keypair can be restored before decryption.
+const _SK_KEY = "phantom_dapp_sk";
+const _PK_KEY = "phantom_dapp_pk";
+const _NONCE_KEY = "phantom_connect_nonce";
 
 // ── Module-level session state ────────────────────────────────────────────
 // Kept alive across screen re-renders and app backgrounding (single flow).
@@ -24,6 +32,10 @@ export function buildPhantomConnectURL(appScheme = "lineage"): string {
   // New keypair + nonce for every connect attempt
   _dappKeypair = nacl.box.keyPair();
   _connectNonce = nacl.randomBytes(24);
+
+  // Persist to SecureStore so cold-starts (Phantom deep-link reopens the app)
+  // can restore the keypair before calling decryptPhantomResponse.
+  void _savePhantomSession();
 
   const dappPubKeyB58 = bs58.encode(_dappKeypair.publicKey);
   const nonce = bs58.encode(_connectNonce);
@@ -104,6 +116,7 @@ export function decryptPhantomResponse(
 
     _dappKeypair = null;
     _connectNonce = null; // clear session after successful use
+    void _clearPhantomSession();
     return { ok: true, publicKey: payload.public_key, session: payload.session };
   } catch (e: any) {
     return { ok: false, error: e?.message ?? "Unknown parse error." };
@@ -133,4 +146,44 @@ export function parsePhantomCallbackParams(url: string): Record<string, string> 
     }
   }
   return result;
+}
+
+// ── SecureStore helpers (internal) ────────────────────────────────────────
+
+async function _savePhantomSession(): Promise<void> {
+  if (!_dappKeypair || !_connectNonce) return;
+  await SecureStore.setItemAsync(_SK_KEY, bs58.encode(_dappKeypair.secretKey));
+  await SecureStore.setItemAsync(_PK_KEY, bs58.encode(_dappKeypair.publicKey));
+  await SecureStore.setItemAsync(_NONCE_KEY, bs58.encode(_connectNonce));
+}
+
+async function _clearPhantomSession(): Promise<void> {
+  await Promise.all([
+    SecureStore.deleteItemAsync(_SK_KEY).catch(() => {}),
+    SecureStore.deleteItemAsync(_PK_KEY).catch(() => {}),
+    SecureStore.deleteItemAsync(_NONCE_KEY).catch(() => {}),
+  ]);
+}
+
+/**
+ * Restores the ephemeral keypair + nonce from SecureStore.
+ * Must be called in the phantom-connect screen before decryptPhantomResponse
+ * when the app is cold-started by Phantom's redirect deep link.
+ * No-op if the session is already in memory.
+ */
+export async function restorePhantomSession(): Promise<void> {
+  if (_dappKeypair) return; // already live in memory
+  try {
+    const sk = await SecureStore.getItemAsync(_SK_KEY);
+    const pk = await SecureStore.getItemAsync(_PK_KEY);
+    const nonce = await SecureStore.getItemAsync(_NONCE_KEY);
+    if (!sk || !pk || !nonce) return;
+    _dappKeypair = {
+      secretKey: bs58.decode(sk),
+      publicKey: bs58.decode(pk),
+    };
+    _connectNonce = bs58.decode(nonce);
+  } catch {
+    // SecureStore unavailable or data corrupted — leave null, decryption will fail gracefully
+  }
 }

@@ -18,9 +18,10 @@ import {
 import { loginWithPrivy } from "@/src/lib/api";
 import { useAuthStore } from "@/src/store/auth";
 import { sentryCaptureError } from "@/src/lib/sentry";
-import { colors } from "@/src/theme/colors";
+import { useTheme } from "@/src/theme/ThemeContext";
 
 export default function PhantomConnectScreen() {
+  const { colors } = useTheme();
   const setUser = useAuthStore((s) => s.setUser);
   const handled = useRef(false);
 
@@ -106,17 +107,17 @@ export default function PhantomConnectScreen() {
   }, []);
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={[styles.safe, { backgroundColor: colors.background.deep }]}>
       <View style={styles.content}>
         <ActivityIndicator size="large" color={colors.accent.ai} />
-        <Text style={styles.label}>Connecting wallet…</Text>
+        <Text style={[styles.label, { color: colors.text.secondary }]}>Connecting wallet…</Text>
       </View>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: colors.background.deep },
+  safe: { flex: 1 },
   content: { flex: 1, alignItems: "center", justifyContent: "center", gap: 16 },
-  label: { color: colors.text.secondary, fontSize: 15 },
+  label: { fontSize: 15 },
 });
