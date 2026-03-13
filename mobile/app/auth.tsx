@@ -94,18 +94,22 @@ export default function AuthScreen() {
   // ── Privy SDK
   const { isReady } = usePrivy();
   const { sendCode, loginWithCode, state: emailState } = useLoginWithEmail({
+    onLoginSuccess: (user) => {
+      // Privy SDK fires this callback with the authenticated PrivyUser
+      _handlePrivyUser(user.id, (user as any).email?.address);
+    },
     onError: (err) => {
       authErrorRef.current = err.message ?? "Please try again.";
     },
   });
 
-  // Privy v2: onComplete removed — watch emailState.status instead
+  // Fallback: if onLoginSuccess didn't fire (edge case), clear loading
   useEffect(() => {
-    if (emailState.status === "done") {
-      const privyUser = (emailState as any).user;
-      if (privyUser?.id) {
-        _handlePrivyUser(privyUser.id, privyUser.email?.address);
-      }
+    if (emailState.status === "done" && loading) {
+      // onLoginSuccess should have already handled it;
+      // if loading is still true after a short delay, something went wrong
+      const id = setTimeout(() => setLoading(false), 3000);
+      return () => clearTimeout(id);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [emailState.status]);
@@ -255,9 +259,12 @@ export default function AuthScreen() {
       }
       try {
         authErrorRef.current = null;
-        await loginWithCode({ code: trimmedCode });
-        // On success: emailState.status → "done" triggers _handlePrivyUser()
-        // loading stays true so there is no flicker before navigation.
+        const privyUser = await loginWithCode({ code: trimmedCode });
+        // If onLoginSuccess callback fires, it handles the login.
+        // As a safety net, also handle the return value:
+        if (privyUser?.id) {
+          _handlePrivyUser(privyUser.id, (privyUser as any).email?.address);
+        }
       } catch (e: any) {
         const msg =
           authErrorRef.current ??

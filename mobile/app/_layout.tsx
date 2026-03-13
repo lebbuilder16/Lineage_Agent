@@ -9,6 +9,7 @@ import { StatusBar } from "expo-status-bar";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import * as SplashScreen from "expo-splash-screen";
+import * as Linking from "expo-linking";
 import { router } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { PrivyProvider } from "@privy-io/expo";
@@ -201,13 +202,26 @@ function RootLayout() {
     if (!fontsLoaded || initialNavDone.current) return;
     initialNavDone.current = true;
     SplashScreen.hideAsync();
-    AsyncStorage.getItem(ONBOARDING_KEY).then((value) => {
-      if (!value) {
-        router.replace("/onboarding");
-      } else if (!isAuthenticated) {
-        router.replace("/auth");
-      }
-    });
+
+    // Check if the app was opened via a Phantom deep link callback.
+    // If so, let Expo Router handle the navigation to phantom-connect.tsx
+    // instead of overriding it with a redirect to /auth.
+    Linking.getInitialURL()
+      .catch(() => null)
+      .then((initialUrl) => {
+        if (initialUrl && initialUrl.includes("phantom-connect")) {
+          // Deep link callback from Phantom — don't redirect, let Expo Router handle it
+          return;
+        }
+
+        AsyncStorage.getItem(ONBOARDING_KEY).then((value) => {
+          if (!value) {
+            router.replace("/onboarding");
+          } else if (!isAuthenticated) {
+            router.replace("/auth");
+          }
+        });
+      });
   // Runs once after fonts load — isAuthenticated intentionally excluded to avoid
   // re-triggering during the biometric session-restore in auth.tsx.
   // eslint-disable-next-line react-hooks/exhaustive-deps
