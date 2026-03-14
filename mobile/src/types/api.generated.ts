@@ -882,6 +882,19 @@ export interface components {
             confidence_level: "low" | "medium" | "high";
             /** @description Live market signals that may elevate the risk level */
             market_signals?: components["schemas"]["MarketSignals"] | null;
+            /**
+             * Total Negative Outcome Count
+             * @description Total rug/negative outcomes for this deployer
+             * @default 0
+             */
+            total_negative_outcome_count: number;
+            /**
+             * Basis Breakdown
+             * @description Rug mechanism distribution (from confirmed predictive rugs)
+             */
+            basis_breakdown?: {
+                [key: string]: number;
+            };
         };
         /**
          * DeployerProfile
