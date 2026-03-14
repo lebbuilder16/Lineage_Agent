@@ -24,6 +24,7 @@ mobile/dist/
 mobile/build/
 mobile/android/
 mobile/ios/
+mobile/.env.local
 
 # IDE
 .vscode/

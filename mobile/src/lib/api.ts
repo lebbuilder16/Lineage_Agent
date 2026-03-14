@@ -17,8 +17,8 @@ import type {
   Watch,
 } from '../types/api';
 
-const BASE_URL = 'https://lineage-agent.fly.dev';
-const WS_BASE = 'wss://lineage-agent.fly.dev';
+const BASE_URL = (process.env.EXPO_PUBLIC_API_URL ?? 'https://lineage-agent.fly.dev').replace(/\/$/, '');
+const WS_BASE = BASE_URL.replace(/^https?/, (p) => (p === 'https' ? 'wss' : 'ws'));
 
 // ─── helper ───────────────────────────────────────────────────────────────────
 

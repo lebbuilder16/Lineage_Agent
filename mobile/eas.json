@@ -5,14 +5,23 @@
   "build": {
     "development": {
       "developmentClient": true,
-      "distribution": "internal"
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_API_URL": "http://localhost:8000"
+      }
     },
     "preview": {
       "distribution": "internal",
-      "ios": { "simulator": true }
+      "ios": { "simulator": true },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://lineage-agent.fly.dev"
+      }
     },
     "production": {
-      "autoIncrement": true
+      "autoIncrement": true,
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://lineage-agent.fly.dev"
+      }
     }
   },
   "submit": {
