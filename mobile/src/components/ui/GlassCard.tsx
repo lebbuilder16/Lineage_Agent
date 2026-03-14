@@ -12,7 +12,7 @@ interface GlassCardProps {
   noPadding?: boolean;
 }
 
-export function GlassCard({ children, style, intensity = 18, noPadding }: GlassCardProps) {
+export function GlassCard({ children, style, intensity = 24, noPadding }: GlassCardProps) {
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
 
   const onLayout = (event: LayoutChangeEvent) => {
@@ -29,9 +29,9 @@ export function GlassCard({ children, style, intensity = 18, noPadding }: GlassC
       style={[styles.card, noPadding ? styles.noPadding : undefined, style]}
       onLayout={onLayout}
     >
-      {/* Top highlight gradient — adds card surface depth */}
+      {/* Top highlight gradient — Figma bg-card-glass */}
       <LinearGradient
-        colors={['rgba(255,255,255,0.08)', 'rgba(255,255,255,0.00)']}
+        colors={['rgba(255,255,255,0.06)', 'rgba(255,255,255,0.00)']}
         start={{ x: 0, y: 0 }}
         end={{ x: 0, y: 1 }}
         style={StyleSheet.absoluteFill}
@@ -74,7 +74,13 @@ const styles = StyleSheet.create({
     borderRadius: tokens.radius.lg,
     overflow: 'hidden',
     padding: tokens.spacing.cardPadding,
-    backgroundColor: tokens.bgCard,
+    backgroundColor: tokens.bgCard, // rgba(255,255,255,0.04)
+    // Figma: box-shadow 0 8px 32px rgba(0,0,0,0.4)
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.4,
+    shadowRadius: 32,
+    elevation: 12,
   },
   noPadding: {
     padding: 0,

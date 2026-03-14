@@ -101,27 +101,26 @@ function TabButton({ tab, isActive, badge, onPress }: TabButtonProps) {
   return (
     <Pressable onPress={handlePress} style={styles.tabButton} accessibilityRole="button" accessibilityLabel={tab.label} accessibilityState={{ selected: isActive }}>
       <Animated.View style={[styles.tabInner, animStyle]}>
+        {/* Active bubble — Figma: bg-secondary/12 */}
         {isActive && <View style={styles.activeIndicator} />}
         <View style={styles.iconWrap}>
           <Icon
             size={isActive ? 22 : 20}
-            color={isActive ? tokens.primary : tokens.white35}
-            strokeWidth={isActive ? 2.2 : 1.8}
+            color={isActive ? tokens.secondary : tokens.white35}
+            strokeWidth={isActive ? 2.5 : 1.8}
           />
+          {/* Icon glow — Figma: bg-secondary blur-md opacity-30 */}
+          {isActive && <View style={styles.iconGlow} />}
           {badge > 0 && (
             <View style={styles.badge}>
               <Text style={styles.badgeText}>{badge > 99 ? '99+' : badge}</Text>
             </View>
           )}
         </View>
-        <Text
-          style={[
-            styles.label,
-            { color: isActive ? tokens.primary : tokens.white35 },
-          ]}
-        >
-          {tab.label}
-        </Text>
+        {/* Label only appears when active — matches Figma animation */}
+        {isActive && (
+          <Text style={styles.labelActive}>{tab.label}</Text>
+        )}
       </Animated.View>
     </Pressable>
   );
@@ -137,12 +136,12 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     borderWidth: 1,
     borderColor: tokens.white10,
-    // Glow shadow
-    shadowColor: tokens.primary,
+    // Glow shadow — Figma secondary (ice blue)
+    shadowColor: tokens.secondary,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.2,
-    shadowRadius: 16,
-    elevation: 12,
+    shadowRadius: 20,
+    elevation: 14,
   },
   blur: { borderRadius: tokens.radius.xl },
   inner: {
@@ -168,12 +167,20 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: `${tokens.primary}18`,
-    borderRadius: tokens.radius.md,
-    borderWidth: 1,
-    borderColor: `${tokens.primary}30`,
+    // Figma: bg-secondary/12 rounded-full
+    backgroundColor: 'rgba(173, 200, 255, 0.12)',
+    borderRadius: tokens.radius.pill,
   },
-  iconWrap: { position: 'relative' },
+  iconWrap: { position: 'relative', alignItems: 'center', justifyContent: 'center' },
+  iconGlow: {
+    // Figma: absolute inset-0 bg-secondary blur-md opacity-30
+    position: 'absolute',
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(173, 200, 255, 0.30)',
+    // Note: true blur not available on RN Views, we simulate with radial opacity
+  },
   badge: {
     position: 'absolute',
     top: -4,
@@ -192,10 +199,11 @@ const styles = StyleSheet.create({
     color: '#fff',
     lineHeight: 12,
   },
-  label: {
-    fontFamily: 'Lexend-Medium',
+  labelActive: {
+    fontFamily: 'Lexend-SemiBold',
     fontSize: 10,
-    marginTop: 3,
-    letterSpacing: 0.3,
+    marginTop: 2,
+    letterSpacing: 0.5,
+    color: tokens.secondary, // Figma: text-secondary for active
   },
 });

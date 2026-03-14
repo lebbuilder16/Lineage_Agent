@@ -4,20 +4,20 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const tokens = {
-  // ── Backgrounds (flat) ─────────────────────────────────────────────────────
-  bgVoid: '#050504',
-  bgMain: '#0A0A07',
-  bgApp: '#0D0D0A',
-  bgCard: 'rgba(255, 255, 255, 0.03)',
-  bgGlass: 'rgba(255, 255, 255, 0.05)',
+  // ── Backgrounds (flat) — matched to Figma globals.css ─────────────────────
+  bgVoid: '#010410',      // near-void deep navy
+  bgMain: '#020617',      // Figma: --bg-main (deep navy-black)
+  bgApp:  '#040816',      // Figma: --bg-app
+  bgCard: 'rgba(255, 255, 255, 0.04)',  // Figma: bg-card-glass
+  bgGlass: 'rgba(255, 255, 255, 0.02)', // Figma: bg-glass
   bgGlass8: 'rgba(255, 255, 255, 0.08)',
   bgGlass12: 'rgba(255, 255, 255, 0.12)',
   bgInputBg: 'rgba(255, 255, 255, 0.05)',
   bgOverlay: 'rgba(0, 0, 0, 0.7)',
 
-  // ── Brand Palette ──────────────────────────────────────────────────────────
-  primary: '#6F6ACF',
-  secondary: '#ADCEFF',
+  // ── Brand Palette — matched to Figma globals.css ──────────────────────────
+  primary: '#091A7A',     // Figma: --color-primary (deep navy indigo)
+  secondary: '#ADC8FF',   // Figma: --color-secondary (ice blue accent)
   success: '#00FF88',
   accent: '#FF3366',
   error: '#FF0033',
