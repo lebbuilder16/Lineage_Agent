@@ -6,6 +6,7 @@ import { StatusBar } from 'expo-status-bar';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { StyleSheet, View } from 'react-native';
+import * as Linking from 'expo-linking';
 import { tokens } from '../src/theme/tokens';
 import { ErrorBoundary } from '../src/components/ui/ErrorBoundary';
 import { useAuthStore } from '../src/store/auth';
@@ -31,6 +32,19 @@ export default function RootLayout() {
   });
   const hydrate = useAuthStore((s) => s.hydrate);
   const hydrated = useAuthStore((s) => s.hydrated);
+  const setApiKey = useAuthStore((s) => s.setApiKey);
+
+  // Handle lineage://activate?key=XXX deep links
+  const url = Linking.useURL();
+  useEffect(() => {
+    if (!url) return;
+    try {
+      const parsed = Linking.parse(url);
+      if (parsed.hostname === 'activate' && typeof parsed.queryParams?.key === 'string' && parsed.queryParams.key) {
+        setApiKey(parsed.queryParams.key);
+      }
+    } catch { /* ignore malformed URLs */ }
+  }, [url]);
 
   useEffect(() => {
     hydrate();

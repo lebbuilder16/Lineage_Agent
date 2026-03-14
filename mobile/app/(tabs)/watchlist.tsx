@@ -11,12 +11,13 @@ import {
   TextInput,
 } from 'react-native';
 import { router } from 'expo-router';
-import { Bookmark, Trash2, Plus, ExternalLink } from 'lucide-react-native';
+import { Bookmark, Trash2, Plus, ExternalLink, Settings } from 'lucide-react-native';
 import { AuroraBackground } from '../../src/components/ui/AuroraBackground';
 import { GlassCard } from '../../src/components/ui/GlassCard';
 import { HapticButton } from '../../src/components/ui/HapticButton';
 import { SkeletonBlock } from '../../src/components/ui/SkeletonLoader';
 import { ScreenHeader } from '../../src/components/ui/ScreenHeader';
+import { SettingsSheet } from '../../src/components/ui/SettingsSheet';
 import { useWatches, useDeleteWatch } from '../../src/lib/query';
 import { useAuthStore } from '../../src/store/auth';
 import { tokens } from '../../src/theme/tokens';
@@ -28,6 +29,7 @@ export default function WatchlistScreen() {
   const { data: watches, isLoading, refetch } = useWatches(apiKey);
   const deleteMutation = useDeleteWatch(apiKey);
   const [pendingKey, setPendingKey] = useState('');
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const handleDelete = (id: string) => {
     Alert.alert('Remove from watchlist', 'This item will be removed.', [
@@ -65,6 +67,8 @@ export default function WatchlistScreen() {
                 autoCapitalize="none"
                 autoCorrect={false}
                 secureTextEntry
+                returnKeyType="done"
+                onSubmitEditing={() => { if (pendingKey.trim()) setApiKey(pendingKey.trim()); }}
                 accessibilityLabel="API key"
               />
               <HapticButton
@@ -77,6 +81,12 @@ export default function WatchlistScreen() {
                 Activate
               </HapticButton>
             </View>
+            <Text style={styles.lockoutHint}>
+              {'Get your key at '}
+              <Text style={styles.lockoutHintLink}>lineage-agent.fly.dev/dashboard</Text>
+              {'\nor open '}
+              <Text style={styles.lockoutHintLink}>lineage://activate?key=YOUR_KEY</Text>
+            </Text>
           </View>
         </SafeAreaView>
       </View>
@@ -90,8 +100,21 @@ export default function WatchlistScreen() {
         <ScreenHeader
           icon={<Bookmark size={26} color={tokens.secondary} strokeWidth={2.5} />}
           title="Watchlist"
-          rightAction={<Text style={styles.count}>{watches?.length ?? 0} items</Text>}
+          rightAction={
+            <View style={styles.headerActions}>
+              <Text style={styles.count}>{watches?.length ?? 0} items</Text>
+              <TouchableOpacity
+                onPress={() => setSettingsOpen(true)}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                accessibilityRole="button"
+                accessibilityLabel="Open API key settings"
+              >
+                <Settings size={18} color={tokens.white35} />
+              </TouchableOpacity>
+            </View>
+          }
         />
+        <SettingsSheet visible={settingsOpen} onClose={() => setSettingsOpen(false)} />
 
         {isLoading ? (
           <View style={{ gap: 8, paddingHorizontal: tokens.spacing.screenPadding }}>
@@ -182,6 +205,11 @@ const styles = StyleSheet.create({
     fontSize: tokens.font.small,
     color: tokens.white60,
   },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
 
   listContent: {
     gap: 8,
@@ -239,6 +267,18 @@ const styles = StyleSheet.create({
     fontSize: tokens.font.body,
     color: tokens.white35,
     textAlign: 'center',
+  },
+  lockoutHint: {
+    fontFamily: 'Lexend-Regular',
+    fontSize: tokens.font.tiny,
+    color: tokens.white35,
+    textAlign: 'center',
+    marginTop: 8,
+    lineHeight: 18,
+  },
+  lockoutHintLink: {
+    color: tokens.secondary,
+    fontFamily: 'Lexend-SemiBold',
   },
   keyInputRow: {
     flexDirection: 'row',
