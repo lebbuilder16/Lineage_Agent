@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   View,
   Text,
-  FlatList,
+  SectionList,
   ScrollView,
   TouchableOpacity,
   StyleSheet,
@@ -46,6 +46,15 @@ function timeAgo(ts: string): string {
   return `${Math.floor(diff / 86400)}d ago`;
 }
 
+function dateGroup(ts: string): string {
+  const d = new Date(ts);
+  const today = new Date();
+  const yesterday = new Date(); yesterday.setDate(today.getDate() - 1);
+  if (d.toDateString() === today.toDateString()) return 'Today';
+  if (d.toDateString() === yesterday.toDateString()) return 'Yesterday';
+  return 'Older';
+}
+
 export default function AlertsScreen() {
   const alerts = useAlertsStore((s) => s.alerts);
   const markRead = useAlertsStore((s) => s.markRead);
@@ -55,6 +64,17 @@ export default function AlertsScreen() {
   const [activeFilter, setActiveFilter] = useState<AlertItem['type'] | null>(null);
 
   const filtered = activeFilter ? alerts.filter((a) => a.type === activeFilter) : alerts;
+
+  const sections = useMemo(() => {
+    const groups: Record<string, AlertItem[]> = { Today: [], Yesterday: [], Older: [] };
+    for (const a of filtered) {
+      const key = dateGroup(a.timestamp ?? a.created_at ?? '');
+      groups[key].push(a);
+    }
+    return (['Today', 'Yesterday', 'Older'] as const)
+      .filter((k) => groups[k].length > 0)
+      .map((k) => ({ title: k, data: groups[k] }));
+  }, [filtered]);
 
   const handlePress = (alert: AlertItem) => {
     markRead(alert.id);
@@ -119,11 +139,15 @@ export default function AlertsScreen() {
             </Text>
           </View>
         ) : (
-          <FlatList
-            data={filtered}
+          <SectionList
+            sections={sections}
             keyExtractor={(item) => item.id}
             contentContainerStyle={styles.listContent}
             showsVerticalScrollIndicator={false}
+            stickySectionHeadersEnabled={false}
+            renderSectionHeader={({ section }) => (
+              <Text style={styles.sectionLabel}>{section.title}</Text>
+            )}
             renderItem={({ item }) => (
               <TouchableOpacity
                 onPress={() => handlePress(item)}
@@ -209,6 +233,14 @@ const styles = StyleSheet.create({
   },
 
   listContent: { gap: 8, paddingBottom: 120 },
+  sectionLabel: {
+    fontFamily: 'Lexend-SemiBold',
+    fontSize: tokens.font.small,
+    color: tokens.white35,
+    letterSpacing: 0.5,
+    paddingVertical: 6,
+    paddingTop: 12,
+  },
   alertCard: { borderWidth: 1, borderColor: 'transparent' },
   alertCardUnread: { borderColor: `${tokens.secondary}30` },
   alertInner: {

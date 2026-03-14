@@ -10,7 +10,7 @@ import {
   RefreshControl,
 } from 'react-native';
 import { router } from 'expo-router';
-import { Activity, TrendingUp, AlertTriangle, Zap, Radar } from 'lucide-react-native';
+import { Activity, TrendingUp, AlertTriangle, Zap, Radar, Bell } from 'lucide-react-native';
 import { AuroraBackground } from '../../src/components/ui/AuroraBackground';
 import { GlassCard } from '../../src/components/ui/GlassCard';
 import { ScreenHeader } from '../../src/components/ui/ScreenHeader';
@@ -22,6 +22,14 @@ import { tokens } from '../../src/theme/tokens';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import type { TokenSearchResult } from '../../src/types/api';
 
+function timeAgo(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  if (diff < 60_000) return `${Math.floor(diff / 1000)}s ago`;
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
+  return `${Math.floor(diff / 86_400_000)}d ago`;
+}
+
 export default function RadarScreen() {
   const { data: stats, isLoading: statsLoading, refetch: refetchStats } = useGlobalStats();
   const { data: trending, isLoading: trendingLoading, refetch: refetchTrending } =
@@ -29,6 +37,8 @@ export default function RadarScreen() {
   const addAlert = useAlertsStore((s) => s.addAlert);
   const setWsConnected = useAlertsStore((s) => s.setWsConnected);
   const wsConnected = useAlertsStore((s) => s.wsConnected);
+  const markRead = useAlertsStore((s) => s.markRead);
+  const recentAlerts = useAlertsStore((s) => s.alerts.slice(0, 3));
   const wsCleanup = useRef<(() => void) | null>(null);
 
   useEffect(() => {
@@ -80,6 +90,50 @@ export default function RadarScreen() {
               accentColor={tokens.secondary}
             />
           </View>
+
+          {/* Recent Alerts */}
+          {recentAlerts.length > 0 && (
+            <View style={[styles.section, { marginBottom: 24 }]}>
+              <View style={styles.sectionHeader}>
+                <Bell size={16} color={tokens.secondary} />
+                <Text style={styles.sectionTitle}>Recent Alerts</Text>
+              </View>
+              {recentAlerts.map((alert) => (
+                <TouchableOpacity
+                  key={alert.id}
+                  onPress={() => {
+                    markRead(alert.id);
+                    if (alert.mint) router.push(`/token/${alert.mint}` as any);
+                  }}
+                  activeOpacity={0.75}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${alert.type} alert: ${alert.title ?? alert.token_name ?? alert.type}`}
+                >
+                  <GlassCard
+                    style={[styles.alertCard, !alert.read && styles.alertCardUnread]}
+                    noPadding
+                  >
+                    <View style={styles.alertInner}>
+                      <View style={styles.alertDot}>
+                        {!alert.read && <View style={styles.alertUnreadDot} />}
+                      </View>
+                      <View style={styles.alertBody}>
+                        <Text style={styles.alertTitle} numberOfLines={1}>
+                          {alert.title ?? alert.token_name ?? alert.type.toUpperCase()}
+                        </Text>
+                        <Text style={styles.alertMsg} numberOfLines={1}>
+                          {alert.message}
+                        </Text>
+                      </View>
+                      <Text style={styles.alertTime}>
+                        {timeAgo(alert.timestamp ?? alert.created_at ?? '')}
+                      </Text>
+                    </View>
+                  </GlassCard>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
 
           {/* Trending tokens */}
           <View style={styles.section}>
@@ -297,5 +351,38 @@ const styles = StyleSheet.create({
     fontFamily: 'Lexend-Regular',
     fontSize: tokens.font.tiny,
     color: tokens.white60,
+  },
+
+  alertCard: { marginBottom: 0 },
+  alertCardUnread: { borderColor: `${tokens.secondary}40`, borderWidth: 1 },
+  alertInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: tokens.spacing.cardPadding,
+    gap: 10,
+  },
+  alertDot: { width: 8, alignItems: 'center' },
+  alertUnreadDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: tokens.secondary,
+  },
+  alertBody: { flex: 1 },
+  alertTitle: {
+    fontFamily: 'Lexend-SemiBold',
+    fontSize: tokens.font.small,
+    color: tokens.white100,
+  },
+  alertMsg: {
+    fontFamily: 'Lexend-Regular',
+    fontSize: tokens.font.tiny,
+    color: tokens.white60,
+    marginTop: 2,
+  },
+  alertTime: {
+    fontFamily: 'Lexend-Regular',
+    fontSize: tokens.font.tiny,
+    color: tokens.white35,
   },
 });

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -9,16 +9,19 @@ import {
   RefreshControl,
   Alert,
   TextInput,
+  Modal,
+  TouchableWithoutFeedback,
 } from 'react-native';
 import { router } from 'expo-router';
-import { Bookmark, Trash2, Plus, ExternalLink, Settings } from 'lucide-react-native';
+import { Bookmark, Trash2, Plus, Settings } from 'lucide-react-native';
+import { Swipeable } from 'react-native-gesture-handler';
 import { AuroraBackground } from '../../src/components/ui/AuroraBackground';
 import { GlassCard } from '../../src/components/ui/GlassCard';
 import { HapticButton } from '../../src/components/ui/HapticButton';
 import { SkeletonBlock } from '../../src/components/ui/SkeletonLoader';
 import { ScreenHeader } from '../../src/components/ui/ScreenHeader';
 import { SettingsSheet } from '../../src/components/ui/SettingsSheet';
-import { useWatches, useDeleteWatch } from '../../src/lib/query';
+import { useWatches, useDeleteWatch, useAddWatch } from '../../src/lib/query';
 import { useAuthStore } from '../../src/store/auth';
 import { tokens } from '../../src/theme/tokens';
 import type { Watch } from '../../src/types/api';
@@ -28,14 +31,24 @@ export default function WatchlistScreen() {
   const setApiKey = useAuthStore((s) => s.setApiKey);
   const { data: watches, isLoading, refetch } = useWatches(apiKey);
   const deleteMutation = useDeleteWatch(apiKey);
+  const addMutation = useAddWatch(apiKey);
   const [pendingKey, setPendingKey] = useState('');
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
+  const [addValue, setAddValue] = useState('');
+  const [addType, setAddType] = useState<'mint' | 'deployer'>('mint');
+  const swipeableRefs = useRef<Map<string, Swipeable | null>>(new Map());
 
   const handleDelete = (id: string) => {
-    Alert.alert('Remove from watchlist', 'This item will be removed.', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Remove', style: 'destructive', onPress: () => deleteMutation.mutate(id, { onSuccess: () => refetch() }) },
-    ]);
+    deleteMutation.mutate(id, { onSuccess: () => refetch() });
+  };
+
+  const handleAddSubmit = () => {
+    const v = addValue.trim();
+    if (!v) return;
+    addMutation.mutate({ sub_type: addType, value: v }, {
+      onSuccess: () => { refetch(); setAddOpen(false); setAddValue(''); },
+    });
   };
 
   const handlePress = (watch: Watch) => {
@@ -104,6 +117,14 @@ export default function WatchlistScreen() {
             <View style={styles.headerActions}>
               <Text style={styles.count}>{watches?.length ?? 0} items</Text>
               <TouchableOpacity
+                onPress={() => setAddOpen(true)}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                accessibilityRole="button"
+                accessibilityLabel="Add to watchlist"
+              >
+                <Plus size={20} color={tokens.secondary} />
+              </TouchableOpacity>
+              <TouchableOpacity
                 onPress={() => setSettingsOpen(true)}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                 accessibilityRole="button"
@@ -115,6 +136,56 @@ export default function WatchlistScreen() {
           }
         />
         <SettingsSheet visible={settingsOpen} onClose={() => setSettingsOpen(false)} />
+
+        {/* Add watch modal */}
+        <Modal visible={addOpen} transparent animationType="slide" onRequestClose={() => setAddOpen(false)} statusBarTranslucent>
+          <TouchableWithoutFeedback onPress={() => setAddOpen(false)}>
+            <View style={styles.modalBackdrop} />
+          </TouchableWithoutFeedback>
+          <View style={styles.addSheet}>
+            <View style={styles.handle} />
+            <Text style={styles.addTitle}>Add to Watchlist</Text>
+
+            {/* Type selector */}
+            <View style={styles.typeRow}>
+              {(['mint', 'deployer'] as const).map((t) => (
+                <TouchableOpacity
+                  key={t}
+                  onPress={() => setAddType(t)}
+                  style={[styles.typeBtn, addType === t && styles.typeBtnActive]}
+                >
+                  <Text style={[styles.typeBtnText, addType === t && styles.typeBtnTextActive]}>
+                    {t === 'mint' ? 'Token Mint' : 'Deployer'}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <TextInput
+              style={styles.addInput}
+              value={addValue}
+              onChangeText={setAddValue}
+              placeholder={addType === 'mint' ? 'Token mint address…' : 'Deployer address…'}
+              placeholderTextColor={tokens.white35}
+              autoCapitalize="none"
+              autoCorrect={false}
+              returnKeyType="done"
+              onSubmitEditing={handleAddSubmit}
+              autoFocus
+            />
+            <HapticButton
+              variant="secondary"
+              size="md"
+              fullWidth
+              loading={addMutation.isPending}
+              onPress={handleAddSubmit}
+              accessibilityRole="button"
+              accessibilityLabel="Confirm add to watchlist"
+            >
+              Add
+            </HapticButton>
+          </View>
+        </Modal>
 
         {isLoading ? (
           <View style={{ gap: 8, paddingHorizontal: tokens.spacing.screenPadding }}>
@@ -142,13 +213,29 @@ export default function WatchlistScreen() {
               <RefreshControl refreshing={isLoading} onRefresh={refetch} tintColor={tokens.secondary} />
             }
             renderItem={({ item }) => (
-              <GlassCard style={styles.watchCard} noPadding>
-                <View style={styles.watchInner}>
+              <Swipeable
+                ref={(ref) => { swipeableRefs.current.set(item.id, ref); }}
+                overshootRight={false}
+                renderRightActions={() => (
                   <TouchableOpacity
-                    style={styles.watchBody}
-                    onPress={() => handlePress(item)}
-                    activeOpacity={0.75}
+                    onPress={() => {
+                      swipeableRefs.current.get(item.id)?.close();
+                      handleDelete(item.id);
+                    }}
+                    style={styles.swipeDeleteBtn}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Delete ${item.label ?? item.value}`}
                   >
+                    <Trash2 size={20} color={tokens.white100} />
+                  </TouchableOpacity>
+                )}
+              >
+              <GlassCard style={styles.watchCard} noPadding>
+                <TouchableOpacity
+                  style={styles.watchInner}
+                  onPress={() => handlePress(item)}
+                  activeOpacity={0.75}
+                >
                     <View
                       style={[
                         styles.typeBadge,
@@ -179,15 +266,8 @@ export default function WatchlistScreen() {
                       {item.value}
                     </Text>
                   </TouchableOpacity>
-                  <TouchableOpacity
-                    onPress={() => handleDelete(item.id)}
-                    style={styles.deleteBtn}
-                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                  >
-                    <Trash2 size={18} color={tokens.white35} />
-                  </TouchableOpacity>
-                </View>
-              </GlassCard>
+                </GlassCard>
+                </Swipeable>
             )}
           />
         )}
@@ -222,6 +302,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: tokens.spacing.cardPadding,
     gap: 12,
+    flex: 1,
   },
   watchBody: { flex: 1, gap: 4 },
   typeBadge: {
@@ -246,8 +327,83 @@ const styles = StyleSheet.create({
     fontSize: tokens.font.tiny,
     color: tokens.white35,
   },
-  deleteBtn: {
-    padding: 4,
+
+  swipeDeleteBtn: {
+    backgroundColor: tokens.risk.critical,
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: 72,
+    marginLeft: 8,
+    borderRadius: tokens.radius.sm,
+    marginBottom: 0,
+  },
+
+  modalBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+  },
+  addSheet: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: tokens.bgCard ?? '#0d1b2e',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingTop: 12,
+    paddingHorizontal: tokens.spacing.screenPadding,
+    paddingBottom: 48,
+    gap: 12,
+    borderTopWidth: 1,
+    borderColor: tokens.borderSubtle,
+  },
+  handle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: tokens.white20,
+    alignSelf: 'center',
+    marginBottom: 8,
+  },
+  addTitle: {
+    fontFamily: 'Lexend-SemiBold',
+    fontSize: tokens.font.subheading,
+    color: tokens.white100,
+    marginBottom: 4,
+  },
+  typeRow: { flexDirection: 'row', gap: 8 },
+  typeBtn: {
+    flex: 1,
+    paddingVertical: 8,
+    borderRadius: tokens.radius.sm,
+    backgroundColor: tokens.bgGlass8,
+    borderWidth: 1,
+    borderColor: tokens.borderSubtle,
+    alignItems: 'center',
+  },
+  typeBtnActive: {
+    backgroundColor: `${tokens.secondary}20`,
+    borderColor: tokens.secondary,
+  },
+  typeBtnText: {
+    fontFamily: 'Lexend-Regular',
+    fontSize: tokens.font.small,
+    color: tokens.white60,
+  },
+  typeBtnTextActive: {
+    color: tokens.secondary,
+    fontFamily: 'Lexend-SemiBold',
+  },
+  addInput: {
+    backgroundColor: tokens.bgGlass8,
+    borderRadius: tokens.radius.pill,
+    borderWidth: 1,
+    borderColor: tokens.borderSubtle,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    fontFamily: 'Lexend-Regular',
+    fontSize: tokens.font.body,
+    color: tokens.white100,
   },
 
   lockout: {

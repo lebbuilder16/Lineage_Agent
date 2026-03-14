@@ -3,6 +3,8 @@ import * as SecureStore from 'expo-secure-store';
 import type { Watch, User } from '../types/api';
 
 const LS_KEY = 'lineage_api_key';
+const LS_RECENT_KEY = 'lineage_recent_searches';
+const MAX_RECENT = 5;
 
 interface AuthState {
   apiKey: string | null;
@@ -10,12 +12,15 @@ interface AuthState {
   watches: Watch[];
   scanCount: number;
   hydrated: boolean;
+  recentSearches: string[];
   setApiKey: (key: string | null) => void;
   setUser: (user: User | null) => void;
   setWatches: (watches: Watch[]) => void;
   addWatch: (watch: Watch) => void;
   removeWatch: (id: string) => void;
   incrementScanCount: () => void;
+  addRecentSearch: (mint: string) => void;
+  clearRecentSearches: () => void;
   hydrate: () => Promise<void>;
 }
 
@@ -25,6 +30,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   watches: [],
   scanCount: 0,
   hydrated: false,
+  recentSearches: [],
 
   setApiKey: (key) => {
     if (key) {
@@ -52,10 +58,24 @@ export const useAuthStore = create<AuthState>((set) => ({
   incrementScanCount: () =>
     set((state) => ({ scanCount: state.scanCount + 1 })),
 
+  addRecentSearch: (mint) =>
+    set((state) => {
+      const deduped = [mint, ...state.recentSearches.filter((r) => r !== mint)].slice(0, MAX_RECENT);
+      SecureStore.setItemAsync(LS_RECENT_KEY, JSON.stringify(deduped)).catch(() => {});
+      return { recentSearches: deduped };
+    }),
+
+  clearRecentSearches: () => {
+    SecureStore.deleteItemAsync(LS_RECENT_KEY).catch(() => {});
+    set({ recentSearches: [] });
+  },
+
   hydrate: async () => {
     try {
       const key = await SecureStore.getItemAsync(LS_KEY);
-      set({ apiKey: key ?? null, hydrated: true });
+      const recentRaw = await SecureStore.getItemAsync(LS_RECENT_KEY);
+      const recentSearches: string[] = recentRaw ? (JSON.parse(recentRaw) as string[]) : [];
+      set({ apiKey: key ?? null, hydrated: true, recentSearches });
     } catch (e) {
       console.error('[auth] SecureStore.getItem failed during hydration', e);
       set({ hydrated: true });

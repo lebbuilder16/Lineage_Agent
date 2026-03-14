@@ -1,6 +1,7 @@
 // Lineage Agent -- SSE & WebSocket streaming helpers
 import { WS_BASE } from './api-client';
 import type { AnalysisStep, AlertItem, LineageResult } from '../types/api';
+import * as Notifications from 'expo-notifications';
 
 const BASE_URL = (
   process.env.EXPO_PUBLIC_API_URL ?? 'https://lineage-agent.fly.dev'
@@ -137,6 +138,14 @@ export function connectAlertsWS(
         if (!data.id) data.id = `${Date.now()}-${Math.random()}`;
         if (!data.read) data.read = false;
         onAlert(data);
+        Notifications.scheduleNotificationAsync({
+          content: {
+            title: data.title ?? data.token_name ?? data.type.toUpperCase(),
+            body: data.message ?? '',
+            data: { mint: data.mint },
+          },
+          trigger: null,
+        }).catch(() => {});
       } catch {
         // ignore malformed frames
       }

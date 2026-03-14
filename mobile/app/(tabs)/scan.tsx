@@ -13,11 +13,12 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { router } from 'expo-router';
-import { Search, X, Network } from 'lucide-react-native';
+import { Search, X, Network, Clock } from 'lucide-react-native';
 import { AuroraBackground } from '../../src/components/ui/AuroraBackground';
 import { GlassCard } from '../../src/components/ui/GlassCard';
 import { ScreenHeader } from '../../src/components/ui/ScreenHeader';
 import { searchTokens } from '../../src/lib/api';
+import { useAuthStore } from '../../src/store/auth';
 import { tokens } from '../../src/theme/tokens';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import type { TokenSearchResult } from '../../src/types/api';
@@ -27,6 +28,9 @@ export default function ScanScreen() {
   const [results, setResults] = useState<TokenSearchResult[]>([]);
   const [loading, setLoading] = useState(false);
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const recentSearches = useAuthStore((s) => s.recentSearches);
+  const addRecentSearch = useAuthStore((s) => s.addRecentSearch);
+  const clearRecentSearches = useAuthStore((s) => s.clearRecentSearches);
 
   const handleChange = useCallback((text: string) => {
     setQuery(text);
@@ -45,6 +49,16 @@ export default function ScanScreen() {
   }, []);
 
   const handleClear = () => { setQuery(''); setResults([]); };
+
+  const runSearch = useCallback((text: string) => {
+    if (text.trim().length < 2) return;
+    if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    setLoading(true);
+    searchTokens(text.trim())
+      .then((data) => { setResults(data); addRecentSearch(text.trim()); })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [addRecentSearch]);
 
   const handleSelect = (mint: string) => {
     router.push(`/token/${mint}` as any);
@@ -94,22 +108,36 @@ export default function ScanScreen() {
             )}
             {loading && <ActivityIndicator size="small" color={tokens.secondary} style={styles.clearBtn} />}
             <TouchableOpacity
-              onPress={() => {
-                if (query.trim().length >= 2) {
-                  if (debounceTimer.current) clearTimeout(debounceTimer.current);
-                  setLoading(true);
-                  searchTokens(query.trim())
-                    .then(setResults)
-                    .catch(() => {})
-                    .finally(() => setLoading(false));
-                }
-              }}
+              onPress={() => runSearch(query)}
               style={styles.scanBtn}
               activeOpacity={0.85}
             >
               <Text style={styles.scanBtnText}>Scan</Text>
             </TouchableOpacity>
           </View>
+
+          {/* Recent searches — visible when query is empty and results are empty */}
+          {query.length === 0 && results.length === 0 && recentSearches.length > 0 && (
+            <View style={styles.recentWrap}>
+              <View style={styles.recentHeader}>
+                <Clock size={12} color={tokens.white35} />
+                <Text style={styles.recentTitle}>Recent</Text>
+                <TouchableOpacity onPress={clearRecentSearches} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                  <Text style={styles.recentClear}>Clear</Text>
+                </TouchableOpacity>
+              </View>
+              {recentSearches.map((addr) => (
+                <TouchableOpacity
+                  key={addr}
+                  onPress={() => { setQuery(addr); runSearch(addr); }}
+                  style={styles.recentItem}
+                >
+                  <Search size={14} color={tokens.white35} />
+                  <Text style={styles.recentAddr} numberOfLines={1}>{addr}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
 
           {/* Results */}
           <FlatList
@@ -247,5 +275,41 @@ const styles = StyleSheet.create({
     fontFamily: 'Lexend-Regular',
     fontSize: tokens.font.body,
     color: tokens.white35,
+  },
+
+  recentWrap: { marginBottom: 12, gap: 4 },
+  recentHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 6,
+  },
+  recentTitle: {
+    fontFamily: 'Lexend-SemiBold',
+    fontSize: tokens.font.small,
+    color: tokens.white35,
+    flex: 1,
+  },
+  recentClear: {
+    fontFamily: 'Lexend-Regular',
+    fontSize: tokens.font.tiny,
+    color: tokens.secondary,
+  },
+  recentItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    backgroundColor: tokens.bgGlass8,
+    borderRadius: tokens.radius.sm,
+    borderWidth: 1,
+    borderColor: tokens.borderSubtle,
+  },
+  recentAddr: {
+    fontFamily: 'Lexend-Regular',
+    fontSize: tokens.font.small,
+    color: tokens.white60,
+    flex: 1,
   },
 });
