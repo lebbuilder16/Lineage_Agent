@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -13,16 +13,33 @@ import { ChevronLeft, ChevronRight, AlertTriangle } from 'lucide-react-native';
 import { AuroraBackground } from '../../src/components/ui/AuroraBackground';
 import { GlassCard } from '../../src/components/ui/GlassCard';
 import { GaugeRing } from '../../src/components/ui/GaugeRing';
+import { HapticButton } from '../../src/components/ui/HapticButton';
 import { SkeletonBlock } from '../../src/components/ui/SkeletonLoader';
 import { useDeployer } from '../../src/lib/query';
+import { addWatch } from '../../src/lib/api';
+import { useAuthStore } from '../../src/store/auth';
 import { tokens } from '../../src/theme/tokens';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 
 export default function DeployerScreen() {
   const { address } = useLocalSearchParams<{ address: string }>();
   const { data, isLoading, error, refetch } = useDeployer(address ?? '');
+  const apiKey = useAuthStore((s) => s.apiKey);
+  const addWatchFn = useAuthStore((s) => s.addWatch);
+  const [watching, setWatching] = useState(false);
 
   const rugRate = (data?.rug_rate_pct ?? 0) / 100;
+
+  const handleWatchDeployer = async () => {
+    if (!apiKey || !address) return;
+    try {
+      const w = await addWatch(apiKey, 'deployer', address);
+      addWatchFn(w);
+      setWatching(true);
+    } catch (err) {
+      console.error('[handleWatchDeployer]', err);
+    }
+  };
 
   return (
     <View style={styles.container}>
@@ -45,7 +62,7 @@ export default function DeployerScreen() {
         <ScrollView
           contentContainerStyle={styles.content}
           showsVerticalScrollIndicator={false}
-          refreshControl={<RefreshControl refreshing={isLoading} onRefresh={refetch} tintColor={tokens.primary} />}
+          refreshControl={<RefreshControl refreshing={isLoading} onRefresh={refetch} tintColor={tokens.secondary} />}
         >
           {isLoading && <GlassCard><SkeletonBlock lines={4} /></GlassCard>}
 
@@ -77,6 +94,16 @@ export default function DeployerScreen() {
                     )}
                   </View>
                 </View>
+                {apiKey && (
+                  <HapticButton
+                    variant={watching ? 'ghost' : 'secondary'}
+                    size="sm"
+                    onPress={handleWatchDeployer}
+                    style={{ marginTop: 12 }}
+                  >
+                    {watching ? 'Watching ✓' : 'Watch Deployer'}
+                  </HapticButton>
+                )}
               </GlassCard>
 
               {/* Token history */}

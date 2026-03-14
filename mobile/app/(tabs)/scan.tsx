@@ -95,7 +95,20 @@ export default function ScanScreen() {
               </TouchableOpacity>
             )}
             {loading && <ActivityIndicator size="small" color={tokens.secondary} style={styles.clearBtn} />}
-            <TouchableOpacity onPress={() => {}} style={styles.scanBtn} activeOpacity={0.85}>
+            <TouchableOpacity
+              onPress={() => {
+                if (query.trim().length >= 2) {
+                  if (debounceTimer.current) clearTimeout(debounceTimer.current);
+                  setLoading(true);
+                  searchTokens(query.trim())
+                    .then(setResults)
+                    .catch(() => {})
+                    .finally(() => setLoading(false));
+                }
+              }}
+              style={styles.scanBtn}
+              activeOpacity={0.85}
+            >
               <Text style={styles.scanBtnText}>Scan</Text>
             </TouchableOpacity>
           </View>

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -7,6 +7,8 @@ import {
   StyleSheet,
   SafeAreaView,
   RefreshControl,
+  Alert,
+  TextInput,
 } from 'react-native';
 import { router } from 'expo-router';
 import { Bookmark, Trash2, Plus, ExternalLink } from 'lucide-react-native';
@@ -21,11 +23,16 @@ import type { Watch } from '../../src/types/api';
 
 export default function WatchlistScreen() {
   const apiKey = useAuthStore((s) => s.apiKey);
+  const setApiKey = useAuthStore((s) => s.setApiKey);
   const { data: watches, isLoading, refetch } = useWatches(apiKey);
   const deleteMutation = useDeleteWatch(apiKey);
+  const [pendingKey, setPendingKey] = useState('');
 
   const handleDelete = (id: string) => {
-    deleteMutation.mutate(id, { onSuccess: () => refetch() });
+    Alert.alert('Remove from watchlist', 'This item will be removed.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Remove', style: 'destructive', onPress: () => deleteMutation.mutate(id, { onSuccess: () => refetch() }) },
+    ]);
   };
 
   const handlePress = (watch: Watch) => {
@@ -45,8 +52,30 @@ export default function WatchlistScreen() {
             <Bookmark size={48} color={tokens.white20} />
             <Text style={styles.lockoutTitle}>API Key Required</Text>
             <Text style={styles.lockoutSub}>
-              Enter your API key in the settings to access your watchlist.
+              Enter your API key to unlock your watchlist.
             </Text>
+            <View style={styles.keyInputRow}>
+              <TextInput
+                style={styles.keyInput}
+                value={pendingKey}
+                onChangeText={setPendingKey}
+                placeholder="sk-…"
+                placeholderTextColor={tokens.white35}
+                autoCapitalize="none"
+                autoCorrect={false}
+                secureTextEntry
+                accessibilityLabel="API key"
+              />
+              <HapticButton
+                variant="secondary"
+                size="sm"
+                onPress={() => { if (pendingKey.trim()) setApiKey(pendingKey.trim()); }}
+                accessibilityRole="button"
+                accessibilityLabel="Activate API key"
+              >
+                Activate
+              </HapticButton>
+            </View>
           </View>
         </SafeAreaView>
       </View>
@@ -91,7 +120,7 @@ export default function WatchlistScreen() {
             contentContainerStyle={styles.listContent}
             showsVerticalScrollIndicator={false}
             refreshControl={
-              <RefreshControl refreshing={isLoading} onRefresh={refetch} tintColor={tokens.primary} />
+              <RefreshControl refreshing={isLoading} onRefresh={refetch} tintColor={tokens.secondary} />
             }
             renderItem={({ item }) => (
               <GlassCard style={styles.watchCard} noPadding>
@@ -107,8 +136,8 @@ export default function WatchlistScreen() {
                         {
                           backgroundColor:
                             item.sub_type === 'mint'
-                              ? `${tokens.primary}18`
-                              : `${tokens.secondary}18`,
+                              ? `${tokens.secondary}18`
+                              : `${tokens.accent}18`,
                         },
                       ]}
                     >
@@ -117,7 +146,7 @@ export default function WatchlistScreen() {
                           styles.typeText,
                           {
                             color:
-                              item.sub_type === 'mint' ? tokens.primary : tokens.secondary,
+                              item.sub_type === 'mint' ? tokens.secondary : tokens.accent,
                           },
                         ]}
                       >
@@ -237,6 +266,25 @@ const styles = StyleSheet.create({
     fontSize: tokens.font.body,
     color: tokens.white35,
     textAlign: 'center',
+  },
+  keyInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    width: '100%',
+    paddingHorizontal: 8,
+  },
+  keyInput: {
+    flex: 1,
+    backgroundColor: tokens.bgGlass8,
+    borderRadius: tokens.radius.pill,
+    borderWidth: 1,
+    borderColor: tokens.borderSubtle,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    fontFamily: 'Lexend-Regular',
+    fontSize: tokens.font.body,
+    color: tokens.white100,
   },
 
   empty: {

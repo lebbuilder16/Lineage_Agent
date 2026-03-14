@@ -80,7 +80,7 @@ export default function AlertsScreen() {
             <Bell size={48} color={tokens.white20} />
             <Text style={styles.emptyTitle}>No alerts yet</Text>
             <Text style={styles.emptySubtitle}>
-              Live alerts from the WebSocket connection will appear here.
+              Real-time alerts will appear here automatically.
             </Text>
           </View>
         ) : (

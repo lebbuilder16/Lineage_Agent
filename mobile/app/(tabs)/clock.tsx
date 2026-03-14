@@ -10,7 +10,7 @@ import {
   Image,
 } from 'react-native';
 import { router } from 'expo-router';
-import { Skull, ChevronRight } from 'lucide-react-native';
+import { Skull, ChevronRight, X } from 'lucide-react-native';
 import { AuroraBackground } from '../../src/components/ui/AuroraBackground';
 import { GlassCard } from '../../src/components/ui/GlassCard';
 import { GaugeRing } from '../../src/components/ui/GaugeRing';
@@ -35,7 +35,7 @@ export default function DeathClockScreen() {
   const dc = data?.death_clock;
 
   const handleSubmit = () => {
-    if (mint.trim().length > 10) setSubmitted(mint.trim());
+    if (mint.trim().length >= 32) setSubmitted(mint.trim());
   };
 
   const riskColor = dc?.risk_level ? RISK_COLOR[dc.risk_level] ?? tokens.accent : tokens.accent;
@@ -64,7 +64,7 @@ export default function DeathClockScreen() {
           {/* Input — pill shaped */}
           <View style={styles.inputPill}>
             <TextInput
-              style={styles.input}
+              style={[styles.input, { flex: 1 }]}
               value={mint}
               onChangeText={setMint}
               placeholder="Mint address…"
@@ -73,6 +73,17 @@ export default function DeathClockScreen() {
               autoCorrect={false}
               accessibilityLabel="Token mint address"
             />
+            {mint.length > 0 && (
+              <TouchableOpacity
+                onPress={() => { setMint(''); setSubmitted(''); }}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                style={{ paddingRight: 8 }}
+                accessibilityRole="button"
+                accessibilityLabel="Clear input"
+              >
+                <X size={16} color={tokens.white35} />
+              </TouchableOpacity>
+            )}
           </View>
           <HapticButton
             variant="destructive"
@@ -204,6 +215,8 @@ const styles = StyleSheet.create({
   },
 
   inputPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: tokens.bgGlass8,
     borderRadius: 50,
     borderWidth: 1,
