@@ -86,6 +86,7 @@ from .models import (
     LineageResult,
     NarrativeCount,
     OperatorImpactReport,
+    ProblemDetail,
     SolFlowReport,
     TokenCompareResult,
     TokenSearchResult,
@@ -332,6 +333,69 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
 
 
 app.add_middleware(RequestIdMiddleware)
+
+
+# ---------------------------------------------------------------------------
+# RFC 9457 – structured error handlers
+# ---------------------------------------------------------------------------
+from fastapi.exceptions import RequestValidationError  # noqa: E402
+from fastapi.responses import JSONResponse  # noqa: E402
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
+    """Return RFC 9457 Problem Details for HTTPException."""
+    problem = ProblemDetail(
+        type=f"https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/{exc.status_code}",
+        title=exc.detail if isinstance(exc.detail, str) else "HTTP Error",
+        status=exc.status_code,
+        detail=str(exc.detail),
+        instance=str(request.url),
+    )
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=problem.model_dump(exclude_none=False),
+        headers={"Content-Type": "application/problem+json"},
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    """Return RFC 9457 Problem Details for Pydantic/FastAPI validation errors."""
+    errors = [
+        f"{' -> '.join(str(loc) for loc in e['loc'])}: {e['msg']}"
+        for e in exc.errors()
+    ]
+    problem = ProblemDetail(
+        type="https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/422",
+        title="Unprocessable Entity",
+        status=422,
+        detail="; ".join(errors),
+        instance=str(request.url),
+    )
+    return JSONResponse(
+        status_code=422,
+        content=problem.model_dump(exclude_none=False),
+        headers={"Content-Type": "application/problem+json"},
+    )
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    """Catch-all for unhandled exceptions — hides internal details from clients."""
+    logger.exception("Unhandled exception on %s %s", request.method, request.url)
+    problem = ProblemDetail(
+        type="https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/500",
+        title="Internal Server Error",
+        status=500,
+        detail="An unexpected error occurred. Please try again later.",
+        instance=str(request.url),
+    )
+    return JSONResponse(
+        status_code=500,
+        content=problem.model_dump(exclude_none=False),
+        headers={"Content-Type": "application/problem+json"},
+    )
 
 
 def _analysis_deployer_from_lineage(lineage_res: Optional[LineageResult]) -> str:

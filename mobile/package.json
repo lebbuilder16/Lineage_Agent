@@ -9,7 +9,10 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "lint": "npx tsc --noEmit",
-    "export": "expo export --platform all"
+    "export": "expo export --platform all",
+    "gen:types": "openapi-typescript https://lineage-agent.fly.dev/openapi.json -o src/types/api.generated.ts",
+    "test": "jest",
+    "test:watch": "jest --watch"
   },
   "dependencies": {
     "@shopify/flash-list": "2.0.2",
@@ -24,9 +27,12 @@
     "expo-linking": "~8.0.11",
     "expo-notifications": "~0.32.16",
     "expo-router": "~6.0.23",
+    "expo-secure-store": "~15.0.8",
     "expo-splash-screen": "~31.0.13",
     "expo-status-bar": "~3.0.9",
     "lucide-react-native": "^0.477.0",
+    "openapi-fetch": "^0.17.0",
+    "openapi-react-query": "^0.5.4",
     "react": "19.1.0",
     "react-native": "0.81.5",
     "react-native-gesture-handler": "~2.28.0",
@@ -40,7 +46,70 @@
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",
+    "@testing-library/jest-native": "^5.4.3",
+    "@testing-library/react-native": "^13.3.3",
     "@types/react": "~19.1.10",
+    "babel-jest": "^30.3.0",
+    "jest": "^30.3.0",
+    "jest-expo": "^55.0.9",
+    "openapi-typescript": "^7.13.0",
+    "react-test-renderer": "^19.1.0",
     "typescript": "~5.9.2"
+  },
+  "jest": {
+    "projects": [
+      {
+        "displayName": "unit",
+        "testEnvironment": "node",
+        "testMatch": [
+          "<rootDir>/src/__tests__/**/*.test.ts"
+        ],
+        "transform": {
+          "^.+\\.[jt]sx?$": [
+            "babel-jest",
+            {
+              "configFile": "./babel.config.js",
+              "caller": {
+                "name": "metro",
+                "bundler": "metro",
+                "platform": "ios"
+              }
+            }
+          ]
+        },
+        "transformIgnorePatterns": [
+          "node_modules/(?!(openapi-fetch|openapi-typescript-helpers|expo|@expo|expo-modules-core))"
+        ],
+        "moduleNameMapper": {
+          "^@/(.*)$": "<rootDir>/src/$1"
+        }
+      },
+      {
+        "displayName": "components",
+        "preset": "jest-expo",
+        "testMatch": [
+          "<rootDir>/src/__tests__/**/*.test.tsx"
+        ],
+        "setupFiles": [
+          "<rootDir>/src/__mocks__/setup.js"
+        ],
+        "setupFilesAfterEnv": [
+          "@testing-library/jest-native/extend-expect"
+        ],
+        "transformIgnorePatterns": [
+          "node_modules/(?!((jest-)?react-native|@react-native(-community)?)|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|react-navigation|@react-navigation/.*|@unimodules/.*|unimodules|sentry-expo|native-base|react-native-svg|lucide-react-native)"
+        ],
+        "moduleNameMapper": {
+          "^@/(.*)$": "<rootDir>/src/$1",
+          "expo/src/winter/ImportMetaRegistry$": "<rootDir>/src/__mocks__/expoWinterMock.js",
+          "\\.?/ImportMetaRegistry$": "<rootDir>/src/__mocks__/expoWinterMock.js"
+        },
+        "collectCoverageFrom": [
+          "src/**/*.{ts,tsx}",
+          "app/**/*.{ts,tsx}",
+          "!**/*.d.ts"
+        ]
+      }
+    ]
   }
 }

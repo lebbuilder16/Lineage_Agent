@@ -16,7 +16,6 @@ import { router } from 'expo-router';
 import { Search, X, Network } from 'lucide-react-native';
 import { AuroraBackground } from '../../src/components/ui/AuroraBackground';
 import { GlassCard } from '../../src/components/ui/GlassCard';
-import { RiskBadge } from '../../src/components/ui/RiskBadge';
 import { searchTokens } from '../../src/lib/api';
 import { tokens } from '../../src/theme/tokens';
 import type { TokenSearchResult } from '../../src/types/api';
@@ -82,9 +81,16 @@ export default function ScanScreen() {
               autoCapitalize="none"
               autoCorrect={false}
               returnKeyType="search"
+              accessibilityLabel="Search for a token by address or name"
             />
             {query.length > 0 && (
-              <TouchableOpacity onPress={handleClear} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} style={styles.clearBtn}>
+              <TouchableOpacity
+                onPress={handleClear}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                style={styles.clearBtn}
+                accessibilityRole="button"
+                accessibilityLabel="Clear search"
+              >
                 <X size={16} color={tokens.white35} />
               </TouchableOpacity>
             )}
@@ -104,6 +110,8 @@ export default function ScanScreen() {
             renderItem={({ item }) => (
               <TouchableOpacity
                 onPress={() => handleSelect(item.mint)}
+                accessibilityRole="button"
+                accessibilityLabel={`Scan token ${item.name} (${item.symbol})`}
                 activeOpacity={0.75}
               >
                 <GlassCard style={styles.resultCard} noPadding>
@@ -120,10 +128,9 @@ export default function ScanScreen() {
                       <Text style={styles.resultSymbol}>{item.symbol}</Text>
                     </View>
                     <View style={styles.resultRight}>
-                      {item.risk_level && <RiskBadge level={item.risk_level} />}
-                      {item.risk_score != null && (
+                      {item.market_cap_usd != null && (
                         <Text style={styles.riskScore}>
-                          {Math.round(item.risk_score * 100)}%
+                          ${(item.market_cap_usd / 1_000).toFixed(0)}K
                         </Text>
                       )}
                     </View>

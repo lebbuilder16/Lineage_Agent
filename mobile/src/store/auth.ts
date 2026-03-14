@@ -1,8 +1,7 @@
 import { create } from 'zustand';
-import { MMKV } from 'react-native-mmkv';
+import * as SecureStore from 'expo-secure-store';
 import type { Watch, User } from '../types/api';
 
-const storage = new MMKV({ id: 'lineage-auth' });
 const LS_KEY = 'lineage_api_key';
 
 interface AuthState {
@@ -10,25 +9,32 @@ interface AuthState {
   user: User | null;
   watches: Watch[];
   scanCount: number;
+  hydrated: boolean;
   setApiKey: (key: string | null) => void;
   setUser: (user: User | null) => void;
   setWatches: (watches: Watch[]) => void;
   addWatch: (watch: Watch) => void;
   removeWatch: (id: string) => void;
   incrementScanCount: () => void;
+  hydrate: () => Promise<void>;
 }
 
 export const useAuthStore = create<AuthState>((set) => ({
-  apiKey: storage.getString(LS_KEY) ?? null,
+  apiKey: null,
   user: null,
   watches: [],
   scanCount: 0,
+  hydrated: false,
 
   setApiKey: (key) => {
     if (key) {
-      storage.set(LS_KEY, key);
+      SecureStore.setItemAsync(LS_KEY, key).catch((e) =>
+        console.error('[auth] SecureStore.setItem failed', e),
+      );
     } else {
-      storage.delete(LS_KEY);
+      SecureStore.deleteItemAsync(LS_KEY).catch((e) =>
+        console.error('[auth] SecureStore.deleteItem failed', e),
+      );
     }
     set({ apiKey: key, user: null, watches: [] });
   },
@@ -45,4 +51,14 @@ export const useAuthStore = create<AuthState>((set) => ({
 
   incrementScanCount: () =>
     set((state) => ({ scanCount: state.scanCount + 1 })),
+
+  hydrate: async () => {
+    try {
+      const key = await SecureStore.getItemAsync(LS_KEY);
+      set({ apiKey: key ?? null, hydrated: true });
+    } catch (e) {
+      console.error('[auth] SecureStore.getItem failed during hydration', e);
+      set({ hydrated: true });
+    }
+  },
 }));

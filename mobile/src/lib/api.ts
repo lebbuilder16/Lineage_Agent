@@ -1,6 +1,5 @@
-// ─────────────────────────────────────────────────────────────────────────────
-// Lineage Agent — API Client (React Native)
-// ─────────────────────────────────────────────────────────────────────────────
+// Lineage Agent -- REST API functions (openapi-fetch typed client)
+import { apiClient } from './api-client';
 import type {
   TokenSearchResult,
   LineageResult,
@@ -8,283 +7,111 @@ import type {
   SolFlowReport,
   DeployerProfile,
   CartelReport,
+  FinancialGraphSummary,
   TokenCompareResult,
   GlobalStats,
   HealthStatus,
-  AnalysisStep,
-  AlertItem,
   User,
   Watch,
 } from '../types/api';
 
-const BASE_URL = (process.env.EXPO_PUBLIC_API_URL ?? 'https://lineage-agent.fly.dev').replace(/\/$/, '');
-const WS_BASE = BASE_URL.replace(/^https?/, (p) => (p === 'https' ? 'wss' : 'ws'));
+// Re-export streaming for callers that imported from this module
+export { analyzeStream, chatStream, connectAlertsWS, connectLineageWS } from './streaming';
 
-// ─── helper ───────────────────────────────────────────────────────────────────
-
-async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE_URL}${path}`, {
-    headers: { 'Content-Type': 'application/json', ...init?.headers },
-    ...init,
+// search
+export async function searchTokens(q = '', offset = 0, limit = 20): Promise<TokenSearchResult[]> {
+  const { data } = await apiClient.GET('/search', {
+    params: { query: { q, offset, limit } },
   });
-  if (!res.ok) throw new Error(`API ${res.status}: ${path}`);
-  return res.json() as Promise<T>;
+  return data ?? [];
 }
 
-// ─── search ───────────────────────────────────────────────────────────────────
-
-export function searchTokens(q = '', offset = 0, limit = 20): Promise<TokenSearchResult[]> {
-  const params = new URLSearchParams({ q, offset: String(offset), limit: String(limit) });
-  return apiFetch<TokenSearchResult[]>(`/search?${params}`);
-}
-
-// ─── lineage ──────────────────────────────────────────────────────────────────
-
-export function getLineage(mint: string): Promise<LineageResult> {
-  return apiFetch<LineageResult>(`/lineage?mint=${encodeURIComponent(mint)}`);
-}
-
-export function getLineageGraph(mint: string): Promise<LineageGraph> {
-  return apiFetch<LineageGraph>(`/lineage/${encodeURIComponent(mint)}/graph`);
-}
-
-export function getSolTrace(mint: string): Promise<SolFlowReport> {
-  return apiFetch<SolFlowReport>(`/lineage/${encodeURIComponent(mint)}/sol-trace`);
-}
-
-// ─── intelligence ─────────────────────────────────────────────────────────────
-
-export function getDeployer(address: string): Promise<DeployerProfile> {
-  return apiFetch<DeployerProfile>(`/deployer/${encodeURIComponent(address)}`);
-}
-
-// ─── cartel ───────────────────────────────────────────────────────────────────
-
-export function getCartelSearch(deployer: string): Promise<CartelReport> {
-  return apiFetch<CartelReport>(`/cartel/search?deployer=${encodeURIComponent(deployer)}`);
-}
-
-export function getCartelFinancial(communityId: string): Promise<CartelReport> {
-  return apiFetch<CartelReport>(`/cartel/${encodeURIComponent(communityId)}/financial`);
-}
-
-// ─── compare ──────────────────────────────────────────────────────────────────
-
-export function compareTokens(mintA: string, mintB: string): Promise<TokenCompareResult> {
-  const params = new URLSearchParams({ mint_a: mintA, mint_b: mintB });
-  return apiFetch<TokenCompareResult>(`/compare?${params}`);
-}
-
-// ─── stats / health ───────────────────────────────────────────────────────────
-
-export function getGlobalStats(): Promise<GlobalStats> {
-  return apiFetch<GlobalStats>('/stats/global');
-}
-
-export function getHealth(): Promise<HealthStatus> {
-  return apiFetch<HealthStatus>('/health');
-}
-
-// ─── streaming: analyze (SSE via fetch — React Native has no EventSource) ────
-
-export function analyzeStream(
-  mint: string,
-  onStep: (step: AnalysisStep) => void,
-  onDone: (result?: LineageResult) => void,
-  onError?: (err: Error) => void,
-): () => void {
-  const url = `${BASE_URL}/analyze/${encodeURIComponent(mint)}/stream`;
-  let cancelled = false;
-
-  fetch(url, { headers: { Accept: 'text/event-stream' } })
-    .then((res) => {
-      if (!res.ok || !res.body) {
-        onError?.(new Error(`Stream ${res.status}`));
-        onDone();
-        return;
-      }
-
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-
-      const read = () => {
-        if (cancelled) return;
-        reader.read().then(({ done, value }) => {
-          if (done) { onDone(); return; }
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split('\n');
-          buffer = lines.pop() ?? '';
-          for (const line of lines) {
-            if (line.startsWith('data: ')) {
-              try {
-                const step = JSON.parse(line.slice(6)) as AnalysisStep;
-                onStep(step);
-                if (step.done) { onDone(); return; }
-              } catch { /* ignore parse errors */ }
-            }
-          }
-          read();
-        }).catch((err: unknown) => {
-          if (!cancelled) onError?.(err instanceof Error ? err : new Error(String(err)));
-          onDone();
-        });
-      };
-
-      read();
-    })
-    .catch((err: unknown) => {
-      if (!cancelled) onError?.(err instanceof Error ? err : new Error(String(err)));
-      onDone();
-    });
-
-  return () => { cancelled = true; };
-}
-
-// ─── streaming: chat (SSE via POST) ───────────────────────────────────────────
-
-export function chatStream(
-  mint: string | undefined,
-  message: string,
-  history: { role: 'user' | 'assistant'; content: string }[],
-  onChunk: (text: string) => void,
-  onDone: () => void,
-  onError?: (err: Error) => void,
-): Promise<() => void> {
-  const path = mint ? `/chat/${encodeURIComponent(mint)}` : '/chat';
-
-  return fetch(`${BASE_URL}${path}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
-    body: JSON.stringify({ message, history }),
-  }).then((res) => {
-    if (!res.ok || !res.body) {
-      onError?.(new Error(`Chat API ${res.status}`));
-      onDone();
-      return () => {};
-    }
-
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-    let cancelled = false;
-
-    const read = () => {
-      if (cancelled) return;
-      reader.read().then(({ done, value }) => {
-        if (done) { onDone(); return; }
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() ?? '';
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            const text = line.slice(6);
-            if (text === '[DONE]') { onDone(); return; }
-            try { onChunk(JSON.parse(text)); } catch { onChunk(text); }
-          }
-        }
-        read();
-      }).catch((err: unknown) => {
-        if (!cancelled) onError?.(err instanceof Error ? err : new Error(String(err)));
-        onDone();
-      });
-    };
-
-    read();
-    return () => { cancelled = true; reader.cancel(); };
+// lineage
+export async function getLineage(mint: string): Promise<LineageResult> {
+  const { data } = await apiClient.GET('/lineage', {
+    params: { query: { mint } },
   });
+  return data!;
 }
 
-// ─── WebSocket: alerts ────────────────────────────────────────────────────────
-
-export function connectAlertsWS(
-  onAlert: (alert: AlertItem) => void,
-  onError?: () => void,
-): () => void {
-  let ws: WebSocket | null = null;
-  let reconnectTimer: ReturnType<typeof setTimeout>;
-  let closed = false;
-
-  const connect = () => {
-    ws = new WebSocket(`${WS_BASE}/ws/alerts`);
-
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data) as AlertItem;
-        if (!data.id) data.id = `${Date.now()}-${Math.random()}`;
-        if (!data.read) data.read = false;
-        onAlert(data);
-      } catch { /* ignore malformed */ }
-    };
-
-    ws.onerror = () => onError?.();
-
-    ws.onclose = () => {
-      if (!closed) reconnectTimer = setTimeout(connect, 5000);
-    };
-  };
-
-  connect();
-
-  return () => {
-    closed = true;
-    clearTimeout(reconnectTimer);
-    ws?.close();
-  };
+export async function getLineageGraph(mint: string): Promise<LineageGraph> {
+  const { data } = await apiClient.GET('/lineage/{mint}/graph', {
+    params: { path: { mint } },
+  });
+  // Schema types this endpoint as Record<string,unknown> -- cast to our manual type
+  return data as unknown as LineageGraph;
 }
 
-// ─── WebSocket: lineage progress ─────────────────────────────────────────────
-
-export function connectLineageWS(
-  onProgress: (step: AnalysisStep) => void,
-  onDone: (result: LineageResult) => void,
-  onError?: (msg: string) => void,
-): { scan: (mint: string) => void; close: () => void } {
-  let ws: WebSocket | null = null;
-
-  const ensureOpen = (): Promise<void> =>
-    new Promise((resolve) => {
-      if (ws && ws.readyState === WebSocket.OPEN) { resolve(); return; }
-      ws = new WebSocket(`${WS_BASE}/ws/lineage`);
-      ws.onopen = () => resolve();
-      ws.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          if (data.done && data.result) {
-            onDone(data.result as LineageResult);
-          } else {
-            onProgress(data as AnalysisStep);
-          }
-        } catch { /* ignore */ }
-      };
-      ws.onerror = () => onError?.('WebSocket error');
-    });
-
-  return {
-    scan: (mint: string) => {
-      ensureOpen().then(() => {
-        ws?.send(JSON.stringify({ mint }));
-      });
-    },
-    close: () => ws?.close(),
-  };
+export async function getSolTrace(mint: string): Promise<SolFlowReport> {
+  const { data } = await apiClient.GET('/lineage/{mint}/sol-trace', {
+    params: { path: { mint } },
+  });
+  return data!;
 }
 
-// ─── Auth ─────────────────────────────────────────────────────────────────────
+// intelligence
+export async function getDeployer(address: string): Promise<DeployerProfile> {
+  const { data } = await apiClient.GET('/deployer/{address}', {
+    params: { path: { address } },
+  });
+  return data!;
+}
 
+// cartel
+export async function getCartelSearch(deployer: string): Promise<CartelReport> {
+  const { data } = await apiClient.GET('/cartel/search', {
+    params: { query: { deployer } },
+  });
+  return data!;
+}
+
+export async function getCartelFinancial(communityId: string): Promise<FinancialGraphSummary> {
+  const { data } = await apiClient.GET('/cartel/{deployer}/financial', {
+    params: { path: { deployer: communityId } },
+  });
+  return data!;
+}
+
+// compare
+export async function compareTokens(mintA: string, mintB: string): Promise<TokenCompareResult> {
+  const { data } = await apiClient.GET('/compare', {
+    params: { query: { mint_a: mintA, mint_b: mintB } },
+  });
+  return data!;
+}
+
+// stats / health
+export async function getGlobalStats(): Promise<GlobalStats> {
+  const { data } = await apiClient.GET('/stats/global');
+  return data!;
+}
+
+export async function getHealth(): Promise<HealthStatus> {
+  const { data } = await apiClient.GET('/health');
+  // /health returns unknown in schema -- cast to manual type
+  return data as unknown as HealthStatus;
+}
+
+// auth (schema returns `unknown` for auth endpoints -- cast manually)
 export async function authLogin(privyId: string): Promise<{ api_key: string }> {
-  return apiFetch<{ api_key: string }>('/auth/login', {
-    method: 'POST',
-    body: JSON.stringify({ privy_id: privyId }),
+  const { data } = await apiClient.POST('/auth/login', {
+    body: { privy_id: privyId },
   });
+  return data as unknown as { api_key: string };
 }
 
 export async function getMe(apiKey: string): Promise<User> {
-  return apiFetch<User>('/auth/me', { headers: { 'X-API-Key': apiKey } });
+  const { data } = await apiClient.GET('/auth/me', {
+    headers: { 'X-API-Key': apiKey },
+  });
+  return data as unknown as User;
 }
 
 export async function getWatches(apiKey: string): Promise<Watch[]> {
-  return apiFetch<Watch[]>('/auth/watches', { headers: { 'X-API-Key': apiKey } });
+  const { data } = await apiClient.GET('/auth/watches', {
+    headers: { 'X-API-Key': apiKey },
+  });
+  return (data as unknown as Watch[]) ?? [];
 }
 
 export async function addWatch(
@@ -292,16 +119,16 @@ export async function addWatch(
   sub_type: 'deployer' | 'mint',
   value: string,
 ): Promise<Watch> {
-  return apiFetch<Watch>('/auth/watches', {
-    method: 'POST',
+  const { data } = await apiClient.POST('/auth/watches', {
     headers: { 'X-API-Key': apiKey },
-    body: JSON.stringify({ sub_type, value }),
+    body: { sub_type, value },
   });
+  return data as unknown as Watch;
 }
 
 export async function deleteWatch(apiKey: string, id: string): Promise<void> {
-  await fetch(`${BASE_URL}/auth/watches/${encodeURIComponent(id)}`, {
-    method: 'DELETE',
+  await apiClient.DELETE('/auth/watches/{watch_id}', {
     headers: { 'X-API-Key': apiKey },
+    params: { path: { watch_id: Number(id) } },
   });
 }

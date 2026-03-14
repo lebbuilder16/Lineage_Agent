@@ -1,0 +1,32 @@
+# Auth flow — set API key in Settings and verify it is persisted
+appId: com.lineageagent.mobile
+---
+- launchApp:
+    clearState: true
+
+# Navigate to Settings tab
+- tapOn:
+    text: "Settings"
+
+- assertVisible:
+    text: "API Key"
+
+# Enter key
+- tapOn:
+    text: "Enter API key"
+
+- inputText: "test_api_key_e2e"
+
+- tapOn:
+    text: "Save"
+
+# Kill and relaunch to verify persistence
+- stopApp
+- launchApp
+
+- tapOn:
+    text: "Settings"
+
+- assertVisible:
+    text: "••••••••"
+    timeout: 5000

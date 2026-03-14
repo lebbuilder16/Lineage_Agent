@@ -16,6 +16,7 @@ import { GaugeRing } from '../../src/components/ui/GaugeRing';
 import { SkeletonBlock } from '../../src/components/ui/SkeletonLoader';
 import { useDeployer } from '../../src/lib/query';
 import { tokens } from '../../src/theme/tokens';
+import Animated, { FadeInDown } from 'react-native-reanimated';
 
 export default function DeployerScreen() {
   const { address } = useLocalSearchParams<{ address: string }>();
@@ -29,7 +30,12 @@ export default function DeployerScreen() {
       <Stack.Screen options={{ headerShown: false }} />
       <SafeAreaView style={styles.safe}>
         <View style={styles.navbar}>
-          <TouchableOpacity onPress={() => router.back()} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+          <TouchableOpacity
+            onPress={() => router.back()}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityRole="button"
+            accessibilityLabel="Go back"
+          >
             <ChevronLeft size={24} color={tokens.white100} />
           </TouchableOpacity>
           <Text style={styles.navTitle}>DEPLOYER PROFILE</Text>
@@ -50,7 +56,7 @@ export default function DeployerScreen() {
           )}
 
           {data && !isLoading && (
-            <>
+            <Animated.View entering={FadeInDown.duration(350).springify()}>
               {/* Address + gauge */}
               <GlassCard>
                 <Text style={styles.addrLabel}>Deployer Address</Text>
@@ -64,23 +70,14 @@ export default function DeployerScreen() {
                     sublabel="RUG RATE"
                   />
                   <View style={styles.gaugeStats}>
-                    <StatItem label="Total tokens" value={String(data.total_tokens_launched ?? data.total_tokens_deployed ?? 0)} />
-                    <StatItem label="Confirmed rugs" value={String(data.confirmed_rug_count ?? data.confirmed_rugs ?? 0)} />
-                    <StatItem label="SOL extracted" value={`${(data.total_sol_extracted ?? 0).toFixed(0)} SOL`} />
-                    {data.avg_rug_time_hours != null && (
-                      <StatItem label="Avg rug time" value={`${data.avg_rug_time_hours.toFixed(1)}h`} />
+                    <StatItem label="Total tokens" value={String(data.total_tokens_launched ?? 0)} />
+                    <StatItem label="Confirmed rugs" value={String(data.confirmed_rug_count ?? 0)} />
+                    {data.avg_lifespan_days != null && (
+                      <StatItem label="Avg lifespan" value={`${data.avg_lifespan_days.toFixed(1)}d`} />
                     )}
                   </View>
                 </View>
               </GlassCard>
-
-              {/* Fingerprint */}
-              {data.operator_fingerprint && (
-                <GlassCard>
-                  <Text style={styles.sectionTitle}>OPERATOR FINGERPRINT</Text>
-                  <Text style={styles.fingerprint}>{data.operator_fingerprint}</Text>
-                </GlassCard>
-              )}
 
               {/* Token history */}
               {(data.tokens?.length ?? 0) > 0 && (
@@ -92,6 +89,8 @@ export default function DeployerScreen() {
                         key={t.mint}
                         onPress={() => router.push(`/token/${t.mint}` as any)}
                         activeOpacity={0.75}
+                        accessibilityRole="button"
+                        accessibilityLabel={`View token ${t.name ?? t.mint}${t.rugged_at != null ? ', rugged' : ''}`}
                       >
                         <View style={styles.tokenRow}>
                           <View style={styles.tokenInfo}>
@@ -101,7 +100,7 @@ export default function DeployerScreen() {
                             )}
                           </View>
                           <View style={styles.tokenRight}>
-                            {t.status === 'rugged' && (
+                            {t.rugged_at != null && (
                               <View style={styles.rugBadge}>
                                 <AlertTriangle size={10} color={tokens.risk.critical} />
                                 <Text style={styles.rugText}>RUG</Text>
@@ -115,7 +114,7 @@ export default function DeployerScreen() {
                   </View>
                 </GlassCard>
               )}
-            </>
+            </Animated.View>
           )}
         </ScrollView>
       </SafeAreaView>

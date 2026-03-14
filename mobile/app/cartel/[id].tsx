@@ -15,6 +15,7 @@ import { GlassCard } from '../../src/components/ui/GlassCard';
 import { SkeletonBlock } from '../../src/components/ui/SkeletonLoader';
 import { useCartel } from '../../src/lib/query';
 import { tokens } from '../../src/theme/tokens';
+import Animated, { FadeInDown } from 'react-native-reanimated';
 
 export default function CartelScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -26,7 +27,12 @@ export default function CartelScreen() {
       <Stack.Screen options={{ headerShown: false }} />
       <SafeAreaView style={styles.safe}>
         <View style={styles.navbar}>
-          <TouchableOpacity onPress={() => router.back()} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+          <TouchableOpacity
+            onPress={() => router.back()}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityRole="button"
+            accessibilityLabel="Go back"
+          >
             <ChevronLeft size={24} color={tokens.white100} />
           </TouchableOpacity>
           <Text style={styles.navTitle}>CARTEL NETWORK</Text>
@@ -47,49 +53,49 @@ export default function CartelScreen() {
           )}
 
           {data && !isLoading && (
-            <>
+            <Animated.View entering={FadeInDown.duration(350).springify()}>
               {/* Overview */}
               <GlassCard>
                 <Text style={styles.sectionTitle}>OVERVIEW</Text>
                 <View style={styles.statsGrid}>
-                  <GridStat label="Financial Score" value={data.financial_score != null ? `${data.financial_score}/100` : '–'} />
-                  <GridStat label="Deployers" value={String(data.deployer_count ?? data.deployers?.length ?? 0)} />
-                  <GridStat label="SOL Extracted" value={data.total_sol_extracted != null ? `${data.total_sol_extracted.toFixed(0)} SOL` : '–'} />
-                  <GridStat label="Tokens" value={String(data.total_tokens_launched ?? 0)} />
+                  <GridStat label="Deployers" value={String(data.deployer_community?.wallets?.length ?? 0)} />
+                  <GridStat label="Tokens" value={String(data.deployer_community?.total_tokens_launched ?? 0)} />
+                  <GridStat label="Rugs" value={String(data.deployer_community?.total_rugs ?? 0)} />
+                  <GridStat label="Est. Extracted" value={data.deployer_community?.estimated_extracted_usd != null ? `$${(data.deployer_community.estimated_extracted_usd / 1_000).toFixed(0)}K` : '–'} />
                 </View>
               </GlassCard>
 
-              {/* Signal breakdown */}
-              <GlassCard>
-                <Text style={styles.sectionTitle}>SIGNAL BREAKDOWN</Text>
-                <View style={styles.signals}>
-                  <SignalRow label="Funding links" value={data.funding_links ?? 0} color={tokens.risk.high} />
-                  <SignalRow label="Sniper rings" value={data.sniper_ring_count ?? 0} color={tokens.risk.critical} />
-                  <SignalRow label="Shared LPs" value={data.shared_lp_count ?? 0} color={tokens.risk.medium} />
-                  <SignalRow label="DNA matches" value={data.dna_match_count ?? 0} color={tokens.secondary} />
-                </View>
-              </GlassCard>
+              {/* Signal edges */}
+              {(data.deployer_community?.edges?.length ?? 0) > 0 && (
+                <GlassCard>
+                  <Text style={styles.sectionTitle}>SIGNAL BREAKDOWN</Text>
+                  <View style={styles.signals}>
+                    {data.deployer_community!.edges!.map((edge, i) => (
+                      <SignalRow
+                        key={i}
+                        label={edge.signal_type.replace('_', ' ').toUpperCase()}
+                        value={edge.signal_strength}
+                        color={tokens.risk.high}
+                      />
+                    ))}
+                  </View>
+                </GlassCard>
+              )}
 
-              {/* Deployers */}
-              {(data.deployers?.length ?? 0) > 0 && (
+              {/* Connected deployer wallets */}
+              {(data.deployer_community?.wallets?.length ?? 0) > 0 && (
                 <GlassCard>
                   <Text style={styles.sectionTitle}>CONNECTED DEPLOYERS</Text>
                   <View style={{ gap: 0 }}>
-                    {data.deployers!.map((d) => (
+                    {data.deployer_community!.wallets.map((addr) => (
                       <TouchableOpacity
-                        key={d.address}
-                        onPress={() => router.push(`/deployer/${d.address}` as any)}
+                        key={addr}
+                        onPress={() => router.push(`/deployer/${addr}` as any)}
                         activeOpacity={0.75}
                       >
                         <View style={styles.deployerRow}>
                           <View style={styles.deployerInfo}>
-                            <Text style={styles.deployerAddr} numberOfLines={1}>{d.address}</Text>
-                            {d.rug_rate_pct != null && (
-                              <Text style={styles.deployerMeta}>
-                                {d.rug_rate_pct.toFixed(0)}% rug rate
-                                {d.confirmed_rug_count != null ? ` · ${d.confirmed_rug_count} rugs` : ''}
-                              </Text>
-                            )}
+                            <Text style={styles.deployerAddr} numberOfLines={1}>{addr}</Text>
                           </View>
                           <ChevronRight size={16} color={tokens.white35} />
                         </View>
@@ -98,7 +104,7 @@ export default function CartelScreen() {
                   </View>
                 </GlassCard>
               )}
-            </>
+            </Animated.View>
           )}
         </ScrollView>
       </SafeAreaView>

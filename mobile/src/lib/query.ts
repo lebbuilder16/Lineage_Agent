@@ -1,9 +1,4 @@
-import {
-  useQuery,
-  useInfiniteQuery,
-  useMutation,
-  type UseQueryOptions,
-} from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   searchTokens,
   getLineage,
@@ -33,8 +28,7 @@ import type {
   Watch,
 } from '../types/api';
 
-// ─── Query keys ───────────────────────────────────────────────────────────────
-
+// Query keys
 export const QK = {
   search: (q: string) => ['search', q] as const,
   lineage: (mint: string) => ['lineage', mint] as const,
@@ -48,8 +42,6 @@ export const QK = {
   me: (key: string) => ['me', key] as const,
   watches: (key: string) => ['watches', key] as const,
 };
-
-// ─── Hooks ────────────────────────────────────────────────────────────────────
 
 export function useSearchTokens(q: string, enabled = true) {
   return useQuery<TokenSearchResult[]>({
@@ -150,15 +142,61 @@ export function useWatches(apiKey: string | null) {
   });
 }
 
+// Optimistic add-watch mutation
 export function useAddWatch(apiKey: string | null) {
-  return useMutation({
-    mutationFn: ({ sub_type, value }: { sub_type: 'deployer' | 'mint'; value: string }) =>
-      addWatch(apiKey!, sub_type, value),
+  const qc = useQueryClient();
+  const key = QK.watches(apiKey ?? '');
+
+  return useMutation<Watch, Error, { sub_type: 'deployer' | 'mint'; value: string }, { previous: Watch[] | undefined }>({
+    mutationFn: ({ sub_type, value }) => addWatch(apiKey!, sub_type, value),
+
+    onMutate: async (vars) => {
+      await qc.cancelQueries({ queryKey: key });
+      const previous = qc.getQueryData<Watch[]>(key);
+      const optimistic: Watch = {
+        id: `tmp-${Date.now()}`,
+        sub_type: vars.sub_type,
+        value: vars.value,
+      };
+      qc.setQueryData<Watch[]>(key, (old) => [...(old ?? []), optimistic]);
+      return { previous };
+    },
+
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.previous !== undefined) {
+        qc.setQueryData<Watch[]>(key, ctx.previous);
+      }
+    },
+
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: key });
+    },
   });
 }
 
+// Optimistic delete-watch mutation
 export function useDeleteWatch(apiKey: string | null) {
-  return useMutation({
-    mutationFn: (id: string) => deleteWatch(apiKey!, id),
+  const qc = useQueryClient();
+  const key = QK.watches(apiKey ?? '');
+
+  return useMutation<void, Error, string, { previous: Watch[] | undefined }>({
+    mutationFn: (id) => deleteWatch(apiKey!, id),
+
+    onMutate: async (id) => {
+      await qc.cancelQueries({ queryKey: key });
+      const previous = qc.getQueryData<Watch[]>(key);
+      qc.setQueryData<Watch[]>(key, (old) => (old ?? []).filter((w) => w.id !== id));
+      return { previous };
+    },
+
+    onError: (_err, _id, ctx) => {
+      if (ctx?.previous !== undefined) {
+        qc.setQueryData<Watch[]>(key, ctx.previous);
+      }
+    },
+
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: key });
+    },
   });
 }

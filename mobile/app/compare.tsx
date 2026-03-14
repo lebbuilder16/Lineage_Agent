@@ -14,17 +14,16 @@ import { ChevronLeft, ArrowLeftRight } from 'lucide-react-native';
 import { AuroraBackground } from '../src/components/ui/AuroraBackground';
 import { GlassCard } from '../src/components/ui/GlassCard';
 import { GaugeRing } from '../src/components/ui/GaugeRing';
-import { RiskBadge } from '../src/components/ui/RiskBadge';
 import { HapticButton } from '../src/components/ui/HapticButton';
 import { SkeletonBlock } from '../src/components/ui/SkeletonLoader';
 import { useCompareTokens } from '../src/lib/query';
 import { tokens } from '../src/theme/tokens';
 
 const VERDICT_COLORS: Record<string, string> = {
-  IDENTICAL_OPERATOR: tokens.risk.critical,
-  CLONE: tokens.risk.high,
-  RELATED: tokens.risk.medium,
-  UNRELATED: tokens.risk.low,
+  identical_operator: tokens.risk.critical,
+  clone: tokens.risk.high,
+  related: tokens.risk.medium,
+  unrelated: tokens.risk.low,
 };
 
 export default function CompareScreen() {
@@ -53,7 +52,12 @@ export default function CompareScreen() {
       <Stack.Screen options={{ headerShown: false }} />
       <SafeAreaView style={styles.safe}>
         <View style={styles.navbar}>
-          <TouchableOpacity onPress={() => router.back()} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+          <TouchableOpacity
+            onPress={() => router.back()}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityRole="button"
+            accessibilityLabel="Go back"
+          >
             <ChevronLeft size={24} color={tokens.white100} />
           </TouchableOpacity>
           <Text style={styles.navTitle}>COMPARE TOKENS</Text>
@@ -139,8 +143,8 @@ export default function CompareScreen() {
                   {data.name_similarity != null && (
                     <GaugeRingItem label="Name" value={data.name_similarity} color={tokens.secondary} />
                   )}
-                  {data.deployer_similarity != null && (
-                    <GaugeRingItem label="Deployer" value={data.deployer_similarity} color={tokens.accent} />
+                  {data.temporal_score != null && (
+                    <GaugeRingItem label="Temporal" value={data.temporal_score} color={tokens.accent} />
                   )}
                 </View>
               </GlassCard>
@@ -152,6 +156,8 @@ export default function CompareScreen() {
                     style={styles.tokenHalf}
                     onPress={() => router.push(`/token/${data.token_a!.mint}` as any)}
                     activeOpacity={0.75}
+                    accessibilityRole="button"
+                    accessibilityLabel={`View token A: ${data.token_a.name}`}
                   >
                     <GlassCard>
                       <Text style={styles.tokenPairLabel}>TOKEN A</Text>
@@ -159,7 +165,6 @@ export default function CompareScreen() {
                         <Image source={{ uri: data.token_a.image_uri }} style={styles.tokenPairImg} />
                       )}
                       <Text style={styles.tokenPairName} numberOfLines={1}>{data.token_a.name}</Text>
-                      {data.token_a.risk_level && <RiskBadge level={data.token_a.risk_level} />}
                     </GlassCard>
                   </TouchableOpacity>
                 )}
@@ -168,6 +173,8 @@ export default function CompareScreen() {
                     style={styles.tokenHalf}
                     onPress={() => router.push(`/token/${data.token_b!.mint}` as any)}
                     activeOpacity={0.75}
+                    accessibilityRole="button"
+                    accessibilityLabel={`View token B: ${data.token_b.name}`}
                   >
                     <GlassCard>
                       <Text style={styles.tokenPairLabel}>TOKEN B</Text>
@@ -175,7 +182,6 @@ export default function CompareScreen() {
                         <Image source={{ uri: data.token_b.image_uri }} style={styles.tokenPairImg} />
                       )}
                       <Text style={styles.tokenPairName} numberOfLines={1}>{data.token_b.name}</Text>
-                      {data.token_b.risk_level && <RiskBadge level={data.token_b.risk_level} />}
                     </GlassCard>
                   </TouchableOpacity>
                 )}

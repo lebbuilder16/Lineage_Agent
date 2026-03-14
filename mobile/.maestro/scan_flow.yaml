@@ -1,0 +1,39 @@
+# Scan flow — search for a well-known token and verify the result card appears
+appId: com.lineageagent.mobile
+---
+- launchApp:
+    clearState: true
+
+# ── Tab: Scan ────────────────────────────────────────────────────────────────
+- tapOn:
+    text: "Scan"
+
+- assertVisible:
+    text: "Lineage Scan"
+
+- tapOn:
+    text: "Search for a token by address or name"
+
+# Type the SOL wrapped mint address
+- inputText: "So11111111111111111111111111111111111111112"
+
+# Result card should appear with a token name
+- assertVisible:
+    id: "scan-result-0"
+    timeout: 8000
+
+# Tap the first result to navigate to the detail screen
+- tapOn:
+    id: "scan-result-0"
+
+# Detail screen headline  
+- assertVisible:
+    text: "Token Detail"
+    timeout: 6000
+
+# Navigate back
+- tapOn:
+    text: "Back"
+
+- assertVisible:
+    text: "Lineage Scan"

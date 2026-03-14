@@ -7,6 +7,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { StyleSheet, View } from 'react-native';
 import { tokens } from '../src/theme/tokens';
+import { ErrorBoundary } from '../src/components/ui/ErrorBoundary';
+import { useAuthStore } from '../src/store/auth';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -27,17 +29,24 @@ export default function RootLayout() {
     'Lexend-SemiBold': require('../assets/fonts/Lexend-SemiBold.ttf'),
     'Lexend-Bold': require('../assets/fonts/Lexend-Bold.ttf'),
   });
+  const hydrate = useAuthStore((s) => s.hydrate);
+  const hydrated = useAuthStore((s) => s.hydrated);
 
   useEffect(() => {
-    if (fontsLoaded || fontError) {
+    hydrate();
+  }, []);
+
+  useEffect(() => {
+    if ((fontsLoaded || fontError) && hydrated) {
       SplashScreen.hideAsync();
     }
-  }, [fontsLoaded, fontError]);
+  }, [fontsLoaded, fontError, hydrated]);
 
-  if (!fontsLoaded && !fontError) return null;
+  if ((!fontsLoaded && !fontError) || !hydrated) return null;
 
   return (
-    <GestureHandlerRootView style={styles.root}>
+    <ErrorBoundary>
+      <GestureHandlerRootView style={styles.root}>
       <QueryClientProvider client={queryClient}>
         <View style={styles.root}>
           <StatusBar style="light" />
@@ -71,6 +80,7 @@ export default function RootLayout() {
         </View>
       </QueryClientProvider>
     </GestureHandlerRootView>
+    </ErrorBoundary>
   );
 }
 

@@ -29,6 +29,7 @@ import { useLineage } from '../../src/lib/query';
 import { useAuthStore } from '../../src/store/auth';
 import { addWatch } from '../../src/lib/api';
 import { tokens } from '../../src/theme/tokens';
+import Animated, { FadeInDown } from 'react-native-reanimated';
 
 const RISK_COLOR: Record<string, string> = {
   low: tokens.risk.low,
@@ -44,7 +45,10 @@ export default function TokenScreen() {
   const addWatchFn = useAuthStore((s) => s.addWatch);
   const [watching, setWatching] = useState(false);
 
-  const riskColor = data?.risk_level ? RISK_COLOR[data.risk_level] ?? tokens.primary : tokens.primary;
+  const riskLevel = data?.death_clock?.risk_level;
+  const riskColor = riskLevel ? RISK_COLOR[riskLevel] ?? tokens.primary : tokens.primary;
+  // Derive a 0-1 risk score from risk_level for the gauge
+  const riskScore = riskLevel === 'critical' ? 1.0 : riskLevel === 'high' ? 0.75 : riskLevel === 'medium' ? 0.5 : riskLevel === 'low' ? 0.25 : null;
 
   const handleWatch = async () => {
     if (!apiKey || !mint) return;
@@ -52,7 +56,9 @@ export default function TokenScreen() {
       const w = await addWatch(apiKey, 'mint', mint);
       addWatchFn(w);
       setWatching(true);
-    } catch { /* ignore */ }
+    } catch (err) {
+      console.error('[handleWatch]', err);
+    }
   };
 
   return (
@@ -87,31 +93,31 @@ export default function TokenScreen() {
           )}
 
           {data && !isLoading && (
-            <>
+            <Animated.View entering={FadeInDown.duration(350).springify()}>
               {/* Hero card */}
               <GlassCard style={styles.heroCard}>
                 <View style={styles.heroRow}>
-                  {data.image_uri ? (
-                    <Image source={{ uri: data.image_uri }} style={styles.heroImg} />
+                  {data.query_token?.image_uri ? (
+                    <Image source={{ uri: data.query_token.image_uri }} style={styles.heroImg} />
                   ) : (
                     <View style={[styles.heroImg, styles.heroImgFallback]}>
-                      <Text style={styles.heroImgText}>{data.symbol?.[0] ?? '?'}</Text>
+                      <Text style={styles.heroImgText}>{data.query_token?.symbol?.[0] ?? '?'}</Text>
                     </View>
                   )}
                   <View style={styles.heroInfo}>
-                    <Text style={styles.heroName}>{data.name ?? 'Unknown'}</Text>
-                    <Text style={styles.heroSymbol}>{data.symbol ?? '—'}</Text>
-                    {data.risk_level && (
-                      <RiskBadge level={data.risk_level} size="md" style={{ marginTop: 6 }} />
+                    <Text style={styles.heroName}>{data.query_token?.name ?? 'Unknown'}</Text>
+                    <Text style={styles.heroSymbol}>{data.query_token?.symbol ?? '—'}</Text>
+                    {riskLevel && (
+                      <RiskBadge level={riskLevel} size="md" style={{ marginTop: 6 }} />
                     )}
                   </View>
-                  {data.risk_score != null && (
+                  {riskScore != null && (
                     <GaugeRing
-                      value={data.risk_score}
+                      value={riskScore}
                       color={riskColor}
                       size={80}
                       strokeWidth={6}
-                      label={`${Math.round(data.risk_score * 100)}`}
+                      label={`${Math.round(riskScore * 100)}`}
                       sublabel="RISK"
                     />
                   )}
@@ -128,12 +134,12 @@ export default function TokenScreen() {
                 )}
               </GlassCard>
 
-              {/* Flags */}
-              {(data.suspicious_flags?.length ?? 0) > 0 && (
+              {/* Evidence flags from bundle report */}
+              {(data.bundle_report?.evidence_chain?.length ?? 0) > 0 && (
                 <GlassCard>
                   <Text style={styles.sectionTitle}>SUSPICIOUS FLAGS</Text>
                   <View style={styles.flagsWrap}>
-                    {data.suspicious_flags!.map((flag, i) => (
+                    {data.bundle_report!.evidence_chain!.map((flag, i) => (
                       <View key={i} style={styles.flag}>
                         <AlertTriangle size={12} color={tokens.accent} />
                         <Text style={styles.flagText}>{flag}</Text>
@@ -144,9 +150,9 @@ export default function TokenScreen() {
               )}
 
               {/* Deployer */}
-              {data.deployer && (
+              {data.deployer_profile && (
                 <TouchableOpacity
-                  onPress={() => router.push(`/deployer/${data.deployer!.address}` as any)}
+                  onPress={() => router.push(`/deployer/${data.deployer_profile!.address}` as any)}
                   activeOpacity={0.75}
                 >
                   <GlassCard style={styles.linkCard} noPadding>
@@ -155,13 +161,13 @@ export default function TokenScreen() {
                       <View style={styles.linkInfo}>
                         <Text style={styles.linkLabel}>Deployer Profile</Text>
                         <Text style={styles.linkAddr} numberOfLines={1}>
-                          {data.deployer.address}
+                          {data.deployer_profile.address}
                         </Text>
-                        {data.deployer.rug_rate_pct != null && (
+                        {data.deployer_profile.rug_rate_pct != null && (
                           <Text style={styles.linkMeta}>
-                            Rug rate: {data.deployer.rug_rate_pct.toFixed(0)}%
-                            {data.deployer.confirmed_rug_count != null
-                              ? ` · ${data.deployer.confirmed_rug_count} confirmed rugs`
+                            Rug rate: {data.deployer_profile.rug_rate_pct.toFixed(0)}%
+                            {data.deployer_profile.confirmed_rug_count != null
+                              ? ` · ${data.deployer_profile.confirmed_rug_count} confirmed rugs`
                               : ''}
                           </Text>
                         )}
@@ -183,15 +189,16 @@ export default function TokenScreen() {
                         styles.val,
                         {
                           color:
-                            data.bundle_report.overall_verdict === 'confirmed_rug'
+                            data.bundle_report.overall_verdict === 'confirmed_team_extraction'
                               ? tokens.risk.critical
-                              : data.bundle_report.overall_verdict === 'suspicious'
+                              : data.bundle_report.overall_verdict === 'suspected_team_extraction' ||
+                                data.bundle_report.overall_verdict === 'coordinated_dump_unknown_team'
                               ? tokens.risk.high
                               : tokens.risk.low,
                         },
                       ]}
                     >
-                      {data.bundle_report.overall_verdict.toUpperCase().replace('_', ' ')}
+                      {data.bundle_report.overall_verdict.toUpperCase().replace(/_/g, ' ')}
                     </Text>
                   </View>
                   {data.bundle_report.total_sol_extracted_confirmed != null && (
@@ -202,18 +209,14 @@ export default function TokenScreen() {
                       </Text>
                     </View>
                   )}
-                  <View style={styles.row}>
-                    <Text style={styles.key}>Jito bundle</Text>
-                    <Text style={styles.val}>
-                      {data.bundle_report.jito_bundle_detected ? 'Detected' : 'None'}
-                    </Text>
-                  </View>
-                  <View style={styles.row}>
-                    <Text style={styles.key}>Sniper</Text>
-                    <Text style={styles.val}>
-                      {data.bundle_report.sniper_detected ? 'Detected' : 'None'}
-                    </Text>
-                  </View>
+                  {(data.bundle_report.factory_sniper_wallets?.length ?? 0) > 0 && (
+                    <View style={styles.row}>
+                      <Text style={styles.key}>Sniper wallets</Text>
+                      <Text style={styles.val}>
+                        {data.bundle_report.factory_sniper_wallets!.length} detected
+                      </Text>
+                    </View>
+                  )}
                 </GlassCard>
               )}
 
@@ -242,9 +245,9 @@ export default function TokenScreen() {
               )}
 
               {/* Cartel link */}
-              {data.cartel_report?.community_id && (
+              {data.cartel_report?.deployer_community?.community_id && (
                 <TouchableOpacity
-                  onPress={() => router.push(`/cartel/${data.cartel_report!.community_id}` as any)}
+                  onPress={() => router.push(`/cartel/${data.cartel_report!.deployer_community!.community_id}` as any)}
                   activeOpacity={0.75}
                 >
                   <GlassCard style={styles.linkCard} noPadding>
@@ -252,11 +255,11 @@ export default function TokenScreen() {
                       <Zap size={18} color={tokens.accent} />
                       <View style={styles.linkInfo}>
                         <Text style={styles.linkLabel}>Cartel Network</Text>
-                        {data.cartel_report.deployer_count != null && (
+                        {data.cartel_report.deployer_community.wallets != null && (
                           <Text style={styles.linkMeta}>
-                            {data.cartel_report.deployer_count} deployers
-                            {data.cartel_report.total_sol_extracted != null
-                              ? ` · ${data.cartel_report.total_sol_extracted.toFixed(0)} SOL`
+                            {data.cartel_report.deployer_community.wallets.length} deployers
+                            {data.cartel_report.deployer_community.estimated_extracted_usd != null
+                              ? ` · $${data.cartel_report.deployer_community.estimated_extracted_usd.toFixed(0)}`
                               : ''}
                           </Text>
                         )}
@@ -277,7 +280,7 @@ export default function TokenScreen() {
               >
                 RUN AI ANALYSIS
               </HapticButton>
-            </>
+            </Animated.View>
           )}
         </ScrollView>
       </SafeAreaView>

@@ -39,7 +39,8 @@ export default function DeathClockScreen() {
   };
 
   const riskColor = dc?.risk_level ? RISK_COLOR[dc.risk_level] ?? tokens.accent : tokens.accent;
-  const confidence = dc?.confidence_level ?? 0;
+  const CONFIDENCE_NUM: Record<string, number> = { low: 0.3, medium: 0.6, high: 0.9 };
+  const confidence = dc?.confidence_level ? (CONFIDENCE_NUM[dc.confidence_level] ?? 0) : 0;
 
   return (
     <View style={styles.container}>
@@ -70,6 +71,7 @@ export default function DeathClockScreen() {
               placeholderTextColor={tokens.white35}
               autoCapitalize="none"
               autoCorrect={false}
+              accessibilityLabel="Token mint address"
             />
           </View>
           <HapticButton
@@ -79,6 +81,8 @@ export default function DeathClockScreen() {
             loading={isLoading}
             onPress={handleSubmit}
             style={styles.cta}
+            accessibilityRole="button"
+            accessibilityLabel="Predict rug probability"
           >
             PREDICT
           </HapticButton>
@@ -128,18 +132,13 @@ export default function DeathClockScreen() {
                 <GlassCard>
                   <Text style={styles.sectionTitle}>MARKET SIGNALS</Text>
                   <View style={styles.signals}>
-                    <SignalRow label="Liquidity trend" value={dc.market_signals.liquidity_trend ?? '–'} />
                     <SignalRow label="Volume trend" value={dc.market_signals.volume_trend ?? '–'} />
-                    {dc.market_signals.sell_pressure != null && (
+                    {dc.market_signals.sell_pressure_pct != null && (
                       <SignalRow
                         label="Sell pressure"
-                        value={`${Math.round(dc.market_signals.sell_pressure * 100)}%`}
+                        value={`${Math.round(dc.market_signals.sell_pressure_pct)}%`}
                       />
                     )}
-                    <SignalRow
-                      label="Holder exodus"
-                      value={dc.market_signals.holder_exodus ? 'DETECTED' : 'None'}
-                    />
                   </View>
                 </GlassCard>
               )}

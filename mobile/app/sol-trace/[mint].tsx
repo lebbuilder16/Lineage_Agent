@@ -38,7 +38,12 @@ export default function SolTraceScreen() {
       <Stack.Screen options={{ headerShown: false }} />
       <SafeAreaView style={styles.safe}>
         <View style={styles.navbar}>
-          <TouchableOpacity onPress={() => router.back()} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+          <TouchableOpacity
+            onPress={() => router.back()}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityRole="button"
+            accessibilityLabel="Go back"
+          >
             <ChevronLeft size={24} color={tokens.white100} />
           </TouchableOpacity>
           <Text style={styles.navTitle}>SOL FLOW TRACE</Text>
@@ -97,7 +102,7 @@ export default function SolTraceScreen() {
                     {data.cross_chain_exits.map((exit, i) => (
                       <View key={i} style={styles.exitRow}>
                         <Text style={styles.exitBridge}>{exit.bridge_name}</Text>
-                        <Text style={styles.exitChain}>→ {exit.destination_chain}</Text>
+                        <Text style={styles.exitChain}>→ {exit.dest_chain}</Text>
                         <Text style={styles.exitAmount}>{exit.amount_sol.toFixed(2)} SOL</Text>
                       </View>
                     ))}
@@ -113,10 +118,10 @@ export default function SolTraceScreen() {
 }
 
 function FlowEdgeCard({ edge }: { edge: SolFlowEdge }) {
-  const from = edge.from_wallet ?? edge.from_address ?? '';
-  const to = edge.to_wallet ?? edge.to_address ?? '';
-  const amount = edge.amount_sol ?? edge.sol_amount ?? 0;
-  const hop = edge.hop_index ?? edge.hop_number ?? 0;
+  const from = edge.from_address ?? '';
+  const to = edge.to_address ?? '';
+  const amount = edge.amount_sol ?? 0;
+  const hop = edge.hop ?? 0;
   const entityType = edge.entity_type ?? 'unknown';
   const color = ENTITY_COLORS[entityType] ?? tokens.white35;
 

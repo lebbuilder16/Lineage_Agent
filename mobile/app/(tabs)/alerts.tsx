@@ -63,7 +63,13 @@ export default function AlertsScreen() {
             </View>
           </View>
           {unreadCount > 0 && (
-            <HapticButton variant="ghost" size="sm" onPress={markAllRead}>
+            <HapticButton
+              variant="ghost"
+              size="sm"
+              onPress={markAllRead}
+              accessibilityRole="button"
+              accessibilityLabel="Mark all alerts as read"
+            >
               <CheckCheck size={16} color={tokens.secondary} />
             </HapticButton>
           )}
@@ -84,7 +90,12 @@ export default function AlertsScreen() {
             contentContainerStyle={styles.listContent}
             showsVerticalScrollIndicator={false}
             renderItem={({ item }) => (
-              <TouchableOpacity onPress={() => handlePress(item)} activeOpacity={0.75}>
+              <TouchableOpacity
+                onPress={() => handlePress(item)}
+                activeOpacity={0.75}
+                accessibilityRole="button"
+                accessibilityLabel={`${item.type} alert: ${item.title ?? item.token_name ?? item.type}. ${item.read ? 'Read' : 'Unread'}`}
+              >
                 <GlassCard
                   style={[styles.alertCard, !item.read && styles.alertCardUnread]}
                   noPadding

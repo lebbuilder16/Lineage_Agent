@@ -13,12 +13,12 @@ import { router } from 'expo-router';
 import { Activity, TrendingUp, AlertTriangle, Zap, Radar } from 'lucide-react-native';
 import { AuroraBackground } from '../../src/components/ui/AuroraBackground';
 import { GlassCard } from '../../src/components/ui/GlassCard';
-import { RiskBadge } from '../../src/components/ui/RiskBadge';
 import { SkeletonLoader, SkeletonBlock } from '../../src/components/ui/SkeletonLoader';
 import { useGlobalStats, useSearchTokens } from '../../src/lib/query';
 import { connectAlertsWS } from '../../src/lib/api';
 import { useAlertsStore } from '../../src/store/alerts';
 import { tokens } from '../../src/theme/tokens';
+import Animated, { FadeInDown } from 'react-native-reanimated';
 import type { TokenSearchResult } from '../../src/types/api';
 
 export default function RadarScreen() {
@@ -65,13 +65,13 @@ export default function RadarScreen() {
           <View style={styles.statsRow}>
             <StatCard
               label="Scanned 24h"
-              value={statsLoading ? null : stats?.total_scanned_24h ?? 0}
+              value={statsLoading ? null : stats?.tokens_scanned_24h ?? 0}
               icon={<Activity size={16} color={tokens.secondary} />}
               accentColor={tokens.secondary}
             />
             <StatCard
               label="Rugs 24h"
-              value={statsLoading ? null : stats?.rug_count_24h ?? 0}
+              value={statsLoading ? null : stats?.tokens_rugged_24h ?? 0}
               icon={<AlertTriangle size={16} color={tokens.accent} />}
               accentColor={tokens.accent}
             />
@@ -98,12 +98,13 @@ export default function RadarScreen() {
                     </View>
                   </GlassCard>
                 ))
-              : (trending ?? []).slice(0, 20).map((token: TokenSearchResult) => (
-                  <TokenCard
-                    key={token.mint}
-                    token={token}
-                    onPress={() => router.push(`/token/${token.mint}` as any)}
-                  />
+              : (trending ?? []).slice(0, 20).map((token: TokenSearchResult, index: number) => (
+                  <Animated.View key={token.mint} entering={FadeInDown.delay(index * 40).duration(350).springify()}>
+                    <TokenCard
+                      token={token}
+                      onPress={() => router.push(`/token/${token.mint}` as any)}
+                    />
+                  </Animated.View>
                 ))}
           </View>
         </ScrollView>
@@ -147,7 +148,12 @@ function TokenCard({
   onPress: () => void;
 }) {
   return (
-    <TouchableOpacity onPress={onPress} activeOpacity={0.75}>
+    <TouchableOpacity
+      onPress={onPress}
+      activeOpacity={0.75}
+      accessibilityRole="button"
+      accessibilityLabel={`View token ${token.name} (${token.symbol})`}
+    >
       <GlassCard style={styles.tokenCard} noPadding>
         <View style={styles.tokenInner}>
           {token.image_uri ? (
@@ -162,7 +168,6 @@ function TokenCard({
             <Text style={styles.tokenSymbol}>{token.symbol}</Text>
           </View>
           <View style={styles.tokenRight}>
-            {token.risk_level && <RiskBadge level={token.risk_level} />}
             {token.market_cap_usd != null && (
               <Text style={styles.tokenMcap}>
                 ${(token.market_cap_usd / 1_000).toFixed(0)}K

@@ -12,6 +12,24 @@ from pydantic import BaseModel, Field
 
 
 # ---------------------------------------------------------------------------
+# RFC 9457 Problem Details for HTTP APIs
+# ---------------------------------------------------------------------------
+class ProblemDetail(BaseModel):
+    """RFC 9457 structured error response.
+
+    Serialises to ``application/problem+json``.
+    """
+
+    type: str = "about:blank"
+    title: str
+    status: int
+    detail: str = ""
+    instance: str = ""
+
+    model_config = {"extra": "allow"}
+
+
+# ---------------------------------------------------------------------------
 # Shared forensic context enums
 # ---------------------------------------------------------------------------
 class LifecycleStage(str, Enum):

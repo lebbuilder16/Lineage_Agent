@@ -9,7 +9,6 @@ import {
 } from 'react-native';
 import { ChevronRight } from 'lucide-react-native';
 import { GlassCard } from './GlassCard';
-import { RiskBadge } from './RiskBadge';
 import { tokens } from '../../theme/tokens';
 import type { TokenSearchResult } from '../../types/api';
 
@@ -34,7 +33,11 @@ export function TokenRow({
     <GlassCard style={[styles.card, style]} noPadding>
       <View style={styles.inner}>
         {token.image_uri ? (
-          <Image source={{ uri: token.image_uri }} style={styles.img} />
+          <Image
+            source={{ uri: token.image_uri }}
+            style={styles.img}
+            accessibilityLabel={`${token.name} logo`}
+          />
         ) : (
           <View style={[styles.img, styles.imgFallback]}>
             <Text style={styles.imgFallbackText}>{token.symbol?.[0] ?? '?'}</Text>
@@ -49,7 +52,6 @@ export function TokenRow({
         <View style={styles.right}>
           {rightElement ?? (
             <>
-              {token.risk_level && <RiskBadge level={token.risk_level} size="sm" />}
               {showMcap && token.market_cap_usd != null && (
                 <Text style={styles.mcap}>
                   ${(token.market_cap_usd / 1_000).toFixed(0)}K
@@ -69,7 +71,12 @@ export function TokenRow({
   if (!onPress) return inner;
 
   return (
-    <TouchableOpacity onPress={onPress} activeOpacity={0.75}>
+    <TouchableOpacity
+      onPress={onPress}
+      activeOpacity={0.75}
+      accessibilityRole="button"
+      accessibilityLabel={`View token ${token.name} (${token.symbol})`}
+    >
       {inner}
     </TouchableOpacity>
   );
