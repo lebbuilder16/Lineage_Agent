@@ -28,10 +28,77 @@ import httpx
 if TYPE_CHECKING:
     from fastapi import WebSocket
 
+# Lazily imported to avoid circular imports at module load time
+async def event_query(
+    where: str,
+    params: tuple = (),
+    columns: str = "*",
+    limit: int = 1000,
+    order_by: str = "",
+) -> list[dict]:
+    """Thin wrapper that delegates to data_sources._clients.event_query."""
+    from .data_sources._clients import event_query as _eq
+    return await _eq(where=where, params=params, columns=columns, limit=limit, order_by=order_by)
+
+
+async def all_subscriptions() -> list[dict]:
+    """Return all active alert subscriptions (sub_type, value, chat_id).
+
+    Queries the *user_watches* table and joins with *users* to retrieve the
+    associated Telegram ``chat_id``.  Returns an empty list when the DB is
+    unavailable (e.g. during testing without a real DB).
+    """
+    try:
+        from .data_sources._clients import event_query as _eq  # noqa: F401
+        # Try to import the cache directly to query user_watches
+        from .data_sources import sqlite_cache as _sc
+        rows = await _sc.query(
+            "SELECT uw.sub_type, uw.value, u.telegram_chat_id AS chat_id "
+            "FROM user_watches uw JOIN users u ON u.id = uw.user_id "
+            "WHERE u.telegram_chat_id IS NOT NULL",
+            (),
+        )
+        return rows
+    except Exception:
+        return []
+
+import re
+import time as _time_mod
+
 logger = logging.getLogger(__name__)
 
 _SWEEP_INTERVAL_SECONDS = 5 * 60   # 5 minutes
 _LOOKBACK_SECONDS = 6 * 60         # check events from last 6 min (overlap to cover delays)
+
+# ── Telegram bot application (set via set_bot_app at startup) ─────────────────
+_bot_app: Optional[object] = None
+
+_MARKDOWNV2_SPECIAL = re.compile(r"([_*\[\]()~`>#+=|{}.!\-\\])")
+
+
+def _esc(text: str) -> str:
+    """Escape *text* for Telegram MarkdownV2 parse mode."""
+    return _MARKDOWNV2_SPECIAL.sub(r"\\\1", text)
+
+
+def set_bot_app(app: object) -> None:
+    """Register the PTB Application instance used for Telegram delivery."""
+    global _bot_app
+    _bot_app = app
+
+
+async def _send_alert(chat_id: int, text: str) -> None:
+    """Send *text* to *chat_id* via the registered Telegram bot. Silently swallows errors."""
+    if _bot_app is None:
+        return
+    try:
+        await _bot_app.bot.send_message(  # type: ignore[attr-defined]
+            chat_id=chat_id,
+            text=text,
+            parse_mode="MarkdownV2",
+        )
+    except Exception as exc:
+        logger.debug("[Telegram] send_message error: %s", exc)
 
 _sweep_task: Optional[asyncio.Task] = None
 # Web WebSocket clients (browser dashboard)
@@ -210,8 +277,73 @@ async def _broadcast_web_alert(payload: dict) -> None:
 
 
 async def _run_alert_sweep() -> int:
-    """One sweep iteration. Returns 0 (Telegram removed; web alerts triggered on scan)."""
-    return 0
+    """One sweep iteration — queries subscriptions and dispatches alerts.
+
+    Returns the number of notifications dispatched.
+    """
+    subs = await all_subscriptions()
+    if not subs:
+        return 0
+
+    count = 0
+    lookback_ts = int(_time_mod.time()) - _LOOKBACK_SECONDS
+
+    for sub in subs:
+        sub_type = sub.get("sub_type")
+        value = sub.get("value")
+        chat_id = sub.get("chat_id")
+
+        if not sub_type or not value or not chat_id:
+            continue
+
+        try:
+            if sub_type == "deployer":
+                rows = await event_query(
+                    where="deployer = ? AND created_at > ?",
+                    params=(value, lookback_ts),
+                    columns="mint,name,symbol,mcap_usd",
+                    limit=5,
+                )
+            elif sub_type == "narrative":
+                rows = await event_query(
+                    where="narrative = ? AND created_at > ?",
+                    params=(value, lookback_ts),
+                    columns="mint,name,symbol,mcap_usd",
+                    limit=5,
+                )
+            elif sub_type == "token" or sub_type == "mint":
+                rows = await event_query(
+                    where="mint = ? AND created_at > ?",
+                    params=(value, lookback_ts),
+                    columns="mint,name,symbol,mcap_usd",
+                    limit=5,
+                )
+            else:
+                continue
+
+            for row in rows:
+                name = row.get("name") or row.get("symbol") or row.get("mint", "?")
+                mcap = row.get("mcap_usd")
+                mcap_str = f" · ${mcap:,.0f} mcap" if mcap else ""
+                text = (
+                    f"🚨 *{_esc(sub_type.upper())} ALERT*\n"
+                    f"{_esc(name)}{_esc(mcap_str)}\n"
+                    f"`{_esc(row.get('mint', ''))}`"
+                )
+                await _send_alert(chat_id=int(chat_id), text=text)
+                await _broadcast_web_alert({
+                    "event": "alert",
+                    "type": sub_type,
+                    "title": f"{sub_type.upper()} alert",
+                    "body": name,
+                    "mint": row.get("mint"),
+                })
+                count += 1
+
+        except Exception as exc:
+            logger.debug("[alert_sweep] sub=%s error: %s", sub_type, exc)
+
+    return count
 
 
 async def _sweep_loop() -> None:

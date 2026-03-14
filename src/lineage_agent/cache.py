@@ -175,6 +175,22 @@ class TTLCache:
     async def community_lookup_query(self, community_id: str) -> Optional[str]:
         return None
 
+    # Stubs for alert subscriptions (no-ops without SQLite)
+    async def subscribe_alert(self, chat_id: int, sub_type: str, value: str) -> bool:
+        return False
+
+    async def unsubscribe_alert(self, chat_id: int, sub_id: int) -> bool:
+        return False
+
+    async def list_subscriptions(self, chat_id: int) -> list:
+        return []
+
+    async def query_subscriptions(self, sub_type: str, value: str) -> list:
+        return []
+
+    async def all_subscriptions(self) -> list:
+        return []
+
 
 # ---------------------------------------------------------------------------
 # SQLite persistent cache
@@ -998,3 +1014,27 @@ class SQLiteCache:
         except Exception:
             logger.warning("community_lookup_query failed for %s", community_id, exc_info=True)
             return None
+
+    # ------------------------------------------------------------------
+    # Alert subscription stubs
+    # ------------------------------------------------------------------
+
+    async def subscribe_alert(self, chat_id: int, sub_type: str, value: str) -> bool:
+        """Register an alert subscription. Returns False (stub)."""
+        return False
+
+    async def unsubscribe_alert(self, chat_id: int, sub_id: int) -> bool:
+        """Remove an alert subscription. Returns False (stub)."""
+        return False
+
+    async def list_subscriptions(self, chat_id: int) -> list:
+        """Return subscriptions for a Telegram chat. Returns [] (stub)."""
+        return []
+
+    async def query_subscriptions(self, sub_type: str, value: str) -> list:
+        """Return subscriptions matching type+value. Returns [] (stub)."""
+        return []
+
+    async def all_subscriptions(self) -> list:
+        """Return all active subscriptions. Returns [] (stub)."""
+        return []
