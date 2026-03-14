@@ -41,17 +41,17 @@ RUN mkdir -p public
 RUN npm run build
 
 
-FROM node:20-alpine AS frontend
+FROM nginx:stable-alpine AS frontend
 
-WORKDIR /app
-COPY --from=frontend-builder /app/.next/standalone ./
-COPY --from=frontend-builder /app/.next/static .next/static
-COPY --from=frontend-builder /app/public ./public
+# Serve on port 3000 with SPA fallback routing
+RUN printf 'server {\n  listen 3000;\n  root /usr/share/nginx/html;\n  index index.html;\n  location / { try_files $uri $uri/ /index.html; }\n}\n' \
+    > /etc/nginx/conf.d/default.conf
 
-ENV PORT=3000
+COPY --from=frontend-builder /app/build /usr/share/nginx/html
+
 EXPOSE 3000
 
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
     CMD wget -qO- http://localhost:3000 || exit 1
 
-CMD ["node", "server.js"]
+CMD ["nginx", "-g", "daemon off;"]
