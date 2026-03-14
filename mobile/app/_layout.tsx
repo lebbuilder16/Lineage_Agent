@@ -101,6 +101,14 @@ export default function RootLayout() {
               name="analysis/[mint]"
               options={{ presentation: 'modal', animation: 'slide_from_bottom' }}
             />
+            <Stack.Screen
+              name="tree/[mint]"
+              options={{ presentation: 'card', animation: 'slide_from_right' }}
+            />
+            <Stack.Screen
+              name="chat/[mint]"
+              options={{ presentation: 'card', animation: 'slide_from_right' }}
+            />
           </Stack>
         </View>
       </QueryClientProvider>

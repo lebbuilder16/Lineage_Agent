@@ -18,6 +18,8 @@ import {
   Zap,
   Users,
   ArrowUpRight,
+  GitBranch,
+  MessageCircle,
 } from 'lucide-react-native';
 import { AuroraBackground } from '../../src/components/ui/AuroraBackground';
 import { GlassCard } from '../../src/components/ui/GlassCard';
@@ -280,6 +282,31 @@ export default function TokenScreen() {
               >
                 RUN AI ANALYSIS
               </HapticButton>
+
+              {/* Family Tree + AI Chat */}
+              <View style={styles.actionRow}>
+                <TouchableOpacity
+                  style={styles.actionBtn}
+                  onPress={() => router.push(`/tree/${mint}` as any)}
+                  activeOpacity={0.75}
+                  accessibilityRole="button"
+                  accessibilityLabel="View family tree"
+                >
+                  <GitBranch size={16} color={tokens.secondary} />
+                  <Text style={styles.actionBtnText}>Family Tree</Text>
+                </TouchableOpacity>
+                <View style={styles.actionDivider} />
+                <TouchableOpacity
+                  style={styles.actionBtn}
+                  onPress={() => router.push(`/chat/${mint}` as any)}
+                  activeOpacity={0.75}
+                  accessibilityRole="button"
+                  accessibilityLabel="Open AI chat"
+                >
+                  <MessageCircle size={16} color={tokens.secondary} />
+                  <Text style={styles.actionBtnText}>AI Chat</Text>
+                </TouchableOpacity>
+              </View>
             </Animated.View>
           )}
         </ScrollView>
@@ -402,5 +429,33 @@ const styles = StyleSheet.create({
     fontSize: tokens.font.body,
     color: tokens.accent,
     textAlign: 'center',
+  },
+
+  actionRow: {
+    flexDirection: 'row',
+    borderRadius: tokens.radius.md,
+    borderWidth: 1,
+    borderColor: tokens.borderSubtle,
+    backgroundColor: tokens.bgGlass8,
+    overflow: 'hidden',
+    marginTop: 4,
+  },
+  actionBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 14,
+  },
+  actionBtnText: {
+    fontFamily: 'Lexend-SemiBold',
+    fontSize: tokens.font.small,
+    color: tokens.secondary,
+    letterSpacing: 0.3,
+  },
+  actionDivider: {
+    width: 1,
+    backgroundColor: tokens.borderSubtle,
   },
 });
