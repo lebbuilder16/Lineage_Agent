@@ -18,9 +18,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass  # noqa: F401 (kept for other potential uses)
 
 import httpx
+
+from .models import CrossChainExit  # single canonical definition
 
 logger = logging.getLogger(__name__)
 
@@ -58,17 +60,6 @@ _BRIDGE_PROGRAMS: dict[str, str] = {
 def is_bridge_program(address: str) -> bool:
     """Return True if the address is a known bridge program."""
     return address in _BRIDGE_PROGRAMS
-
-
-@dataclass
-class CrossChainExit:
-    """A detected cross-chain capital exit."""
-    from_address: str           # Solana wallet that triggered the bridge tx
-    bridge_name: str            # Human-readable bridge name
-    dest_chain: str             # Destination chain name (e.g. "Ethereum")
-    dest_address: str           # Destination wallet address on the target chain
-    amount_sol: float           # SOL amount bridged
-    tx_signature: str           # Solana transaction signature
 
 
 # ---------------------------------------------------------------------------

@@ -294,7 +294,7 @@ app = FastAPI(
 
 # Attach rate-limiter state
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]
 
 # CORS (so the Next.js frontend can call from localhost:3000 and Vercel)
 app.add_middleware(
@@ -1324,11 +1324,11 @@ async def get_ai_analysis(
             timeout=55.0,
         )
     except Exception as exc:
-        lineage_res = exc
+        lineage_res = exc  # type: ignore[assignment]
 
     if isinstance(lineage_res, Exception):
         logger.warning("[analyze] lineage cache read failed for %s: %s", mint[:12], lineage_res)
-        lineage_res = None
+        lineage_res = None  # type: ignore[assignment]
 
     try:
         bundle_res, sol_flow_res = await _load_analyze_supporting_reports(

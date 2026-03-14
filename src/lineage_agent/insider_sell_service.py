@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from .constants import BONDING_CURVE_LAUNCHPAD_PLATFORMS
 from .models import InsiderSellEvent, InsiderSellReport
@@ -132,7 +132,7 @@ async def analyze_insider_sell(
             )
             for wallet, role in wallets_to_check
         ]
-        events: list[InsiderSellEvent] = await asyncio.gather(*balance_tasks)
+        events: list[InsiderSellEvent] = list(await asyncio.gather(*balance_tasks))  # type: ignore[arg-type]
         report.wallet_events = [e for e in events if e is not None]
 
         # Deployer exit flag
@@ -344,7 +344,7 @@ def _compute_risk_score(report: InsiderSellReport) -> float:
     return round(min(1.0, score), 3)
 
 
-def _compute_verdict(report: InsiderSellReport) -> str:
+def _compute_verdict(report: InsiderSellReport) -> Literal["clean", "suspicious", "insider_dump"]:
     if report.lifecycle_stage in (
         LifecycleStage.LAUNCHPAD_CURVE_ONLY,
         LifecycleStage.MIGRATION_PENDING,

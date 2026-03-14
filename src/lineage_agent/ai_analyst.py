@@ -1155,7 +1155,7 @@ def _is_launchpad_pre_dex_context(lineage: Optional[Any]) -> bool:
     lifecycle_stage = _norm_enumish(getattr(qt, "lifecycle_stage", ""))
     market_surface = _norm_enumish(getattr(qt, "market_surface", ""))
     launch_platform = str(getattr(qt, "launch_platform", "") or "").strip().lower()
-    return (
+    return bool(
         lifecycle_stage == "launchpad_curve_only"
         or market_surface == "launchpad_curve_only"
         or (launch_platform and lifecycle_stage != "dex_listed" and market_surface != "dex_pool_observed")

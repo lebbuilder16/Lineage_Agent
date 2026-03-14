@@ -24,7 +24,7 @@ import json
 import logging
 from collections import Counter
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Optional, cast
 
 from .data_sources.solana_rpc import SolanaRpcClient
 from .data_sources._clients import get_rpc_client, bundle_report_delete, bundle_report_insert, bundle_report_query, cartel_edge_upsert
@@ -326,8 +326,8 @@ async def _run_forensic(
         for tx in _chunk_results:
             if not tx or isinstance(tx, Exception):
                 continue
-            _extract_buyers(tx, deployer, buyer_wallets)
-            bundle_decoded_txs.append(tx)  # keep for intra-bundle funding scan
+            _extract_buyers(tx, deployer, buyer_wallets)  # type: ignore[arg-type]
+            bundle_decoded_txs.append(tx)  # type: ignore[arg-type]  # keep for intra-bundle funding scan
 
     if not buyer_wallets:
         return None
@@ -351,19 +351,19 @@ async def _run_forensic(
             )
 
     pre_sell_tasks = [_throttled_pre_sell(w) for w in wallets]
-    pre_sell_results: list[PreSellBehavior] = [
+    pre_sell_results: list[PreSellBehavior] = cast(list[PreSellBehavior], [
         r if not isinstance(r, Exception) else PreSellBehavior()
         for r in await asyncio.gather(*pre_sell_tasks, return_exceptions=True)
-    ]
+    ])
 
     # ─────────────────────────────────────────────────────────────────────
     # Phase 3 — Post-sell behavior (per wallet, parallel)
     # ─────────────────────────────────────────────────────────────────────
     # Seed deployer-linked set with deployer + any confirmed pre-fund sources
     deployer_linked: set[str] = {deployer}
-    for ps in pre_sell_results:
-        if ps.prefund_source_is_deployer and ps.prefund_source:
-            deployer_linked.add(ps.prefund_source)
+    for pre_item in pre_sell_results:
+        if pre_item.prefund_source_is_deployer and pre_item.prefund_source:
+            deployer_linked.add(pre_item.prefund_source)
 
     async def _throttled_post_sell(w: str) -> PostSellBehavior:
         async with sem:
@@ -373,10 +373,10 @@ async def _run_forensic(
             )
 
     post_sell_tasks = [_throttled_post_sell(w) for w in wallets]
-    post_sell_results: list[PostSellBehavior] = [
+    post_sell_results: list[PostSellBehavior] = cast(list[PostSellBehavior], [
         r if not isinstance(r, Exception) else PostSellBehavior()
         for r in await asyncio.gather(*post_sell_tasks, return_exceptions=True)
-    ]
+    ])
 
     # ─────────────────────────────────────────────────────────────────────
     # Phase 4 — Cross-wallet coordination
@@ -495,7 +495,7 @@ async def _run_forensic(
         factory_address=factory_address,
         factory_funded_deployer=factory_funded_deployer,
         factory_sniper_wallets=factory_sniper_wallets,
-        overall_verdict=overall_verdict,
+        overall_verdict=overall_verdict,  # type: ignore[arg-type]
         evidence_chain=evidence_chain,
     )
 
@@ -686,17 +686,17 @@ async def _analyze_pre_sell(
                 if not tx or isinstance(tx, Exception):
                     continue
                 if not pre.prefund_source:
-                    funder, sol = _find_incoming_sol_transfer(tx, wallet)
+                    funder, sol = _find_incoming_sol_transfer(tx, wallet)  # type: ignore[arg-type]
                     if funder and sol * _SOL_DECIMALS >= _MIN_PREFUND_LAMPORTS:
                         pre.prefund_source = funder
                         pre.prefund_sol    = round(sol, 4)
-                        bt = tx.get("blockTime")
+                        bt = tx.get("blockTime")  # type: ignore[union-attr]
                         if bt:
                             pre.prefund_hours_before_launch = round(
                                 (launch_ts - bt) / 3600, 2
                             )
                         pre.prefund_source_is_deployer = (funder == deployer)
-                for tb in (tx.get("meta") or {}).get("preTokenBalances", []):
+                for tb in (tx.get("meta") or {}).get("preTokenBalances", []):  # type: ignore[union-attr]
                     m = tb.get("mint", "")
                     if m:
                         unique_tokens.add(m)
@@ -708,7 +708,7 @@ async def _analyze_pre_sell(
         # bundle TXs (zero extra RPC calls) for SOL sent TO this wallet.
         if not pre.prefund_source and bundle_txs:
             for tx in bundle_txs:
-                funder, sol = _find_incoming_sol_transfer(tx, wallet)
+                funder, sol = _find_incoming_sol_transfer(tx, wallet)  # type: ignore[arg-type]
                 if funder and sol * _SOL_DECIMALS >= _MIN_PREFUND_LAMPORTS:
                     pre.prefund_source    = funder
                     pre.prefund_sol       = round(sol, 4)
@@ -819,11 +819,11 @@ async def _analyze_post_sell(
         for s, tx in zip(post_launch[:50], txs):
             if not tx or isinstance(tx, Exception):
                 continue
-            if _is_full_sell(tx, wallet, target_mint):
+            if _is_full_sell(tx, wallet, target_mint):  # type: ignore[arg-type]
                 sell_tx      = tx
                 sell_slot    = s.get("slot")
                 sell_sig     = s.get("signature")
-                sol_received = _compute_sol_received(tx, wallet)
+                sol_received = _compute_sol_received(tx, wallet)  # type: ignore[arg-type]
                 break
 
         if sell_tx is None:
@@ -852,7 +852,7 @@ async def _analyze_post_sell(
         for tx in post_sell_txs:
             if not tx or isinstance(tx, Exception):
                 continue
-            for dest, lamps in _extract_sol_outflows(tx, wallet, _MIN_POSTSELL_LAMPORTS).items():
+            for dest, lamps in _extract_sol_outflows(tx, wallet, _MIN_POSTSELL_LAMPORTS).items():  # type: ignore[arg-type]
                 destinations[dest] = destinations.get(dest, 0) + lamps
 
         fund_dests: list[FundDestination] = []
@@ -882,7 +882,7 @@ async def _analyze_post_sell(
                 for hop1_list in await asyncio.gather(*hop1_tasks, return_exceptions=True):
                     if isinstance(hop1_list, Exception):
                         continue
-                    for fd1 in hop1_list:
+                    for fd1 in hop1_list:  # type: ignore[union-attr]
                         fund_dests.append(fd1)
                         hop1_dests.append(fd1)
                         if fd1.link_to_deployer:
@@ -899,7 +899,7 @@ async def _analyze_post_sell(
                 for hop2_list in await asyncio.gather(*hop2_tasks, return_exceptions=True):
                     if isinstance(hop2_list, Exception):
                         continue
-                    for fd2 in hop2_list:
+                    for fd2 in hop2_list:  # type: ignore[union-attr]
                         fund_dests.append(fd2)
                         if fd2.link_to_deployer:
                             post.indirect_via_intermediary = True
@@ -1037,7 +1037,7 @@ async def _trace_hop1(
         for tx in txs:
             if not tx or isinstance(tx, Exception):
                 continue
-            for dest, lamps in _extract_sol_outflows(tx, wallet, _MIN_POSTSELL_LAMPORTS).items():
+            for dest, lamps in _extract_sol_outflows(tx, wallet, _MIN_POSTSELL_LAMPORTS).items():  # type: ignore[arg-type]
                 out.append(FundDestination(
                     destination=dest,
                     lamports=lamps,
@@ -1075,7 +1075,7 @@ async def _trace_hop2(
         for tx in txs:
             if not tx or isinstance(tx, Exception):
                 continue
-            for dest, lamps in _extract_sol_outflows(tx, wallet, _MIN_POSTSELL_LAMPORTS).items():
+            for dest, lamps in _extract_sol_outflows(tx, wallet, _MIN_POSTSELL_LAMPORTS).items():  # type: ignore[arg-type]
                 out.append(FundDestination(
                     destination=dest,
                     lamports=lamps,
@@ -1222,7 +1222,7 @@ async def _resolve_factory_wallet(
             for tx in txs:
                 if not tx or isinstance(tx, Exception):
                     continue
-                funder, sol = _find_incoming_sol_transfer(tx, deployer)
+                funder, sol = _find_incoming_sol_transfer(tx, deployer)  # type: ignore[arg-type]
                 if funder == factory and sol * _SOL_DECIMALS >= _MIN_PREFUND_LAMPORTS:
                     funded_deployer = True
                     break

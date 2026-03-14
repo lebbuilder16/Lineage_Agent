@@ -215,7 +215,7 @@ def _infer_launchpad_from_asset_signals(
     signal_strength = 0
     _asset_id = (asset.get("id") or "") if asset else ""
     mint = (_asset_id or mint_address).strip().lower()
-    content = asset.get("content") or {}
+    content = (asset.get("content") if asset else None) or {}
     links = content.get("links") or {}
     urls: list[str] = []
 
@@ -531,7 +531,7 @@ async def _detect_lineage_impl(
                 # DAS name/symbol were not read at cache time (pre-fix).
                 # Re-compute so the fixed enrichment path runs.
                 _qt = cached_result.query_token
-                if cached_result.confidence == 0.0 and not (_qt.name or _qt.symbol):
+                if cached_result.confidence == 0.0 and not (_qt and (_qt.name or _qt.symbol)):
                     logger.info(
                         "Busting stale confidence=0/Unknown lineage cache for %s",
                         mint_address,
@@ -1268,7 +1268,7 @@ async def _detect_lineage_impl(
         result.cartel_report,
         result.insider_sell,
         result.bundle_report,
-    ) = _g2_safe
+    ) = _g2_safe  # type: ignore[assignment]
 
     # Collect operator_impact result (_oi_task ran in parallel with gather 2 tail)
     if _oi_task is not None:
@@ -1763,7 +1763,19 @@ class _ScoredCandidate:
         "composite",
     )
 
-    def __init__(self, **kwargs):
+    mint: str
+    name: str
+    symbol: str
+    image_uri: str
+    metadata_uri: str
+    deployer: str
+    created_at: Optional[datetime]
+    market_cap_usd: Optional[float]
+    liquidity_usd: Optional[float]
+    evidence: "SimilarityEvidence"
+    composite: float
+
+    def __init__(self, **kwargs: Any) -> None:
         for k, v in kwargs.items():
             setattr(self, k, v)
 

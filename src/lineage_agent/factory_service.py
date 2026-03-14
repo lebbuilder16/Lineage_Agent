@@ -143,7 +143,7 @@ async def analyze_factory_rhythm(deployer: str) -> Optional[FactoryRhythmReport]
     naming_pattern = _detect_naming_pattern(names)
 
     # Initial MCap variance (low variance = templated launches)
-    mcaps = [row.get("mcap_usd") for row in rows if row.get("mcap_usd")]
+    mcaps: list[float] = [float(row["mcap_usd"]) for row in rows if row.get("mcap_usd")]
     if len(mcaps) >= 3:
         mean_mc = statistics.mean(mcaps)
         coeff_var = (statistics.stdev(mcaps) / mean_mc) if mean_mc > 0 else 1.0

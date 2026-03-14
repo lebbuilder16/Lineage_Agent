@@ -21,7 +21,7 @@ import logging
 import time
 from collections import Counter
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 
 from .data_sources._clients import event_query
 from .models import DeployerProfile, DeployerTokenSummary, EvidenceLevel, RugMechanism
@@ -174,7 +174,7 @@ async def _build_profile(deployer: str) -> Optional[DeployerProfile]:
     last_seen = max(creation_times) if creation_times else None
 
     if total >= _MIN_TOKENS_FOR_HIGH_CONFIDENCE:
-        confidence = "high"
+        confidence: Literal["high", "medium", "low"] = "high"
     elif total >= _MIN_TOKENS_FOR_MEDIUM_CONFIDENCE:
         confidence = "medium"
     else:

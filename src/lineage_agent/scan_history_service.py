@@ -20,7 +20,7 @@ import json
 import logging
 import time
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Literal, Optional
 
 if TYPE_CHECKING:
     from .models import LineageResult, ScanDelta, ScanSnapshot
@@ -285,7 +285,7 @@ def compute_delta(snap_a: "ScanSnapshot", snap_b: "ScanSnapshot") -> "ScanDelta"
     has_new_critical = bool(set(new_flags) & _critical)
 
     if risk_delta > 5 or has_new_critical:
-        trend: str = "worsening"
+        trend: Literal["worsening", "stable", "improving"] = "worsening"
     elif risk_delta < -5 or (resolved_flags and not new_flags):
         trend = "improving"
     else:

@@ -50,16 +50,18 @@ async def all_subscriptions() -> list[dict]:
     unavailable (e.g. during testing without a real DB).
     """
     try:
-        from .data_sources._clients import event_query as _eq  # noqa: F401
-        # Try to import the cache directly to query user_watches
-        from .data_sources import sqlite_cache as _sc
-        rows = await _sc.query(
+        from .data_sources._clients import cache as _sc  # noqa: PLC0415
+        from .cache import SQLiteCache  # noqa: PLC0415
+        if not isinstance(_sc, SQLiteCache):
+            return []
+        db = await _sc._get_conn()
+        cursor = await db.execute(
             "SELECT uw.sub_type, uw.value, u.telegram_chat_id AS chat_id "
             "FROM user_watches uw JOIN users u ON u.id = uw.user_id "
-            "WHERE u.telegram_chat_id IS NOT NULL",
-            (),
+            "WHERE u.telegram_chat_id IS NOT NULL"
         )
-        return rows
+        rows = await cursor.fetchall()
+        return [{"sub_type": r[0], "value": r[1], "chat_id": r[2]} for r in rows]
     except Exception:
         return []
 
@@ -213,7 +215,7 @@ async def _push_fcm_to_watchers(
     try:
         from .data_sources._clients import cache as _cache  # noqa: PLC0415
 
-        db = await _cache._get_conn()
+        db = await _cache._get_conn()  # type: ignore[union-attr]
         # Find users watching this specific mint (sub_type='token', value=mint)
         # Also notifies users watching the deployer of that mint (if resolvable).
         # We use a broad query: any user with a fcm_token who watches this mint.

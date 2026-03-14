@@ -196,7 +196,8 @@ async def classify_narrative_llm(name: str, symbol: str) -> str:
             max_tokens=16,
             messages=[{"role": "user", "content": prompt}],
         )
-        raw: str = message.content[0].text.strip().lower()
+        _blk = message.content[0]
+        raw: str = (_blk.text if hasattr(_blk, "text") else "").strip().lower()
         # Accept only known categories; default to "other" for unexpected output
         result = raw if raw in NARRATIVE_TAXONOMY or raw == "other" else "other"
     except Exception:

@@ -161,7 +161,7 @@ class DerivativeInfo(BaseModel):
     created_at: Optional[datetime] = None
     market_cap_usd: Optional[float] = None
     liquidity_usd: Optional[float] = None
-    evidence: SimilarityEvidence = Field(default_factory=SimilarityEvidence)
+    evidence: SimilarityEvidence = Field(default_factory=lambda: SimilarityEvidence())
     # Multi-generation graph fields
     parent_mint: str = Field("", description="Mint of the direct parent (empty = child of root)")
     generation: int = Field(1, ge=1, description="Generation depth from root (root=0, direct copy=1, copy-of-copy=2…)")
@@ -361,8 +361,8 @@ class BundleWalletAnalysis(BaseModel):
     """Complete forensic analysis of a single bundle wallet."""
     wallet: str = Field(..., description="Wallet public key")
     sol_spent: float = Field(0.0, ge=0.0, description="SOL spent buying token at launch")
-    pre_sell: PreSellBehavior = Field(default_factory=PreSellBehavior)
-    post_sell: PostSellBehavior = Field(default_factory=PostSellBehavior)
+    pre_sell: PreSellBehavior = Field(default_factory=lambda: PreSellBehavior())
+    post_sell: PostSellBehavior = Field(default_factory=lambda: PostSellBehavior())
     red_flags: list[str] = Field(
         default_factory=list,
         description="Human-readable evidence flags that drove the verdict",
@@ -555,6 +555,13 @@ class DeathClockForecast(BaseModel):
     )
     market_signals: Optional[MarketSignals] = Field(
         None, description="Live market signals that may elevate the risk level"
+    )
+    total_negative_outcome_count: int = Field(
+        0, description="Total rug/negative outcomes for this deployer"
+    )
+    basis_breakdown: dict[str, int] = Field(
+        default_factory=dict,
+        description="Rug mechanism distribution (from confirmed predictive rugs)",
     )
 
 

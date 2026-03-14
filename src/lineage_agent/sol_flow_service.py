@@ -193,7 +193,7 @@ async def _run_trace(
             if isinstance(result, Exception):
                 logger.debug("[sol-trace] hop %d exception: %s", hop, result)
                 continue
-            for flow in result:
+            for flow in result:  # type: ignore[union-attr]
                 hop_flows.append(flow)
                 to_addr = flow["to_address"]
                 if to_addr not in visited and to_addr not in _SKIP_ADDRESSES:
