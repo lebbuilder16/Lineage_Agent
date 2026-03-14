@@ -16,6 +16,7 @@ import { router } from 'expo-router';
 import { Search, X, Network } from 'lucide-react-native';
 import { AuroraBackground } from '../../src/components/ui/AuroraBackground';
 import { GlassCard } from '../../src/components/ui/GlassCard';
+import { ScreenHeader } from '../../src/components/ui/ScreenHeader';
 import { searchTokens } from '../../src/lib/api';
 import { tokens } from '../../src/theme/tokens';
 import Animated, { FadeInDown } from 'react-native-reanimated';
@@ -57,16 +58,12 @@ export default function ScanScreen() {
           style={styles.kav}
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
-          <View style={styles.searchHeader}>
-            <View style={styles.titleRow}>
-              <View style={styles.iconGlowWrap}>
-                <View style={styles.iconGlow} />
-                <Network size={26} color={tokens.secondary} strokeWidth={2.5} />
-              </View>
-              <Text style={styles.title}>Lineage Scan</Text>
-            </View>
-            <Text style={styles.subtitle}>Trace token history, deployers &amp; connections</Text>
-          </View>
+          <ScreenHeader
+            icon={<Network size={26} color={tokens.secondary} strokeWidth={2.5} />}
+            title="Lineage Scan"
+            subtitle="Trace token history, deployers & connections"
+            style={{ paddingHorizontal: 0 }}
+          />
 
           {/* Search input — pill shaped */}
           <View style={styles.inputPill}>
@@ -172,30 +169,6 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: tokens.bgMain },
   safe: { flex: 1 },
   kav: { flex: 1, paddingHorizontal: tokens.spacing.screenPadding },
-
-  searchHeader: { paddingTop: 16, paddingBottom: 20 },
-  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 4 },
-  iconGlowWrap: { position: 'relative', width: 26, height: 26 },
-  iconGlow: {
-    position: 'absolute',
-    top: -6, left: -6, right: -6, bottom: -6,
-    backgroundColor: tokens.secondary,
-    opacity: 0.20,
-    borderRadius: 100,
-  },
-  title: {
-    fontFamily: 'Lexend-Bold',
-    fontSize: 26,
-    color: tokens.white100,
-    letterSpacing: -0.52,
-  },
-  subtitle: {
-    fontFamily: 'Lexend-Regular',
-    fontSize: tokens.font.small,
-    color: tokens.white60,
-    marginTop: 2,
-    marginLeft: 36,
-  },
 
   inputPill: {
     flexDirection: 'row',

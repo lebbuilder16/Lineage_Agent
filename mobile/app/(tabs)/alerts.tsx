@@ -13,6 +13,7 @@ import { Bell, CheckCheck, AlertTriangle, Zap, Skull, BookMarked } from 'lucide-
 import { AuroraBackground } from '../../src/components/ui/AuroraBackground';
 import { GlassCard } from '../../src/components/ui/GlassCard';
 import { HapticButton } from '../../src/components/ui/HapticButton';
+import { ScreenHeader } from '../../src/components/ui/ScreenHeader';
 import { useAlertsStore } from '../../src/store/alerts';
 import { tokens } from '../../src/theme/tokens';
 import type { AlertItem } from '../../src/types/api';
@@ -64,35 +65,26 @@ export default function AlertsScreen() {
     <View style={styles.container}>
       <AuroraBackground />
       <SafeAreaView style={styles.safe}>
-        <View style={styles.headerRow}>
-          <View style={styles.headerLeft}>
-            <View style={styles.iconGlowWrap}>
-              <View style={styles.iconGlow} />
-              <Bell size={26} color={tokens.secondary} strokeWidth={2.5} />
-            </View>
-            <View>
-              <Text style={styles.title}>Alerts</Text>
-              {unreadCount > 0 && (
-                <Text style={styles.unreadLabel}>{unreadCount} new</Text>
-              )}
-            </View>
-          </View>
-          {unreadCount > 0 && (
-            <HapticButton
-              variant="ghost"
-              size="sm"
-              onPress={markAllRead}
-              accessibilityRole="button"
-              accessibilityLabel="Mark all alerts as read"
-            >
-              <CheckCheck size={16} color={tokens.secondary} />
-            </HapticButton>
-          )}
-          <View style={styles.wsStatus}>
-            <View style={[styles.wsDot, { backgroundColor: wsConnected ? tokens.success : tokens.white20 }]} />
-            <Text style={styles.wsLabel}>{wsConnected ? 'Live' : 'Offline'}</Text>
-          </View>
-        </View>
+        <ScreenHeader
+          icon={<Bell size={26} color={tokens.secondary} strokeWidth={2.5} />}
+          title="Alerts"
+          subtitle={unreadCount > 0 ? `${unreadCount} new` : undefined}
+          dotConnected={wsConnected}
+          style={{ paddingHorizontal: 0 }}
+          rightAction={
+            unreadCount > 0 ? (
+              <HapticButton
+                variant="ghost"
+                size="sm"
+                onPress={markAllRead}
+                accessibilityRole="button"
+                accessibilityLabel="Mark all alerts as read"
+              >
+                <CheckCheck size={16} color={tokens.secondary} />
+              </HapticButton>
+            ) : null
+          }
+        />
 
         {/* Type filter chips */}
         <ScrollView
@@ -176,46 +168,6 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: tokens.bgMain },
   safe: { flex: 1, paddingHorizontal: tokens.spacing.screenPadding },
 
-  headerRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    paddingTop: 16,
-    paddingBottom: 20,
-  },
-  headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  iconGlowWrap: { position: 'relative', width: 26, height: 26 },
-  iconGlow: {
-    position: 'absolute',
-    top: -6, left: -6, right: -6, bottom: -6,
-    backgroundColor: tokens.secondary,
-    opacity: 0.20,
-    borderRadius: 100,
-  },
-  title: {
-    fontFamily: 'Lexend-Bold',
-    fontSize: 26,
-    color: tokens.white100,
-    letterSpacing: -0.52,
-  },
-  unreadLabel: {
-    fontFamily: 'Lexend-Regular',
-    fontSize: tokens.font.small,
-    color: tokens.accent,
-    marginTop: 2,
-  },
-  wsStatus: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    marginLeft: 8,
-  },
-  wsDot: { width: 7, height: 7, borderRadius: 4 },
-  wsLabel: {
-    fontFamily: 'Lexend-Regular',
-    fontSize: tokens.font.tiny,
-    color: tokens.white60,
-  },
   chipsRow: {
     paddingHorizontal: tokens.spacing.screenPadding,
     gap: 6,

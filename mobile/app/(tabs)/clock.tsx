@@ -17,6 +17,7 @@ import { GaugeRing } from '../../src/components/ui/GaugeRing';
 import { RiskBadge } from '../../src/components/ui/RiskBadge';
 import { HapticButton } from '../../src/components/ui/HapticButton';
 import { SkeletonBlock } from '../../src/components/ui/SkeletonLoader';
+import { ScreenHeader } from '../../src/components/ui/ScreenHeader';
 import { useLineage } from '../../src/lib/query';
 import { tokens } from '../../src/theme/tokens';
 
@@ -55,16 +56,14 @@ export default function DeathClockScreen() {
           contentContainerStyle={styles.content}
           showsVerticalScrollIndicator={false}
         >
-          <View style={styles.header}>
-            <View style={styles.titleRow}>
-              <View style={styles.iconGlowWrap}>
-                <View style={[styles.iconGlow, { backgroundColor: tokens.accent }]} />
-                <Skull size={26} color={tokens.accent} strokeWidth={2.5} />
-              </View>
-              <Text style={styles.title}>Death Clock</Text>
-            </View>
-            <Text style={styles.subtitle}>Predict rug probability &amp; timeline</Text>
-          </View>
+          <ScreenHeader
+            icon={<Skull size={26} color={tokens.accent} strokeWidth={2.5} />}
+            glowColor={tokens.accent}
+            title="Death Clock"
+            subtitle="Predict rug probability & timeline"
+            paddingBottom={12}
+            style={{ paddingHorizontal: 0 }}
+          />
 
           {/* Input — pill shaped */}
           <View style={styles.inputPill}>
@@ -217,28 +216,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: tokens.spacing.screenPadding,
     paddingBottom: 120,
     gap: 12,
-  },
-
-  header: { paddingTop: 24, paddingBottom: 12 },
-  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 4 },
-  iconGlowWrap: { position: 'relative', width: 26, height: 26 },
-  iconGlow: {
-    position: 'absolute',
-    top: -6, left: -6, right: -6, bottom: -6,
-    opacity: 0.20,
-    borderRadius: 100,
-  },
-  title: {
-    fontFamily: 'Lexend-Bold',
-    fontSize: 26,
-    color: tokens.white100,
-    letterSpacing: -0.52,
-  },
-  subtitle: {
-    fontFamily: 'Lexend-Regular',
-    fontSize: tokens.font.small,
-    color: tokens.white60,
-    marginLeft: 36,
   },
 
   inputPill: {

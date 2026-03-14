@@ -13,6 +13,7 @@ import { router } from 'expo-router';
 import { Activity, TrendingUp, AlertTriangle, Zap, Radar } from 'lucide-react-native';
 import { AuroraBackground } from '../../src/components/ui/AuroraBackground';
 import { GlassCard } from '../../src/components/ui/GlassCard';
+import { ScreenHeader } from '../../src/components/ui/ScreenHeader';
 import { SkeletonLoader, SkeletonBlock } from '../../src/components/ui/SkeletonLoader';
 import { useGlobalStats, useSearchTokens } from '../../src/lib/query';
 import { connectAlertsWS } from '../../src/lib/api';
@@ -49,19 +50,14 @@ export default function RadarScreen() {
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={tokens.secondary} />}
         >
           {/* Header */}
-          <View style={styles.header}>
-            <View style={styles.headerLeft}>
-              <View style={styles.iconGlowWrap}>
-                <View style={styles.iconGlow} />
-                <Radar size={26} color={tokens.secondary} strokeWidth={2.5} />
-              </View>
-              <View>
-                <Text style={styles.headerTitle}>Lineage Agent</Text>
-                <Text style={styles.headerSub}>Live Threat Intelligence</Text>
-              </View>
-            </View>
-            <View style={[styles.dot, { backgroundColor: wsConnected ? tokens.success : tokens.white20 }]} />
-          </View>
+          <ScreenHeader
+            icon={<Radar size={26} color={tokens.secondary} strokeWidth={2.5} />}
+            title="Lineage Agent"
+            subtitle="Live Threat Intelligence"
+            dotConnected={wsConnected}
+            paddingBottom={24}
+            style={{ paddingHorizontal: 0 }}
+          />
 
           {/* Stats row */}
           <View style={styles.statsRow}>
@@ -219,36 +215,6 @@ const styles = StyleSheet.create({
   safe: { flex: 1 },
   scroll: { flex: 1 },
   content: { paddingHorizontal: tokens.spacing.screenPadding, paddingBottom: 120 },
-
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingTop: 16,
-    paddingBottom: 24,
-  },
-  headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  iconGlowWrap: { position: 'relative', width: 26, height: 26 },
-  iconGlow: {
-    position: 'absolute',
-    top: -6, left: -6, right: -6, bottom: -6,
-    backgroundColor: tokens.secondary,
-    opacity: 0.20,
-    borderRadius: 100,
-  },
-  headerTitle: {
-    fontFamily: 'Lexend-Bold',
-    fontSize: 26,
-    color: tokens.white100,
-    letterSpacing: -0.52,
-  },
-  headerSub: {
-    fontFamily: 'Lexend-Regular',
-    fontSize: tokens.font.small,
-    color: tokens.white60,
-    marginTop: 2,
-  },
-  dot: { width: 8, height: 8, borderRadius: 4 },
 
   statsRow: { flexDirection: 'row', gap: 8, marginBottom: 24 },
   statCard: { flex: 1, alignItems: 'center' },

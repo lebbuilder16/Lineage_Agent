@@ -16,6 +16,7 @@ import { AuroraBackground } from '../../src/components/ui/AuroraBackground';
 import { GlassCard } from '../../src/components/ui/GlassCard';
 import { HapticButton } from '../../src/components/ui/HapticButton';
 import { SkeletonBlock } from '../../src/components/ui/SkeletonLoader';
+import { ScreenHeader } from '../../src/components/ui/ScreenHeader';
 import { useWatches, useDeleteWatch } from '../../src/lib/query';
 import { useAuthStore } from '../../src/store/auth';
 import { tokens } from '../../src/theme/tokens';
@@ -86,16 +87,11 @@ export default function WatchlistScreen() {
     <View style={styles.container}>
       <AuroraBackground />
       <SafeAreaView style={styles.safe}>
-        <View style={styles.headerRow}>
-          <View style={styles.headerLeft}>
-            <View style={styles.iconGlowWrap}>
-              <View style={styles.iconGlow} />
-              <Bookmark size={26} color={tokens.secondary} strokeWidth={2.5} />
-            </View>
-            <Text style={styles.title}>Watchlist</Text>
-          </View>
-          <Text style={styles.count}>{watches?.length ?? 0} items</Text>
-        </View>
+        <ScreenHeader
+          icon={<Bookmark size={26} color={tokens.secondary} strokeWidth={2.5} />}
+          title="Watchlist"
+          rightAction={<Text style={styles.count}>{watches?.length ?? 0} items</Text>}
+        />
 
         {isLoading ? (
           <View style={{ gap: 8, paddingHorizontal: tokens.spacing.screenPadding }}>
@@ -181,29 +177,6 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: tokens.bgMain },
   safe: { flex: 1 },
 
-  headerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: tokens.spacing.screenPadding,
-    paddingTop: 16,
-    paddingBottom: 20,
-  },
-  headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  iconGlowWrap: { position: 'relative', width: 26, height: 26 },
-  iconGlow: {
-    position: 'absolute',
-    top: -6, left: -6, right: -6, bottom: -6,
-    backgroundColor: tokens.secondary,
-    opacity: 0.20,
-    borderRadius: 100,
-  },
-  title: {
-    fontFamily: 'Lexend-Bold',
-    fontSize: 26,
-    color: tokens.white100,
-    letterSpacing: -0.52,
-  },
   count: {
     fontFamily: 'Lexend-Regular',
     fontSize: tokens.font.small,
