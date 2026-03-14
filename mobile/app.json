@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "Lineage Agent",
-    "slug": "lineage-agent",
+    "slug": "lineage-agent-aol-o30jkjpa-4omqajv",
     "scheme": "lineage",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -52,6 +52,15 @@
     ],
     "experiments": {
       "typedRoutes": true
-    }
+    },
+    "extra": {
+      "router": {
+        "origin": false
+      },
+      "eas": {
+        "projectId": "0da4672c-0d43-4dc7-ab4c-11c1deb99387"
+      }
+    },
+    "owner": "leb16"
   }
 }
