@@ -58,7 +58,13 @@ export default function WatchlistScreen() {
       <AuroraBackground />
       <SafeAreaView style={styles.safe}>
         <View style={styles.headerRow}>
-          <Text style={styles.title}>WATCHLIST</Text>
+          <View style={styles.headerLeft}>
+            <View style={styles.iconGlowWrap}>
+              <View style={styles.iconGlow} />
+              <Bookmark size={26} color={tokens.secondary} strokeWidth={2.5} />
+            </View>
+            <Text style={styles.title}>Watchlist</Text>
+          </View>
           <Text style={styles.count}>{watches?.length ?? 0} items</Text>
         </View>
 
@@ -148,17 +154,26 @@ const styles = StyleSheet.create({
 
   headerRow: {
     flexDirection: 'row',
-    alignItems: 'flex-end',
+    alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: tokens.spacing.screenPadding,
     paddingTop: 16,
     paddingBottom: 20,
   },
+  headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  iconGlowWrap: { position: 'relative', width: 26, height: 26 },
+  iconGlow: {
+    position: 'absolute',
+    top: -6, left: -6, right: -6, bottom: -6,
+    backgroundColor: tokens.secondary,
+    opacity: 0.20,
+    borderRadius: 100,
+  },
   title: {
     fontFamily: 'Lexend-Bold',
-    fontSize: tokens.font.heading,
+    fontSize: 26,
     color: tokens.white100,
-    letterSpacing: 2,
+    letterSpacing: -0.52,
   },
   count: {
     fontFamily: 'Lexend-Regular',

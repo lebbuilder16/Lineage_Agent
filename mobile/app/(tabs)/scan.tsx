@@ -13,7 +13,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { router } from 'expo-router';
-import { Search, X } from 'lucide-react-native';
+import { Search, X, Network } from 'lucide-react-native';
 import { AuroraBackground } from '../../src/components/ui/AuroraBackground';
 import { GlassCard } from '../../src/components/ui/GlassCard';
 import { RiskBadge } from '../../src/components/ui/RiskBadge';
@@ -58,32 +58,41 @@ export default function ScanScreen() {
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
           <View style={styles.searchHeader}>
-            <Text style={styles.title}>SCAN TOKEN</Text>
-            <Text style={styles.subtitle}>Search by name, symbol, or mint address</Text>
+            <View style={styles.titleRow}>
+              <View style={styles.iconGlowWrap}>
+                <View style={styles.iconGlow} />
+                <Network size={26} color={tokens.secondary} strokeWidth={2.5} />
+              </View>
+              <Text style={styles.title}>Lineage Scan</Text>
+            </View>
+            <Text style={styles.subtitle}>Trace token history, deployers &amp; connections</Text>
           </View>
 
-          {/* Search input */}
-          <GlassCard style={styles.inputCard} noPadding>
-            <View style={styles.inputRow}>
-              <Search size={18} color={tokens.white35} />
-              <TextInput
-                style={styles.input}
-                value={query}
-                onChangeText={handleChange}
-                placeholder="Search tokens…"
-                placeholderTextColor={tokens.white35}
-                autoCapitalize="none"
-                autoCorrect={false}
-                returnKeyType="search"
-              />
-              {query.length > 0 && (
-                <TouchableOpacity onPress={handleClear} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                  <X size={16} color={tokens.white35} />
-                </TouchableOpacity>
-              )}
-              {loading && <ActivityIndicator size="small" color={tokens.primary} />}
+          {/* Search input — pill shaped */}
+          <View style={styles.inputPill}>
+            <View style={styles.inputLeft}>
+              <Search size={20} color={tokens.white35} />
             </View>
-          </GlassCard>
+            <TextInput
+              style={styles.input}
+              value={query}
+              onChangeText={handleChange}
+              placeholder="Paste token address…"
+              placeholderTextColor={tokens.white35}
+              autoCapitalize="none"
+              autoCorrect={false}
+              returnKeyType="search"
+            />
+            {query.length > 0 && (
+              <TouchableOpacity onPress={handleClear} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} style={styles.clearBtn}>
+                <X size={16} color={tokens.white35} />
+              </TouchableOpacity>
+            )}
+            {loading && <ActivityIndicator size="small" color={tokens.secondary} style={styles.clearBtn} />}
+            <TouchableOpacity onPress={() => {}} style={styles.scanBtn} activeOpacity={0.85}>
+              <Text style={styles.scanBtnText}>Scan</Text>
+            </TouchableOpacity>
+          </View>
 
           {/* Results */}
           <FlatList
@@ -142,32 +151,61 @@ const styles = StyleSheet.create({
   kav: { flex: 1, paddingHorizontal: tokens.spacing.screenPadding },
 
   searchHeader: { paddingTop: 16, paddingBottom: 20 },
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 4 },
+  iconGlowWrap: { position: 'relative', width: 26, height: 26 },
+  iconGlow: {
+    position: 'absolute',
+    top: -6, left: -6, right: -6, bottom: -6,
+    backgroundColor: tokens.secondary,
+    opacity: 0.20,
+    borderRadius: 100,
+  },
   title: {
     fontFamily: 'Lexend-Bold',
-    fontSize: tokens.font.heading,
+    fontSize: 26,
     color: tokens.white100,
-    letterSpacing: 2,
+    letterSpacing: -0.52,
   },
   subtitle: {
     fontFamily: 'Lexend-Regular',
     fontSize: tokens.font.small,
     color: tokens.white60,
-    marginTop: 4,
+    marginTop: 2,
+    marginLeft: 36,
   },
 
-  inputCard: { marginBottom: 16 },
-  inputRow: {
+  inputPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    paddingHorizontal: tokens.spacing.cardPadding,
-    paddingVertical: 14,
+    backgroundColor: tokens.bgGlass8,
+    borderRadius: 50,
+    borderWidth: 1,
+    borderColor: tokens.borderSubtle,
+    paddingVertical: 4,
+    marginBottom: 16,
+  },
+  inputLeft: { paddingLeft: 16, paddingRight: 8 },
+  clearBtn: { paddingHorizontal: 8 },
+  scanBtn: {
+    backgroundColor: tokens.secondary,
+    borderRadius: tokens.radius.md,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    marginRight: 4,
+    minWidth: 72,
+    alignItems: 'center',
+  },
+  scanBtnText: {
+    fontFamily: 'Lexend-Bold',
+    fontSize: tokens.font.body,
+    color: tokens.primary,
   },
   input: {
     flex: 1,
     fontFamily: 'Lexend-Regular',
     fontSize: tokens.font.body,
     color: tokens.white100,
+    paddingVertical: 10,
   },
 
   listContent: { gap: 8, paddingBottom: 120 },

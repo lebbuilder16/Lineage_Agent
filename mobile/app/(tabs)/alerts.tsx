@@ -23,7 +23,7 @@ const ALERT_ICONS: Record<string, React.ReactNode> = {
   zombie: <Skull size={18} color={tokens.accent} />,
   death_clock: <Skull size={18} color={tokens.risk.critical} />,
   deployer: <BookMarked size={18} color={tokens.secondary} />,
-  narrative: <Bell size={18} color={tokens.primary} />,
+  narrative: <Bell size={18} color={tokens.secondary} />,
 };
 
 function timeAgo(ts: string): string {
@@ -50,15 +50,21 @@ export default function AlertsScreen() {
       <AuroraBackground />
       <SafeAreaView style={styles.safe}>
         <View style={styles.headerRow}>
-          <View>
-            <Text style={styles.title}>ALERTS</Text>
-            {unreadCount > 0 && (
-              <Text style={styles.unreadLabel}>{unreadCount} new</Text>
-            )}
+          <View style={styles.headerLeft}>
+            <View style={styles.iconGlowWrap}>
+              <View style={styles.iconGlow} />
+              <Bell size={26} color={tokens.secondary} strokeWidth={2.5} />
+            </View>
+            <View>
+              <Text style={styles.title}>Alerts</Text>
+              {unreadCount > 0 && (
+                <Text style={styles.unreadLabel}>{unreadCount} new</Text>
+              )}
+            </View>
           </View>
           {unreadCount > 0 && (
             <HapticButton variant="ghost" size="sm" onPress={markAllRead}>
-              <CheckCheck size={16} color={tokens.primary} />
+              <CheckCheck size={16} color={tokens.secondary} />
             </HapticButton>
           )}
         </View>
@@ -123,11 +129,20 @@ const styles = StyleSheet.create({
     paddingTop: 16,
     paddingBottom: 20,
   },
+  headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  iconGlowWrap: { position: 'relative', width: 26, height: 26 },
+  iconGlow: {
+    position: 'absolute',
+    top: -6, left: -6, right: -6, bottom: -6,
+    backgroundColor: tokens.secondary,
+    opacity: 0.20,
+    borderRadius: 100,
+  },
   title: {
     fontFamily: 'Lexend-Bold',
-    fontSize: tokens.font.heading,
+    fontSize: 26,
     color: tokens.white100,
-    letterSpacing: 2,
+    letterSpacing: -0.52,
   },
   unreadLabel: {
     fontFamily: 'Lexend-Regular',
@@ -151,7 +166,7 @@ const styles = StyleSheet.create({
 
   listContent: { gap: 8, paddingBottom: 120 },
   alertCard: { borderWidth: 1, borderColor: 'transparent' },
-  alertCardUnread: { borderColor: `${tokens.primary}30` },
+  alertCardUnread: { borderColor: `${tokens.secondary}30` },
   alertInner: {
     flexDirection: 'row',
     padding: tokens.spacing.cardPadding,
@@ -188,6 +203,6 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: tokens.primary,
+    backgroundColor: tokens.secondary,
   },
 });

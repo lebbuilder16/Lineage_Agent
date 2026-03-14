@@ -10,7 +10,7 @@ import {
   RefreshControl,
 } from 'react-native';
 import { router } from 'expo-router';
-import { Activity, TrendingUp, AlertTriangle, Zap } from 'lucide-react-native';
+import { Activity, TrendingUp, AlertTriangle, Zap, Radar } from 'lucide-react-native';
 import { AuroraBackground } from '../../src/components/ui/AuroraBackground';
 import { GlassCard } from '../../src/components/ui/GlassCard';
 import { RiskBadge } from '../../src/components/ui/RiskBadge';
@@ -44,13 +44,19 @@ export default function RadarScreen() {
           style={styles.scroll}
           contentContainerStyle={styles.content}
           showsVerticalScrollIndicator={false}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={tokens.primary} />}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={tokens.secondary} />}
         >
           {/* Header */}
           <View style={styles.header}>
-            <View>
-              <Text style={styles.headerTitle}>LINEAGE AGENT</Text>
-              <Text style={styles.headerSub}>Live Threat Intelligence</Text>
+            <View style={styles.headerLeft}>
+              <View style={styles.iconGlowWrap}>
+                <View style={styles.iconGlow} />
+                <Radar size={26} color={tokens.secondary} strokeWidth={2.5} />
+              </View>
+              <View>
+                <Text style={styles.headerTitle}>Lineage Agent</Text>
+                <Text style={styles.headerSub}>Live Threat Intelligence</Text>
+              </View>
             </View>
             <View style={[styles.dot, { backgroundColor: stats ? tokens.success : tokens.white20 }]} />
           </View>
@@ -60,7 +66,8 @@ export default function RadarScreen() {
             <StatCard
               label="Scanned 24h"
               value={statsLoading ? null : stats?.total_scanned_24h ?? 0}
-              icon={<Activity size={16} color={tokens.primary} />}
+              icon={<Activity size={16} color={tokens.secondary} />}
+              accentColor={tokens.secondary}
             />
             <StatCard
               label="Rugs 24h"
@@ -79,8 +86,8 @@ export default function RadarScreen() {
           {/* Trending tokens */}
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
-              <TrendingUp size={16} color={tokens.white60} />
-              <Text style={styles.sectionTitle}>TRENDING TOKENS</Text>
+              <TrendingUp size={16} color={tokens.secondary} />
+              <Text style={styles.sectionTitle}>Trending Tokens</Text>
             </View>
 
             {trendingLoading
@@ -116,6 +123,7 @@ function StatCard({
   icon: React.ReactNode;
   accentColor?: string;
 }) {
+
   return (
     <GlassCard style={styles.statCard}>
       <View style={styles.statIcon}>{icon}</View>
@@ -180,11 +188,20 @@ const styles = StyleSheet.create({
     paddingTop: 16,
     paddingBottom: 24,
   },
+  headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  iconGlowWrap: { position: 'relative', width: 26, height: 26 },
+  iconGlow: {
+    position: 'absolute',
+    top: -6, left: -6, right: -6, bottom: -6,
+    backgroundColor: tokens.secondary,
+    opacity: 0.20,
+    borderRadius: 100,
+  },
   headerTitle: {
     fontFamily: 'Lexend-Bold',
-    fontSize: tokens.font.heading,
+    fontSize: 26,
     color: tokens.white100,
-    letterSpacing: 2,
+    letterSpacing: -0.52,
   },
   headerSub: {
     fontFamily: 'Lexend-Regular',

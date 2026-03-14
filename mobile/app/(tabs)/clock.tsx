@@ -38,7 +38,7 @@ export default function DeathClockScreen() {
     if (mint.trim().length > 10) setSubmitted(mint.trim());
   };
 
-  const riskColor = dc?.risk_level ? RISK_COLOR[dc.risk_level] ?? tokens.primary : tokens.primary;
+  const riskColor = dc?.risk_level ? RISK_COLOR[dc.risk_level] ?? tokens.accent : tokens.accent;
   const confidence = dc?.confidence_level ?? 0;
 
   return (
@@ -50,25 +50,28 @@ export default function DeathClockScreen() {
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.header}>
-            <Skull size={28} color={tokens.accent} />
-            <Text style={styles.title}>DEATH CLOCK</Text>
-            <Text style={styles.subtitle}>Predict rug probability & timeline</Text>
+            <View style={styles.titleRow}>
+              <View style={styles.iconGlowWrap}>
+                <View style={[styles.iconGlow, { backgroundColor: tokens.accent }]} />
+                <Skull size={26} color={tokens.accent} strokeWidth={2.5} />
+              </View>
+              <Text style={styles.title}>Death Clock</Text>
+            </View>
+            <Text style={styles.subtitle}>Predict rug probability &amp; timeline</Text>
           </View>
 
-          {/* Input */}
-          <GlassCard style={styles.inputCard} noPadding>
-            <View style={styles.inputRow}>
-              <TextInput
-                style={styles.input}
-                value={mint}
-                onChangeText={setMint}
-                placeholder="Mint address…"
-                placeholderTextColor={tokens.white35}
-                autoCapitalize="none"
-                autoCorrect={false}
-              />
-            </View>
-          </GlassCard>
+          {/* Input — pill shaped */}
+          <View style={styles.inputPill}>
+            <TextInput
+              style={styles.input}
+              value={mint}
+              onChangeText={setMint}
+              placeholder="Mint address…"
+              placeholderTextColor={tokens.white35}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+          </View>
           <HapticButton
             variant="destructive"
             size="md"
@@ -149,7 +152,7 @@ export default function DeathClockScreen() {
                 <GlassCard style={styles.linkCard} noPadding>
                   <View style={styles.linkInner}>
                     <Text style={styles.linkText}>Full Lineage Report</Text>
-                    <ChevronRight size={18} color={tokens.primary} />
+                    <ChevronRight size={18} color={tokens.secondary} />
                   </View>
                 </GlassCard>
               </TouchableOpacity>
@@ -179,21 +182,37 @@ const styles = StyleSheet.create({
     gap: 12,
   },
 
-  header: { alignItems: 'center', paddingTop: 24, paddingBottom: 12, gap: 8 },
+  header: { paddingTop: 24, paddingBottom: 12 },
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 4 },
+  iconGlowWrap: { position: 'relative', width: 26, height: 26 },
+  iconGlow: {
+    position: 'absolute',
+    top: -6, left: -6, right: -6, bottom: -6,
+    opacity: 0.20,
+    borderRadius: 100,
+  },
   title: {
     fontFamily: 'Lexend-Bold',
-    fontSize: tokens.font.heading,
+    fontSize: 26,
     color: tokens.white100,
-    letterSpacing: 2,
+    letterSpacing: -0.52,
   },
   subtitle: {
     fontFamily: 'Lexend-Regular',
     fontSize: tokens.font.small,
     color: tokens.white60,
+    marginLeft: 36,
   },
 
-  inputCard: {},
-  inputRow: { padding: tokens.spacing.cardPadding },
+  inputPill: {
+    backgroundColor: tokens.bgGlass8,
+    borderRadius: 50,
+    borderWidth: 1,
+    borderColor: tokens.borderSubtle,
+    paddingHorizontal: 20,
+    paddingVertical: 4,
+    marginBottom: 12,
+  },
   input: {
     fontFamily: 'Lexend-Regular',
     fontSize: tokens.font.body,
@@ -247,7 +266,7 @@ const styles = StyleSheet.create({
   linkText: {
     fontFamily: 'Lexend-SemiBold',
     fontSize: tokens.font.body,
-    color: tokens.primary,
+    color: tokens.secondary,
   },
 
   errorText: {
