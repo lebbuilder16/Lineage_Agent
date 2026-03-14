@@ -18,7 +18,7 @@ export function WatchlistScreen({ selectedToken, onNavigate }: WatchlistScreenPr
   const [isValidating, setIsValidating] = useState(false);
   const [loadingWatches, setLoadingWatches] = useState(false);
   const [addingMint, setAddingMint] = useState(false);
-  const [deleteIds, setDeleteIds] = useState<Set<number>>(new Set());
+  const [deleteIds, setDeleteIds] = useState<Set<string>>(new Set());
 
   // Load watches when apiKey is set
   useEffect(() => {
@@ -71,7 +71,7 @@ export function WatchlistScreen({ selectedToken, onNavigate }: WatchlistScreenPr
     }
   };
 
-  const handleDelete = async (id: number) => {
+  const handleDelete = async (id: string) => {
     if (!apiKey) return;
     setDeleteIds((prev) => new Set(prev).add(id));
     try {

@@ -43,7 +43,7 @@ export function AlertsScreen({ onNavigateToken }: AlertsScreenProps) {
         () => setWsConnected(false),
       );
       setWsConnected(true);
-      close = ws.close;
+      close = ws;
     } catch {
       setWsConnected(false);
     }

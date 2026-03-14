@@ -50,6 +50,14 @@ export interface SolFlowEdge {
   entity_type?: 'cex' | 'contract' | 'unknown' | 'bridge';
   hop_index: number;
   label?: string;
+  // aliases used by SolTraceScreen
+  from_address?: string;
+  to_address?: string;
+  sol_amount?: number;
+  hop_number?: number;
+  flow_type?: string;
+  is_extraction?: boolean;
+  confidence_pct?: number;
 }
 
 export interface CrossChainExit {
@@ -65,6 +73,7 @@ export interface SolFlowReport {
   total_extracted_sol?: number;
   total_extracted_usd?: number;
   terminal_wallets?: string[];
+  destination_wallets?: string[];
   known_cex_detected?: boolean;
   hop_count?: number;
 }
@@ -77,13 +86,20 @@ export interface DeployerTokenSummary {
   market_cap_usd?: number;
   narrative?: string;
   launched_at?: string;
+  risk_level?: string;
+  is_rug?: boolean;
 }
 
 export interface DeployerProfile {
   address: string;
   rug_rate_pct?: number;
   confirmed_rug_count?: number;
+  confirmed_rugs?: number;
   total_tokens_launched?: number;
+  total_tokens_deployed?: number;
+  total_sol_extracted?: number;
+  avg_rug_time_hours?: number;
+  operator_fingerprint?: string;
   tokens?: DeployerTokenSummary[];
   avg_lifespan_days?: number;
   active_tokens_count?: number;
@@ -120,12 +136,21 @@ export interface CartelEdge {
   to_address: string;
   signal_type: 'funding_link' | 'shared_lp' | 'sniper_ring' | 'dna_match' | 'temporal';
   force?: number; // 0–1 edge weight
+  // aliases used by CartelScreen
+  source?: string;
+  target?: string;
+  weight?: number;
 }
 
 export interface CartelReport {
   community_id?: string;
   financial_score?: number; // 0–100
   connected_deployers?: string[];
+  deployers?: DeployerProfile[];
+  deployer_count?: number;
+  risk_score?: number;
+  total_sol_extracted?: number;
+  total_tokens_launched?: number;
   edges?: CartelEdge[];
   funding_links?: number;
   sniper_ring_count?: number;
@@ -159,6 +184,8 @@ export interface GraphNode {
   mint: string;
   name?: string;
   symbol?: string;
+  image_uri?: string;
+  risk_score?: number;
   generation?: number; // 0 = root
   risk_level?: LineageResult['risk_level'];
   x?: number;
@@ -179,8 +206,13 @@ export interface LineageGraph {
 
 export interface TokenCompareResult {
   composite_score?: number; // 0–1
+  similarity_score?: number;
   verdict?: 'IDENTICAL_OPERATOR' | 'CLONE' | 'RELATED' | 'UNRELATED';
   verdict_reasons?: string[];
+  same_deployer?: boolean;
+  shared_suspicious_flags?: string[];
+  token_a?: TokenSearchResult;
+  token_b?: TokenSearchResult;
   name_similarity?: number;
   symbol_similarity?: number;
   image_similarity?: number;
@@ -198,17 +230,21 @@ export interface GlobalStats {
 export interface AlertItem {
   id: string;
   type: 'rug' | 'bundle' | 'insider' | 'zombie' | 'death_clock' | 'deployer' | 'narrative';
+  alert_type?: string;
+  title?: string;
   token_name?: string;
   mint?: string;
   message: string;
   risk_score?: number;
   timestamp: string;
+  created_at?: string;
   read: boolean;
 }
 
 export interface User {
   id: string;
   privy_id: string;
+  username?: string;
   created_at?: string;
 }
 
@@ -216,6 +252,7 @@ export interface Watch {
   id: string;
   sub_type: 'deployer' | 'mint';
   value: string;
+  identifier?: string;
   created_at?: string;
   label?: string;
 }

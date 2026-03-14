@@ -120,7 +120,7 @@ function App() {
               address={selectedDeployer ?? ''}
               onNavigateSolTrace={handleNavigateSolTrace}
               onNavigateCartel={handleNavigateCartel}
-              onNavigateToken={(token) => { handleTokenSelect(token); navigateTo('scan'); }}
+              onNavigateToken={(mint) => { handleTokenSelect({ mint, name: '', symbol: '' }); navigateTo('scan'); }}
               onBack={() => navigateTo(previousScreen)}
             />
           </Suspense>
@@ -152,7 +152,7 @@ function App() {
           <Suspense fallback={<ScreenLoader />}>
             <FamilyTreeScreen
               mint={selectedMint ?? selectedToken?.mint ?? ''}
-              onNavigateToken={(token) => { handleTokenSelect(token); navigateTo('scan'); }}
+              onNavigateToken={(mint) => { handleTokenSelect({ mint, name: '', symbol: '' }); navigateTo('scan'); }}
               onBack={() => navigateTo(previousScreen)}
             />
           </Suspense>

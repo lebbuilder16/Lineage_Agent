@@ -62,8 +62,11 @@ export function DeathClockScreen({ selectedToken }: DeathClockScreenProps) {
 
   const dc = result?.death_clock;
   const riskColor = RISK_COLORS[dc?.risk_level ?? result?.risk_level ?? 'low'] ?? '#6B7280';
-  const gaugeAngle = CONFIDENCE_ANGLES[dc?.confidence_level as string ?? 'low'] ?? 45;
-  const confidencePct = dc?.confidence_level === 'critical' ? 94 : dc?.confidence_level === 'high' ? 80 : dc?.confidence_level === 'medium' ? 55 : 25;
+  const confidenceKey = dc?.confidence_level != null
+    ? (dc.confidence_level >= 0.75 ? 'critical' : dc.confidence_level >= 0.5 ? 'high' : dc.confidence_level >= 0.25 ? 'medium' : 'low')
+    : 'low';
+  const gaugeAngle = CONFIDENCE_ANGLES[confidenceKey] ?? 45;
+  const confidencePct = dc?.confidence_level != null ? Math.round(dc.confidence_level * 100) : 25;
 
   const signals = dc?.market_signals;
 
@@ -163,7 +166,7 @@ export function DeathClockScreen({ selectedToken }: DeathClockScreenProps) {
                 <span className="text-small font-bold text-white">Market Signals</span>
               </div>
               <SignalRow label="Liquidity Trend" value={signals.liquidity_trend ?? null} />
-              <SignalRow label="Sell Pressure" value={signals.sell_pressure ?? null} />
+              <SignalRow label="Sell Pressure" value={signals.sell_pressure != null ? `${Math.round(signals.sell_pressure * 100)}%` : null} />
               <SignalRow label="Volume Trend" value={signals.volume_trend ?? null} />
             </div>
           )}

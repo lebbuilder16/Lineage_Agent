@@ -90,7 +90,7 @@ export function getHealth(): Promise<HealthStatus> {
 export function analyzeStream(
   mint: string,
   onStep: (step: AnalysisStep) => void,
-  onDone: () => void,
+  onDone: (result?: LineageResult) => void,
   onError?: (err: Error) => void,
 ): () => void {
   const url = `${BASE_URL}/analyze/${encodeURIComponent(mint)}/stream`;
