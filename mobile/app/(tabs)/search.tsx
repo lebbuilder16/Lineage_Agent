@@ -18,6 +18,7 @@ import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { router } from "expo-router";
 import Animated, { FadeIn, FadeInDown } from "react-native-reanimated";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { Ionicons } from "@expo/vector-icons";
 import { TokenCardSkeleton } from "@/src/components/ui/SkeletonLoader";
 import { TokenImage } from "@/src/components/ui/TokenImage";
 import { getGlobalStats, searchTokensPaginated } from "@/src/lib/api";
@@ -185,26 +186,43 @@ export default function SearchScreen() {
 
   return (
     <SafeAreaView edges={["top"]} style={[styles.container, { backgroundColor: colors.background.deep }]}>
+      {/* Header (Figma Make LineageScanScreen) */}
       <View style={styles.header}>
-        <Text style={[styles.title, { color: colors.text.primary }]}>Search</Text>
-        <Text style={[styles.subtitle, { color: colors.text.muted }]}>Tokens, symbols, mint addresses</Text>
+        <View style={styles.headerTitleRow}>
+          <View style={styles.iconWrap}>
+            <Ionicons name="git-network-outline" size={26} color="#ADC8FF" />
+            <View style={styles.iconGlow} />
+          </View>
+          <Text style={[styles.title, { color: colors.text.primary }]}>Lineage Scan</Text>
+        </View>
+        <Text style={[styles.subtitle, { color: colors.text.muted }]}>Trace token history, deployers &amp; connections</Text>
       </View>
 
-      <View style={[styles.searchWrap, { backgroundColor: colors.glass.bg, borderColor: `${colors.accent.ai}44` }]}>
-        <Text style={[styles.searchIcon, { color: colors.text.muted }]}>⊕</Text>
+      <View style={[styles.searchWrap, { backgroundColor: colors.glass.bg, borderColor: colors.glass.border }]}>
+        <Ionicons name="search-outline" size={20} color={colors.text.muted} style={styles.searchIconLeft} />
         <TextInput
           autoCapitalize="none"
           autoCorrect={false}
           clearButtonMode="while-editing"
           onChangeText={handleChange}
-          placeholder="Search tokens, $PEPE, mint…"
+          placeholder="Paste token address..."
           placeholderTextColor={colors.text.muted}
           returnKeyType="search"
           selectionColor={colors.accent.cyan}
           style={[styles.input, { color: colors.text.primary }]}
           value={query}
         />
-        {isFetching ? <View style={styles.loadingDot} /> : null}
+        <TouchableOpacity
+          style={[styles.scanBtn, { backgroundColor: "#ADC8FF" }]}
+          onPress={() => { if (debouncedQuery) setDebouncedQuery(debouncedQuery); }}
+          activeOpacity={0.8}
+        >
+          {isFetching ? (
+            <ActivityIndicator size="small" color="#020617" />
+          ) : (
+            <Text style={styles.scanBtnText}>Scan</Text>
+          )}
+        </TouchableOpacity>
       </View>
 
       {showError ? (
@@ -321,29 +339,33 @@ const styles = StyleSheet.create({
   emptyText: { fontSize: 14 },
   retryBtn: { marginTop: 16, paddingHorizontal: 20, paddingVertical: 10, borderRadius: 8, borderWidth: 1 },
   retryBtnText: { fontFamily: Fonts.semiBold, fontSize: 14 },
-  header: { paddingBottom: 4, paddingHorizontal: 20, paddingTop: 8 },
+  header: { paddingBottom: 8, paddingHorizontal: 20, paddingTop: 14 },
+  headerTitleRow: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 4 },
+  iconWrap: { width: 30, height: 30, alignItems: "center", justifyContent: "center", position: "relative" },
+  iconGlow: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, borderRadius: 15, backgroundColor: "#ADC8FF", opacity: 0.3 },
+  title: { fontFamily: Fonts.bold, fontSize: 26, letterSpacing: -0.5 },
+  subtitle: { fontSize: 12, marginTop: 2, marginLeft: 42 },
   hint: { alignItems: "center", paddingTop: 60 },
   hintText: { fontSize: 13 },
   input: { flex: 1, fontSize: 15, height: "100%" },
   list: { paddingBottom: 100, paddingHorizontal: 16 },
-  loadingDot: { borderRadius: 4, height: 8, width: 8 },
-  searchIcon: { fontSize: 18, marginRight: 8 },
+  searchIconLeft: { marginRight: 4 },
+  scanBtn: { borderRadius: 12, paddingHorizontal: 14, paddingVertical: 7, marginLeft: 8 },
+  scanBtnText: { fontFamily: Fonts.bold, fontSize: 13, color: "#020617" },
   searchWrap: {
     alignItems: "center",
-    borderRadius: 16,
+    borderRadius: 999,
     borderWidth: 1,
     flexDirection: "row",
-    height: 50,
-    marginHorizontal: 16,
-    marginVertical: 12,
-    paddingHorizontal: 14,
+    height: 52,
+    marginHorizontal: 20,
+    marginBottom: 14,
+    paddingHorizontal: 16,
   },
   sectionHeader: { alignItems: "center", flexDirection: "row", justifyContent: "space-between", marginBottom: 10, marginTop: 20 },
   sectionTitle: { fontFamily: Fonts.bold, fontSize: 11, letterSpacing: 1.2, textTransform: "uppercase" },
-  subtitle: { fontSize: 13, marginTop: 2 },
   suggestionsPad: { paddingBottom: 100, paddingHorizontal: 16 },
   suggestionsScroll: { flex: 1 },
-  title: { fontFamily: Fonts.bold, fontSize: 28, letterSpacing: -0.5 },
   tokenCard: { alignItems: "center", borderBottomWidth: 1, flexDirection: "row", gap: 12, paddingVertical: 14 },
   tokenInfo: { flex: 1 },
   tokenMcap: { fontFamily: Fonts.semiBold, fontSize: 14 },

@@ -25,6 +25,7 @@ import { Fonts } from "@/src/theme/fonts";
 import { LinearGradient } from "expo-linear-gradient";
 import { useAuthStore } from "@/src/store/auth";
 import { usePrivy } from "@privy-io/expo";
+import { Ionicons } from "@expo/vector-icons";
 import {
   getNotificationPrefs,
   updateNotificationPrefs,
@@ -177,6 +178,19 @@ export default function AccountScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background.deep }]} edges={["top"]}>
+      {/* Header (Figma Make ProfileScreen) */}
+      <View style={styles.pageHeader}>
+        <View style={styles.pageTitleRow}>
+          <View style={styles.pageIconWrap}>
+            <Ionicons name="person-circle" size={26} color="#ADC8FF" />
+            <View style={styles.pageIconGlow} />
+          </View>
+          <Text style={[styles.pageTitle, { color: colors.text.primary }]}>Profile</Text>
+        </View>
+        <Text style={[styles.pageSubtitle, { color: "rgba(255,255,255,0.6)" }]}>
+          Manage your identity &amp; preferences
+        </Text>
+      </View>
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         {/* Profile card */}
         <GlassCard elevated style={styles.profileCard}>
@@ -326,6 +340,13 @@ export default function AccountScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  // Page header (Figma Make ProfileScreen)
+  pageHeader: { paddingHorizontal: 20, paddingTop: 14, paddingBottom: 8 },
+  pageTitleRow: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 4 },
+  pageIconWrap: { width: 30, height: 30, alignItems: "center", justifyContent: "center", position: "relative" },
+  pageIconGlow: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, borderRadius: 15, backgroundColor: "#ADC8FF", opacity: 0.3 },
+  pageTitle: { fontFamily: Fonts.bold, fontSize: 26, letterSpacing: -0.5 },
+  pageSubtitle: { fontFamily: Fonts.regular, fontSize: 12, marginLeft: 42 },
   scroll: { padding: 20, paddingBottom: 100 },
   profileCard: {
     flexDirection: "row",

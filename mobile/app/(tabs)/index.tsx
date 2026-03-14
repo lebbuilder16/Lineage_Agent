@@ -1,5 +1,5 @@
 // app/(tabs)/index.tsx
-// Home Feed — Noelle Design (Figma "17 Crypto Market")
+// Radar Feed — Aurora Glass design (Figma Make)
 
 import React, { useCallback, useEffect, useRef } from "react";
 import {
@@ -43,6 +43,7 @@ import { useWsState } from "@/src/hooks/useWsState";
 import { useNewAlerts } from "@/src/hooks/useNewAlerts";
 import { darkColors as colors, aurora } from "@/src/theme/colors";
 import { Fonts } from "@/src/theme/fonts";
+import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/src/theme/ThemeContext";
 import { toast } from "@/src/lib/toast";
 import type { AlertItem } from "@/src/types/api";
@@ -341,49 +342,60 @@ export default function HomeFeedScreen() {
 
   return (
     <SafeAreaView style={[s.container, { backgroundColor: tc.background.deep }]} edges={["top"]}>
-      {/* ── Header ─────────────────────────────────────────────── */}
-      <View style={s.header}>
-        <View style={s.headerLeft}>
-          <Text style={[s.headerTitle, { color: tc.text.primary }]}>Lineage</Text>
-          <View style={[s.liveRow]}>
-            <View style={[s.liveDot, { backgroundColor: wsColor }]} />
-            <Text style={[s.liveText, { color: wsColor }]}>{wsLabel}</Text>
+      {/* ── Header (Figma Make RadarScreen) ─────────────────── */}
+      <View style={s.headerRow}>
+        <View>
+          <View style={s.headerTitleRow}>
+            <View style={s.iconWrap}>
+              <Ionicons name="pulse" size={26} color={aurora.secondary} />
+              <View style={[s.iconGlow, { backgroundColor: aurora.secondary }]} />
+            </View>
+            <Text style={[s.headerTitle, { color: tc.text.primary }]}>Radar Feed</Text>
           </View>
+          <Text style={[s.headerSubtitle, { color: `${aurora.secondary}B3` }]}>
+            Real-time Solana intelligence
+          </Text>
         </View>
-        <View style={s.headerRight}>
-          <Pressable
-            style={[s.headerSearch, { backgroundColor: tc.glass.bg, borderColor: tc.glass.border }]}
-            onPress={() => router.push("/(tabs)/search")}
-          >
-            <Text style={[s.headerSearchText, { color: tc.text.muted }]}>⌕  Search tokens…</Text>
-          </Pressable>
+        <View style={[s.liveChip, { backgroundColor: `${wsColor}1A`, borderColor: `${wsColor}33` }]}>
           <Animated.View style={bellStyle}>
-            <TouchableOpacity style={s.bellBtn} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push("/(tabs)/alerts"); }}>
-              <Text style={[s.bellIcon, { color: tc.text.secondary }]}>◎</Text>
-              {unreadCount > 0 && (
-                <View style={[s.bellBadge, { backgroundColor: tc.accent.danger }]}>
-                  <Text style={s.bellBadgeText}>{unreadCount > 9 ? "9+" : unreadCount}</Text>
-                </View>
-              )}
-            </TouchableOpacity>
+            <View style={[s.liveDot, { backgroundColor: wsColor }]} />
           </Animated.View>
+          <Text style={[s.liveText, { color: wsColor }]}>
+            {wsState === "connected" ? `${alerts.length} LIVE` : wsLabel}
+          </Text>
         </View>
       </View>
 
       <WsStatusBar state={wsState} />
 
+      {/* ── Quick Actions (Figma Make) ─────────────────────────── */}
+      <View style={s.quickActions}>
+        <TouchableOpacity style={[s.quickAction, { backgroundColor: `${aurora.secondary}1E` }]} onPress={() => router.push("/(tabs)/search")} activeOpacity={0.7}>
+          <Ionicons name="search-outline" size={18} color={aurora.secondary} />
+          <Text style={s.quickActionLabel}>Scan Token</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={[s.quickAction, { backgroundColor: `${aurora.accent}1E` }]} activeOpacity={0.7}>
+          <Ionicons name="skull-outline" size={18} color={aurora.accent} />
+          <Text style={s.quickActionLabel}>Death Clock</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={[s.quickAction, { backgroundColor: "rgba(0,255,136,0.12)" }]} onPress={() => router.push("/(tabs)/alerts")} activeOpacity={0.7}>
+          <Ionicons name="shield-checkmark-outline" size={18} color="#00FF88" />
+          <Text style={s.quickActionLabel}>Protection</Text>
+        </TouchableOpacity>
+      </View>
+
       {/* ── Feed ───────────────────────────────────────────────── */}
       <View style={{ flex: 1 }}>
         <ScrollView ref={scrollRef} showsVerticalScrollIndicator={false} contentContainerStyle={s.scroll} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={tc.accent.cyan} />}>
 
-          <Text style={[s.sectionLabel, { color: tc.text.muted }]}>MARKET OVERVIEW</Text>
+          <Text style={[s.sectionLabel, { color: tc.text.muted }]}>LIVE STATS</Text>
           <StatsBar />
 
-          <Text style={[s.sectionLabel, { color: tc.text.muted }]}>INTELLIGENCE BRIEF</Text>
+          <Text style={[s.sectionLabel, { color: tc.text.muted }]}>INTEL BRIEF</Text>
           <AIBriefCard />
 
           <View style={s.sectionRow}>
-            <Text style={[s.sectionLabel, { color: tc.text.muted, marginTop: 0, marginBottom: 0 }]}>LIVE ALERTS</Text>
+            <Text style={[s.sectionLabel, { color: tc.text.muted, marginTop: 0, marginBottom: 0 }]}>THREAT FEED</Text>
             {alerts.length > MAX_ALERTS && (
               <TouchableOpacity onPress={() => router.push("/(tabs)/alerts")}>
                 <Text style={[s.seeAllText, { color: tc.accent.safe }]}>See all →</Text>
@@ -415,20 +427,20 @@ export default function HomeFeedScreen() {
 const s = StyleSheet.create({
   container: { flex: 1 },
 
-  // Header
-  header: { flexDirection: "row", alignItems: "center", paddingHorizontal: 20, paddingVertical: 14, gap: 12 },
-  headerLeft: { gap: 2 },
-  headerTitle: { fontFamily: Fonts.bold, fontSize: 22, letterSpacing: -0.5 },
-  liveRow: { flexDirection: "row", alignItems: "center", gap: 5 },
+  // Header (Figma Make RadarScreen)
+  headerRow: { flexDirection: "row", alignItems: "flex-end", justifyContent: "space-between", paddingHorizontal: 20, paddingTop: 14, paddingBottom: 6 },
+  headerTitleRow: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 4 },
+  iconWrap: { width: 30, height: 30, alignItems: "center", justifyContent: "center", position: "relative" },
+  iconGlow: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, borderRadius: 15, opacity: 0.3 },
+  headerTitle: { fontFamily: Fonts.bold, fontSize: 26, letterSpacing: -0.5 },
+  headerSubtitle: { fontFamily: Fonts.regular, fontSize: 12, marginLeft: 42 },
+  liveChip: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999, borderWidth: 1 },
   liveDot: { width: 6, height: 6, borderRadius: 3 },
-  liveText: { fontFamily: Fonts.semiBold, fontSize: 9, letterSpacing: 1.2 },
-  headerRight: { flexDirection: "row", alignItems: "center", gap: 10, flex: 1 },
-  headerSearch: { flex: 1, borderWidth: 1, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 10 },
-  headerSearchText: { fontFamily: Fonts.regular, fontSize: 14 },
-  bellBtn: { padding: 6, position: "relative" },
-  bellIcon: { fontSize: 20 },
-  bellBadge: { position: "absolute", top: 0, right: 0, borderRadius: 8, minWidth: 16, height: 16, alignItems: "center", justifyContent: "center", paddingHorizontal: 2 },
-  bellBadgeText: { color: "#fff", fontSize: 9, fontFamily: Fonts.bold },
+  liveText: { fontFamily: Fonts.bold, fontSize: 10, letterSpacing: 1 },
+  // Quick Actions
+  quickActions: { flexDirection: "row", paddingHorizontal: 20, gap: 8, marginTop: 6, marginBottom: 14 },
+  quickAction: { flex: 1, paddingVertical: 14, alignItems: "center", gap: 8, borderRadius: 16, borderWidth: 1, borderColor: "rgba(255,255,255,0.06)" },
+  quickActionLabel: { fontFamily: Fonts.medium, fontSize: 10, color: "rgba(255,255,255,0.7)" },
 
   // Feed layout
   scroll: { paddingHorizontal: 16, paddingBottom: 100 },
