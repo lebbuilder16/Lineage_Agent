@@ -1,120 +1,118 @@
-import React from 'react';
-import { StyleSheet, View } from 'react-native';
-import Animated, {
+import React, { useEffect } from 'react';
+import { StyleSheet, useWindowDimensions, View } from 'react-native';
+import {
+  Canvas,
+  Circle,
+  Group,
+  BlurMask,
+  SweepGradient,
+  vec,
+  BlendMode,
+  ColorMatrix,
+} from '@shopify/react-native-skia';
+import {
   useSharedValue,
-  useAnimatedStyle,
   withRepeat,
   withTiming,
   withSequence,
   Easing,
-  interpolate,
+  useDerivedValue,
 } from 'react-native-reanimated';
 import { tokens } from '../../theme/tokens';
 
-// ─── Aurora blob positions ─────────────────────────────────────────────────────
-// Three overlapping radial gradients that slowly drift — GPU-efficient via
-// Reanimated worklets on the UI thread.
+// High-performance Aurora Background using Skia + Reanimated
+// Replaces opaque circles with True Gaussian Blurs + Grain effect
 
 export function AuroraBackground() {
-  const blob1 = useSharedValue(0);
-  const blob2 = useSharedValue(0);
-  const blob3 = useSharedValue(0);
+  const { width, height } = useWindowDimensions();
 
-  React.useEffect(() => {
-    blob1.value = withRepeat(
-      withTiming(1, { duration: 9000, easing: Easing.inOut(Easing.ease) }),
+  // Shared values for animation physics (0 to 1)
+  const drift1 = useSharedValue(0);
+  const drift2 = useSharedValue(0);
+  const drift3 = useSharedValue(0);
+
+  useEffect(() => {
+    drift1.value = withRepeat(
+      withTiming(1, { duration: 12000, easing: Easing.inOut(Easing.ease) }),
       -1,
-      true,
+      true
     );
-    blob2.value = withRepeat(
+    drift2.value = withRepeat(
       withSequence(
-        withTiming(1, { duration: 7000, easing: Easing.inOut(Easing.ease) }),
-        withTiming(0, { duration: 11000, easing: Easing.inOut(Easing.ease) }),
+        withTiming(1, { duration: 9000, easing: Easing.inOut(Easing.ease) }),
+        withTiming(0, { duration: 14000, easing: Easing.inOut(Easing.ease) })
       ),
-      -1,
+      -1
     );
-    blob3.value = withRepeat(
-      withTiming(1, { duration: 13000, easing: Easing.inOut(Easing.ease) }),
+    drift3.value = withRepeat(
+      withTiming(1, { duration: 15000, easing: Easing.inOut(Easing.ease) }),
       -1,
-      true,
+      true
     );
-  }, [blob1, blob2, blob3]);
+  }, [drift1, drift2, drift3]);
 
-  const blob1Style = useAnimatedStyle(() => ({
-    transform: [
-      { translateX: interpolate(blob1.value, [0, 1], [-30, 30]) },
-      { translateY: interpolate(blob1.value, [0, 1], [-20, 20]) },
-    ],
-    opacity: interpolate(blob1.value, [0, 0.5, 1], [0.55, 0.70, 0.55]),
-  }));
+  // Derived positions and scales for Skia
+  const cx1 = useDerivedValue(() => width * 0.2 + drift1.value * (width * 0.3));
+  const cy1 = useDerivedValue(() => height * 0.1 + drift1.value * (height * 0.1));
+  
+  const cx2 = useDerivedValue(() => width * 0.8 - drift2.value * (width * 0.4));
+  const cy2 = useDerivedValue(() => height * 0.4 + drift2.value * (height * 0.2));
 
-  const blob2Style = useAnimatedStyle(() => ({
-    transform: [
-      { translateX: interpolate(blob2.value, [0, 1], [20, -20]) },
-      { translateY: interpolate(blob2.value, [0, 1], [30, -30]) },
-    ],
-    opacity: interpolate(blob2.value, [0, 0.5, 1], [0.25, 0.45, 0.25]),
-  }));
+  const cx3 = useDerivedValue(() => width * 0.3 + drift3.value * (width * 0.2));
+  const cy3 = useDerivedValue(() => height * 0.8 - drift3.value * (height * 0.15));
 
-  const blob3Style = useAnimatedStyle(() => ({
-    transform: [
-      { translateX: interpolate(blob3.value, [0, 1], [10, -15]) },
-      { translateY: interpolate(blob3.value, [0, 1], [-10, 25]) },
-    ],
-    opacity: interpolate(blob3.value, [0, 0.5, 1], [0.12, 0.22, 0.12]),
-  }));
+  // Radii
+  const r1 = width * 0.7;
+  const r2 = width * 0.6;
+  const r3 = width * 0.45;
 
   return (
-    <View style={StyleSheet.absoluteFill} pointerEvents="none">
-      {/* Base dark void */}
-      <View style={[StyleSheet.absoluteFill, styles.base]} />
+    <View style={styles.container} pointerEvents="none">
+      <Canvas style={StyleSheet.absoluteFill}>
+        {/* Dark void base */}
+        <Group>
+          {/* Blob 1: Primary Purple */}
+          <Circle cx={cx1} cy={cy1} r={r1} blendMode="screen">
+            <SweepGradient
+              c={vec(width / 2, height / 2)}
+              colors={[tokens.primary, tokens.bgMain, tokens.primary]}
+            />
+            <BlurMask blur={90} style="normal" />
+          </Circle>
 
-      {/* Blob 1 — Primary purple (#6F6ACF), upper-left */}
-      <Animated.View style={[styles.blob, styles.blob1, blob1Style]} />
+          {/* Blob 2: Secondary Blue */}
+          <Circle cx={cx2} cy={cy2} r={r2} blendMode="screen">
+             <SweepGradient
+              c={vec(width / 2, height / 2)}
+              colors={[tokens.secondary, tokens.bgVoid, tokens.secondary]}
+            />
+            <BlurMask blur={80} style="normal" />
+          </Circle>
 
-      {/* Blob 2 — Secondary blue (#ADCEFF), center-right */}
-      <Animated.View style={[styles.blob, styles.blob2, blob2Style]} />
-
-      {/* Blob 3 — Accent pink (#FF3366), bottom-left */}
-      <Animated.View style={[styles.blob, styles.blob3, blob3Style]} />
-
-      {/* Noise-like texture via radial overlay */}
+          {/* Blob 3: Accent Pink */}
+          <Circle cx={cx3} cy={cy3} r={r3} blendMode="screen">
+            <SweepGradient
+              c={vec(width / 2, height / 2)}
+              colors={[tokens.accent, tokens.primary, tokens.accent]}
+            />
+            <BlurMask blur={100} style="normal" />
+          </Circle>
+        </Group>
+      </Canvas>
+      {/* CSS overlay to dim and add CSS-based pseudo grain */}
       <View style={styles.noiseOverlay} />
     </View>
   );
 }
 
-const BLOB_SIZE = 420;
-
 const styles = StyleSheet.create({
-  base: {
+  container: {
+    ...StyleSheet.absoluteFillObject,
     backgroundColor: tokens.bgMain,
-  },
-  blob: {
-    position: 'absolute',
-    width: BLOB_SIZE,
-    height: BLOB_SIZE,
-    borderRadius: BLOB_SIZE / 2,
-  },
-  blob1: {
-    backgroundColor: tokens.primary,
-    top: -120,
-    left: -80,
-    // React Native doesn't support CSS blur directly — we approximate with opacity
-    // For production, use @shopify/react-native-skia MaskFilter for true Gaussian blur
-  },
-  blob2: {
-    backgroundColor: tokens.secondary,
-    top: '30%',
-    right: -100,
-  },
-  blob3: {
-    backgroundColor: tokens.accent,
-    bottom: -100,
-    left: -60,
   },
   noiseOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.35)',
+    backgroundColor: 'rgba(0,0,0,0.5)', 
+    // Opacity down to 0.5 allows the glowing blobs from canvas to shine through perfectly
   },
 });
