@@ -20,6 +20,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 import time
 from typing import TYPE_CHECKING, Optional
 
@@ -61,9 +62,6 @@ async def all_subscriptions() -> list[dict]:
         return rows
     except Exception:
         return []
-
-import re
-import time as _time_mod
 
 logger = logging.getLogger(__name__)
 
@@ -286,7 +284,7 @@ async def _run_alert_sweep() -> int:
         return 0
 
     count = 0
-    lookback_ts = int(_time_mod.time()) - _LOOKBACK_SECONDS
+    lookback_ts = int(time.time()) - _LOOKBACK_SECONDS
 
     for sub in subs:
         sub_type = sub.get("sub_type")
