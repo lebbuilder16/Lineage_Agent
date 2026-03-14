@@ -182,6 +182,12 @@ jobs:
   openapi-drift:
     runs-on: ubuntu-latest
     needs: backend
+    env:
+      SECRET_KEY: ci-secret
+      DATABASE_URL: sqlite+aiosqlite:///./ci_test.db
+      ARQ_REDIS_URL: ""
+      SOLANA_RPC_ENDPOINT: https://api.mainnet-beta.solana.com
+      PYTHONPATH: src
 
     steps:
       - uses: actions/checkout@v5
@@ -197,27 +203,17 @@ jobs:
         with:
           node-version: 20
 
-      - name: Install openapi-typescript
-        run: npm install -g openapi-typescript@7
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          npm install -g openapi-typescript@7
 
-      - name: Install backend dependencies
-        run: pip install -r requirements.txt
-
-      - name: Start backend
+      - name: Start backend and wait for readiness
         run: |
           python -m uvicorn src.lineage_agent.api:app \
             --host 0.0.0.0 --port 8000 \
             > /tmp/uvicorn.log 2>&1 &
           echo "uvicorn PID=$!"
-        env:
-          SECRET_KEY: ci-secret
-          DATABASE_URL: sqlite+aiosqlite:///./ci_test.db
-          ARQ_REDIS_URL: ""
-          SOLANA_RPC_ENDPOINT: https://api.mainnet-beta.solana.com
-          PYTHONPATH: src
-
-      - name: Wait for backend to be ready
-        run: |
           echo "Waiting for backend…"
           for i in $(seq 1 60); do
             if curl -sf http://localhost:8000/health > /dev/null 2>&1; then
@@ -226,8 +222,8 @@ jobs:
             fi
             sleep 1
           done
-          echo "::error::Backend did not start within 60 seconds — last 40 lines of uvicorn log:"
-          tail -40 /tmp/uvicorn.log || true
+          echo "::error::Backend did not start within 60 seconds — last 50 lines of uvicorn log:"
+          tail -50 /tmp/uvicorn.log || true
           exit 1
 
       - name: Regenerate types from live schema
