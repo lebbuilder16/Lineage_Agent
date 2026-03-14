@@ -81,7 +81,8 @@
           "node_modules/(?!(openapi-fetch|openapi-typescript-helpers|expo|@expo|expo-modules-core))"
         ],
         "moduleNameMapper": {
-          "^@/(.*)$": "<rootDir>/src/$1"
+          "^@/(.*)$": "<rootDir>/src/$1",
+          "^expo-notifications$": "<rootDir>/src/__mocks__/expo-notifications.js"
         }
       },
       {
