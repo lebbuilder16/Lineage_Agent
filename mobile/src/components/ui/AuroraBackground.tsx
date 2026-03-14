@@ -99,7 +99,7 @@ export function AuroraBackground() {
           {/* Blob 3: faint center ellipse — Figma "ellipse at center" */}
           <Circle cx={cx3} cy={cy3} r={r3} blendMode="screen">
             <SweepGradient
-              c={vec(cx3.value, cy3.value)}
+              c={vec(width / 2, height / 2)}
               colors={[icyBlueFaint, 'rgba(0,0,0,0)', icyBlueFaint]}
             />
             <BlurMask blur={100} style="normal" />

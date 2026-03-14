@@ -2,12 +2,12 @@ import React from 'react';
 import {
   View,
   Text,
-  FlatList,
   StyleSheet,
   SafeAreaView,
   TouchableOpacity,
   RefreshControl,
 } from 'react-native';
+import { FlashList } from '@shopify/flash-list';
 import { useLocalSearchParams, router, Stack } from 'expo-router';
 import { ChevronLeft, ArrowRight } from 'lucide-react-native';
 import { AuroraBackground } from '../../src/components/ui/AuroraBackground';
@@ -88,7 +88,7 @@ export default function SolTraceScreen() {
             </View>
 
             {/* Flow edges */}
-            <FlatList
+            <FlashList
               data={data.flows}
               keyExtractor={(_, i) => String(i)}
               contentContainerStyle={styles.listContent}
@@ -117,7 +117,7 @@ export default function SolTraceScreen() {
   );
 }
 
-function FlowEdgeCard({ edge }: { edge: SolFlowEdge }) {
+const FlowEdgeCard = React.memo(function FlowEdgeCard({ edge }: { edge: SolFlowEdge }) {
   const from = edge.from_address ?? '';
   const to = edge.to_address ?? '';
   const amount = edge.amount_sol ?? 0;
@@ -145,7 +145,7 @@ function FlowEdgeCard({ edge }: { edge: SolFlowEdge }) {
       </View>
     </GlassCard>
   );
-}
+});
 
 function SummaryStat({ label, value, color = tokens.white100 }: { label: string; value: string; color?: string }) {
   return (
