@@ -3,7 +3,9 @@ import type { AlertItem } from '../types/api';
 
 interface AlertsState {
   alerts: AlertItem[];
+  wsConnected: boolean;
   addAlert: (alert: AlertItem) => void;
+  setWsConnected: (connected: boolean) => void;
   markRead: (id: string) => void;
   markAllRead: () => void;
   unreadCount: () => number;
@@ -11,6 +13,9 @@ interface AlertsState {
 
 export const useAlertsStore = create<AlertsState>((set, get) => ({
   alerts: [],
+  wsConnected: false,
+
+  setWsConnected: (connected) => set({ wsConnected: connected }),
 
   addAlert: (alert) =>
     set((state) => ({

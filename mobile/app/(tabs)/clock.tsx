@@ -39,8 +39,13 @@ export default function DeathClockScreen() {
   };
 
   const riskColor = dc?.risk_level ? RISK_COLOR[dc.risk_level] ?? tokens.accent : tokens.accent;
-  const CONFIDENCE_NUM: Record<string, number> = { low: 0.3, medium: 0.6, high: 0.9 };
-  const confidence = dc?.confidence_level ? (CONFIDENCE_NUM[dc.confidence_level] ?? 0) : 0;
+  const reliability = dc ? Math.min((dc.sample_count ?? 0) / 20, 1) : 0;
+
+  function formatDate(iso: string | null | undefined): string {
+    if (!iso) return '';
+    const d = new Date(iso);
+    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+  }
 
   return (
     <View style={styles.container}>
@@ -98,6 +103,25 @@ export default function DeathClockScreen() {
             PREDICT
           </HapticButton>
 
+          {/* Token identity preview */}
+          {data?.query_token && submitted && !isLoading && (
+            <GlassCard style={styles.tokenInfoCard}>
+              <View style={styles.tokenInfoRow}>
+                {data.query_token.image_uri ? (
+                  <Image source={{ uri: data.query_token.image_uri }} style={styles.tokenInfoImg} />
+                ) : (
+                  <View style={[styles.tokenInfoImg, styles.tokenInfoImgFallback]}>
+                    <Text style={styles.tokenInfoFallbackText}>{data.query_token.symbol?.[0] ?? '?'}</Text>
+                  </View>
+                )}
+                <View>
+                  <Text style={styles.tokenInfoName}>{data.query_token.name}</Text>
+                  <Text style={styles.tokenInfoSymbol}>{data.query_token.symbol}</Text>
+                </View>
+              </View>
+            </GlassCard>
+          )}
+
           {/* Result */}
           {submitted && isLoading && (
             <GlassCard>
@@ -117,20 +141,23 @@ export default function DeathClockScreen() {
               <GlassCard style={styles.gaugeCard}>
                 <View style={styles.gaugeRow}>
                   <GaugeRing
-                    value={confidence}
+                    value={reliability}
                     color={riskColor}
                     size={140}
-                    label={`${Math.round(confidence * 100)}%`}
-                    sublabel="CONFIDENCE"
+                    label={String(dc.sample_count ?? 0)}
+                    sublabel="SAMPLES"
                   />
                   <View style={styles.gaugeInfo}>
                     <RiskBadge level={dc.risk_level} size="md" />
+                    {dc.confidence_note ? (
+                      <Text style={styles.confidenceNote}>{dc.confidence_note}</Text>
+                    ) : null}
                     {dc.predicted_window_start && (
                       <View style={styles.windowRow}>
                         <Text style={styles.windowLabel}>Window</Text>
                         <Text style={styles.windowValue}>
-                          {dc.predicted_window_start}
-                          {dc.predicted_window_end ? ` – ${dc.predicted_window_end}` : ''}
+                          {formatDate(dc.predicted_window_start)}
+                          {dc.predicted_window_end ? ` – ${formatDate(dc.predicted_window_end)}` : ''}
                         </Text>
                       </View>
                     )}
@@ -286,5 +313,35 @@ const styles = StyleSheet.create({
     fontSize: tokens.font.body,
     color: tokens.accent,
     textAlign: 'center',
+  },
+
+  tokenInfoCard: {},
+  tokenInfoRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  tokenInfoImg: { width: 48, height: 48, borderRadius: tokens.radius.sm },
+  tokenInfoImgFallback: {
+    backgroundColor: tokens.bgGlass12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tokenInfoFallbackText: {
+    fontFamily: 'Lexend-Bold',
+    fontSize: tokens.font.body,
+    color: tokens.white60,
+  },
+  tokenInfoName: {
+    fontFamily: 'Lexend-SemiBold',
+    fontSize: tokens.font.body,
+    color: tokens.white100,
+  },
+  tokenInfoSymbol: {
+    fontFamily: 'Lexend-Regular',
+    fontSize: tokens.font.small,
+    color: tokens.white60,
+  },
+  confidenceNote: {
+    fontFamily: 'Lexend-Regular',
+    fontSize: tokens.font.small,
+    color: tokens.white60,
+    fontStyle: 'italic',
   },
 });

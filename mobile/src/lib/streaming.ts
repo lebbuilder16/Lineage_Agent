@@ -120,6 +120,7 @@ export function chatStream(
 export function connectAlertsWS(
   onAlert: (alert: AlertItem) => void,
   onError?: () => void,
+  onStatusChange?: (connected: boolean) => void,
 ): () => void {
   let ws: WebSocket | null = null;
   let reconnectTimer: ReturnType<typeof setTimeout>;
@@ -127,6 +128,8 @@ export function connectAlertsWS(
 
   const connect = () => {
     ws = new WebSocket(`${WS_BASE}/ws/alerts`);
+
+    ws.onopen = () => onStatusChange?.(true);
 
     ws.onmessage = (event) => {
       try {
@@ -139,9 +142,10 @@ export function connectAlertsWS(
       }
     };
 
-    ws.onerror = () => onError?.();
+    ws.onerror = () => { onError?.(); onStatusChange?.(false); };
 
     ws.onclose = () => {
+      onStatusChange?.(false);
       if (!closed) reconnectTimer = setTimeout(connect, 5_000);
     };
   };

@@ -18,6 +18,7 @@ import { AuroraBackground } from '../../src/components/ui/AuroraBackground';
 import { GlassCard } from '../../src/components/ui/GlassCard';
 import { searchTokens } from '../../src/lib/api';
 import { tokens } from '../../src/theme/tokens';
+import Animated, { FadeInDown } from 'react-native-reanimated';
 import type { TokenSearchResult } from '../../src/types/api';
 
 export default function ScanScreen() {
@@ -39,7 +40,7 @@ export default function ScanScreen() {
       } catch { /* ignore */ } finally {
         setLoading(false);
       }
-    }, 400);
+    }, 250);
   }, []);
 
   const handleClear = () => { setQuery(''); setResults([]); };
@@ -120,7 +121,8 @@ export default function ScanScreen() {
             contentContainerStyle={styles.listContent}
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
-            renderItem={({ item }) => (
+            renderItem={({ item, index }) => (
+              <Animated.View entering={FadeInDown.delay(index * 30).duration(300).springify()}>
               <TouchableOpacity
                 onPress={() => handleSelect(item.mint)}
                 accessibilityRole="button"
@@ -150,6 +152,7 @@ export default function ScanScreen() {
                   </View>
                 </GlassCard>
               </TouchableOpacity>
+              </Animated.View>
             )}
             ListEmptyComponent={
               query.length > 1 && !loading ? (

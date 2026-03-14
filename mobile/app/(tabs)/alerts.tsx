@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
   FlatList,
+  ScrollView,
   TouchableOpacity,
   StyleSheet,
   SafeAreaView,
@@ -26,6 +27,16 @@ const ALERT_ICONS: Record<string, React.ReactNode> = {
   narrative: <Bell size={18} color={tokens.secondary} />,
 };
 
+const FILTER_TYPES: { label: string; value: AlertItem['type'] }[] = [
+  { label: 'Rug', value: 'rug' },
+  { label: 'Bundle', value: 'bundle' },
+  { label: 'Insider', value: 'insider' },
+  { label: 'Zombie', value: 'zombie' },
+  { label: 'Death Clock', value: 'death_clock' },
+  { label: 'Deployer', value: 'deployer' },
+  { label: 'Narrative', value: 'narrative' },
+];
+
 function timeAgo(ts: string): string {
   const diff = Math.floor((Date.now() - new Date(ts).getTime()) / 1000);
   if (diff < 60) return `${diff}s ago`;
@@ -38,7 +49,11 @@ export default function AlertsScreen() {
   const alerts = useAlertsStore((s) => s.alerts);
   const markRead = useAlertsStore((s) => s.markRead);
   const markAllRead = useAlertsStore((s) => s.markAllRead);
+  const wsConnected = useAlertsStore((s) => s.wsConnected);
   const unreadCount = useAlertsStore((s) => s.alerts.filter((a) => !a.read).length);
+  const [activeFilter, setActiveFilter] = useState<AlertItem['type'] | null>(null);
+
+  const filtered = activeFilter ? alerts.filter((a) => a.type === activeFilter) : alerts;
 
   const handlePress = (alert: AlertItem) => {
     markRead(alert.id);
@@ -73,19 +88,47 @@ export default function AlertsScreen() {
               <CheckCheck size={16} color={tokens.secondary} />
             </HapticButton>
           )}
+          <View style={styles.wsStatus}>
+            <View style={[styles.wsDot, { backgroundColor: wsConnected ? tokens.success : tokens.white20 }]} />
+            <Text style={styles.wsLabel}>{wsConnected ? 'Live' : 'Offline'}</Text>
+          </View>
         </View>
 
-        {alerts.length === 0 ? (
+        {/* Type filter chips */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.chipsRow}
+          style={{ marginBottom: 8 }}
+        >
+          <TouchableOpacity
+            onPress={() => setActiveFilter(null)}
+            style={[styles.chip, activeFilter === null && styles.chipActive]}
+          >
+            <Text style={[styles.chipText, activeFilter === null && styles.chipTextActive]}>All</Text>
+          </TouchableOpacity>
+          {FILTER_TYPES.map((ft) => (
+            <TouchableOpacity
+              key={ft.value}
+              onPress={() => setActiveFilter(activeFilter === ft.value ? null : ft.value)}
+              style={[styles.chip, activeFilter === ft.value && styles.chipActive]}
+            >
+              <Text style={[styles.chipText, activeFilter === ft.value && styles.chipTextActive]}>{ft.label}</Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+
+        {filtered.length === 0 ? (
           <View style={styles.empty}>
             <Bell size={48} color={tokens.white20} />
-            <Text style={styles.emptyTitle}>No alerts yet</Text>
+            <Text style={styles.emptyTitle}>{activeFilter ? `No ${activeFilter} alerts` : 'No alerts yet'}</Text>
             <Text style={styles.emptySubtitle}>
-              Real-time alerts will appear here automatically.
+              {activeFilter ? 'Try a different filter.' : 'Real-time alerts will appear here automatically.'}
             </Text>
           </View>
         ) : (
           <FlatList
-            data={alerts}
+            data={filtered}
             keyExtractor={(item) => item.id}
             contentContainerStyle={styles.listContent}
             showsVerticalScrollIndicator={false}
@@ -160,6 +203,44 @@ const styles = StyleSheet.create({
     fontSize: tokens.font.small,
     color: tokens.accent,
     marginTop: 2,
+  },
+  wsStatus: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    marginLeft: 8,
+  },
+  wsDot: { width: 7, height: 7, borderRadius: 4 },
+  wsLabel: {
+    fontFamily: 'Lexend-Regular',
+    fontSize: tokens.font.tiny,
+    color: tokens.white60,
+  },
+  chipsRow: {
+    paddingHorizontal: tokens.spacing.screenPadding,
+    gap: 6,
+    paddingBottom: 4,
+  },
+  chip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: tokens.radius.pill,
+    backgroundColor: tokens.bgGlass8,
+    borderWidth: 1,
+    borderColor: tokens.borderSubtle,
+  },
+  chipActive: {
+    backgroundColor: `${tokens.secondary}20`,
+    borderColor: tokens.secondary,
+  },
+  chipText: {
+    fontFamily: 'Lexend-Regular',
+    fontSize: tokens.font.small,
+    color: tokens.white60,
+  },
+  chipTextActive: {
+    color: tokens.secondary,
+    fontFamily: 'Lexend-SemiBold',
   },
 
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 16, paddingHorizontal: 32 },

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -26,10 +26,12 @@ export default function RadarScreen() {
   const { data: trending, isLoading: trendingLoading, refetch: refetchTrending } =
     useSearchTokens('', true);
   const addAlert = useAlertsStore((s) => s.addAlert);
+  const setWsConnected = useAlertsStore((s) => s.setWsConnected);
+  const wsConnected = useAlertsStore((s) => s.wsConnected);
   const wsCleanup = useRef<(() => void) | null>(null);
 
   useEffect(() => {
-    wsCleanup.current = connectAlertsWS(addAlert);
+    wsCleanup.current = connectAlertsWS(addAlert, undefined, setWsConnected);
     return () => wsCleanup.current?.();
   }, []);
 
@@ -58,7 +60,7 @@ export default function RadarScreen() {
                 <Text style={styles.headerSub}>Live Threat Intelligence</Text>
               </View>
             </View>
-            <View style={[styles.dot, { backgroundColor: stats ? tokens.success : tokens.white20 }]} />
+            <View style={[styles.dot, { backgroundColor: wsConnected ? tokens.success : tokens.white20 }]} />
           </View>
 
           {/* Stats row */}
@@ -124,6 +126,29 @@ function StatCard({
   icon: React.ReactNode;
   accentColor?: string;
 }) {
+  const [displayed, setDisplayed] = useState(0);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    if (value === null) return;
+    if (timerRef.current) clearInterval(timerRef.current);
+    const target = value;
+    const steps = 40;
+    const stepSize = target / steps;
+    let current = 0;
+    let count = 0;
+    timerRef.current = setInterval(() => {
+      count++;
+      current += stepSize;
+      if (count >= steps) {
+        setDisplayed(target);
+        clearInterval(timerRef.current!);
+      } else {
+        setDisplayed(Math.round(current));
+      }
+    }, 800 / steps);
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+  }, [value]);
 
   return (
     <GlassCard style={styles.statCard}>
@@ -132,7 +157,7 @@ function StatCard({
         <SkeletonLoader width={48} height={24} style={{ marginTop: 4 }} />
       ) : (
         <Text style={[styles.statValue, { color: accentColor }]}>
-          {value.toLocaleString()}
+          {displayed.toLocaleString()}
         </Text>
       )}
       <Text style={styles.statLabel}>{label}</Text>
@@ -147,6 +172,10 @@ function TokenCard({
   token: TokenSearchResult;
   onPress: () => void;
 }) {
+  const isNew = token.pair_created_at
+    ? Date.now() - new Date(token.pair_created_at).getTime() < 7 * 24 * 60 * 60 * 1000
+    : false;
+
   return (
     <TouchableOpacity
       onPress={onPress}
@@ -168,6 +197,11 @@ function TokenCard({
             <Text style={styles.tokenSymbol}>{token.symbol}</Text>
           </View>
           <View style={styles.tokenRight}>
+            {isNew && (
+              <View style={styles.newBadge}>
+                <Text style={styles.newBadgeText}>NEW</Text>
+              </View>
+            )}
             {token.market_cap_usd != null && (
               <Text style={styles.tokenMcap}>
                 ${(token.market_cap_usd / 1_000).toFixed(0)}K
@@ -281,6 +315,18 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   tokenRight: { alignItems: 'flex-end', gap: 4 },
+  newBadge: {
+    backgroundColor: `${tokens.risk.high}25`,
+    borderRadius: tokens.radius.pill,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  newBadgeText: {
+    fontFamily: 'Lexend-Bold',
+    fontSize: tokens.font.tiny,
+    color: tokens.risk.high,
+    letterSpacing: 0.5,
+  },
   tokenMcap: {
     fontFamily: 'Lexend-Regular',
     fontSize: tokens.font.tiny,
