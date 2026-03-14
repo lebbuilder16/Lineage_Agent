@@ -25,7 +25,7 @@ export default function ScanScreen() {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<TokenSearchResult[]>([]);
   const [loading, setLoading] = useState(false);
-  const debounceTimer = useRef<ReturnType<typeof setTimeout>>();
+  const debounceTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   const handleChange = useCallback((text: string) => {
     setQuery(text);

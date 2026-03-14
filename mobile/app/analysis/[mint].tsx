@@ -32,7 +32,7 @@ export default function AnalysisModal() {
   const [steps, setSteps] = useState<Record<string, AnalysisStep>>({});
   const [done, setDone] = useState(false);
   const [result, setResult] = useState<LineageResult | null>(null);
-  const cancelRef = useRef<() => void>();
+  const cancelRef = useRef<(() => void) | undefined>(undefined);
   const spinAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
