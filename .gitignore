@@ -18,6 +18,13 @@ node_modules/
 .next/
 out/
 
+# Mobile (Expo)
+mobile/.expo/
+mobile/dist/
+mobile/build/
+mobile/android/
+mobile/ios/
+
 # IDE
 .vscode/
 .idea/

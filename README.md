@@ -105,7 +105,26 @@ npm run dev
 # → http://localhost:3000
 ```
 
-### 3. Telegram Bot
+### 3. Mobile (Expo)
+
+```bash
+cd mobile
+npm install
+
+# Start Expo dev server (scan QR in Expo Go app)
+npx expo start
+
+# Run on iOS simulator
+npx expo run:ios
+
+# Run on Android emulator
+npx expo run:android
+```
+
+> **Note:** Set `EXPO_PUBLIC_API_URL` in `mobile/.env.local` if pointing at a local backend.
+> Production builds are deployed via EAS — see `mobile/eas.json` and `mobile/DEVELOPER_BRIEFING.md`.
+
+### 4. Telegram Bot
 
 Set `TELEGRAM_BOT_TOKEN` in your `.env` file, then:
 
@@ -246,8 +265,10 @@ npx playwright test
 
 GitHub Actions run on every push and PR:
 
-1. **Backend tests** — `pytest` with Python 3.12
+1. **Backend tests** — `pytest` with Python 3.11 & 3.12
 2. **Frontend build** — `npm run build` to catch compilation errors
+3. **Mobile lint** — TypeScript type-check on the Expo app
+4. **Mobile OTA** — EAS `eas update` publishing (triggered when `mobile/**` changes)
 
 See `.github/workflows/ci.yml` for details.
 
