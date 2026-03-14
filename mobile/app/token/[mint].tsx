@@ -13,6 +13,7 @@ import { useLocalSearchParams, router, Stack } from 'expo-router';
 import {
   ChevronLeft,
   ChevronRight,
+  Copy,
   Skull,
   AlertTriangle,
   Zap,
@@ -27,11 +28,14 @@ import { RiskBadge } from '../../src/components/ui/RiskBadge';
 import { GaugeRing } from '../../src/components/ui/GaugeRing';
 import { SkeletonBlock } from '../../src/components/ui/SkeletonLoader';
 import { HapticButton } from '../../src/components/ui/HapticButton';
+import { useToast } from '../../src/components/ui/Toast';
 import { useLineage } from '../../src/lib/query';
 import { useAuthStore } from '../../src/store/auth';
 import { addWatch } from '../../src/lib/api';
 import { tokens } from '../../src/theme/tokens';
 import Animated, { FadeInDown } from 'react-native-reanimated';
+import * as Clipboard from 'expo-clipboard';
+import * as Haptics from 'expo-haptics';
 
 const RISK_COLOR: Record<string, string> = {
   low: tokens.risk.low,
@@ -43,6 +47,13 @@ const RISK_COLOR: Record<string, string> = {
 export default function TokenScreen() {
   const { mint } = useLocalSearchParams<{ mint: string }>();
   const { data, isLoading, error, refetch } = useLineage(mint ?? '');
+  const { showToast, ToastView } = useToast();
+
+  const handleCopy = async (value: string, label = 'Address') => {
+    await Clipboard.setStringAsync(value);
+    await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    showToast(`${label} copied`);
+  };
   const apiKey = useAuthStore((s) => s.apiKey);
   const addWatchFn = useAuthStore((s) => s.addWatch);
   const [watching, setWatching] = useState(false);
@@ -74,7 +85,14 @@ export default function TokenScreen() {
             <ChevronLeft size={24} color={tokens.white100} />
           </TouchableOpacity>
           <Text style={styles.navTitle}>TOKEN REPORT</Text>
-          <View style={{ width: 24 }} />
+          <TouchableOpacity
+            onPress={() => handleCopy(mint ?? '', 'Mint address')}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityRole="button"
+            accessibilityLabel="Copy mint address"
+          >
+            <Copy size={18} color={tokens.white35} />
+          </TouchableOpacity>
         </View>
 
         <ScrollView
@@ -155,6 +173,8 @@ export default function TokenScreen() {
               {data.deployer_profile && (
                 <TouchableOpacity
                   onPress={() => router.push(`/deployer/${data.deployer_profile!.address}` as any)}
+                  onLongPress={() => handleCopy(data.deployer_profile!.address, 'Deployer address')}
+                  delayLongPress={400}
                   activeOpacity={0.75}
                 >
                   <GlassCard style={styles.linkCard} noPadding>
@@ -311,6 +331,7 @@ export default function TokenScreen() {
           )}
         </ScrollView>
       </SafeAreaView>
+      <ToastView />
     </View>
   );
 }

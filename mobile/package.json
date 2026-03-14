@@ -20,6 +20,7 @@
     "@tanstack/react-query": "^5.70.0",
     "expo": "~54.0.0",
     "expo-blur": "~15.0.8",
+    "expo-clipboard": "^55.0.8",
     "expo-constants": "~18.0.13",
     "expo-font": "~14.0.11",
     "expo-haptics": "~15.0.8",
@@ -85,7 +86,8 @@
         ],
         "moduleNameMapper": {
           "^@/(.*)$": "<rootDir>/src/$1",
-          "^expo-notifications$": "<rootDir>/src/__mocks__/expo-notifications.js"
+          "^expo-notifications$": "<rootDir>/src/__mocks__/expo-notifications.js",
+          "^expo-clipboard$": "<rootDir>/src/__mocks__/expo-clipboard.js"
         }
       },
       {

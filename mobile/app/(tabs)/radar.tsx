@@ -20,7 +20,21 @@ import { connectAlertsWS } from '../../src/lib/api';
 import { useAlertsStore } from '../../src/store/alerts';
 import { tokens } from '../../src/theme/tokens';
 import Animated, { FadeInDown } from 'react-native-reanimated';
+import { RiskBadge } from '../../src/components/ui/RiskBadge';
 import type { TokenSearchResult } from '../../src/types/api';
+
+function deriveRisk(token: TokenSearchResult): string {
+  const mcap = token.market_cap_usd ?? 0;
+  const liq = token.liquidity_usd ?? 0;
+  const ageMs = token.pair_created_at
+    ? Date.now() - new Date(token.pair_created_at).getTime()
+    : Infinity;
+  const ageDays = ageMs / (1000 * 60 * 60 * 24);
+  if (mcap < 10_000 || ageDays < 0.5) return 'critical';
+  if (mcap < 100_000 || ageDays < 2 || (liq > 0 && mcap > 0 && liq / mcap < 0.05)) return 'high';
+  if (mcap < 1_000_000 || ageDays < 7) return 'medium';
+  return 'low';
+}
 
 function timeAgo(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime();
@@ -225,6 +239,7 @@ function TokenCard({
   const isNew = token.pair_created_at
     ? Date.now() - new Date(token.pair_created_at).getTime() < 7 * 24 * 60 * 60 * 1000
     : false;
+  const risk = deriveRisk(token);
 
   return (
     <TouchableOpacity
@@ -247,6 +262,7 @@ function TokenCard({
             <Text style={styles.tokenSymbol}>{token.symbol}</Text>
           </View>
           <View style={styles.tokenRight}>
+            <RiskBadge level={risk} size="sm" />
             {isNew && (
               <View style={styles.newBadge}>
                 <Text style={styles.newBadgeText}>NEW</Text>

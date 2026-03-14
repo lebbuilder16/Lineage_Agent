@@ -13,7 +13,9 @@ import {
   TouchableWithoutFeedback,
 } from 'react-native';
 import { router } from 'expo-router';
-import { Bookmark, Trash2, Plus, Settings } from 'lucide-react-native';
+import { Bookmark, Trash2, Plus, Settings, Copy } from 'lucide-react-native';
+import * as Clipboard from 'expo-clipboard';
+import * as Haptics from 'expo-haptics';
 import { Swipeable } from 'react-native-gesture-handler';
 import { AuroraBackground } from '../../src/components/ui/AuroraBackground';
 import { GlassCard } from '../../src/components/ui/GlassCard';
@@ -21,6 +23,7 @@ import { HapticButton } from '../../src/components/ui/HapticButton';
 import { SkeletonBlock } from '../../src/components/ui/SkeletonLoader';
 import { ScreenHeader } from '../../src/components/ui/ScreenHeader';
 import { SettingsSheet } from '../../src/components/ui/SettingsSheet';
+import { useToast } from '../../src/components/ui/Toast';
 import { useWatches, useDeleteWatch, useAddWatch } from '../../src/lib/query';
 import { useAuthStore } from '../../src/store/auth';
 import { tokens } from '../../src/theme/tokens';
@@ -38,9 +41,16 @@ export default function WatchlistScreen() {
   const [addValue, setAddValue] = useState('');
   const [addType, setAddType] = useState<'mint' | 'deployer'>('mint');
   const swipeableRefs = useRef<Map<string, Swipeable | null>>(new Map());
+  const { showToast, ToastView } = useToast();
 
   const handleDelete = (id: string) => {
     deleteMutation.mutate(id, { onSuccess: () => refetch() });
+  };
+
+  const handleCopy = async (value: string) => {
+    await Clipboard.setStringAsync(value);
+    await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    showToast('Address copied');
   };
 
   const handleAddSubmit = () => {
@@ -234,6 +244,8 @@ export default function WatchlistScreen() {
                 <TouchableOpacity
                   style={styles.watchInner}
                   onPress={() => handlePress(item)}
+                  onLongPress={() => handleCopy(item.value)}
+                  delayLongPress={400}
                   activeOpacity={0.75}
                 >
                     <View
@@ -272,6 +284,7 @@ export default function WatchlistScreen() {
           />
         )}
       </SafeAreaView>
+      <ToastView />
     </View>
   );
 }
