@@ -8,8 +8,8 @@ export const tokens = {
   bgVoid: '#010410',      // near-void deep navy
   bgMain: '#020617',      // Figma: --bg-main (deep navy-black)
   bgApp:  '#040816',      // Figma: --bg-app
-  bgCard: 'rgba(255, 255, 255, 0.04)',  // Figma: bg-card-glass
-  bgGlass: 'rgba(255, 255, 255, 0.02)', // Figma: bg-glass
+  bgCard: 'rgba(255, 255, 255, 0.03)',  // Figma: --bg-card exact
+  bgGlass: 'rgba(255, 255, 255, 0.05)', // Figma: --bg-glass exact
   bgGlass8: 'rgba(255, 255, 255, 0.08)',
   bgGlass12: 'rgba(255, 255, 255, 0.12)',
   bgInputBg: 'rgba(255, 255, 255, 0.05)',
