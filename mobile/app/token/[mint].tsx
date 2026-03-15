@@ -146,8 +146,24 @@ export default function TokenScreen() {
   // ── derived values ──────────────────────────────────────────────────────────
 
   const riskLevel = data?.death_clock?.risk_level as RiskLevel | undefined;
-  const riskColor = riskLevel ? (RISK_COLOR[riskLevel] ?? tokens.white35) : tokens.white35;
-  const riskScore = riskLevelToScore(riskLevel);
+
+  // Fallback risk level when death_clock is null/insufficient_data
+  // Derived from bundle_report verdict and deployer rug rate
+  const displayRiskLevel: RiskLevel | undefined = (() => {
+    if (riskLevel && riskLevel !== 'insufficient_data') return riskLevel;
+    const verdict = data?.bundle_report?.overall_verdict;
+    if (verdict === 'confirmed_team_extraction') return 'critical';
+    if (verdict === 'suspected_team_extraction' || verdict === 'coordinated_dump_unknown_team') return 'high';
+    const rugRate = data?.deployer_profile?.rug_rate_pct;
+    if (rugRate != null && rugRate > 70) return 'critical';
+    if (rugRate != null && rugRate > 40) return 'high';
+    if (rugRate != null && rugRate > 15) return 'medium';
+    if (riskLevel === 'insufficient_data') return 'insufficient_data';
+    return undefined;
+  })();
+
+  const riskColor = displayRiskLevel ? (RISK_COLOR[displayRiskLevel] ?? tokens.white35) : tokens.white35;
+  const riskScore = riskLevelToScore(displayRiskLevel);
   const mcap = data?.query_token?.market_cap_usd;
 
   // One-line risk summary sentence (Level 2)
@@ -204,9 +220,9 @@ export default function TokenScreen() {
     !!data?.cartel_report?.deployer_community?.community_id;
 
   // Risk icon for summary card
-  const RiskIcon = riskLevel === 'low'
+  const RiskIcon = displayRiskLevel === 'low'
     ? ShieldCheck
-    : riskLevel === 'insufficient_data'
+    : displayRiskLevel === 'insufficient_data'
     ? Shield
     : ShieldAlert;
 
@@ -273,9 +289,9 @@ export default function TokenScreen() {
                         <Text style={styles.mcapText}>{fmtMcap(mcap)}</Text>
                       </View>
                     )}
-                    {riskLevel && riskLevel !== 'insufficient_data' && (
+                    {displayRiskLevel && displayRiskLevel !== 'insufficient_data' && (
                       <RiskBadge
-                        level={riskLevel === 'first_rug' ? 'high' : riskLevel as any}
+                        level={displayRiskLevel === 'first_rug' ? 'high' : displayRiskLevel as any}
                         size="sm"
                       />
                     )}
@@ -298,7 +314,7 @@ export default function TokenScreen() {
                     color={riskColor}
                     size={76}
                     strokeWidth={6}
-                    label={(riskLevel === 'first_rug' ? 'FIRST' : riskLevel?.toUpperCase() ?? '—').split(' ')[0]}
+                    label={(displayRiskLevel === 'first_rug' ? 'FIRST' : displayRiskLevel?.toUpperCase() ?? '—').split(' ')[0]}
                     sublabel="RISK"
                   />
                 ) : (
@@ -333,7 +349,7 @@ export default function TokenScreen() {
                 ═══════════════════════════════════════════════════ */}
 
             {/* Risk summary card — only when we have a meaningful signal */}
-            {riskLevel && riskLevel !== 'insufficient_data' && (
+            {displayRiskLevel && displayRiskLevel !== 'insufficient_data' && (
               <GlassCard style={[
                 styles.summaryCard,
                 { borderColor: `${riskColor}30`, borderWidth: 1 },
@@ -344,7 +360,7 @@ export default function TokenScreen() {
                   </View>
                   <View style={styles.summaryInfo}>
                     <Text style={[styles.summaryTitle, { color: riskColor }]}>
-                      {riskLevel === 'first_rug' ? 'FIRST RUG DETECTED' : `${riskLevel.toUpperCase()} RISK`}
+                      {displayRiskLevel === 'first_rug' ? 'FIRST RUG DETECTED' : `${displayRiskLevel.toUpperCase()} RISK`}
                     </Text>
                     {riskSummary && (
                       <Text style={styles.summarySubtitle} numberOfLines={2}>{riskSummary}</Text>
