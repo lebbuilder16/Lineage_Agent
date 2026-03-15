@@ -353,14 +353,14 @@ const styles = StyleSheet.create({
 
   modalBackdrop: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.55)',
+    backgroundColor: tokens.bgOverlay, // Figma: rgba(0,0,0,0.7)
   },
   addSheet: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: tokens.bgCard ?? '#0d1b2e',
+    backgroundColor: tokens.bgApp, // Figma: --bg-app #040816
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     paddingTop: 12,

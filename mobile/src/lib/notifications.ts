@@ -31,7 +31,7 @@ export async function registerForPushNotifications(): Promise<string | null> {
       name: 'Lineage Alerts',
       importance: Notifications.AndroidImportance.HIGH,
       vibrationPattern: [0, 250, 250, 250],
-      lightColor: '#6F6ACF',
+      lightColor: '#ADC8FF', // Figma: --color-secondary
       sound: 'default',
     });
   }

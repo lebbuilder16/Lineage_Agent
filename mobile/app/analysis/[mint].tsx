@@ -168,7 +168,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     justifyContent: 'flex-end',
-    backgroundColor: 'rgba(0,0,0,0.6)',
+    backgroundColor: tokens.bgOverlay, // Figma: rgba(0,0,0,0.7)
   },
   sheet: {
     backgroundColor: tokens.bgCard,

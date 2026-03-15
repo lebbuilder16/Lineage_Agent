@@ -36,17 +36,17 @@ export const tokens = {
 
   // ── Risk Colors ────────────────────────────────────────────────────────────
   risk: {
-    low: '#00FF88',
-    medium: '#FFD700',
-    high: '#FF9933',
-    critical: '#FF3366',
+    low: '#00FF88',    // Figma: --color-success
+    medium: '#F59E0B', // Figma: Tailwind amber-500 (design DailyStreak)
+    high: '#FF9933',   // Figma: --color-warning
+    critical: '#FF3366', // Figma: --color-neon-pink
   },
 
   // ── Border (flat) ──────────────────────────────────────────────────────────
   borderSubtle: 'rgba(255, 255, 255, 0.10)',
   borderMedium: 'rgba(255, 255, 255, 0.15)',
-  borderActive: 'rgba(173, 206, 255, 0.40)',
-  borderPrimary: 'rgba(111, 106, 207, 0.40)',
+  borderActive: 'rgba(173, 200, 255, 0.40)',  // Figma: secondary (#ADC8FF) at 40%
+  borderPrimary: 'rgba(173, 200, 255, 0.15)', // Figma: secondary at 15%
 
   // ── Radius ─────────────────────────────────────────────────────────────────
   radius: {
@@ -61,7 +61,7 @@ export const tokens = {
   // ── Shadows ────────────────────────────────────────────────────────────────
   shadow: {
     glow: {
-      shadowColor: '#ADCEFF',
+      shadowColor: '#ADC8FF', // Figma: --color-secondary exact
       shadowOffset: { width: 0, height: 0 },
       shadowOpacity: 0.25,
       shadowRadius: 15,

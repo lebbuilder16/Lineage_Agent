@@ -153,7 +153,7 @@ export function SettingsSheet({ visible, onClose }: SettingsSheetProps) {
 const styles = StyleSheet.create({
   backdrop: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.55)',
+    backgroundColor: tokens.bgOverlay, // Figma: rgba(0,0,0,0.7)
   },
   kav: {
     flex: 1,
@@ -161,7 +161,7 @@ const styles = StyleSheet.create({
     pointerEvents: 'box-none',
   },
   sheet: {
-    backgroundColor: tokens.bgCard ?? '#0d1b2e',
+    backgroundColor: tokens.bgApp, // Figma: --bg-app #040816
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     paddingTop: 12,
