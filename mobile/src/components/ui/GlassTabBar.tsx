@@ -59,7 +59,7 @@ export function GlassTabBar({
   const bottomOffset = Math.max(insets.bottom, Platform.select({ ios: 8, android: 8 }) ?? 8);
   return (
     <View style={[styles.wrapper, { bottom: bottomOffset + 12 }, style]}>
-      <BlurView intensity={28} tint="dark" style={styles.blur}>
+      <BlurView intensity={55} tint="dark" style={styles.blur}>
         <View style={styles.inner}>
           {TABS.map((tab) => (
             <TabButton
@@ -138,7 +138,7 @@ const styles = StyleSheet.create({
     borderRadius: tokens.radius.xl,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: tokens.white10,
+    borderColor: 'rgba(255, 255, 255, 0.22)',
     // Glow shadow — Figma secondary (ice blue)
     shadowColor: tokens.secondary,
     shadowOffset: { width: 0, height: 4 },
@@ -151,7 +151,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     paddingHorizontal: 8,
     paddingVertical: 8,
-    backgroundColor: tokens.bgGlass8,
+    backgroundColor: 'rgba(8, 10, 22, 0.70)',
   },
   tabButton: {
     flex: 1,

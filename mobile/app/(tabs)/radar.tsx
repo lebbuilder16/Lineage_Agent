@@ -436,12 +436,6 @@ export default function RadarScreen() {
                 icon={<AlertTriangle size={15} color={tokens.accent} />}
                 accentColor={tokens.accent}
               />
-              <StatCard
-                label="Deployers"
-                value={statsLoading ? null : stats?.active_deployers_24h ?? 0}
-                icon={<Zap size={15} color={tokens.warning} />}
-                accentColor={tokens.warning}
-              />
             </View>
           </Animated.View>
 
@@ -535,18 +529,29 @@ export default function RadarScreen() {
                     <Text style={styles.emptyFeedText}>No tokens found — pull to refresh</Text>
                   </GlassCard>
                 )
-                : (feedTokens ?? []).slice(0, 20).map((token: TokenSearchResult, index: number) => (
-                    <Animated.View
-                      key={token.mint}
-                      entering={FadeInDown.delay(index * 35).duration(320).springify()}
-                    >
-                      <TokenCard
-                        token={token}
-                        apiKey={apiKey}
-                        onPress={() => router.push(`/token/${token.mint}` as any)}
-                      />
-                    </Animated.View>
-                  ))
+                : <>
+                    {(feedTokens ?? []).slice(0, 5).map((token: TokenSearchResult, index: number) => (
+                      <Animated.View
+                        key={token.mint}
+                        entering={FadeInDown.delay(index * 35).duration(320).springify()}
+                      >
+                        <TokenCard
+                          token={token}
+                          apiKey={apiKey}
+                          onPress={() => router.push(`/token/${token.mint}` as any)}
+                        />
+                      </Animated.View>
+                    ))}
+                    {(feedTokens ?? []).length > 5 && (
+                      <TouchableOpacity
+                        onPress={() => router.push('/(tabs)/scan' as any)}
+                        style={styles.feedSeeAll}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={styles.feedSeeAllText}>See all →</Text>
+                      </TouchableOpacity>
+                    )}
+                  </>
             }
           </Animated.View>
         </ScrollView>
@@ -577,6 +582,8 @@ const styles = StyleSheet.create({
   sectionTitle: { fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.small, color: tokens.white35, letterSpacing: 1.5 },
   liveDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: tokens.success },
   feedTag: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny, color: `${tokens.secondary}70`, letterSpacing: 1, marginLeft: 'auto' },
+  feedSeeAll: { alignItems: 'center', paddingVertical: 10 },
+  feedSeeAllText: { fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.small, color: tokens.secondary, letterSpacing: 0.5 },
   alertCard: { marginBottom: 0 },
   alertCardUnread: { borderColor: `${tokens.secondary}35`, borderWidth: 1 },
   alertInner: { flexDirection: 'row', alignItems: 'center', padding: tokens.spacing.cardPadding, gap: 10 },
