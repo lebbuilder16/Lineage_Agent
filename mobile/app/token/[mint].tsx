@@ -147,19 +147,21 @@ export default function TokenScreen() {
 
   const riskLevel = data?.death_clock?.risk_level as RiskLevel | undefined;
 
-  // Fallback risk level when death_clock is null/insufficient_data
-  // Derived from bundle_report verdict and deployer rug rate
-  const displayRiskLevel: RiskLevel | undefined = (() => {
+  // Fallback risk level — cascades through all available signals
+  const displayRiskLevel: RiskLevel = (() => {
+    // 1. death_clock — primary source
     if (riskLevel && riskLevel !== 'insufficient_data') return riskLevel;
+    // 2. bundle_report verdict
     const verdict = data?.bundle_report?.overall_verdict;
     if (verdict === 'confirmed_team_extraction') return 'critical';
     if (verdict === 'suspected_team_extraction' || verdict === 'coordinated_dump_unknown_team') return 'high';
+    // 3. deployer rug rate
     const rugRate = data?.deployer_profile?.rug_rate_pct;
     if (rugRate != null && rugRate > 70) return 'critical';
     if (rugRate != null && rugRate > 40) return 'high';
     if (rugRate != null && rugRate > 15) return 'medium';
-    if (riskLevel === 'insufficient_data') return 'insufficient_data';
-    return undefined;
+    // 4. final fallback — token exists but no analysis data yet
+    return 'insufficient_data';
   })();
 
   const riskColor = displayRiskLevel ? (RISK_COLOR[displayRiskLevel] ?? tokens.white35) : tokens.white35;
@@ -289,11 +291,15 @@ export default function TokenScreen() {
                         <Text style={styles.mcapText}>{fmtMcap(mcap)}</Text>
                       </View>
                     )}
-                    {displayRiskLevel && displayRiskLevel !== 'insufficient_data' && (
+                    {displayRiskLevel !== 'insufficient_data' ? (
                       <RiskBadge
                         level={displayRiskLevel === 'first_rug' ? 'high' : displayRiskLevel as any}
                         size="sm"
                       />
+                    ) : (
+                      <View style={styles.unverifiedBadge}>
+                        <Text style={styles.unverifiedText}>UNVERIFIED</Text>
+                      </View>
                     )}
                   </View>
 
@@ -732,4 +738,15 @@ const styles = StyleSheet.create({
 
   btnSecondaryText: { fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.small, color: tokens.primary },
   btnPrimaryText: { fontFamily: 'Lexend-Bold', fontSize: tokens.font.body, color: tokens.white100, letterSpacing: 0.5 },
+
+  unverifiedBadge: {
+    paddingHorizontal: 8, paddingVertical: 2,
+    borderRadius: tokens.radius.pill,
+    backgroundColor: `${tokens.white35}12`,
+    borderWidth: 1, borderColor: `${tokens.white35}30`,
+  },
+  unverifiedText: {
+    fontFamily: 'Lexend-Bold', fontSize: tokens.font.tiny,
+    color: tokens.white35, letterSpacing: 0.8,
+  },
 });
