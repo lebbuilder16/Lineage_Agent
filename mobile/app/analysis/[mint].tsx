@@ -64,9 +64,8 @@ export default function AnalysisModal() {
     return () => cancelRef.current?.();
   }, [mint]);
 
-  const overallProgress =
-    Object.values(steps).reduce((acc, s) => acc + s.progress, 0) /
-    (STEPS_ORDER.length * 100);
+  const doneCount = Object.values(steps).filter((s) => s.status === 'done').length;
+  const overallProgress = doneCount / STEPS_ORDER.length;
 
   const spin = spinAnim.interpolate({
     inputRange: [0, 1],
@@ -102,9 +101,9 @@ export default function AnalysisModal() {
         <ScrollView style={styles.stepsScroll} showsVerticalScrollIndicator={false}>
           {STEPS_ORDER.map((key) => {
             const step = steps[key];
-            const isDone = step?.done;
-            const inProgress = step && !isDone;
-            const label = step?.label ?? STEP_LABELS[key];
+            const isDone = step?.status === 'done';
+            const inProgress = step?.status === 'running';
+            const label = STEP_LABELS[key];
 
             return (
               <View key={key} style={styles.stepRow}>
@@ -130,10 +129,12 @@ export default function AnalysisModal() {
                   {step && (
                     <Text style={styles.stepProgress}>
                       {isDone
-                        ? step.duration_ms != null
-                          ? `${step.duration_ms}ms`
+                        ? step.ms != null
+                          ? `${step.ms}ms`
                           : 'Done'
-                        : `${step.progress}%`}
+                        : step.step === 'ai' && step.heuristic != null
+                          ? `score ${step.heuristic}`
+                          : '…'}
                     </Text>
                   )}
                 </View>

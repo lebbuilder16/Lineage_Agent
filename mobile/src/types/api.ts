@@ -72,10 +72,9 @@ export interface AlertItem {
 
 export interface AnalysisStep {
   step: 'lineage' | 'bundle' | 'sol_flow' | 'ai' | 'deployer' | 'cartel';
-  label: string;
-  progress: number;
-  done: boolean;
-  duration_ms?: number;
+  status: 'running' | 'done';
+  ms?: number;
+  heuristic?: number;
 }
 
 export interface GraphNode {
