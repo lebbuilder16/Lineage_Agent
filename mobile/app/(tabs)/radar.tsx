@@ -384,7 +384,7 @@ export default function RadarScreen() {
   const wsConnected = useAlertsStore((s) => s.wsConnected);
   const markRead = useAlertsStore((s) => s.markRead);
   const allAlerts = useAlertsStore((s) => s.alerts);
-  const recentAlerts = useMemo(() => allAlerts.slice(0, 3), [allAlerts]);
+  const recentAlerts = useMemo(() => allAlerts.slice(0, 2), [allAlerts]);
 
   const apiKey = useAuthStore((s) => s.apiKey);
 
@@ -418,7 +418,9 @@ export default function RadarScreen() {
         />
         <ScrollView
           style={styles.scroll}
-          contentContainerStyle={[styles.content, { paddingBottom: Math.max(insets.bottom + 100, 120) }]}
+          // paddingBottom must clear the GlassTabBar (≈64 px) + its bottom offset (insets.bottom + 12)
+          // plus a comfortable breathing room of 16 px — best practice for floating tab bars.
+          contentContainerStyle={[styles.content, { paddingBottom: Math.max(insets.bottom + 140, 160) }]}
           showsVerticalScrollIndicator={false}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={tokens.secondary} />
@@ -459,7 +461,7 @@ export default function RadarScreen() {
           )}
 
           {/* ── Live Alerts ── */}
-          <Animated.View entering={FadeInDown.delay(120).duration(400)} style={styles.section}>
+          <Animated.View entering={FadeInDown.delay(120).duration(400)} style={[styles.section, { gap: 6 }]}>
             <View style={styles.sectionHeader}>
               <Bell size={14} color={tokens.secondary} />
               <Text style={styles.sectionTitle}>LIVE ALERTS</Text>
@@ -487,7 +489,7 @@ export default function RadarScreen() {
                       style={[styles.alertCard, !alert.read && styles.alertCardUnread]}
                       noPadding
                     >
-                      <View style={styles.alertInner}>
+                      <View style={[styles.alertInner, { paddingVertical: 9, paddingHorizontal: 12 }]}>
                         <View style={styles.alertDot}>
                           {!alert.read && <View style={styles.alertUnreadDot} />}
                         </View>
@@ -513,7 +515,7 @@ export default function RadarScreen() {
           {/* ── Most Scanned 24h ── */}
           <Animated.View
             entering={FadeInDown.delay(180).duration(400)}
-            style={[styles.section, { marginTop: 24 }]}
+            style={[styles.section, { marginTop: 12 }]}
           >
             <View style={styles.sectionHeader}>
               <TrendingUp size={14} color={tokens.secondary} />
@@ -537,18 +539,29 @@ export default function RadarScreen() {
                     <Text style={styles.emptyFeedText}>No activity in 24h — pull to refresh</Text>
                   </GlassCard>
                 )
-                : (topTokens ?? []).map((token: TopToken, index: number) => (
-                    <Animated.View
-                      key={token.mint}
-                      entering={FadeInDown.delay(index * 35).duration(320).springify()}
-                    >
-                      <TokenCard
-                        token={topTokenToSearchResult(token)}
-                        apiKey={apiKey}
-                        onPress={() => router.push(`/token/${token.mint}` as any)}
-                      />
-                    </Animated.View>
-                  ))
+                : <>
+                    {(topTokens ?? []).slice(0, 5).map((token: TopToken, index: number) => (
+                      <Animated.View
+                        key={token.mint}
+                        entering={FadeInDown.delay(index * 35).duration(320).springify()}
+                      >
+                        <TokenCard
+                          token={topTokenToSearchResult(token)}
+                          apiKey={apiKey}
+                          onPress={() => router.push(`/token/${token.mint}` as any)}
+                        />
+                      </Animated.View>
+                    ))}
+                    {(topTokens ?? []).length > 5 && (
+                      <TouchableOpacity
+                        onPress={() => router.push('/(tabs)/scan' as any)}
+                        style={styles.feedSeeAll}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={styles.feedSeeAllText}>See all →</Text>
+                      </TouchableOpacity>
+                    )}
+                  </>
             }
           </Animated.View>
         </ScrollView>
