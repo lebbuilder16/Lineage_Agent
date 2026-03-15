@@ -28,6 +28,7 @@ export function analyzeStream(
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
+      let pendingEvent = '';
 
       const read = () => {
         if (cancelled) return;
@@ -37,11 +38,25 @@ export function analyzeStream(
           const lines = buffer.split('\n');
           buffer = lines.pop() ?? '';
           for (const line of lines) {
-            if (line.startsWith('data: ')) {
+            if (line.startsWith('event: ')) {
+              pendingEvent = line.slice(7).trim();
+            } else if (line === '') {
+              pendingEvent = '';
+            } else if (line.startsWith('data: ')) {
+              const text = line.slice(6);
               try {
-                const step = JSON.parse(line.slice(6)) as AnalysisStep;
-                onStep(step);
-                if (step.done) { onDone(); return; }
+                const payload = JSON.parse(text);
+                if (pendingEvent === 'complete') {
+                  onDone(payload as LineageResult);
+                  return;
+                } else if (pendingEvent === 'error') {
+                  onError?.(new Error((payload as { detail?: string }).detail ?? 'Analysis error'));
+                  onDone();
+                  return;
+                } else {
+                  // step event
+                  onStep(payload as AnalysisStep);
+                }
               } catch (e) {
                 console.warn('[analyzeStream] unparseable SSE line', e);
               }
@@ -90,6 +105,7 @@ export function chatStream(
     const decoder = new TextDecoder();
     let buffer = '';
     let cancelled = false;
+    let pendingEvent = '';
 
     const read = () => {
       if (cancelled) return;
@@ -99,10 +115,29 @@ export function chatStream(
         const lines = buffer.split('\n');
         buffer = lines.pop() ?? '';
         for (const line of lines) {
-          if (line.startsWith('data: ')) {
+          if (line.startsWith('event: ')) {
+            pendingEvent = line.slice(7).trim();
+          } else if (line === '') {
+            pendingEvent = '';
+          } else if (line.startsWith('data: ')) {
             const text = line.slice(6);
-            if (text === '[DONE]') { onDone(); return; }
-            try { onChunk(JSON.parse(text) as string); } catch { onChunk(text); }
+            if (pendingEvent === 'done' || text === '[DONE]') { onDone(); return; }
+            if (pendingEvent === 'error') {
+              try {
+                const parsed = JSON.parse(text) as { detail?: string };
+                onError?.(new Error(parsed.detail ?? 'Chat error'));
+              } catch { onError?.(new Error(text)); }
+              onDone(); return;
+            }
+            // event: token → { text: "<chunk>" }
+            try {
+              const parsed = JSON.parse(text) as unknown;
+              const chunk =
+                parsed !== null && typeof (parsed as { text?: string }).text === 'string'
+                  ? (parsed as { text: string }).text
+                  : typeof parsed === 'string' ? parsed : '';
+              if (chunk) onChunk(chunk);
+            } catch { if (text) onChunk(text); }
           }
         }
         read();
