@@ -5,12 +5,12 @@ import {
   TextInput,
   FlatList,
   StyleSheet,
-  SafeAreaView,
   TouchableOpacity,
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router, Stack } from 'expo-router';
 import { ChevronLeft, Send, Bot } from 'lucide-react-native';
 import { AuroraBackground } from '../../src/components/ui/AuroraBackground';
@@ -32,6 +32,7 @@ const WELCOME: Message = {
 };
 
 export default function ChatScreen() {
+  const insets = useSafeAreaInsets();
   const { mint } = useLocalSearchParams<{ mint: string }>();
   const [messages, setMessages] = useState<Message[]>([WELCOME]);
   const [input, setInput] = useState('');
@@ -158,7 +159,7 @@ export default function ChatScreen() {
     <View style={styles.container}>
       <AuroraBackground />
       <Stack.Screen options={{ headerShown: false }} />
-      <SafeAreaView style={styles.safe}>
+      <View style={styles.safe}>
         {/* Navbar */}
         <View style={styles.navbar}>
           <TouchableOpacity
@@ -220,7 +221,7 @@ export default function ChatScreen() {
             </TouchableOpacity>
           </View>
         </KeyboardAvoidingView>
-      </SafeAreaView>
+      </View>
     </View>
   );
 }

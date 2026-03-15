@@ -5,10 +5,10 @@ import {
   TextInput,
   ScrollView,
   StyleSheet,
-  SafeAreaView,
   TouchableOpacity,
   Image,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router, Stack } from 'expo-router';
 import { ChevronLeft, ArrowLeftRight } from 'lucide-react-native';
 import { AuroraBackground } from '../src/components/ui/AuroraBackground';
@@ -27,6 +27,7 @@ const VERDICT_COLORS: Record<string, string> = {
 };
 
 export default function CompareScreen() {
+  const insets = useSafeAreaInsets();
   const [mintA, setMintA] = useState('');
   const [mintB, setMintB] = useState('');
   const [submitted, setSubmitted] = useState<[string, string] | null>(null);
@@ -50,7 +51,7 @@ export default function CompareScreen() {
     <View style={styles.container}>
       <AuroraBackground />
       <Stack.Screen options={{ headerShown: false }} />
-      <SafeAreaView style={styles.safe}>
+      <View style={styles.safe}>
         <View style={styles.navbar}>
           <TouchableOpacity
             onPress={() => router.back()}
@@ -189,7 +190,7 @@ export default function CompareScreen() {
             </>
           )}
         </ScrollView>
-      </SafeAreaView>
+      </View>
     </View>
   );
 }

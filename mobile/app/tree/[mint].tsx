@@ -4,11 +4,11 @@ import {
   Text,
   ScrollView,
   StyleSheet,
-  SafeAreaView,
   TouchableOpacity,
   Dimensions,
   ActivityIndicator,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router, Stack } from 'expo-router';
 import Svg, { Line, Rect, Text as SvgText, G } from 'react-native-svg';
 import { ChevronLeft, GitBranch } from 'lucide-react-native';
@@ -115,6 +115,7 @@ function computePositions(
 }
 
 export default function FamilyTreeScreen() {
+  const insets = useSafeAreaInsets();
   const { mint } = useLocalSearchParams<{ mint: string }>();
   const { data, isLoading, error } = useLineageGraph(mint ?? '');
 
@@ -127,7 +128,7 @@ export default function FamilyTreeScreen() {
     <View style={styles.container}>
       <AuroraBackground />
       <Stack.Screen options={{ headerShown: false }} />
-      <SafeAreaView style={styles.safe}>
+      <View style={styles.safe}>
         {/* Navbar */}
         <View style={styles.navbar}>
           <TouchableOpacity
@@ -296,7 +297,7 @@ export default function FamilyTreeScreen() {
             </View>
           </>
         )}
-      </SafeAreaView>
+      </View>
     </View>
   );
 }

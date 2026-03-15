@@ -4,10 +4,10 @@ import {
   Text,
   ScrollView,
   StyleSheet,
-  SafeAreaView,
   TouchableOpacity,
   RefreshControl,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router, Stack } from 'expo-router';
 import { ChevronLeft, ChevronRight } from 'lucide-react-native';
 import { AuroraBackground } from '../../src/components/ui/AuroraBackground';
@@ -18,6 +18,7 @@ import { tokens } from '../../src/theme/tokens';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 
 export default function CartelScreen() {
+  const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
   const { data, isLoading, error, refetch } = useCartel(id ?? '');
 
@@ -25,7 +26,7 @@ export default function CartelScreen() {
     <View style={styles.container}>
       <AuroraBackground />
       <Stack.Screen options={{ headerShown: false }} />
-      <SafeAreaView style={styles.safe}>
+      <View style={styles.safe}>
         <View style={styles.navbar}>
           <TouchableOpacity
             onPress={() => router.back()}
@@ -107,7 +108,7 @@ export default function CartelScreen() {
             </Animated.View>
           )}
         </ScrollView>
-      </SafeAreaView>
+      </View>
     </View>
   );
 }

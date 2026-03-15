@@ -6,9 +6,9 @@ import {
   TouchableOpacity,
   ScrollView,
   StyleSheet,
-  SafeAreaView,
   Image,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { Skull, ChevronRight, X } from 'lucide-react-native';
 import { AuroraBackground } from '../../src/components/ui/AuroraBackground';
@@ -29,6 +29,7 @@ const RISK_COLOR: Record<string, string> = {
 };
 
 export default function DeathClockScreen() {
+  const insets = useSafeAreaInsets();
   const [mint, setMint] = useState('');
   const [submitted, setSubmitted] = useState('');
 
@@ -51,9 +52,9 @@ export default function DeathClockScreen() {
   return (
     <View style={styles.container}>
       <AuroraBackground />
-      <SafeAreaView style={styles.safe}>
+      <View style={styles.safe}>
         <ScrollView
-          contentContainerStyle={styles.content}
+          contentContainerStyle={[styles.content, { paddingBottom: Math.max(insets.bottom + 100, 120) }]}
           showsVerticalScrollIndicator={false}
         >
           <ScreenHeader
@@ -195,7 +196,7 @@ export default function DeathClockScreen() {
             </>
           )}
         </ScrollView>
-      </SafeAreaView>
+      </View>
     </View>
   );
 }
@@ -214,7 +215,7 @@ const styles = StyleSheet.create({
   safe: { flex: 1 },
   content: {
     paddingHorizontal: tokens.spacing.screenPadding,
-    paddingBottom: 120,
+    
     gap: 12,
   },
 

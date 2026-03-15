@@ -6,12 +6,12 @@ import {
   TouchableOpacity,
   FlatList,
   StyleSheet,
-  SafeAreaView,
   Image,
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { Search, X, Network, Clock } from 'lucide-react-native';
 import { AuroraBackground } from '../../src/components/ui/AuroraBackground';
@@ -24,6 +24,7 @@ import Animated, { FadeInDown } from 'react-native-reanimated';
 import type { TokenSearchResult } from '../../src/types/api';
 
 export default function ScanScreen() {
+  const insets = useSafeAreaInsets();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<TokenSearchResult[]>([]);
   const [loading, setLoading] = useState(false);
@@ -67,7 +68,7 @@ export default function ScanScreen() {
   return (
     <View style={styles.container}>
       <AuroraBackground />
-      <SafeAreaView style={styles.safe}>
+      <View style={styles.safe}>
         <KeyboardAvoidingView
           style={styles.kav}
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -143,7 +144,7 @@ export default function ScanScreen() {
           <FlatList
             data={results}
             keyExtractor={(item) => item.mint}
-            contentContainerStyle={styles.listContent}
+            contentContainerStyle={[styles.listContent, { paddingBottom: Math.max(insets.bottom + 100, 120) }]}
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
             renderItem={({ item, index }) => (
@@ -188,7 +189,7 @@ export default function ScanScreen() {
             }
           />
         </KeyboardAvoidingView>
-      </SafeAreaView>
+      </View>
     </View>
   );
 }
@@ -232,7 +233,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
 
-  listContent: { gap: 8, paddingBottom: 120 },
+  listContent: { gap: 8,   },
   resultCard: {},
   resultInner: {
     flexDirection: 'row',

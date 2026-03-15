@@ -74,7 +74,7 @@ export default function WatchlistScreen() {
     return (
       <View style={styles.container}>
         <AuroraBackground />
-        <SafeAreaView style={styles.safe}>
+        <View style={[styles.safe, { paddingTop: Math.max(insets.top, 16) }]}>
           <View style={styles.lockout}>
             <Bookmark size={48} color={tokens.white20} />
             <Text style={styles.lockoutTitle}>API Key Required</Text>
@@ -112,7 +112,7 @@ export default function WatchlistScreen() {
               <Text style={styles.lockoutHintLink}>lineage://activate?key=YOUR_KEY</Text>
             </Text>
           </View>
-        </SafeAreaView>
+        </View>
       </View>
     );
   }
@@ -120,7 +120,7 @@ export default function WatchlistScreen() {
   return (
     <View style={styles.container}>
       <AuroraBackground />
-      <SafeAreaView style={styles.safe}>
+      <View style={[styles.safe, { paddingTop: Math.max(insets.top, 16) }]}>
         <ScreenHeader
           icon={<Bookmark size={26} color={tokens.secondary} strokeWidth={2.5} />}
           title="Watchlist"
@@ -218,7 +218,7 @@ export default function WatchlistScreen() {
           <FlatList
             data={watches}
             keyExtractor={(item) => item.id}
-            contentContainerStyle={styles.listContent}
+            contentContainerStyle={[styles.listContent, { paddingBottom: Math.max(insets.bottom + 100, 120) }]}
             showsVerticalScrollIndicator={false}
             refreshControl={
               <RefreshControl refreshing={isLoading} onRefresh={refetch} tintColor={tokens.secondary} />
@@ -284,7 +284,7 @@ export default function WatchlistScreen() {
             )}
           />
         )}
-      </SafeAreaView>
+      </View>
       {toast}
     </View>
   );
@@ -308,7 +308,7 @@ const styles = StyleSheet.create({
   listContent: {
     gap: 8,
     paddingHorizontal: tokens.spacing.screenPadding,
-    paddingBottom: 120,
+     
   },
   watchCard: {},
   watchInner: {

@@ -28,51 +28,22 @@ export function analyzeStream(
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
-      let pendingEvent = '';
 
       const read = () => {
         if (cancelled) return;
         reader.read().then(({ done, value }) => {
           if (done) { onDone(); return; }
           buffer += decoder.decode(value, { stream: true });
-          // Handle both \r\n and \n line endings
-          const lines = buffer.split(/\r?\n/);
+          const lines = buffer.split('\n');
           buffer = lines.pop() ?? '';
           for (const line of lines) {
-            if (line.startsWith('event: ')) {
-              // Track named SSE event type for the upcoming data line
-              pendingEvent = line.slice(7).trim();
-            } else if (line === '') {
-              // Empty line = end of event block, reset event type
-              pendingEvent = '';
-            } else if (line.startsWith('data: ')) {
-              const dataText = line.slice(6);
-              if (pendingEvent === 'complete') {
-                // Final result — parse as LineageResult
-                try {
-                  const result = JSON.parse(dataText) as LineageResult;
-                  onDone(result);
-                } catch {
-                  onDone();
-                }
-                return;
-              } else if (pendingEvent === 'error') {
-                try {
-                  const data = JSON.parse(dataText) as { detail?: string };
-                  onError?.(new Error(data.detail ?? 'Analysis error'));
-                } catch {
-                  onError?.(new Error(dataText));
-                }
-                onDone();
-                return;
-              } else {
-                // step event — parse as AnalysisStep
-                try {
-                  const step = JSON.parse(dataText) as AnalysisStep;
-                  onStep(step);
-                } catch (e) {
-                  console.warn('[analyzeStream] unparseable SSE data', e);
-                }
+            if (line.startsWith('data: ')) {
+              try {
+                const step = JSON.parse(line.slice(6)) as AnalysisStep;
+                onStep(step);
+                if (step.done) { onDone(); return; }
+              } catch (e) {
+                console.warn('[analyzeStream] unparseable SSE line', e);
               }
             }
           }
@@ -119,50 +90,19 @@ export function chatStream(
     const decoder = new TextDecoder();
     let buffer = '';
     let cancelled = false;
-    let pendingEvent = '';
 
     const read = () => {
       if (cancelled) return;
       reader.read().then(({ done, value }) => {
         if (done) { onDone(); return; }
         buffer += decoder.decode(value, { stream: true });
-        // Handle both \r\n and \n line endings
-        const lines = buffer.split(/\r?\n/);
+        const lines = buffer.split('\n');
         buffer = lines.pop() ?? '';
         for (const line of lines) {
-          if (line.startsWith('event: ')) {
-            pendingEvent = line.slice(7).trim();
-          } else if (line === '') {
-            pendingEvent = '';
-          } else if (line.startsWith('data: ')) {
+          if (line.startsWith('data: ')) {
             const text = line.slice(6);
-            if (pendingEvent === 'done' || text === '[DONE]') {
-              onDone();
-              return;
-            }
-            if (pendingEvent === 'error') {
-              try {
-                const parsed = JSON.parse(text) as { detail?: string };
-                onError?.(new Error(parsed.detail ?? 'Chat error'));
-              } catch {
-                onError?.(new Error(text));
-              }
-              onDone();
-              return;
-            }
-            // token event: extract string from {"text": "..."} object
-            try {
-              const parsed = JSON.parse(text) as unknown;
-              const chunk =
-                typeof parsed === 'string'
-                  ? parsed
-                  : parsed !== null && typeof (parsed as { text?: string }).text === 'string'
-                    ? (parsed as { text: string }).text
-                    : '';
-              if (chunk) onChunk(chunk);
-            } catch {
-              if (text) onChunk(text);
-            }
+            if (text === '[DONE]') { onDone(); return; }
+            try { onChunk(JSON.parse(text) as string); } catch { onChunk(text); }
           }
         }
         read();

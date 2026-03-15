@@ -3,12 +3,12 @@ import {
   View,
   Text,
   StyleSheet,
-  SafeAreaView,
   TouchableOpacity,
   RefreshControl,
   ScrollView,
   Dimensions,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { FlashList } from '@shopify/flash-list';
 import Svg, { Line, Rect, Text as SvgText, G, Path } from 'react-native-svg';
 import { useLocalSearchParams, router, Stack } from 'expo-router';
@@ -186,6 +186,7 @@ function FlowGraph({ flows }: { flows: SolFlowEdge[] }) {
 // ── Screen ────────────────────────────────────────────────────────────────────
 
 export default function SolTraceScreen() {
+  const insets = useSafeAreaInsets();
   const { mint } = useLocalSearchParams<{ mint: string }>();
   const { data, isLoading, error, refetch } = useSolTrace(mint ?? '');
   const [showAllTerminal, setShowAllTerminal] = useState(false);
@@ -198,7 +199,7 @@ export default function SolTraceScreen() {
     <View style={styles.container}>
       <AuroraBackground />
       <Stack.Screen options={{ headerShown: false }} />
-      <SafeAreaView style={styles.safe}>
+      <View style={styles.safe}>
         <View style={styles.navbar}>
           <TouchableOpacity
             onPress={() => router.back()}
@@ -335,7 +336,7 @@ export default function SolTraceScreen() {
             }
           />
         )}
-      </SafeAreaView>
+      </View>
     </View>
   );
 }

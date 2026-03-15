@@ -4,11 +4,11 @@ import {
   Text,
   ScrollView,
   StyleSheet,
-  SafeAreaView,
   TouchableOpacity,
   Image,
   RefreshControl,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router, Stack } from 'expo-router';
 import {
   ChevronLeft,
@@ -45,6 +45,7 @@ const RISK_COLOR: Record<string, string> = {
 };
 
 export default function TokenScreen() {
+  const insets = useSafeAreaInsets();
   const { mint } = useLocalSearchParams<{ mint: string }>();
   const { data, isLoading, error, refetch } = useLineage(mint ?? '');
   const { showToast, toast } = useToast();
@@ -78,7 +79,7 @@ export default function TokenScreen() {
     <View style={styles.container}>
       <AuroraBackground />
       <Stack.Screen options={{ headerShown: false }} />
-      <SafeAreaView style={styles.safe}>
+      <View style={styles.safe}>
         {/* Nav bar */}
         <View style={styles.navbar}>
           <TouchableOpacity onPress={() => router.back()} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
@@ -330,7 +331,7 @@ export default function TokenScreen() {
             </Animated.View>
           )}
         </ScrollView>
-      </SafeAreaView>
+      </View>
       {toast}
     </View>
   );
