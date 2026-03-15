@@ -12,7 +12,7 @@ import Animated, { FadeInDown, LinearTransition } from 'react-native-reanimated'
 import { Bell, CheckCheck, AlertTriangle, Zap, Skull, BookMarked, Trash2 } from 'lucide-react-native';
 import { Swipeable } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { BalticRoseBackground } from '../../src/components/ui/BalticRoseBackground';
+import { AuroraBackground } from '../../src/components/ui/AuroraBackground';
 import { GlassCard } from '../../src/components/ui/GlassCard';
 import { HapticButton } from '../../src/components/ui/HapticButton';
 import { ScreenHeader } from '../../src/components/ui/ScreenHeader';
@@ -87,7 +87,7 @@ export default function AlertsScreen() {
 
   return (
     <View style={styles.container}>
-      <BalticRoseBackground />
+      <AuroraBackground />
       <View style={[styles.safe, { paddingTop: Math.max(insets.top, 16) }]}>
         <ScreenHeader
           icon={<Bell size={26} color={tokens.secondary} strokeWidth={2.5} />}
@@ -221,7 +221,7 @@ export default function AlertsScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#251D2E' },
+  container: { flex: 1, backgroundColor: tokens.bgMain },
   safe: { flex: 1, paddingHorizontal: tokens.spacing.screenPadding },
 
   chipsRow: {
