@@ -13,6 +13,8 @@ import { useLocalSearchParams, router, Stack } from 'expo-router';
 import {
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
+  ChevronUp,
   Copy,
   Skull,
   AlertTriangle,
@@ -23,6 +25,9 @@ import {
   MessageCircle,
   TrendingUp,
   HelpCircle,
+  ShieldAlert,
+  ShieldCheck,
+  Shield,
 } from 'lucide-react-native';
 import { AuroraBackground } from '../../src/components/ui/AuroraBackground';
 import { GlassCard } from '../../src/components/ui/GlassCard';
@@ -35,11 +40,11 @@ import { useLineage } from '../../src/lib/query';
 import { useAuthStore } from '../../src/store/auth';
 import { addWatch } from '../../src/lib/api';
 import { tokens } from '../../src/theme/tokens';
-import Animated, { FadeInDown } from 'react-native-reanimated';
+import Animated, { FadeInDown, FadeIn } from 'react-native-reanimated';
 import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
 
-// ─── Risk mapping — handles all 6 API values ─────────────────────────────────
+// ─── Risk helpers ─────────────────────────────────────────────────────────────
 
 type RiskLevel = 'low' | 'medium' | 'high' | 'critical' | 'first_rug' | 'insufficient_data';
 
@@ -48,28 +53,20 @@ const RISK_COLOR: Record<RiskLevel, string> = {
   medium: tokens.risk.medium,
   high: tokens.risk.high,
   critical: tokens.risk.critical,
-  first_rug: tokens.risk.high,         // first offence — treat as high
-  insufficient_data: tokens.white35,   // unknown — neutral grey
+  first_rug: tokens.risk.high,
+  insufficient_data: tokens.white35,
 };
 
-// Returns 0-1 for gauge, null hides the gauge entirely
 function riskLevelToScore(level: RiskLevel | undefined): number | null {
   switch (level) {
-    case 'critical':           return 1.0;
-    case 'high':               return 0.75;
-    case 'first_rug':          return 0.70;
-    case 'medium':             return 0.50;
-    case 'low':                return 0.25;
-    case 'insufficient_data':  return null;
-    default:                   return null;
+    case 'critical':          return 1.0;
+    case 'high':              return 0.75;
+    case 'first_rug':         return 0.70;
+    case 'medium':            return 0.50;
+    case 'low':               return 0.25;
+    case 'insufficient_data': return null;
+    default:                  return null;
   }
-}
-
-// Human-readable label for special values
-function riskLevelLabel(level: RiskLevel | undefined): string {
-  if (level === 'first_rug') return 'FIRST RUG';
-  if (level === 'insufficient_data') return 'NO DATA';
-  return level?.toUpperCase() ?? '—';
 }
 
 function fmtMcap(n: number): string {
@@ -82,19 +79,13 @@ function shortAddr(addr: string): string {
   return `${addr.slice(0, 4)}…${addr.slice(-4)}`;
 }
 
-// ─── Hero Image — guards empty string URI + onError fallback ─────────────────
+// ─── Hero Image ───────────────────────────────────────────────────────────────
 
 function HeroImage({ uri, symbol }: { uri?: string; symbol?: string }) {
   const [errored, setErrored] = useState(false);
   const hasUri = !!uri && uri.trim() !== '' && !errored;
   if (hasUri) {
-    return (
-      <Image
-        source={{ uri }}
-        style={styles.heroImg}
-        onError={() => setErrored(true)}
-      />
-    );
+    return <Image source={{ uri }} style={styles.heroImg} onError={() => setErrored(true)} />;
   }
   return (
     <View style={[styles.heroImg, styles.heroImgFallback]}>
@@ -103,13 +94,10 @@ function HeroImage({ uri, symbol }: { uri?: string; symbol?: string }) {
   );
 }
 
-// ─── Data Row — no border on last item ───────────────────────────────────────
+// ─── Data Row ─────────────────────────────────────────────────────────────────
 
 function DataRow({ label, value, valueColor, isLast }: {
-  label: string;
-  value: string;
-  valueColor?: string;
-  isLast?: boolean;
+  label: string; value: string; valueColor?: string; isLast?: boolean;
 }) {
   return (
     <View style={[styles.row, isLast && { borderBottomWidth: 0 }]}>
@@ -127,6 +115,7 @@ export default function TokenScreen() {
   const { data, isLoading, error, refetch } = useLineage(mint ?? '');
   const { showToast, toast } = useToast();
   const submitting = useRef(false);
+  const [showDetails, setShowDetails] = useState(false);
 
   const apiKey = useAuthStore((s) => s.apiKey);
   const addWatchFn = useAuthStore((s) => s.addWatch);
@@ -143,24 +132,44 @@ export default function TokenScreen() {
   const handleWatch = async () => {
     if (!apiKey || !mint || watching || submitting.current) return;
     submitting.current = true;
-    setWatching(true);   // optimistic — immediate guard against double-tap
+    setWatching(true);
     try {
       const w = await addWatch(apiKey, 'mint', mint);
       addWatchFn(w);
     } catch (err) {
-      setWatching(false);  // revert on error
+      setWatching(false);
       submitting.current = false;
       console.error('[handleWatch]', err);
     }
   };
 
-  const riskLevel = data?.death_clock?.risk_level as RiskLevel | undefined;
-  const riskColor = riskLevel ? RISK_COLOR[riskLevel] ?? tokens.white35 : tokens.white35;
-  const riskScore = riskLevelToScore(riskLevel);
+  // ── derived values ──────────────────────────────────────────────────────────
 
+  const riskLevel = data?.death_clock?.risk_level as RiskLevel | undefined;
+  const riskColor = riskLevel ? (RISK_COLOR[riskLevel] ?? tokens.white35) : tokens.white35;
+  const riskScore = riskLevelToScore(riskLevel);
   const mcap = data?.query_token?.market_cap_usd;
 
-  // Bundle verdict color
+  // One-line risk summary sentence (Level 2)
+  const riskSummary = (() => {
+    const parts: string[] = [];
+    const dc = data?.death_clock;
+    const dp = data?.deployer_profile;
+    const br = data?.bundle_report;
+
+    if (dp?.rug_rate_pct != null && dp.rug_rate_pct > 30) {
+      parts.push(`Deployer rugged ${dp.confirmed_rug_count ?? '?'} tokens (${dp.rug_rate_pct.toFixed(0)}% rug rate)`);
+    }
+    if (br?.overall_verdict && br.overall_verdict !== 'early_buyers_no_link_proven') {
+      parts.push(br.overall_verdict.replace(/_/g, ' '));
+    }
+    if (dc?.confidence_note && parts.length === 0) {
+      parts.push(dc.confidence_note);
+    }
+    return parts[0] ?? null;
+  })();
+
+  // Verdict color for bundle
   const verdictColor = (() => {
     const v = data?.bundle_report?.overall_verdict;
     if (!v) return tokens.white60;
@@ -169,34 +178,44 @@ export default function TokenScreen() {
     return tokens.risk.low;
   })();
 
-  // Build bundle rows (to know which is last)
-  const bundleRows: { label: string; value: string; color?: string }[] = [];
+  // Bundle detail rows (excluding verdict — shown in summary)
+  const bundleDetailRows: { label: string; value: string; color?: string }[] = [];
   if (data?.bundle_report) {
-    bundleRows.push({
-      label: 'Verdict',
-      value: data.bundle_report.overall_verdict.toUpperCase().replace(/_/g, ' '),
-      color: verdictColor,
-    });
     if (data.bundle_report.total_sol_extracted_confirmed != null) {
-      bundleRows.push({
+      bundleDetailRows.push({
         label: 'SOL extracted',
         value: `${data.bundle_report.total_sol_extracted_confirmed.toFixed(2)} SOL`,
       });
     }
     if ((data.bundle_report.factory_sniper_wallets?.length ?? 0) > 0) {
-      bundleRows.push({
+      bundleDetailRows.push({
         label: 'Sniper wallets',
         value: `${data.bundle_report.factory_sniper_wallets!.length} detected`,
       });
     }
   }
 
+  // Whether there are any details to show at all
+  const hasDetails =
+    (data?.bundle_report?.evidence_chain?.length ?? 0) > 0 ||
+    !!data?.deployer_profile ||
+    bundleDetailRows.length > 0 ||
+    !!data?.sol_flow ||
+    !!data?.cartel_report?.deployer_community?.community_id;
+
+  // Risk icon for summary card
+  const RiskIcon = riskLevel === 'low'
+    ? ShieldCheck
+    : riskLevel === 'insufficient_data'
+    ? Shield
+    : ShieldAlert;
+
   return (
     <View style={styles.container}>
       <AuroraBackground />
       <Stack.Screen options={{ headerShown: false }} />
 
-      {/* Safe area navbar */}
+      {/* ── Navbar ── */}
       <View style={[styles.navbar, { paddingTop: Math.max(insets.top, 16) }]}>
         <TouchableOpacity onPress={() => router.back()} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
           <ChevronLeft size={24} color={tokens.white100} />
@@ -217,12 +236,14 @@ export default function TokenScreen() {
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={isLoading} onRefresh={refetch} tintColor={tokens.secondary} />}
       >
+        {/* Loading */}
         {isLoading && (
           <GlassCard>
             <SkeletonBlock lines={3} />
           </GlassCard>
         )}
 
+        {/* Error */}
         {!isLoading && error && (
           <GlassCard>
             <Text style={styles.errorText}>Could not load token. Is the mint address valid?</Text>
@@ -232,13 +253,19 @@ export default function TokenScreen() {
         {data && !isLoading && (
           <Animated.View entering={FadeInDown.duration(350).springify()} style={styles.sections}>
 
-            {/* ── Hero card ── */}
+            {/* ════════════════════════════════════════
+                LEVEL 1 — Hero  (image · name · gauge)
+                ════════════════════════════════════════ */}
             <GlassCard style={styles.heroCard}>
               <View style={styles.heroRow}>
                 <HeroImage uri={data.query_token?.image_uri} symbol={data.query_token?.symbol} />
+
                 <View style={styles.heroInfo}>
-                  <Text style={styles.heroName} numberOfLines={2}>{data.query_token?.name ?? 'Unknown'}</Text>
+                  <Text style={styles.heroName} numberOfLines={2}>
+                    {data.query_token?.name ?? 'Unknown'}
+                  </Text>
                   <Text style={styles.heroSymbol}>{data.query_token?.symbol ?? '—'}</Text>
+
                   <View style={styles.heroMeta}>
                     {mcap != null && mcap > 0 && (
                       <View style={styles.mcapPill}>
@@ -247,10 +274,13 @@ export default function TokenScreen() {
                       </View>
                     )}
                     {riskLevel && riskLevel !== 'insufficient_data' && (
-                      <RiskBadge level={riskLevel === 'first_rug' ? 'high' : riskLevel as any} size="sm" />
+                      <RiskBadge
+                        level={riskLevel === 'first_rug' ? 'high' : riskLevel as any}
+                        size="sm"
+                      />
                     )}
                   </View>
-                  {/* Mint address row */}
+
                   <TouchableOpacity
                     onPress={() => handleCopy(mint ?? '', 'Mint address')}
                     style={styles.mintRow}
@@ -261,25 +291,25 @@ export default function TokenScreen() {
                   </TouchableOpacity>
                 </View>
 
-                {/* Gauge — shown for all levels except insufficient_data */}
+                {/* Gauge */}
                 {riskScore != null ? (
                   <GaugeRing
                     value={riskScore}
                     color={riskColor}
                     size={76}
                     strokeWidth={6}
-                    label={riskLevelLabel(riskLevel).split(' ')[0]}
+                    label={(riskLevel === 'first_rug' ? 'FIRST' : riskLevel?.toUpperCase() ?? '—').split(' ')[0]}
                     sublabel="RISK"
                   />
-                ) : riskLevel === 'insufficient_data' ? (
+                ) : (
                   <View style={styles.noDataGauge}>
                     <HelpCircle size={22} color={tokens.white35} strokeWidth={1.5} />
                     <Text style={styles.noDataLabel}>NO{'\n'}DATA</Text>
                   </View>
-                ) : null}
+                )}
               </View>
 
-              {/* Watch button — static badge when already watching, active button otherwise */}
+              {/* Watch */}
               {apiKey && (
                 watching ? (
                   <View style={styles.watchingBadge}>
@@ -298,7 +328,55 @@ export default function TokenScreen() {
               )}
             </GlassCard>
 
-            {/* ── RUN AI ANALYSIS — prominent, just below hero ── */}
+            {/* ═══════════════════════════════════════════════════
+                LEVEL 2 — Risk summary  (verdict · key signal · CTA)
+                ═══════════════════════════════════════════════════ */}
+
+            {/* Risk summary card — only when we have a meaningful signal */}
+            {riskLevel && riskLevel !== 'insufficient_data' && (
+              <GlassCard style={[
+                styles.summaryCard,
+                { borderColor: `${riskColor}30`, borderWidth: 1 },
+              ]}>
+                <View style={styles.summaryRow}>
+                  <View style={[styles.summaryIconWrap, { backgroundColor: `${riskColor}18` }]}>
+                    <RiskIcon size={20} color={riskColor} strokeWidth={2} />
+                  </View>
+                  <View style={styles.summaryInfo}>
+                    <Text style={[styles.summaryTitle, { color: riskColor }]}>
+                      {riskLevel === 'first_rug' ? 'FIRST RUG DETECTED' : `${riskLevel.toUpperCase()} RISK`}
+                    </Text>
+                    {riskSummary && (
+                      <Text style={styles.summarySubtitle} numberOfLines={2}>{riskSummary}</Text>
+                    )}
+                  </View>
+                </View>
+
+                {/* Quick stats strip */}
+                {(() => {
+                  const stats: { label: string; value: string; color?: string }[] = [];
+                  const dp = data.deployer_profile;
+                  const dc = data.death_clock;
+                  const br = data.bundle_report;
+                  if (dp?.confirmed_rug_count != null) stats.push({ label: 'Rugs', value: String(dp.confirmed_rug_count), color: tokens.risk.critical });
+                  if (dp?.rug_rate_pct != null) stats.push({ label: 'Rug rate', value: `${dp.rug_rate_pct.toFixed(0)}%` });
+                  if (dc?.historical_rug_count != null) stats.push({ label: 'History', value: `${dc.historical_rug_count} rugs` });
+                  if (br?.total_sol_extracted_confirmed != null) stats.push({ label: 'Extracted', value: `${br.total_sol_extracted_confirmed.toFixed(1)} SOL`, color: tokens.accent });
+                  return stats.length > 0 ? (
+                    <View style={styles.statsStrip}>
+                      {stats.slice(0, 3).map((s, i) => (
+                        <View key={i} style={styles.statItem}>
+                          <Text style={[styles.statValue, s.color ? { color: s.color } : undefined]}>{s.value}</Text>
+                          <Text style={styles.statLabel}>{s.label}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  ) : null;
+                })()}
+              </GlassCard>
+            )}
+
+            {/* Primary CTA */}
             <HapticButton
               variant="primary"
               size="lg"
@@ -308,7 +386,7 @@ export default function TokenScreen() {
               <Text style={styles.btnPrimaryText}>RUN AI ANALYSIS</Text>
             </HapticButton>
 
-            {/* ── Family Tree + AI Chat ── */}
+            {/* Secondary actions */}
             <View style={styles.actionRow}>
               <TouchableOpacity
                 style={styles.actionBtn}
@@ -333,132 +411,158 @@ export default function TokenScreen() {
               </TouchableOpacity>
             </View>
 
-            {/* ── Suspicious flags ── */}
-            {(data.bundle_report?.evidence_chain?.length ?? 0) > 0 && (
-              <GlassCard>
-                <Text style={styles.sectionTitle}>SUSPICIOUS FLAGS</Text>
-                <View style={styles.flagsWrap}>
-                  {data.bundle_report!.evidence_chain!.map((flag, i) => (
-                    <View key={i} style={styles.flag}>
-                      <AlertTriangle size={12} color={tokens.accent} />
-                      <Text style={styles.flagText}>{flag}</Text>
-                    </View>
-                  ))}
-                </View>
-              </GlassCard>
+            {/* ══════════════════════════════════════════
+                LEVEL 3 — Full report  (expandable)
+                ══════════════════════════════════════════ */}
+            {hasDetails && (
+              <TouchableOpacity
+                onPress={() => setShowDetails((v) => !v)}
+                activeOpacity={0.75}
+                style={styles.detailsToggle}
+                accessibilityRole="button"
+                accessibilityLabel={showDetails ? 'Hide full report' : 'Show full report'}
+              >
+                <Text style={styles.detailsToggleText}>
+                  {showDetails ? 'Hide full report' : 'Show full report'}
+                </Text>
+                {showDetails
+                  ? <ChevronUp size={15} color={tokens.white35} strokeWidth={2} />
+                  : <ChevronDown size={15} color={tokens.white35} strokeWidth={2} />
+                }
+              </TouchableOpacity>
             )}
 
-            {/* ── Deployer — accent border left ── */}
-            {data.deployer_profile && (
-              <TouchableOpacity
-                onPress={() => router.push(`/deployer/${data.deployer_profile!.address}` as any)}
-                onLongPress={() => handleCopy(data.deployer_profile!.address, 'Deployer address')}
-                delayLongPress={400}
-                activeOpacity={0.75}
-              >
-                <GlassCard
-                  style={[styles.linkCard, { borderLeftColor: `${tokens.secondary}60`, borderLeftWidth: 3 }]}
-                  noPadding
-                >
-                  <View style={styles.linkRow}>
-                    <Users size={18} color={tokens.secondary} />
-                    <View style={styles.linkInfo}>
-                      <Text style={styles.linkLabel}>Deployer Profile</Text>
-                      <Text style={styles.linkAddr} numberOfLines={1}>
-                        {shortAddr(data.deployer_profile.address)}
+            {showDetails && (
+              <Animated.View entering={FadeIn.duration(250)} style={styles.detailsSection}>
+
+                {/* Suspicious flags */}
+                {(data.bundle_report?.evidence_chain?.length ?? 0) > 0 && (
+                  <GlassCard>
+                    <Text style={styles.sectionTitle}>SUSPICIOUS FLAGS</Text>
+                    <View style={styles.flagsWrap}>
+                      {data.bundle_report!.evidence_chain!.map((flag, i) => (
+                        <View key={i} style={styles.flag}>
+                          <AlertTriangle size={12} color={tokens.accent} />
+                          <Text style={styles.flagText}>{flag}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  </GlassCard>
+                )}
+
+                {/* Deployer */}
+                {data.deployer_profile && (
+                  <TouchableOpacity
+                    onPress={() => router.push(`/deployer/${data.deployer_profile!.address}` as any)}
+                    onLongPress={() => handleCopy(data.deployer_profile!.address, 'Deployer address')}
+                    delayLongPress={400}
+                    activeOpacity={0.75}
+                  >
+                    <GlassCard
+                      style={[styles.linkCard, { borderLeftColor: `${tokens.secondary}60`, borderLeftWidth: 3 }]}
+                      noPadding
+                    >
+                      <View style={styles.linkRow}>
+                        <Users size={18} color={tokens.secondary} />
+                        <View style={styles.linkInfo}>
+                          <Text style={styles.linkLabel}>Deployer Profile</Text>
+                          <Text style={styles.linkAddr} numberOfLines={1}>
+                            {shortAddr(data.deployer_profile.address)}
+                          </Text>
+                          {data.deployer_profile.rug_rate_pct != null && (
+                            <Text style={styles.linkMeta}>
+                              Rug rate: {data.deployer_profile.rug_rate_pct.toFixed(0)}%
+                              {data.deployer_profile.confirmed_rug_count != null
+                                ? ` · ${data.deployer_profile.confirmed_rug_count} confirmed rugs`
+                                : ''}
+                            </Text>
+                          )}
+                        </View>
+                        <ChevronRight size={18} color={tokens.white35} />
+                      </View>
+                    </GlassCard>
+                  </TouchableOpacity>
+                )}
+
+                {/* Bundle report details */}
+                {bundleDetailRows.length > 0 && (
+                  <GlassCard>
+                    <View style={[styles.verdictBanner, { backgroundColor: `${verdictColor}18`, borderColor: `${verdictColor}35` }]}>
+                      <Skull size={13} color={verdictColor} />
+                      <Text style={[styles.verdictBannerText, { color: verdictColor }]}>
+                        {data.bundle_report!.overall_verdict.toUpperCase().replace(/_/g, ' ')}
                       </Text>
-                      {data.deployer_profile.rug_rate_pct != null && (
-                        <Text style={styles.linkMeta}>
-                          Rug rate: {data.deployer_profile.rug_rate_pct.toFixed(0)}%
-                          {data.deployer_profile.confirmed_rug_count != null
-                            ? ` · ${data.deployer_profile.confirmed_rug_count} confirmed rugs`
-                            : ''}
-                        </Text>
-                      )}
                     </View>
-                    <ChevronRight size={18} color={tokens.white35} />
-                  </View>
-                </GlassCard>
-              </TouchableOpacity>
-            )}
+                    <Text style={[styles.sectionTitle, { marginTop: 12 }]}>BUNDLE REPORT</Text>
+                    {bundleDetailRows.map((r, i) => (
+                      <DataRow
+                        key={r.label}
+                        label={r.label}
+                        value={r.value}
+                        valueColor={r.color}
+                        isLast={i === bundleDetailRows.length - 1}
+                      />
+                    ))}
+                  </GlassCard>
+                )}
 
-            {/* ── Bundle report ── */}
-            {data.bundle_report && bundleRows.length > 0 && (
-              <GlassCard>
-                {/* Verdict banner */}
-                <View style={[styles.verdictBanner, { backgroundColor: `${verdictColor}18`, borderColor: `${verdictColor}35` }]}>
-                  <Skull size={13} color={verdictColor} />
-                  <Text style={[styles.verdictBannerText, { color: verdictColor }]}>
-                    {data.bundle_report.overall_verdict.toUpperCase().replace(/_/g, ' ')}
-                  </Text>
-                </View>
-                <Text style={[styles.sectionTitle, { marginTop: 12 }]}>BUNDLE REPORT</Text>
-                {bundleRows.slice(1).map((r, i) => (
-                  <DataRow
-                    key={r.label}
-                    label={r.label}
-                    value={r.value}
-                    valueColor={r.color}
-                    isLast={i === bundleRows.slice(1).length - 1}
-                  />
-                ))}
-              </GlassCard>
-            )}
+                {/* SOL Flow */}
+                {data.sol_flow && (
+                  <TouchableOpacity
+                    onPress={() => router.push(`/sol-trace/${mint}` as any)}
+                    activeOpacity={0.75}
+                  >
+                    <GlassCard
+                      style={[styles.linkCard, { borderLeftColor: `${tokens.secondary}60`, borderLeftWidth: 3 }]}
+                      noPadding
+                    >
+                      <View style={styles.linkRow}>
+                        <ArrowUpRight size={18} color={tokens.secondary} />
+                        <View style={styles.linkInfo}>
+                          <Text style={styles.linkLabel}>SOL Flow Trace</Text>
+                          {data.sol_flow.total_extracted_sol != null && (
+                            <Text style={styles.linkMeta}>
+                              {data.sol_flow.total_extracted_sol.toFixed(2)} SOL extracted
+                              {data.sol_flow.hop_count != null ? ` · ${data.sol_flow.hop_count} hops` : ''}
+                            </Text>
+                          )}
+                        </View>
+                        <ChevronRight size={18} color={tokens.white35} />
+                      </View>
+                    </GlassCard>
+                  </TouchableOpacity>
+                )}
 
-            {/* ── SOL Flow — accent border left ── */}
-            {data.sol_flow && (
-              <TouchableOpacity
-                onPress={() => router.push(`/sol-trace/${mint}` as any)}
-                activeOpacity={0.75}
-              >
-                <GlassCard
-                  style={[styles.linkCard, { borderLeftColor: `${tokens.secondary}60`, borderLeftWidth: 3 }]}
-                  noPadding
-                >
-                  <View style={styles.linkRow}>
-                    <ArrowUpRight size={18} color={tokens.secondary} />
-                    <View style={styles.linkInfo}>
-                      <Text style={styles.linkLabel}>SOL Flow Trace</Text>
-                      {data.sol_flow.total_extracted_sol != null && (
-                        <Text style={styles.linkMeta}>
-                          {data.sol_flow.total_extracted_sol.toFixed(2)} SOL extracted
-                          {data.sol_flow.hop_count != null ? ` · ${data.sol_flow.hop_count} hops` : ''}
-                        </Text>
-                      )}
-                    </View>
-                    <ChevronRight size={18} color={tokens.white35} />
-                  </View>
-                </GlassCard>
-              </TouchableOpacity>
-            )}
+                {/* Cartel */}
+                {data.cartel_report?.deployer_community?.community_id && (
+                  <TouchableOpacity
+                    onPress={() => router.push(`/cartel/${data.cartel_report!.deployer_community!.community_id}` as any)}
+                    activeOpacity={0.75}
+                  >
+                    <GlassCard
+                      style={[styles.linkCard, { borderLeftColor: `${tokens.accent}60`, borderLeftWidth: 3 }]}
+                      noPadding
+                    >
+                      <View style={styles.linkRow}>
+                        <Zap size={18} color={tokens.accent} />
+                        <View style={styles.linkInfo}>
+                          <Text style={styles.linkLabel}>Cartel Network</Text>
+                          {data.cartel_report.deployer_community.wallets != null && (
+                            <Text style={styles.linkMeta}>
+                              {data.cartel_report.deployer_community.wallets.length} deployers
+                              {data.cartel_report.deployer_community.estimated_extracted_usd != null
+                                ? ` · ${fmtMcap(data.cartel_report.deployer_community.estimated_extracted_usd)}`
+                                : ''}
+                            </Text>
+                          )}
+                        </View>
+                        <ChevronRight size={18} color={tokens.white35} />
+                      </View>
+                    </GlassCard>
+                  </TouchableOpacity>
+                )}
 
-            {/* ── Cartel — accent border left ── */}
-            {data.cartel_report?.deployer_community?.community_id && (
-              <TouchableOpacity
-                onPress={() => router.push(`/cartel/${data.cartel_report!.deployer_community!.community_id}` as any)}
-                activeOpacity={0.75}
-              >
-                <GlassCard
-                  style={[styles.linkCard, { borderLeftColor: `${tokens.accent}60`, borderLeftWidth: 3 }]}
-                  noPadding
-                >
-                  <View style={styles.linkRow}>
-                    <Zap size={18} color={tokens.accent} />
-                    <View style={styles.linkInfo}>
-                      <Text style={styles.linkLabel}>Cartel Network</Text>
-                      {data.cartel_report.deployer_community.wallets != null && (
-                        <Text style={styles.linkMeta}>
-                          {data.cartel_report.deployer_community.wallets.length} deployers
-                          {data.cartel_report.deployer_community.estimated_extracted_usd != null
-                            ? ` · ${fmtMcap(data.cartel_report.deployer_community.estimated_extracted_usd)}`
-                            : ''}
-                        </Text>
-                      )}
-                    </View>
-                    <ChevronRight size={18} color={tokens.white35} />
-                  </View>
-                </GlassCard>
-              </TouchableOpacity>
+              </Animated.View>
             )}
 
           </Animated.View>
@@ -469,6 +573,8 @@ export default function TokenScreen() {
     </View>
   );
 }
+
+// ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: tokens.bgMain },
@@ -487,231 +593,127 @@ const styles = StyleSheet.create({
     letterSpacing: 1.5,
   },
 
-  content: {
-    paddingHorizontal: tokens.spacing.screenPadding,
-    gap: 12,
-  },
+  content: { paddingHorizontal: tokens.spacing.screenPadding, gap: 12 },
   sections: { gap: 12 },
 
-  // Hero
+  // ── Level 1: Hero ────────────────────────────────────────────────────────────
   heroCard: {},
   heroRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 14 },
   heroImg: { width: 72, height: 72, borderRadius: tokens.radius.md },
-  heroImgFallback: {
-    backgroundColor: tokens.bgGlass12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  heroImgText: {
-    fontFamily: 'Lexend-Bold',
-    fontSize: tokens.font.subheading,
-    color: tokens.white60,
-  },
+  heroImgFallback: { backgroundColor: tokens.bgGlass12, alignItems: 'center', justifyContent: 'center' },
+  heroImgText: { fontFamily: 'Lexend-Bold', fontSize: tokens.font.subheading, color: tokens.white60 },
   heroInfo: { flex: 1, gap: 4 },
-  heroName: {
-    fontFamily: 'Lexend-Bold',
-    fontSize: tokens.font.subheading,
-    color: tokens.white100,
-    lineHeight: 22,
-  },
-  heroSymbol: {
-    fontFamily: 'Lexend-Regular',
-    fontSize: tokens.font.small,
-    color: tokens.white60,
-  },
+  heroName: { fontFamily: 'Lexend-Bold', fontSize: tokens.font.subheading, color: tokens.white100, lineHeight: 22 },
+  heroSymbol: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.small, color: tokens.white60 },
   heroMeta: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 2 },
   mcapPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: `${tokens.secondary}15`,
-    borderRadius: tokens.radius.pill,
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-    borderWidth: 1,
-    borderColor: `${tokens.secondary}25`,
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    backgroundColor: `${tokens.secondary}15`, borderRadius: tokens.radius.pill,
+    paddingHorizontal: 7, paddingVertical: 3,
+    borderWidth: 1, borderColor: `${tokens.secondary}25`,
   },
-  mcapText: {
-    fontFamily: 'Lexend-SemiBold',
-    fontSize: tokens.font.tiny,
-    color: tokens.secondary,
-  },
-  mintRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    marginTop: 4,
-  },
-  mintAddr: {
-    fontFamily: 'Lexend-Regular',
-    fontSize: tokens.font.tiny,
-    color: tokens.white35,
-    letterSpacing: 0.3,
-  },
+  mcapText: { fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.tiny, color: tokens.secondary },
+  mintRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 4 },
+  mintAddr: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny, color: tokens.white35, letterSpacing: 0.3 },
   noDataGauge: {
-    width: 76,
-    height: 76,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 4,
-    borderRadius: 38,
-    borderWidth: 1.5,
-    borderColor: tokens.borderSubtle,
-    borderStyle: 'dashed',
+    width: 76, height: 76, alignItems: 'center', justifyContent: 'center', gap: 4,
+    borderRadius: 38, borderWidth: 1.5, borderColor: tokens.borderSubtle, borderStyle: 'dashed',
   },
   noDataLabel: {
-    fontFamily: 'Lexend-Regular',
-    fontSize: 9,
-    color: tokens.white35,
-    textAlign: 'center',
-    letterSpacing: 0.5,
-    lineHeight: 11,
+    fontFamily: 'Lexend-Regular', fontSize: 9, color: tokens.white35,
+    textAlign: 'center', letterSpacing: 0.5, lineHeight: 11,
   },
+  watchingBadge: {
+    marginTop: 14, alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: 12, paddingVertical: 6, borderRadius: tokens.radius.pill,
+    backgroundColor: `${tokens.success}15`, borderWidth: 1, borderColor: `${tokens.success}35`,
+  },
+  watchingText: { fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.small, color: tokens.success },
 
-  // Section title
+  // ── Level 2: Summary card ────────────────────────────────────────────────────
+  summaryCard: {},
+  summaryRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  summaryIconWrap: {
+    width: 44, height: 44, borderRadius: tokens.radius.sm,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  summaryInfo: { flex: 1 },
+  summaryTitle: { fontFamily: 'Lexend-Bold', fontSize: tokens.font.body, letterSpacing: 0.5 },
+  summarySubtitle: {
+    fontFamily: 'Lexend-Regular', fontSize: tokens.font.small,
+    color: tokens.white60, marginTop: 3, lineHeight: 17,
+  },
+  statsStrip: {
+    flexDirection: 'row', marginTop: 14, paddingTop: 12,
+    borderTopWidth: 1, borderTopColor: tokens.borderSubtle, gap: 0,
+  },
+  statItem: { flex: 1, alignItems: 'center', gap: 2 },
+  statValue: { fontFamily: 'Lexend-Bold', fontSize: tokens.font.body, color: tokens.white100 },
+  statLabel: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny, color: tokens.white35, letterSpacing: 0.4 },
+
+  // ── Level 2: Actions ─────────────────────────────────────────────────────────
+  actionRow: {
+    flexDirection: 'row', borderRadius: tokens.radius.md,
+    borderWidth: 1, borderColor: tokens.borderSubtle,
+    backgroundColor: tokens.bgGlass8, overflow: 'hidden',
+  },
+  actionBtn: {
+    flex: 1, flexDirection: 'row', alignItems: 'center',
+    justifyContent: 'center', gap: 8, paddingVertical: 14,
+  },
+  actionBtnText: {
+    fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.small,
+    color: tokens.secondary, letterSpacing: 0.3,
+  },
+  actionDivider: { width: 1, backgroundColor: tokens.borderSubtle },
+
+  // ── Level 3: Expandable ──────────────────────────────────────────────────────
+  detailsToggle: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 6, paddingVertical: 12,
+  },
+  detailsToggleText: {
+    fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.small,
+    color: tokens.white35, letterSpacing: 0.4,
+  },
+  detailsSection: { gap: 12 },
+
+  // Shared detail styles
   sectionTitle: {
-    fontFamily: 'Lexend-SemiBold',
-    fontSize: tokens.font.small,
-    color: tokens.white60,
-    letterSpacing: 1,
-    marginBottom: 10,
+    fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.small,
+    color: tokens.white60, letterSpacing: 1, marginBottom: 10,
   },
-
-  // Flags
   flagsWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   flag: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: `${tokens.accent}15`,
-    borderRadius: tokens.radius.pill,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderWidth: 1,
-    borderColor: `${tokens.accent}30`,
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    backgroundColor: `${tokens.accent}15`, borderRadius: tokens.radius.pill,
+    paddingHorizontal: 10, paddingVertical: 4,
+    borderWidth: 1, borderColor: `${tokens.accent}30`,
   },
-  flagText: {
-    fontFamily: 'Lexend-Regular',
-    fontSize: tokens.font.tiny,
-    color: tokens.accent,
-  },
-
-  // Verdict banner
+  flagText: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny, color: tokens.accent },
   verdictBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 7,
-    borderWidth: 1,
-    borderRadius: tokens.radius.sm,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    flexDirection: 'row', alignItems: 'center', gap: 7,
+    borderWidth: 1, borderRadius: tokens.radius.sm,
+    paddingHorizontal: 12, paddingVertical: 8,
   },
-  verdictBannerText: {
-    fontFamily: 'Lexend-SemiBold',
-    fontSize: tokens.font.small,
-    letterSpacing: 0.8,
-  },
-
-  // Data rows
+  verdictBannerText: { fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.small, letterSpacing: 0.8 },
   row: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingVertical: 6,
-    borderBottomWidth: 1,
-    borderBottomColor: tokens.borderSubtle,
+    flexDirection: 'row', justifyContent: 'space-between',
+    paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: tokens.borderSubtle,
   },
   key: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.body, color: tokens.white60 },
   val: { fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.body, color: tokens.white100 },
-
-  // Link cards
   linkCard: {},
   linkRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: tokens.spacing.cardPadding,
-    gap: 12,
+    flexDirection: 'row', alignItems: 'center',
+    padding: tokens.spacing.cardPadding, gap: 12,
   },
   linkInfo: { flex: 1 },
-  linkLabel: {
-    fontFamily: 'Lexend-SemiBold',
-    fontSize: tokens.font.body,
-    color: tokens.white100,
-  },
-  linkAddr: {
-    fontFamily: 'Lexend-Regular',
-    fontSize: tokens.font.tiny,
-    color: tokens.white35,
-    marginTop: 2,
-  },
-  linkMeta: {
-    fontFamily: 'Lexend-Regular',
-    fontSize: tokens.font.small,
-    color: tokens.white60,
-    marginTop: 2,
-  },
+  linkLabel: { fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.body, color: tokens.white100 },
+  linkAddr: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny, color: tokens.white35, marginTop: 2 },
+  linkMeta: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.small, color: tokens.white60, marginTop: 2 },
+  errorText: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.body, color: tokens.accent, textAlign: 'center' },
 
-  // Error
-  errorText: {
-    fontFamily: 'Lexend-Regular',
-    fontSize: tokens.font.body,
-    color: tokens.accent,
-    textAlign: 'center',
-  },
-
-  // Action row
-  actionRow: {
-    flexDirection: 'row',
-    borderRadius: tokens.radius.md,
-    borderWidth: 1,
-    borderColor: tokens.borderSubtle,
-    backgroundColor: tokens.bgGlass8,
-    overflow: 'hidden',
-  },
-  actionBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    paddingVertical: 14,
-  },
-  actionBtnText: {
-    fontFamily: 'Lexend-SemiBold',
-    fontSize: tokens.font.small,
-    color: tokens.secondary,
-    letterSpacing: 0.3,
-  },
-  actionDivider: {
-    width: 1,
-    backgroundColor: tokens.borderSubtle,
-  },
-
-  watchingBadge: {
-    marginTop: 14,
-    alignSelf: 'flex-start',
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: tokens.radius.pill,
-    backgroundColor: `${tokens.success}15`,
-    borderWidth: 1,
-    borderColor: `${tokens.success}35`,
-  },
-  watchingText: {
-    fontFamily: 'Lexend-SemiBold',
-    fontSize: tokens.font.small,
-    color: tokens.success,
-  },
-  btnSecondaryText: {
-    fontFamily: 'Lexend-SemiBold',
-    fontSize: tokens.font.small,
-    color: tokens.primary,
-  },
-  btnPrimaryText: {
-    fontFamily: 'Lexend-Bold',
-    fontSize: tokens.font.body,
-    color: tokens.white100,
-    letterSpacing: 0.5,
-  },
+  btnSecondaryText: { fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.small, color: tokens.primary },
+  btnPrimaryText: { fontFamily: 'Lexend-Bold', fontSize: tokens.font.body, color: tokens.white100, letterSpacing: 0.5 },
 });
