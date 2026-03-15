@@ -510,14 +510,14 @@ export default function RadarScreen() {
             )}
           </Animated.View>
 
-          {/* ── Top Tokens 24h ── */}
+          {/* ── Most Scanned 24h ── */}
           <Animated.View
             entering={FadeInDown.delay(180).duration(400)}
             style={[styles.section, { marginTop: 24 }]}
           >
             <View style={styles.sectionHeader}>
               <TrendingUp size={14} color={tokens.secondary} />
-              <Text style={styles.sectionTitle}>TOP TOKENS 24H</Text>
+              <Text style={styles.sectionTitle}>MOST SCANNED 24H</Text>
               {!topLoading && (topTokens ?? []).length > 0 && (
                 <Text style={styles.feedTag}>{(topTokens ?? []).length} TOKENS</Text>
               )}
