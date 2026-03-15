@@ -515,7 +515,7 @@ export default function RadarScreen() {
           {/* ── Most Scanned 24h ── */}
           <Animated.View
             entering={FadeInDown.delay(180).duration(400)}
-            style={[styles.section, { marginTop: 12 }]}
+            style={[styles.section, { marginTop: 4 }]}
           >
             <View style={styles.sectionHeader}>
               <TrendingUp size={14} color={tokens.secondary} />
@@ -621,7 +621,7 @@ const styles = StyleSheet.create({
   watchBtnActive: { borderColor: `${tokens.success}50`, backgroundColor: `${tokens.success}12` },
   emptyFeedCard: { alignItems: 'center', paddingVertical: 20 },
   emptyFeedText: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.small, color: tokens.white35, textAlign: 'center' },
-  emptyContainer: { alignItems: 'center', paddingVertical: 32, gap: 14 },
+  emptyContainer: { alignItems: 'center', paddingVertical: 20, gap: 14 },
   pulseContainer: { width: SONAR_SIZE, height: SONAR_SIZE, alignItems: 'center', justifyContent: 'center' },
   sonarContainer: { width: SONAR_SIZE, height: SONAR_SIZE, alignItems: 'center', justifyContent: 'center' },
   sonarRing: { position: 'absolute', borderWidth: 1, borderColor: `${tokens.secondary}15` },
