@@ -279,16 +279,22 @@ export default function TokenScreen() {
                 ) : null}
               </View>
 
-              {/* Watch button */}
+              {/* Watch button — static badge when already watching, active button otherwise */}
               {apiKey && (
-                <HapticButton
-                  variant={watching ? 'ghost' : 'secondary'}
-                  size="sm"
-                  onPress={handleWatch}
-                  style={{ marginTop: 14 }}
-                >
-                  {watching ? 'Watching ✓' : 'Watch Token'}
-                </HapticButton>
+                watching ? (
+                  <View style={styles.watchingBadge}>
+                    <Text style={styles.watchingText}>Watching ✓</Text>
+                  </View>
+                ) : (
+                  <HapticButton
+                    variant="secondary"
+                    size="sm"
+                    onPress={handleWatch}
+                    style={{ marginTop: 14 }}
+                  >
+                    <Text style={styles.btnSecondaryText}>Watch Token</Text>
+                  </HapticButton>
+                )
               )}
             </GlassCard>
 
@@ -299,7 +305,7 @@ export default function TokenScreen() {
               fullWidth
               onPress={() => router.push(`/analysis/${mint}` as any)}
             >
-              RUN AI ANALYSIS
+              <Text style={styles.btnPrimaryText}>RUN AI ANALYSIS</Text>
             </HapticButton>
 
             {/* ── Family Tree + AI Chat ── */}
@@ -678,5 +684,34 @@ const styles = StyleSheet.create({
   actionDivider: {
     width: 1,
     backgroundColor: tokens.borderSubtle,
+  },
+
+  watchingBadge: {
+    marginTop: 14,
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: tokens.radius.pill,
+    backgroundColor: `${tokens.success}15`,
+    borderWidth: 1,
+    borderColor: `${tokens.success}35`,
+  },
+  watchingText: {
+    fontFamily: 'Lexend-SemiBold',
+    fontSize: tokens.font.small,
+    color: tokens.success,
+  },
+  btnSecondaryText: {
+    fontFamily: 'Lexend-SemiBold',
+    fontSize: tokens.font.small,
+    color: tokens.primary,
+  },
+  btnPrimaryText: {
+    fontFamily: 'Lexend-Bold',
+    fontSize: tokens.font.body,
+    color: tokens.white100,
+    letterSpacing: 0.5,
   },
 });
