@@ -5,9 +5,10 @@ import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { StyleSheet, View } from 'react-native';
+import { StyleSheet, View, AppState } from 'react-native';
 import * as Linking from 'expo-linking';
 import * as Notifications from 'expo-notifications';
+import { checkWatchedTokenAlerts } from '../src/lib/notifications';
 import { tokens } from '../src/theme/tokens';
 import { ErrorBoundary } from '../src/components/ui/ErrorBoundary';
 import { useAuthStore } from '../src/store/auth';
@@ -59,6 +60,12 @@ export default function RootLayout() {
         shouldSetBadge: false,
       }),
     });
+
+    // Check watched tokens for risk signals when app comes to foreground
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') checkWatchedTokenAlerts();
+    });
+    return () => sub.remove();
   }, []);
 
   useEffect(() => {

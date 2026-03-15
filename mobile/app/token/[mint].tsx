@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -30,6 +30,7 @@ import {
   Shield,
 } from 'lucide-react-native';
 import { AuroraBackground } from '../../src/components/ui/AuroraBackground';
+import { DeathClockCard } from '../../src/components/ui/DeathClockCard';
 import { GlassCard } from '../../src/components/ui/GlassCard';
 import { RiskBadge } from '../../src/components/ui/RiskBadge';
 import { GaugeRing } from '../../src/components/ui/GaugeRing';
@@ -116,6 +117,15 @@ export default function TokenScreen() {
   const { showToast, toast } = useToast();
   const submitting = useRef(false);
   const [showDetails, setShowDetails] = useState(false);
+  const reportExpandMint = useAuthStore((s) => s.reportExpandMint);
+  const setReportExpandMint = useAuthStore((s) => s.setReportExpandMint);
+
+  useEffect(() => {
+    if (reportExpandMint === mint) {
+      setShowDetails(true);
+      setReportExpandMint(null);
+    }
+  }, [reportExpandMint, mint]);
 
   const apiKey = useAuthStore((s) => s.apiKey);
   const addWatchFn = useAuthStore((s) => s.addWatch);
@@ -147,20 +157,26 @@ export default function TokenScreen() {
 
   const riskLevel = data?.death_clock?.risk_level as RiskLevel | undefined;
 
-  // Fallback risk level — cascades through all available signals
+  // Fallback risk level — cascades through ALL available signals
   const displayRiskLevel: RiskLevel = (() => {
-    // 1. death_clock — primary source
+    // 1. death_clock — primary predictive source
     if (riskLevel && riskLevel !== 'insufficient_data') return riskLevel;
-    // 2. bundle_report verdict
+    // 2. insider_sell — live market reality (deployer exited = confirmed rug-in-progress)
+    const ins = data?.insider_sell;
+    if (ins?.verdict === 'insider_dump' && ins?.deployer_exited) return 'critical';
+    if (ins?.verdict === 'insider_dump') return 'high';
+    if (ins?.flags?.includes('PRICE_CRASH') && (ins?.sell_pressure_24h ?? 0) > 0.4) return 'high';
+    if (ins?.verdict === 'suspicious') return 'medium';
+    // 3. bundle_report verdict
     const verdict = data?.bundle_report?.overall_verdict;
     if (verdict === 'confirmed_team_extraction') return 'critical';
     if (verdict === 'suspected_team_extraction' || verdict === 'coordinated_dump_unknown_team') return 'high';
-    // 3. deployer rug rate
+    // 4. deployer rug rate
     const rugRate = data?.deployer_profile?.rug_rate_pct;
     if (rugRate != null && rugRate > 70) return 'critical';
     if (rugRate != null && rugRate > 40) return 'high';
     if (rugRate != null && rugRate > 15) return 'medium';
-    // 4. final fallback — token exists but no analysis data yet
+    // 5. final fallback — token exists but no signal data yet
     return 'insufficient_data';
   })();
 
@@ -168,23 +184,33 @@ export default function TokenScreen() {
   const riskScore = riskLevelToScore(displayRiskLevel);
   const mcap = data?.query_token?.market_cap_usd;
 
-  // One-line risk summary sentence (Level 2)
+  // One-line risk summary sentence (Level 2) — strongest signal wins
   const riskSummary = (() => {
-    const parts: string[] = [];
-    const dc = data?.death_clock;
+    const ins = data?.insider_sell;
     const dp = data?.deployer_profile;
     const br = data?.bundle_report;
+    const dc = data?.death_clock;
+    const sf = data?.sol_flow;
 
+    // Insider dump is the most urgent real-time signal
+    if (ins?.verdict === 'insider_dump' && ins?.deployer_exited) {
+      const price = ins.price_change_24h != null ? ` · ${ins.price_change_24h.toFixed(0)}% 24h` : '';
+      return `Deployer exited — insider dump confirmed${price}`;
+    }
+    if (ins?.verdict === 'insider_dump') {
+      return `Insider dump detected · ${((ins.sell_pressure_24h ?? 0) * 100).toFixed(0)}% sell pressure`;
+    }
+    if (sf?.total_extracted_sol != null && sf.total_extracted_sol > 10) {
+      return `${sf.total_extracted_sol.toFixed(1)} SOL extracted via ${sf.hop_count ?? '?'}-hop chain`;
+    }
     if (dp?.rug_rate_pct != null && dp.rug_rate_pct > 30) {
-      parts.push(`Deployer rugged ${dp.confirmed_rug_count ?? '?'} tokens (${dp.rug_rate_pct.toFixed(0)}% rug rate)`);
+      return `Deployer rugged ${dp.confirmed_rug_count ?? '?'} tokens (${dp.rug_rate_pct.toFixed(0)}% rug rate)`;
     }
     if (br?.overall_verdict && br.overall_verdict !== 'early_buyers_no_link_proven') {
-      parts.push(br.overall_verdict.replace(/_/g, ' '));
+      return br.overall_verdict.replace(/_/g, ' ');
     }
-    if (dc?.confidence_note && parts.length === 0) {
-      parts.push(dc.confidence_note);
-    }
-    return parts[0] ?? null;
+    if (dc?.confidence_note) return dc.confidence_note;
+    return null;
   })();
 
   // Verdict color for bundle
@@ -215,6 +241,8 @@ export default function TokenScreen() {
 
   // Whether there are any details to show at all
   const hasDetails =
+    !!data?.death_clock ||
+    !!data?.insider_sell ||
     (data?.bundle_report?.evidence_chain?.length ?? 0) > 0 ||
     !!data?.deployer_profile ||
     bundleDetailRows.length > 0 ||
@@ -456,6 +484,18 @@ export default function TokenScreen() {
 
             {showDetails && (
               <Animated.View entering={FadeIn.duration(250)} style={styles.detailsSection}>
+
+                {/* Death Clock — AI Analysis result */}
+                {(data.death_clock || data.insider_sell) && (
+                  <DeathClockCard
+                    dc={data.death_clock ?? null}
+                    riskColor={riskColor}
+                    insiderSell={data.insider_sell ?? null}
+                    solExtracted={data.sol_flow?.total_extracted_sol ?? null}
+                    bundleVerdict={data.bundle_report?.overall_verdict ?? null}
+                    deployerProfile={data.deployer_profile ?? null}
+                  />
+                )}
 
                 {/* Suspicious flags */}
                 {(data.bundle_report?.evidence_chain?.length ?? 0) > 0 && (
@@ -749,4 +789,5 @@ const styles = StyleSheet.create({
     fontFamily: 'Lexend-Bold', fontSize: tokens.font.tiny,
     color: tokens.white35, letterSpacing: 0.8,
   },
+
 });

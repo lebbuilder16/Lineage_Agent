@@ -13,6 +13,7 @@ interface AuthState {
   scanCount: number;
   hydrated: boolean;
   recentSearches: string[];
+  reportExpandMint: string | null;
   setApiKey: (key: string | null) => void;
   setUser: (user: User | null) => void;
   setWatches: (watches: Watch[]) => void;
@@ -21,6 +22,7 @@ interface AuthState {
   incrementScanCount: () => void;
   addRecentSearch: (mint: string) => void;
   clearRecentSearches: () => void;
+  setReportExpandMint: (mint: string | null) => void;
   hydrate: () => Promise<void>;
 }
 
@@ -31,6 +33,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   scanCount: 0,
   hydrated: false,
   recentSearches: [],
+  reportExpandMint: null,
 
   setApiKey: (key) => {
     if (key) {
@@ -69,6 +72,8 @@ export const useAuthStore = create<AuthState>((set) => ({
     SecureStore.deleteItemAsync(LS_RECENT_KEY).catch(() => {});
     set({ recentSearches: [] });
   },
+
+  setReportExpandMint: (mint) => set({ reportExpandMint: mint }),
 
   hydrate: async () => {
     try {
