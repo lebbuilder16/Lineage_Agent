@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -52,7 +52,10 @@ export default function RadarScreen() {
   const setWsConnected = useAlertsStore((s) => s.setWsConnected);
   const wsConnected = useAlertsStore((s) => s.wsConnected);
   const markRead = useAlertsStore((s) => s.markRead);
-  const recentAlerts = useAlertsStore((s) => s.alerts.slice(0, 3));
+  // Select the raw array (stable reference), slice in useMemo — avoids
+  // Zustand returning a new array on every render which causes an infinite loop
+  const allAlerts = useAlertsStore((s) => s.alerts);
+  const recentAlerts = useMemo(() => allAlerts.slice(0, 3), [allAlerts]);
   const wsCleanup = useRef<(() => void) | null>(null);
 
   useEffect(() => {
