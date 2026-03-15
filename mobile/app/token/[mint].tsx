@@ -119,6 +119,7 @@ export default function TokenScreen() {
   const [showDetails, setShowDetails] = useState(false);
   const reportExpandMint = useAuthStore((s) => s.reportExpandMint);
   const setReportExpandMint = useAuthStore((s) => s.setReportExpandMint);
+  const autoExpandedRef = useRef(false);
 
   useEffect(() => {
     if (reportExpandMint === mint) {
@@ -182,6 +183,14 @@ export default function TokenScreen() {
 
   const riskColor = displayRiskLevel ? (RISK_COLOR[displayRiskLevel] ?? tokens.white35) : tokens.white35;
   const riskScore = riskLevelToScore(displayRiskLevel);
+
+  // Auto-expand full report for high/critical risk tokens (once, on data load)
+  useEffect(() => {
+    if (!autoExpandedRef.current && data && (displayRiskLevel === 'critical' || displayRiskLevel === 'high')) {
+      autoExpandedRef.current = true;
+      setShowDetails(true);
+    }
+  }, [data, displayRiskLevel]);
   const mcap = data?.query_token?.market_cap_usd;
 
   // One-line risk summary sentence (Level 2) — strongest signal wins
