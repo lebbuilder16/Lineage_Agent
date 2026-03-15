@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { Tabs, usePathname, router } from 'expo-router';
-import { GlassTabBar, type TabName } from '../../src/components/ui/GlassTabBar';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Platform } from 'react-native';
+import { GlassTabBar, type TabName, TAB_BAR_INNER_HEIGHT, TAB_BAR_BOTTOM_MARGIN } from '../../src/components/ui/GlassTabBar';
 import { useAlertsStore } from '../../src/store/alerts';
 import { tokens } from '../../src/theme/tokens';
 
@@ -23,7 +25,15 @@ const PATH_TO_TAB: Record<string, TabName> = {
 
 export default function TabLayout() {
   const pathname = usePathname();
+  const insets = useSafeAreaInsets();
   const unreadCount = useAlertsStore((s) => s.alerts.filter((a) => !a.read).length);
+
+  // Reserve exactly the space the GlassTabBar occupies so no screen ever renders behind it.
+  // Formula: pill visual height + gap above safe-area offset + safe-area bottom.
+  const tabBarClearance =
+    TAB_BAR_INNER_HEIGHT +
+    TAB_BAR_BOTTOM_MARGIN +
+    Math.max(insets.bottom, Platform.select({ ios: 8, android: 8 }) ?? 8);
 
   const activeTab: TabName = PATH_TO_TAB[pathname] ?? 'radar';
 
@@ -33,16 +43,19 @@ export default function TabLayout() {
 
   return (
     <View style={styles.container}>
-      <Tabs
-        screenOptions={{ headerShown: false }}
-        tabBar={() => null}
-      >
-        <Tabs.Screen name="radar" />
-        <Tabs.Screen name="scan" />
-        <Tabs.Screen name="clock" />
-        <Tabs.Screen name="alerts" />
-        <Tabs.Screen name="watchlist" />
-      </Tabs>
+      {/* Shrink the Tabs area so no child screen renders behind the floating bar */}
+      <View style={[styles.screens, { paddingBottom: tabBarClearance }]}>
+        <Tabs
+          screenOptions={{ headerShown: false }}
+          tabBar={() => null}
+        >
+          <Tabs.Screen name="radar" />
+          <Tabs.Screen name="scan" />
+          <Tabs.Screen name="clock" />
+          <Tabs.Screen name="alerts" />
+          <Tabs.Screen name="watchlist" />
+        </Tabs>
+      </View>
       <GlassTabBar
         activeTab={activeTab}
         onPress={handlePress}
@@ -54,4 +67,5 @@ export default function TabLayout() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: tokens.bgMain },
+  screens: { flex: 1 },
 });

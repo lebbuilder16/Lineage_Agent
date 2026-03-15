@@ -27,6 +27,18 @@ import { tokens } from '../../theme/tokens';
 
 export type TabName = 'radar' | 'scan' | 'clock' | 'alerts' | 'watchlist';
 
+/**
+ * Visual height of the tab bar pill (icon + label when active + vertical padding).
+ * Used by _layout.tsx to reserve space so screens never render behind the bar.
+ */
+export const TAB_BAR_INNER_HEIGHT = 64;
+
+/**
+ * The gap (px) between the bottom of the pill and the safe-area bottom offset.
+ * Matches the `+ 12` in the wrapper's `bottom` style.
+ */
+export const TAB_BAR_BOTTOM_MARGIN = 12;
+
 interface Tab {
   name: TabName;
   label: string;
@@ -58,8 +70,8 @@ export function GlassTabBar({
   // Clearance above phone's home indicator / gesture bar
   const bottomOffset = Math.max(insets.bottom, Platform.select({ ios: 8, android: 8 }) ?? 8);
   return (
-    <View style={[styles.wrapper, { bottom: bottomOffset + 12 }, style]}>
-      <BlurView intensity={55} tint="dark" style={styles.blur}>
+    <View style={[styles.wrapper, { bottom: bottomOffset + TAB_BAR_BOTTOM_MARGIN }, style]}>
+      <BlurView intensity={80} tint="dark" style={styles.blur}>
         <View style={styles.inner}>
           {TABS.map((tab) => (
             <TabButton
@@ -151,7 +163,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     paddingHorizontal: 8,
     paddingVertical: 8,
-    backgroundColor: 'rgba(8, 10, 22, 0.70)',
+    backgroundColor: 'rgba(8, 10, 22, 0.94)',
   },
   tabButton: {
     flex: 1,

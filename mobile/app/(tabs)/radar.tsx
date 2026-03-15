@@ -418,9 +418,9 @@ export default function RadarScreen() {
         />
         <ScrollView
           style={styles.scroll}
-          // paddingBottom must clear the GlassTabBar (≈64 px) + its bottom offset (insets.bottom + 12)
-          // plus a comfortable breathing room of 16 px — best practice for floating tab bars.
-          contentContainerStyle={[styles.content, { paddingBottom: Math.max(insets.bottom + 140, 160) }]}
+          // Layout already reserves tab bar space via _layout.tsx paddingBottom.
+          // This padding is just visual breathing room for the last card.
+          contentContainerStyle={[styles.content, { paddingBottom: 24 }]}
           showsVerticalScrollIndicator={false}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={tokens.secondary} />
