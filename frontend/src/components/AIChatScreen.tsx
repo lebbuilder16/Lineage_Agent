@@ -27,6 +27,7 @@ export function AIChatScreen({ selectedToken, onBack }: AIChatScreenProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [streaming, setStreaming] = useState(false);
+  const [keyboardOffset, setKeyboardOffset] = useState(0);
   const bottomRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<(() => void) | null>(null);
 
@@ -37,6 +38,22 @@ export function AIChatScreen({ selectedToken, onBack }: AIChatScreenProps) {
 
   // Cleanup on unmount
   useEffect(() => () => { abortRef.current?.(); }, []);
+
+  // Mobile keyboard offset — track visualViewport resize to push input above keyboard
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const onResize = () => {
+      const offset = window.innerHeight - vv.height - vv.offsetTop;
+      setKeyboardOffset(offset > 0 ? offset : 0);
+    };
+    vv.addEventListener('resize', onResize);
+    vv.addEventListener('scroll', onResize);
+    return () => {
+      vv.removeEventListener('resize', onResize);
+      vv.removeEventListener('scroll', onResize);
+    };
+  }, []);
 
   const sendMessage = async (text = input.trim()) => {
     if (!text || streaming) return;
@@ -162,7 +179,10 @@ export function AIChatScreen({ selectedToken, onBack }: AIChatScreenProps) {
       </div>
 
       {/* Input */}
-      <div className="flex-shrink-0 px-4 pt-2 pb-4">
+      <div
+        className="flex-shrink-0 px-4 pt-2 pb-4"
+        style={{ paddingBottom: keyboardOffset > 0 ? `${keyboardOffset + 8}px` : undefined }}
+      >
         <div className="flex gap-2 items-end">
           <input
             type="text"

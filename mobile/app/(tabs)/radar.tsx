@@ -4,13 +4,13 @@ import {
   Text,
   ScrollView,
   StyleSheet,
-  SafeAreaView,
   TouchableOpacity,
   Image,
   RefreshControl,
 } from 'react-native';
 import { router } from 'expo-router';
 import { Activity, TrendingUp, AlertTriangle, Zap, Radar, Bell } from 'lucide-react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AuroraBackground } from '../../src/components/ui/AuroraBackground';
 import { GlassCard } from '../../src/components/ui/GlassCard';
 import { ScreenHeader } from '../../src/components/ui/ScreenHeader';
@@ -57,6 +57,7 @@ export default function RadarScreen() {
   const allAlerts = useAlertsStore((s) => s.alerts);
   const recentAlerts = useMemo(() => allAlerts.slice(0, 3), [allAlerts]);
   const wsCleanup = useRef<(() => void) | null>(null);
+  const insets = useSafeAreaInsets();
 
   useEffect(() => {
     wsCleanup.current = connectAlertsWS(addAlert, undefined, setWsConnected);
@@ -69,10 +70,10 @@ export default function RadarScreen() {
   return (
     <View style={styles.container}>
       <AuroraBackground />
-      <SafeAreaView style={styles.safe}>
+      <View style={[styles.safe, { paddingTop: Math.max(insets.top, 16) }]}>
         <ScrollView
           style={styles.scroll}
-          contentContainerStyle={styles.content}
+          contentContainerStyle={[styles.content, { paddingBottom: Math.max(insets.bottom + 100, 120) }]}
           showsVerticalScrollIndicator={false}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={tokens.secondary} />}
         >
@@ -177,7 +178,7 @@ export default function RadarScreen() {
                 ))}
           </View>
         </ScrollView>
-      </SafeAreaView>
+      </View>
     </View>
   );
 }
@@ -287,7 +288,7 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: tokens.bgMain },
   safe: { flex: 1 },
   scroll: { flex: 1 },
-  content: { paddingHorizontal: tokens.spacing.screenPadding, paddingBottom: 120 },
+  content: { paddingHorizontal: tokens.spacing.screenPadding },
 
   statsRow: { flexDirection: 'row', gap: 8, marginBottom: 24 },
   statCard: { flex: 1, alignItems: 'center' },

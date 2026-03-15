@@ -96,22 +96,42 @@ export function analyzeStream(
   const url = `${BASE_URL}/analyze/${encodeURIComponent(mint)}/stream`;
   const es = new EventSource(url);
 
-  es.onmessage = (event) => {
+  // Named SSE events require addEventListener — onmessage only fires for unnamed events.
+  es.addEventListener('step', (event) => {
     try {
       const data = JSON.parse(event.data) as AnalysisStep;
       onStep(data);
-      if (data.done) {
-        es.close();
-        onDone();
-      }
     } catch {
       // ignore parse errors
     }
-  };
+  });
 
-  es.onerror = (err) => {
+  es.addEventListener('complete', (event) => {
+    try {
+      const result = JSON.parse(event.data) as LineageResult;
+      es.close();
+      onDone(result);
+    } catch {
+      es.close();
+      onDone();
+    }
+  });
+
+  es.addEventListener('error', (event) => {
     es.close();
-    onError?.(new Error('Stream error: ' + String(err)));
+    try {
+      const data = JSON.parse(event.data) as { detail?: string };
+      onError?.(new Error(data.detail ?? 'Analysis error'));
+    } catch {
+      onError?.(new Error('Analysis error'));
+    }
+    onDone();
+  });
+
+  // Fallback: connection-level error (network failure, CORS, etc.)
+  es.onerror = () => {
+    es.close();
+    onError?.(new Error('SSE connection failed'));
     onDone();
   };
 
@@ -145,19 +165,52 @@ export function chatStream(
     const decoder = new TextDecoder();
     let buffer = '';
     let cancelled = false;
+    let pendingEvent = '';
 
     const read = () => {
       if (cancelled) return;
       reader.read().then(({ done, value }) => {
         if (done) { onDone(); return; }
         buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
+        // Handle both \r\n and \n line endings
+        const lines = buffer.split(/\r?\n/);
         buffer = lines.pop() ?? '';
         for (const line of lines) {
-          if (line.startsWith('data: ')) {
+          if (line.startsWith('event: ')) {
+            // Track SSE event type for the upcoming data line
+            pendingEvent = line.slice(7).trim();
+          } else if (line === '') {
+            // Empty line = end of SSE event block, reset event type
+            pendingEvent = '';
+          } else if (line.startsWith('data: ')) {
             const text = line.slice(6);
-            if (text === '[DONE]') { onDone(); return; }
-            try { onChunk(JSON.parse(text)); } catch { onChunk(text); }
+            if (pendingEvent === 'done' || text === '[DONE]') {
+              onDone();
+              return;
+            }
+            if (pendingEvent === 'error') {
+              try {
+                const parsed = JSON.parse(text) as { detail?: string };
+                onError?.(new Error(parsed.detail ?? 'Chat error'));
+              } catch {
+                onError?.(new Error(text));
+              }
+              onDone();
+              return;
+            }
+            // token event: the backend sends {"text": "<chunk>"} — extract the string
+            try {
+              const parsed = JSON.parse(text) as unknown;
+              const chunk =
+                typeof parsed === 'string'
+                  ? parsed
+                  : parsed !== null && typeof (parsed as { text?: string }).text === 'string'
+                    ? (parsed as { text: string }).text
+                    : '';
+              if (chunk) onChunk(chunk);
+            } catch {
+              if (text) onChunk(text);
+            }
           }
         }
         read();

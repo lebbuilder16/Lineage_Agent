@@ -5,7 +5,6 @@ import {
   FlatList,
   TouchableOpacity,
   StyleSheet,
-  SafeAreaView,
   RefreshControl,
   Alert,
   TextInput,
@@ -14,6 +13,7 @@ import {
 } from 'react-native';
 import { router } from 'expo-router';
 import { Bookmark, Trash2, Plus, Settings, Copy } from 'lucide-react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
 import { Swipeable } from 'react-native-gesture-handler';
@@ -30,6 +30,7 @@ import { tokens } from '../../src/theme/tokens';
 import type { Watch } from '../../src/types/api';
 
 export default function WatchlistScreen() {
+  const insets = useSafeAreaInsets();
   const apiKey = useAuthStore((s) => s.apiKey);
   const setApiKey = useAuthStore((s) => s.setApiKey);
   const { data: watches, isLoading, refetch } = useWatches(apiKey);

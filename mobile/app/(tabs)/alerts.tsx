@@ -6,10 +6,10 @@ import {
   ScrollView,
   TouchableOpacity,
   StyleSheet,
-  SafeAreaView,
 } from 'react-native';
 import { router } from 'expo-router';
 import { Bell, CheckCheck, AlertTriangle, Zap, Skull, BookMarked } from 'lucide-react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AuroraBackground } from '../../src/components/ui/AuroraBackground';
 import { GlassCard } from '../../src/components/ui/GlassCard';
 import { HapticButton } from '../../src/components/ui/HapticButton';
@@ -62,6 +62,7 @@ export default function AlertsScreen() {
   const wsConnected = useAlertsStore((s) => s.wsConnected);
   const unreadCount = useAlertsStore((s) => s.alerts.filter((a) => !a.read).length);
   const [activeFilter, setActiveFilter] = useState<AlertItem['type'] | null>(null);
+  const insets = useSafeAreaInsets();
 
   const filtered = activeFilter ? alerts.filter((a) => a.type === activeFilter) : alerts;
 
@@ -84,7 +85,7 @@ export default function AlertsScreen() {
   return (
     <View style={styles.container}>
       <AuroraBackground />
-      <SafeAreaView style={styles.safe}>
+      <View style={[styles.safe, { paddingTop: Math.max(insets.top, 16) }]}>
         <ScreenHeader
           icon={<Bell size={26} color={tokens.secondary} strokeWidth={2.5} />}
           title="Alerts"
@@ -142,7 +143,7 @@ export default function AlertsScreen() {
           <SectionList
             sections={sections}
             keyExtractor={(item) => item.id}
-            contentContainerStyle={styles.listContent}
+            contentContainerStyle={[styles.listContent, { paddingBottom: Math.max(insets.bottom + 100, 120) }]}
             showsVerticalScrollIndicator={false}
             stickySectionHeadersEnabled={false}
             renderSectionHeader={({ section }) => (
@@ -183,7 +184,7 @@ export default function AlertsScreen() {
             )}
           />
         )}
-      </SafeAreaView>
+      </View>
     </View>
   );
 }
@@ -232,7 +233,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
 
-  listContent: { gap: 8, paddingBottom: 120 },
+  listContent: { gap: 8 },
   sectionLabel: {
     fontFamily: 'Lexend-SemiBold',
     fontSize: tokens.font.small,
