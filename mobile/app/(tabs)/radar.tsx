@@ -76,40 +76,101 @@ function fmtMcap(n: number): string {
 
 // ─── Radar Pulse Animation ───────────────────────────────────────────────────
 
-const PULSE_SIZE = 90;
+const SONAR_SIZE = 160;
+// Blip positions (% of radius, angle in degrees)
+const BLIPS = [
+  { r: 0.45, a: 42 },
+  { r: 0.68, a: 145 },
+  { r: 0.55, a: 235 },
+];
 
-function RadarPulse() {
-  const ring1 = useSharedValue(0);
-  const ring2 = useSharedValue(0);
-  const ring3 = useSharedValue(0);
+function SonarSweep() {
+  const rotation = useSharedValue(0);
+  const blip1 = useSharedValue(0);
+  const blip2 = useSharedValue(0);
+  const blip3 = useSharedValue(0);
 
   useEffect(() => {
-    const cfg = { duration: 2400, easing: Easing.out(Easing.quad) };
-    ring1.value = withRepeat(withTiming(1, cfg), -1, false);
-    ring2.value = withDelay(800, withRepeat(withTiming(1, cfg), -1, false));
-    ring3.value = withDelay(1600, withRepeat(withTiming(1, cfg), -1, false));
+    const CYCLE = 3000;
+    rotation.value = withRepeat(withTiming(1, { duration: CYCLE, easing: Easing.linear }), -1, false);
+    const blipAnim = (sv: typeof blip1, delay: number) => {
+      sv.value = withDelay(delay, withRepeat(
+        withTiming(1, { duration: 600, easing: Easing.out(Easing.quad) }),
+        -1,
+        true,
+      ));
+    };
+    blipAnim(blip1, 0);
+    blipAnim(blip2, 1100);
+    blipAnim(blip3, 2200);
   }, []);
 
-  const r1Style = useAnimatedStyle(() => ({
-    transform: [{ scale: interpolate(ring1.value, [0, 1], [0.4, 2.6]) }],
-    opacity: interpolate(ring1.value, [0, 0.3, 1], [0.7, 0.5, 0]),
+  const armStyle = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${interpolate(rotation.value, [0, 1], [0, 360])}deg` }],
   }));
-  const r2Style = useAnimatedStyle(() => ({
-    transform: [{ scale: interpolate(ring2.value, [0, 1], [0.4, 2.6]) }],
-    opacity: interpolate(ring2.value, [0, 0.3, 1], [0.7, 0.5, 0]),
+  const trail1Style = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${interpolate(rotation.value, [0, 1], [-20, 340])}deg` }],
+    opacity: 0.45,
   }));
-  const r3Style = useAnimatedStyle(() => ({
-    transform: [{ scale: interpolate(ring3.value, [0, 1], [0.4, 2.6]) }],
-    opacity: interpolate(ring3.value, [0, 0.3, 1], [0.7, 0.5, 0]),
+  const trail2Style = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${interpolate(rotation.value, [0, 1], [-40, 320])}deg` }],
+    opacity: 0.18,
   }));
+  const b1Style = useAnimatedStyle(() => ({ opacity: blip1.value, transform: [{ scale: interpolate(blip1.value, [0, 1], [0.6, 1]) }] }));
+  const b2Style = useAnimatedStyle(() => ({ opacity: blip2.value, transform: [{ scale: interpolate(blip2.value, [0, 1], [0.6, 1]) }] }));
+  const b3Style = useAnimatedStyle(() => ({ opacity: blip3.value, transform: [{ scale: interpolate(blip3.value, [0, 1], [0.6, 1]) }] }));
+  const blipStyles = [b1Style, b2Style, b3Style];
+
+  const R = SONAR_SIZE / 2;
 
   return (
-    <View style={styles.pulseContainer}>
-      <Animated.View style={[styles.pulseRing, r1Style]} />
-      <Animated.View style={[styles.pulseRing, r2Style]} />
-      <Animated.View style={[styles.pulseRing, r3Style]} />
-      <View style={styles.pulseDot}>
-        <Radar size={22} color={tokens.secondary} strokeWidth={2} />
+    <View style={styles.sonarContainer}>
+      {/* Grid rings */}
+      {[0.33, 0.6, 0.88].map((ratio, i) => (
+        <View
+          key={i}
+          style={[
+            styles.sonarRing,
+            { width: SONAR_SIZE * ratio, height: SONAR_SIZE * ratio, borderRadius: (SONAR_SIZE * ratio) / 2 },
+          ]}
+        />
+      ))}
+      {/* Crosshairs */}
+      <View style={[styles.sonarCross, { width: SONAR_SIZE, height: 1 }]} />
+      <View style={[styles.sonarCross, { width: 1, height: SONAR_SIZE }]} />
+
+      {/* Sweep trails (behind arm) */}
+      <Animated.View style={[styles.sonarArmWrap, trail2Style]}>
+        <View style={[styles.sonarArm, { backgroundColor: `${tokens.secondary}30` }]} />
+      </Animated.View>
+      <Animated.View style={[styles.sonarArmWrap, trail1Style]}>
+        <View style={[styles.sonarArm, { backgroundColor: `${tokens.secondary}55` }]} />
+      </Animated.View>
+      {/* Main sweep arm */}
+      <Animated.View style={[styles.sonarArmWrap, armStyle]}>
+        <View style={styles.sonarArm} />
+      </Animated.View>
+
+      {/* Blips */}
+      {BLIPS.map((bp, i) => {
+        const rad = (bp.a * Math.PI) / 180;
+        const bx = R + bp.r * R * Math.cos(rad) - 4;
+        const by = R + bp.r * R * Math.sin(rad) - 4;
+        return (
+          <Animated.View
+            key={i}
+            style={[
+              styles.sonarBlip,
+              { left: bx, top: by },
+              blipStyles[i],
+            ]}
+          />
+        );
+      })}
+
+      {/* Centre dot */}
+      <View style={styles.sonarDot}>
+        <Radar size={20} color={tokens.secondary} strokeWidth={2} />
       </View>
     </View>
   );
@@ -289,7 +350,7 @@ function TokenCard({
 function EmptyFeed() {
   return (
     <Animated.View entering={FadeIn.duration(600)} style={styles.emptyContainer}>
-      <RadarPulse />
+      <SonarSweep />
       <Text style={styles.emptyTitle}>Listening to the blockchain…</Text>
       <Text style={styles.emptySubtitle}>
         Live alerts will appear here as threats are detected on-chain.
@@ -340,6 +401,15 @@ export default function RadarScreen() {
     <View style={styles.container}>
       <AuroraBackground />
       <View style={[styles.safe, { paddingTop: Math.max(insets.top, 16) }]}>
+        {/* Header fixed outside scroll so it doesn't move with content */}
+        <ScreenHeader
+          icon={<Radar size={26} color={tokens.secondary} strokeWidth={2.5} />}
+          title="Lineage Agent"
+          subtitle="Live Threat Intelligence"
+          dotConnected={wsConnected}
+          paddingBottom={8}
+          style={{ paddingHorizontal: tokens.spacing.screenPadding }}
+        />
         <ScrollView
           style={styles.scroll}
           contentContainerStyle={[styles.content, { paddingBottom: Math.max(insets.bottom + 100, 120) }]}
@@ -348,15 +418,7 @@ export default function RadarScreen() {
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={tokens.secondary} />
           }
         >
-          {/* Header */}
-          <ScreenHeader
-            icon={<Radar size={26} color={tokens.secondary} strokeWidth={2.5} />}
-            title="Lineage Agent"
-            subtitle="Live Threat Intelligence"
-            dotConnected={wsConnected}
-            paddingBottom={24}
-            style={{ paddingHorizontal: 0 }}
-          />
+          {/* no header here — it's above the ScrollView */}
 
           {/* ── Bento Stats Grid ── */}
           <Animated.View entering={FadeInDown.duration(400)} style={styles.bentoGrid}>
@@ -543,9 +605,14 @@ const styles = StyleSheet.create({
   emptyFeedCard: { alignItems: 'center', paddingVertical: 20 },
   emptyFeedText: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.small, color: tokens.white35, textAlign: 'center' },
   emptyContainer: { alignItems: 'center', paddingVertical: 32, gap: 14 },
-  pulseContainer: { width: PULSE_SIZE, height: PULSE_SIZE, alignItems: 'center', justifyContent: 'center' },
-  pulseRing: { position: 'absolute', width: PULSE_SIZE, height: PULSE_SIZE, borderRadius: PULSE_SIZE / 2, borderWidth: 1.5, borderColor: tokens.secondary },
-  pulseDot: { width: 46, height: 46, borderRadius: 23, backgroundColor: `${tokens.secondary}18`, borderWidth: 1, borderColor: `${tokens.secondary}40`, alignItems: 'center', justifyContent: 'center' },
+  pulseContainer: { width: SONAR_SIZE, height: SONAR_SIZE, alignItems: 'center', justifyContent: 'center' },
+  sonarContainer: { width: SONAR_SIZE, height: SONAR_SIZE, alignItems: 'center', justifyContent: 'center' },
+  sonarRing: { position: 'absolute', borderWidth: 1, borderColor: `${tokens.secondary}15` },
+  sonarCross: { position: 'absolute', backgroundColor: `${tokens.secondary}10` },
+  sonarArmWrap: { position: 'absolute', width: 0, height: 0, left: SONAR_SIZE / 2, top: SONAR_SIZE / 2 },
+  sonarArm: { position: 'absolute', left: 0, top: 0, width: SONAR_SIZE / 2, height: 1.5, backgroundColor: tokens.secondary },
+  sonarBlip: { position: 'absolute', width: 8, height: 8, borderRadius: 4, backgroundColor: tokens.secondary },
+  sonarDot: { width: 40, height: 40, borderRadius: 20, backgroundColor: `${tokens.secondary}18`, borderWidth: 1, borderColor: `${tokens.secondary}50`, alignItems: 'center', justifyContent: 'center' },
   emptyTitle: { fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.body, color: tokens.white80, textAlign: 'center' },
   emptySubtitle: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.small, color: tokens.white35, textAlign: 'center', maxWidth: 260, lineHeight: 18 },
 });

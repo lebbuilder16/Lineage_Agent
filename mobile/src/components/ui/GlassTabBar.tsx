@@ -7,6 +7,7 @@ import {
   Platform,
   ViewStyle,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BlurView } from 'expo-blur';
 import Animated, {
   useSharedValue,
@@ -53,8 +54,11 @@ export function GlassTabBar({
   unreadAlerts = 0,
   style,
 }: GlassTabBarProps) {
+  const insets = useSafeAreaInsets();
+  // Clearance above phone's home indicator / gesture bar
+  const bottomOffset = Math.max(insets.bottom, Platform.select({ ios: 8, android: 8 }) ?? 8);
   return (
-    <View style={[styles.wrapper, style]}>
+    <View style={[styles.wrapper, { bottom: bottomOffset + 12 }, style]}>
       <BlurView intensity={28} tint="dark" style={styles.blur}>
         <View style={styles.inner}>
           {TABS.map((tab) => (
@@ -129,7 +133,6 @@ function TabButton({ tab, isActive, badge, onPress }: TabButtonProps) {
 const styles = StyleSheet.create({
   wrapper: {
     position: 'absolute',
-    bottom: Platform.select({ ios: 24, android: 16 }),
     left: 16,
     right: 16,
     borderRadius: tokens.radius.xl,
