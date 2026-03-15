@@ -12,6 +12,7 @@ import {
   TouchableWithoutFeedback,
 } from 'react-native';
 import { router } from 'expo-router';
+import Animated, { FadeInDown, LinearTransition } from 'react-native-reanimated';
 import { Bookmark, Trash2, Plus, Settings, Copy } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Clipboard from 'expo-clipboard';
@@ -207,13 +208,23 @@ export default function WatchlistScreen() {
             ))}
           </View>
         ) : watches?.length === 0 ? (
-          <View style={styles.empty}>
-            <Bookmark size={48} color={tokens.white20} />
-            <Text style={styles.emptyTitle}>No watches yet</Text>
-            <Text style={styles.emptySub}>
-              Scan a token and tap "Watch" to track deployers and mints.
-            </Text>
-          </View>
+          <Animated.View entering={FadeInDown.springify()} style={styles.empty}>
+            <GlassCard style={styles.emptyCard} noPadding={false}>
+              <View style={styles.emptyIconWrapper}>
+                <Bookmark size={36} color={tokens.secondary} />
+              </View>
+              <Text style={styles.emptyTitle}>Watchlist is empty</Text>
+              <Text style={styles.emptySub}>
+                Build your edge by tracking key tokens and deployers.
+              </Text>
+              <View style={styles.emptyAction}>
+                <HapticButton 
+                  onPress={() => router.push('/(tabs)/scan')} 
+                  variant="primary"
+                >  Discover Tokens  </HapticButton>
+              </View>
+            </GlassCard>
+          </Animated.View>
         ) : (
           <FlatList
             data={watches}
@@ -223,7 +234,8 @@ export default function WatchlistScreen() {
             refreshControl={
               <RefreshControl refreshing={isLoading} onRefresh={refetch} tintColor={tokens.secondary} />
             }
-            renderItem={({ item }) => (
+            renderItem={({ item, index }) => (
+              <Animated.View exiting={FadeInDown} entering={FadeInDown.delay(index * 50).springify()} layout={LinearTransition.springify()}>
               <Swipeable
                 ref={(ref) => { swipeableRefs.current.set(item.id, ref); }}
                 overshootRight={false}
@@ -281,6 +293,7 @@ export default function WatchlistScreen() {
                   </TouchableOpacity>
                 </GlassCard>
                 </Swipeable>
+              </Animated.View>
             )}
           />
         )}
@@ -476,6 +489,28 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 16,
     paddingHorizontal: 32,
+  },
+  emptyCard: {
+    alignItems: 'center',
+    padding: 32,
+    borderWidth: 1,
+    borderColor: tokens.borderSubtle,
+    width: '100%',
+  },
+  emptyIconWrapper: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: `${tokens.secondary}15`,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: `${tokens.secondary}30`,
+  },
+  emptyAction: {
+    marginTop: 24,
+    width: '100%',
   },
   emptyTitle: {
     fontFamily: 'Lexend-SemiBold',

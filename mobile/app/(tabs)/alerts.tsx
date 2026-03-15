@@ -8,7 +8,9 @@ import {
   StyleSheet,
 } from 'react-native';
 import { router } from 'expo-router';
-import { Bell, CheckCheck, AlertTriangle, Zap, Skull, BookMarked } from 'lucide-react-native';
+import Animated, { FadeInDown, LinearTransition } from 'react-native-reanimated';
+import { Bell, CheckCheck, AlertTriangle, Zap, Skull, BookMarked, Trash2 } from 'lucide-react-native';
+import { Swipeable } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AuroraBackground } from '../../src/components/ui/AuroraBackground';
 import { GlassCard } from '../../src/components/ui/GlassCard';
@@ -59,6 +61,7 @@ export default function AlertsScreen() {
   const alerts = useAlertsStore((s) => s.alerts);
   const markRead = useAlertsStore((s) => s.markRead);
   const markAllRead = useAlertsStore((s) => s.markAllRead);
+  const deleteAlert = useAlertsStore((s) => s.deleteAlert);
   const wsConnected = useAlertsStore((s) => s.wsConnected);
   const unreadCount = useAlertsStore((s) => s.alerts.filter((a) => !a.read).length);
   const [activeFilter, setActiveFilter] = useState<AlertItem['type'] | null>(null);
@@ -132,13 +135,25 @@ export default function AlertsScreen() {
         </ScrollView>
 
         {filtered.length === 0 ? (
-          <View style={styles.empty}>
-            <Bell size={48} color={tokens.white20} />
-            <Text style={styles.emptyTitle}>{activeFilter ? `No ${activeFilter} alerts` : 'No alerts yet'}</Text>
-            <Text style={styles.emptySubtitle}>
-              {activeFilter ? 'Try a different filter.' : 'Real-time alerts will appear here automatically.'}
-            </Text>
-          </View>
+          <Animated.View entering={FadeInDown.springify()} style={styles.empty}>
+            <GlassCard style={styles.emptyCard} noPadding={false}>
+              <View style={[styles.emptyIconWrapper, { backgroundColor: activeFilter ? `${tokens.secondary}15` : `${tokens.white100}10`, borderColor: activeFilter ? `${tokens.secondary}30` : `${tokens.white100}20` }]}>
+                <Bell size={36} color={activeFilter ? tokens.secondary : tokens.white60} />
+              </View>
+              <Text style={styles.emptyTitle}>{activeFilter ? `No ${activeFilter} alerts` : 'All clear for now'}</Text>
+              <Text style={styles.emptySubtitle}>
+                {activeFilter ? 'Try clearing your filters to see more.' : 'Your radar is silent. We will notify you when action happens.'}
+              </Text>
+              {activeFilter && (
+                <View style={styles.emptyAction}>
+                  <HapticButton 
+                    onPress={() => setActiveFilter(null)} 
+                    variant="secondary"
+                  >  Clear Filters  </HapticButton>
+                </View>
+              )}
+            </GlassCard>
+          </Animated.View>
         ) : (
           <SectionList
             sections={sections}
@@ -149,17 +164,31 @@ export default function AlertsScreen() {
             renderSectionHeader={({ section }) => (
               <Text style={styles.sectionLabel}>{section.title}</Text>
             )}
-            renderItem={({ item }) => (
-              <TouchableOpacity
-                onPress={() => handlePress(item)}
-                activeOpacity={0.75}
-                accessibilityRole="button"
-                accessibilityLabel={`${item.type} alert: ${item.title ?? item.token_name ?? item.type}. ${item.read ? 'Read' : 'Unread'}`}
-              >
-                <GlassCard
-                  style={[styles.alertCard, !item.read && styles.alertCardUnread]}
-                  noPadding
+            renderItem={({ item, index }) => (
+              <Animated.View exiting={FadeInDown} entering={FadeInDown.delay(index * 50).springify()} layout={LinearTransition.springify()}>
+                <Swipeable
+                  key={item.id}
+                  containerStyle={styles.swipeContainer}
+                  renderRightActions={() => (
+                    <TouchableOpacity
+                      style={styles.deleteAction}
+                      onPress={() => deleteAlert(item.id)}
+                      activeOpacity={0.8}
+                    >
+                      <Trash2 color={tokens.white100} size={20} />
+                    </TouchableOpacity>
+                  )}
                 >
+                  <TouchableOpacity
+                    onPress={() => handlePress(item)}
+                    activeOpacity={0.75}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${item.type} alert: ${item.title ?? item.token_name ?? item.type}. ${item.read ? 'Read' : 'Unread'}`}
+                  >
+                    <GlassCard
+                      style={[styles.alertCard, !item.read && styles.alertCardUnread]}
+                      noPadding
+                    >
                   <View style={styles.alertInner}>
                     <View style={styles.alertIcon}>
                       {ALERT_ICONS[item.type] ?? <Bell size={18} color={tokens.primary} />}
@@ -179,8 +208,10 @@ export default function AlertsScreen() {
                       {!item.read && <View style={styles.unreadDot} />}
                     </View>
                   </View>
-                </GlassCard>
-              </TouchableOpacity>
+                  </GlassCard>
+                  </TouchableOpacity>
+                </Swipeable>
+              </Animated.View>
             )}
           />
         )}
@@ -221,6 +252,26 @@ const styles = StyleSheet.create({
   },
 
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 16, paddingHorizontal: 32 },
+  emptyCard: {
+    alignItems: 'center',
+    padding: 32,
+    borderWidth: 1,
+    borderColor: tokens.borderSubtle,
+    width: '100%',
+  },
+  emptyIconWrapper: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+    borderWidth: 1,
+  },
+  emptyAction: {
+    marginTop: 24,
+    width: '100%',
+  },
   emptyTitle: {
     fontFamily: 'Lexend-SemiBold',
     fontSize: tokens.font.subheading,
@@ -281,5 +332,18 @@ const styles = StyleSheet.create({
     height: 8,
     borderRadius: 4,
     backgroundColor: tokens.secondary,
+  },
+  swipeContainer: {
+    borderRadius: tokens.radius.xl,
+    overflow: 'hidden',
+    marginBottom: 0,
+  },
+  deleteAction: {
+    backgroundColor: tokens.risk.critical,
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: 70,
+    borderTopRightRadius: tokens.radius.xl,
+    borderBottomRightRadius: tokens.radius.xl,
   },
 });

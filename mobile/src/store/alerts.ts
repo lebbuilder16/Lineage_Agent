@@ -8,6 +8,7 @@ interface AlertsState {
   setWsConnected: (connected: boolean) => void;
   markRead: (id: string) => void;
   markAllRead: () => void;
+  deleteAlert: (id: string) => void;
   unreadCount: () => number;
 }
 
@@ -26,6 +27,9 @@ export const useAlertsStore = create<AlertsState>((set, get) => ({
     set((state) => ({
       alerts: state.alerts.map((a) => (a.id === id ? { ...a, read: true } : a)),
     })),
+
+  deleteAlert: (id) =>
+    set((state) => ({ alerts: state.alerts.filter((a) => a.id !== id) })),
 
   markAllRead: () =>
     set((state) => ({ alerts: state.alerts.map((a) => ({ ...a, read: true })) })),
