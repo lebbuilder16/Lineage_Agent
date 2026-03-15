@@ -18,6 +18,11 @@ import {
   Bell,
   BookmarkPlus,
   Check,
+  Zap,
+  Skull,
+  BookMarked,
+  ChevronRight,
+  ScanLine,
 } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, {
@@ -42,7 +47,7 @@ import { useAlertsStore } from '../../src/store/alerts';
 import { useAuthStore } from '../../src/store/auth';
 import { tokens } from '../../src/theme/tokens';
 import { RiskBadge } from '../../src/components/ui/RiskBadge';
-import type { TokenSearchResult, TopToken } from '../../src/types/api';
+import type { TokenSearchResult, TopToken, AlertItem } from '../../src/types/api';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -87,10 +92,26 @@ function fmtMcap(n: number): string {
   return `$${n.toFixed(0)}`;
 }
 
+function fmtCount(n: number): string {
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+  return String(n);
+}
+
+// ─── Alert type icons ─────────────────────────────────────────────────────────
+
+const ALERT_ICONS: Record<AlertItem['type'], React.ReactNode> = {
+  rug: <AlertTriangle size={15} color={tokens.risk.critical} />,
+  bundle: <Zap size={15} color={tokens.risk.high} />,
+  insider: <Zap size={15} color={tokens.risk.medium} />,
+  zombie: <Skull size={15} color={tokens.accent} />,
+  death_clock: <Skull size={15} color={tokens.risk.critical} />,
+  deployer: <BookMarked size={15} color={tokens.secondary} />,
+  narrative: <Bell size={15} color={tokens.secondary} />,
+};
+
 // ─── Radar Pulse Animation ───────────────────────────────────────────────────
 
 const SONAR_SIZE = 160;
-// Blip positions (% of radius, angle in degrees)
 const BLIPS = [
   { r: 0.45, a: 42 },
   { r: 0.68, a: 145 },
@@ -138,7 +159,6 @@ function SonarSweep() {
 
   return (
     <View style={styles.sonarContainer}>
-      {/* Grid rings */}
       {[0.33, 0.6, 0.88].map((ratio, i) => (
         <View
           key={i}
@@ -148,23 +168,17 @@ function SonarSweep() {
           ]}
         />
       ))}
-      {/* Crosshairs */}
       <View style={[styles.sonarCross, { width: SONAR_SIZE, height: 1 }]} />
       <View style={[styles.sonarCross, { width: 1, height: SONAR_SIZE }]} />
-
-      {/* Sweep trails (behind arm) */}
       <Animated.View style={[styles.sonarArmWrap, trail2Style]}>
         <View style={[styles.sonarArm, { backgroundColor: `${tokens.secondary}30` }]} />
       </Animated.View>
       <Animated.View style={[styles.sonarArmWrap, trail1Style]}>
         <View style={[styles.sonarArm, { backgroundColor: `${tokens.secondary}55` }]} />
       </Animated.View>
-      {/* Main sweep arm */}
       <Animated.View style={[styles.sonarArmWrap, armStyle]}>
         <View style={styles.sonarArm} />
       </Animated.View>
-
-      {/* Blips */}
       {BLIPS.map((bp, i) => {
         const rad = (bp.a * Math.PI) / 180;
         const bx = R + bp.r * R * Math.cos(rad) - 4;
@@ -172,16 +186,10 @@ function SonarSweep() {
         return (
           <Animated.View
             key={i}
-            style={[
-              styles.sonarBlip,
-              { left: bx, top: by },
-              blipStyles[i],
-            ]}
+            style={[styles.sonarBlip, { left: bx, top: by }, blipStyles[i]]}
           />
         );
       })}
-
-      {/* Centre dot */}
       <View style={styles.sonarDot}>
         <Radar size={20} color={tokens.secondary} strokeWidth={2} />
       </View>
@@ -229,14 +237,16 @@ function StatCard({
   icon,
   accentColor,
   large,
+  onPress,
 }: {
   label: string;
   value: number | null;
   icon: React.ReactNode;
   accentColor: string;
   large?: boolean;
+  onPress?: () => void;
 }) {
-  return (
+  const inner = (
     <GlassCard
       style={[
         styles.bentoCard,
@@ -248,20 +258,43 @@ function StatCard({
       <View style={styles.bentoIcon}>{icon}</View>
       <NumberTicker value={value} color={accentColor} />
       <Text style={styles.bentoLabel}>{label}</Text>
+      {onPress && (
+        <View style={styles.bentoArrow}>
+          <ChevronRight size={12} color={`${accentColor}60`} strokeWidth={2} />
+        </View>
+      )}
     </GlassCard>
+  );
+
+  if (!onPress) return inner;
+
+  return (
+    <TouchableOpacity
+      onPress={onPress}
+      activeOpacity={0.75}
+      style={{ flex: large ? 1.4 : 1 }}
+      accessibilityRole="button"
+      accessibilityLabel={`Go to ${label}`}
+    >
+      {inner}
+    </TouchableOpacity>
   );
 }
 
-// ─── Token Card with quick-watch ─────────────────────────────────────────────
+// ─── Token Card with rank + scan count + quick-watch ─────────────────────────
 
 function TokenCard({
   token,
   apiKey,
   onPress,
+  rank,
+  scanCount,
 }: {
   token: TokenSearchResult;
   apiKey: string | null;
   onPress: () => void;
+  rank?: number;
+  scanCount?: number;
 }) {
   const addMutation = useAddWatch(apiKey);
   const watches = useAuthStore((s) => s.watches);
@@ -308,6 +341,21 @@ function TokenCard({
         noPadding
       >
         <View style={styles.tokenInner}>
+          {/* Rank badge */}
+          {rank != null && (
+            <View style={styles.rankBadge}>
+              <Text style={[
+                styles.rankText,
+                rank === 1 && { color: '#FFD700' },
+                rank === 2 && { color: '#C0C0C0' },
+                rank === 3 && { color: '#CD7F32' },
+              ]}>
+                #{rank}
+              </Text>
+            </View>
+          )}
+
+          {/* Token image */}
           {token.image_uri ? (
             <Image source={{ uri: token.image_uri }} style={styles.tokenImage} />
           ) : (
@@ -315,6 +363,7 @@ function TokenCard({
               <Text style={styles.tokenImageFallbackText}>{token.symbol?.[0] ?? '?'}</Text>
             </View>
           )}
+
           <View style={styles.tokenInfo}>
             <View style={styles.tokenNameRow}>
               <Text style={styles.tokenName} numberOfLines={1}>{token.name}</Text>
@@ -329,8 +378,15 @@ function TokenCard({
               {token.market_cap_usd != null && (
                 <Text style={styles.tokenMcap}>{fmtMcap(token.market_cap_usd)}</Text>
               )}
+              {scanCount != null && scanCount > 0 && (
+                <View style={styles.scanCountRow}>
+                  <ScanLine size={10} color={tokens.secondary} strokeWidth={2} />
+                  <Text style={styles.scanCountText}>{fmtCount(scanCount)}</Text>
+                </View>
+              )}
             </View>
           </View>
+
           <View style={styles.tokenRight}>
             <RiskBadge level={risk} size="sm" />
             {apiKey ? (
@@ -376,7 +432,6 @@ function EmptyFeed() {
 
 export default function RadarScreen() {
   const { data: stats, isLoading: statsLoading, refetch: refetchStats } = useGlobalStats();
-
   const { data: topTokens, isLoading: topLoading, refetch: refetchTopTokens } = useTopTokens(10);
 
   const addAlert = useAlertsStore((s) => s.addAlert);
@@ -403,11 +458,12 @@ export default function RadarScreen() {
     ? `${stats.rug_rate_24h_pct.toFixed(1)}%`
     : null;
 
+  const displayedTokens = (topTokens ?? []).slice(0, 5);
+
   return (
     <View style={styles.container}>
       <AuroraBackground />
       <View style={[styles.safe, { paddingTop: Math.max(insets.top, 16) }]}>
-        {/* Header fixed outside scroll so it doesn't move with content */}
         <ScreenHeader
           icon={<Radar size={26} color={tokens.secondary} strokeWidth={2.5} />}
           title="Lineage Agent"
@@ -418,16 +474,12 @@ export default function RadarScreen() {
         />
         <ScrollView
           style={styles.scroll}
-          // Layout already reserves tab bar space via _layout.tsx paddingBottom.
-          // This padding is just visual breathing room for the last card.
           contentContainerStyle={[styles.content, { paddingBottom: 24 }]}
           showsVerticalScrollIndicator={false}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={tokens.secondary} />
           }
         >
-          {/* no header here — it's above the ScrollView */}
-
           {/* ── Bento Stats Grid ── */}
           <Animated.View entering={FadeInDown.duration(400)} style={styles.bentoGrid}>
             <StatCard
@@ -436,6 +488,7 @@ export default function RadarScreen() {
               icon={<Activity size={18} color={tokens.secondary} />}
               accentColor={tokens.secondary}
               large
+              onPress={() => router.push('/(tabs)/scan' as any)}
             />
             <View style={styles.bentoCol}>
               <StatCard
@@ -443,30 +496,43 @@ export default function RadarScreen() {
                 value={statsLoading ? null : stats?.tokens_rugged_24h ?? 0}
                 icon={<AlertTriangle size={15} color={tokens.accent} />}
                 accentColor={tokens.accent}
+                onPress={() => router.push('/(tabs)/alerts' as any)}
               />
             </View>
           </Animated.View>
 
-          {/* Rug rate pill */}
-          {rugRate && (
-            <Animated.View entering={FadeInDown.delay(80).duration(400)} style={styles.rugRateRow}>
-              <View style={styles.rugRatePill}>
-                <View style={styles.rugRateDot} />
-                <Text style={styles.rugRateText}>
-                  Rug rate 24h —{' '}
-                  <Text style={{ color: tokens.accent }}>{rugRate}</Text>
-                </Text>
-              </View>
-            </Animated.View>
-          )}
+          {/* Rug rate pill — fixed height slot to avoid layout jump */}
+          <View style={styles.rugRateSlot}>
+            {rugRate && (
+              <Animated.View entering={FadeInDown.delay(80).duration(400)}>
+                <View style={styles.rugRatePill}>
+                  <View style={styles.rugRateDot} />
+                  <Text style={styles.rugRateText}>
+                    Rug rate 24h —{' '}
+                    <Text style={{ color: tokens.accent }}>{rugRate}</Text>
+                  </Text>
+                </View>
+              </Animated.View>
+            )}
+          </View>
 
           {/* ── Live Alerts ── */}
           <Animated.View entering={FadeInDown.delay(120).duration(400)} style={[styles.section, { gap: 6 }]}>
-            <View style={styles.sectionHeader}>
+            <TouchableOpacity
+              onPress={() => router.push('/(tabs)/alerts' as any)}
+              activeOpacity={0.7}
+              style={styles.sectionHeader}
+              accessibilityRole="button"
+              accessibilityLabel="See all alerts"
+            >
               <Bell size={14} color={tokens.secondary} />
               <Text style={styles.sectionTitle}>LIVE ALERTS</Text>
               {wsConnected && <View style={styles.liveDot} />}
-            </View>
+              <View style={styles.sectionSeeAll}>
+                <Text style={styles.sectionSeeAllText}>See all</Text>
+                <ChevronRight size={12} color={`${tokens.secondary}70`} strokeWidth={2.5} />
+              </View>
+            </TouchableOpacity>
 
             {recentAlerts.length === 0 ? (
               <EmptyFeed />
@@ -490,8 +556,9 @@ export default function RadarScreen() {
                       noPadding
                     >
                       <View style={[styles.alertInner, { paddingVertical: 9, paddingHorizontal: 12 }]}>
-                        <View style={styles.alertDot}>
-                          {!alert.read && <View style={styles.alertUnreadDot} />}
+                        {/* Alert type icon instead of plain dot */}
+                        <View style={styles.alertIconWrapper}>
+                          {ALERT_ICONS[alert.type] ?? <Bell size={15} color={tokens.secondary} />}
                         </View>
                         <View style={styles.alertBody}>
                           <Text style={styles.alertTitle} numberOfLines={1}>
@@ -501,9 +568,12 @@ export default function RadarScreen() {
                             {alert.message}
                           </Text>
                         </View>
-                        <Text style={styles.alertTime}>
-                          {timeAgo(alert.timestamp ?? alert.created_at ?? '')}
-                        </Text>
+                        <View style={styles.alertMetaCol}>
+                          <Text style={styles.alertTime}>
+                            {timeAgo(alert.timestamp ?? alert.created_at ?? '')}
+                          </Text>
+                          {!alert.read && <View style={styles.alertUnreadDot} />}
+                        </View>
                       </View>
                     </GlassCard>
                   </TouchableOpacity>
@@ -520,8 +590,8 @@ export default function RadarScreen() {
             <View style={styles.sectionHeader}>
               <TrendingUp size={14} color={tokens.secondary} />
               <Text style={styles.sectionTitle}>MOST SCANNED 24H</Text>
-              {!topLoading && (topTokens ?? []).length > 0 && (
-                <Text style={styles.feedTag}>{(topTokens ?? []).length} TOKENS</Text>
+              {!topLoading && displayedTokens.length > 0 && (
+                <Text style={styles.feedTag}>{displayedTokens.length} TOKENS</Text>
               )}
             </View>
 
@@ -533,14 +603,14 @@ export default function RadarScreen() {
                     </View>
                   </GlassCard>
                 ))
-              : (topTokens ?? []).length === 0
+              : displayedTokens.length === 0
                 ? (
                   <GlassCard style={styles.emptyFeedCard}>
                     <Text style={styles.emptyFeedText}>No activity in 24h — pull to refresh</Text>
                   </GlassCard>
                 )
                 : <>
-                    {(topTokens ?? []).slice(0, 5).map((token: TopToken, index: number) => (
+                    {displayedTokens.map((token: TopToken, index: number) => (
                       <Animated.View
                         key={token.mint}
                         entering={FadeInDown.delay(index * 35).duration(320).springify()}
@@ -549,10 +619,13 @@ export default function RadarScreen() {
                           token={topTokenToSearchResult(token)}
                           apiKey={apiKey}
                           onPress={() => router.push(`/token/${token.mint}` as any)}
+                          rank={index + 1}
+                          scanCount={token.event_count}
                         />
                       </Animated.View>
                     ))}
-                    {(topTokens ?? []).length > 5 && (
+                    {/* Always show "See all" when we have tokens (we display max 5, API returns up to 10) */}
+                    {displayedTokens.length >= 5 && (
                       <TouchableOpacity
                         onPress={() => router.push('/(tabs)/scan' as any)}
                         style={styles.feedSeeAll}
@@ -575,6 +648,8 @@ const styles = StyleSheet.create({
   safe: { flex: 1 },
   scroll: { flex: 1 },
   content: { paddingHorizontal: tokens.spacing.screenPadding },
+
+  // Bento grid
   bentoGrid: { flexDirection: 'row', gap: 10, marginBottom: 10 },
   bentoCard: { flex: 1, alignItems: 'flex-start', justifyContent: 'flex-end', minHeight: 100, overflow: 'hidden', position: 'relative', borderWidth: 1 },
   bentoLarge: { flex: 1.4, minHeight: 110 },
@@ -583,28 +658,43 @@ const styles = StyleSheet.create({
   bentoIcon: { marginBottom: 6 },
   statValue: { fontFamily: 'Lexend-Bold', fontSize: tokens.font.subheading, lineHeight: 22 },
   bentoLabel: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny, color: tokens.white35, marginTop: 3, letterSpacing: 0.5 },
-  rugRateRow: { alignItems: 'flex-start', marginBottom: 24 },
-  rugRatePill: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: `${tokens.accent}10`, borderWidth: 1, borderColor: `${tokens.accent}25`, borderRadius: tokens.radius.pill, paddingHorizontal: 10, paddingVertical: 5 },
+  bentoArrow: { position: 'absolute', top: 8, right: 8 },
+
+  // Rug rate — fixed slot prevents layout jump when pill appears/disappears
+  rugRateSlot: { minHeight: 30, justifyContent: 'center', marginBottom: 10 },
+  rugRatePill: { flexDirection: 'row', alignSelf: 'flex-start', alignItems: 'center', gap: 6, backgroundColor: `${tokens.accent}10`, borderWidth: 1, borderColor: `${tokens.accent}25`, borderRadius: tokens.radius.pill, paddingHorizontal: 10, paddingVertical: 5 },
   rugRateDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: tokens.accent },
   rugRateText: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny, color: tokens.white60 },
+
+  // Section layout
   section: { gap: 8 },
   sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: 7, marginBottom: 4 },
   sectionTitle: { fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.small, color: tokens.white35, letterSpacing: 1.5 },
+  sectionSeeAll: { flexDirection: 'row', alignItems: 'center', gap: 2, marginLeft: 'auto' },
+  sectionSeeAllText: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny, color: `${tokens.secondary}70`, letterSpacing: 0.5 },
   liveDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: tokens.success },
   feedTag: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny, color: `${tokens.secondary}70`, letterSpacing: 1, marginLeft: 'auto' },
   feedSeeAll: { alignItems: 'center', paddingVertical: 10 },
   feedSeeAllText: { fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.small, color: tokens.secondary, letterSpacing: 0.5 },
+
+  // Alert cards
   alertCard: { marginBottom: 0 },
   alertCardUnread: { borderColor: `${tokens.secondary}35`, borderWidth: 1 },
   alertInner: { flexDirection: 'row', alignItems: 'center', padding: tokens.spacing.cardPadding, gap: 10 },
+  alertIconWrapper: { width: 22, alignItems: 'center', justifyContent: 'center' },
   alertDot: { width: 8, alignItems: 'center' },
-  alertUnreadDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: tokens.secondary },
+  alertUnreadDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: tokens.secondary, marginTop: 3 },
   alertBody: { flex: 1 },
+  alertMetaCol: { alignItems: 'flex-end', gap: 3 },
   alertTitle: { fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.small, color: tokens.white100 },
   alertMsg: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny, color: tokens.white60, marginTop: 2 },
   alertTime: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny, color: tokens.white35 },
+
+  // Token cards
   tokenCard: { marginBottom: 0, overflow: 'hidden' },
-  tokenInner: { flexDirection: 'row', alignItems: 'center', padding: tokens.spacing.cardPadding, gap: 12 },
+  tokenInner: { flexDirection: 'row', alignItems: 'center', padding: tokens.spacing.cardPadding, gap: 10 },
+  rankBadge: { width: 24, alignItems: 'center' },
+  rankText: { fontFamily: 'Lexend-Bold', fontSize: 11, color: tokens.white35, letterSpacing: 0.5 },
   tokenImage: { width: 42, height: 42, borderRadius: tokens.radius.sm },
   tokenImageFallback: { backgroundColor: tokens.bgGlass12, alignItems: 'center', justifyContent: 'center' },
   tokenImageFallbackText: { fontFamily: 'Lexend-Bold', fontSize: tokens.font.body, color: tokens.white60 },
@@ -614,15 +704,21 @@ const styles = StyleSheet.create({
   tokenMetaRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   tokenSymbol: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.small, color: tokens.white35 },
   tokenMcap: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.small, color: tokens.white60 },
+  scanCountRow: { flexDirection: 'row', alignItems: 'center', gap: 3 },
+  scanCountText: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny, color: `${tokens.secondary}80` },
   tokenRight: { alignItems: 'flex-end', gap: 6 },
   newBadge: { backgroundColor: `${tokens.secondary}20`, borderRadius: tokens.radius.pill, paddingHorizontal: 5, paddingVertical: 2 },
   newBadgeText: { fontFamily: 'Lexend-Bold', fontSize: 9, color: tokens.secondary, letterSpacing: 0.8 },
   watchBtn: { width: 26, height: 26, borderRadius: tokens.radius.xs, borderWidth: 1, borderColor: tokens.borderSubtle, alignItems: 'center', justifyContent: 'center' },
   watchBtnActive: { borderColor: `${tokens.success}50`, backgroundColor: `${tokens.success}12` },
+
+  // Empty states
   emptyFeedCard: { alignItems: 'center', paddingVertical: 20 },
   emptyFeedText: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.small, color: tokens.white35, textAlign: 'center' },
   emptyContainer: { alignItems: 'center', paddingVertical: 20, gap: 14 },
   pulseContainer: { width: SONAR_SIZE, height: SONAR_SIZE, alignItems: 'center', justifyContent: 'center' },
+
+  // Sonar
   sonarContainer: { width: SONAR_SIZE, height: SONAR_SIZE, alignItems: 'center', justifyContent: 'center' },
   sonarRing: { position: 'absolute', borderWidth: 1, borderColor: `${tokens.secondary}15` },
   sonarCross: { position: 'absolute', backgroundColor: `${tokens.secondary}10` },
