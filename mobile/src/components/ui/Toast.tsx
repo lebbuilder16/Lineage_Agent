@@ -2,6 +2,15 @@ import React, { useCallback, useRef, useState } from 'react';
 import { Animated, StyleSheet, Text } from 'react-native';
 import { tokens } from '../../theme/tokens';
 
+// Defined at module level — stable component identity, never causes remount loops
+function ToastOverlay({ msg, opacity }: { msg: string; opacity: Animated.Value }) {
+  return (
+    <Animated.View style={[styles.toast, { opacity }]} pointerEvents="none">
+      <Text style={styles.text}>{msg}</Text>
+    </Animated.View>
+  );
+}
+
 export function useToast() {
   const [msg, setMsg] = useState('');
   const opacity = useRef(new Animated.Value(0)).current;
@@ -19,13 +28,9 @@ export function useToast() {
     [opacity],
   );
 
-  const ToastView = () => (
-    <Animated.View style={[styles.toast, { opacity }]} pointerEvents="none">
-      <Text style={styles.text}>{msg}</Text>
-    </Animated.View>
-  );
-
-  return { showToast, ToastView };
+  // Return a JSX element (not a component function) — ToastOverlay has a stable
+  // module-level identity so React never sees a "new" component type between renders.
+  return { showToast, toast: <ToastOverlay msg={msg} opacity={opacity} /> };
 }
 
 const styles = StyleSheet.create({

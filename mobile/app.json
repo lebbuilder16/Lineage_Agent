@@ -62,6 +62,12 @@
         "projectId": "0da4672c-0d43-4dc7-ab4c-11c1deb99387"
       }
     },
-    "owner": "leb16"
+    "owner": "leb16",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/0da4672c-0d43-4dc7-ab4c-11c1deb99387"
+    }
   }
 }

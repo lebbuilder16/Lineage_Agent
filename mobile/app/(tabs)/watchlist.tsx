@@ -41,7 +41,7 @@ export default function WatchlistScreen() {
   const [addValue, setAddValue] = useState('');
   const [addType, setAddType] = useState<'mint' | 'deployer'>('mint');
   const swipeableRefs = useRef<Map<string, Swipeable | null>>(new Map());
-  const { showToast, ToastView } = useToast();
+  const { showToast, toast } = useToast();
 
   const handleDelete = (id: string) => {
     deleteMutation.mutate(id, { onSuccess: () => refetch() });
@@ -284,7 +284,7 @@ export default function WatchlistScreen() {
           />
         )}
       </SafeAreaView>
-      <ToastView />
+      {toast}
     </View>
   );
 }

@@ -47,7 +47,7 @@ const RISK_COLOR: Record<string, string> = {
 export default function TokenScreen() {
   const { mint } = useLocalSearchParams<{ mint: string }>();
   const { data, isLoading, error, refetch } = useLineage(mint ?? '');
-  const { showToast, ToastView } = useToast();
+  const { showToast, toast } = useToast();
 
   const handleCopy = async (value: string, label = 'Address') => {
     await Clipboard.setStringAsync(value);
@@ -331,7 +331,7 @@ export default function TokenScreen() {
           )}
         </ScrollView>
       </SafeAreaView>
-      <ToastView />
+      {toast}
     </View>
   );
 }
