@@ -13,6 +13,7 @@ import type {
   HealthStatus,
   User,
   Watch,
+  TopToken,
 } from '../types/api';
 
 // Re-export streaming for callers that imported from this module
@@ -131,4 +132,11 @@ export async function deleteWatch(apiKey: string, id: string): Promise<void> {
     headers: { 'X-API-Key': apiKey },
     params: { path: { watch_id: Number(id) } },
   });
+}
+
+export async function getTopTokens(limit = 10): Promise<TopToken[]> {
+  const BASE_URL = (process.env.EXPO_PUBLIC_API_URL ?? 'https://lineage-agent.fly.dev').replace(/\/$/, '');
+  const res = await fetch(`${BASE_URL}/stats/top-tokens?limit=${limit}`);
+  if (!res.ok) return [];
+  return res.json() as Promise<TopToken[]>;
 }

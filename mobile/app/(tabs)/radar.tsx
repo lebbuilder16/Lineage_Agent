@@ -14,7 +14,6 @@ import {
   Activity,
   TrendingUp,
   AlertTriangle,
-  Zap,
   Radar,
   Bell,
   BookmarkPlus,
@@ -37,15 +36,29 @@ import { AuroraBackground } from '../../src/components/ui/AuroraBackground';
 import { GlassCard } from '../../src/components/ui/GlassCard';
 import { ScreenHeader } from '../../src/components/ui/ScreenHeader';
 import { SkeletonLoader, SkeletonBlock } from '../../src/components/ui/SkeletonLoader';
-import { useGlobalStats, useSearchTokens, useAddWatch } from '../../src/lib/query';
+import { useGlobalStats, useTopTokens, useAddWatch } from '../../src/lib/query';
 import { connectAlertsWS } from '../../src/lib/api';
 import { useAlertsStore } from '../../src/store/alerts';
 import { useAuthStore } from '../../src/store/auth';
 import { tokens } from '../../src/theme/tokens';
 import { RiskBadge } from '../../src/components/ui/RiskBadge';
-import type { TokenSearchResult } from '../../src/types/api';
+import type { TokenSearchResult, TopToken } from '../../src/types/api';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
+
+/** Map a TopToken to the shape TokenCard expects. */
+function topTokenToSearchResult(t: TopToken): TokenSearchResult {
+  return {
+    mint: t.mint,
+    name: t.name,
+    symbol: t.symbol,
+    image_uri: '',
+    metadata_uri: '',
+    dex_url: '',
+    market_cap_usd: t.mcap_usd ?? null,
+    pair_created_at: t.created_at ?? null,
+  };
+}
 
 function deriveRisk(token: TokenSearchResult): 'low' | 'medium' | 'high' | 'critical' {
   const mcap = token.market_cap_usd ?? 0;
@@ -359,19 +372,12 @@ function EmptyFeed() {
   );
 }
 
-// ─── Feed query pool — always returns real data ───────────────────────────────
-const FEED_QUERIES = ['pump', 'sol', 'ai', 'cat', 'dog'];
-
 // ─── Main Screen ─────────────────────────────────────────────────────────────
 
 export default function RadarScreen() {
   const { data: stats, isLoading: statsLoading, refetch: refetchStats } = useGlobalStats();
 
-  // Pick a random stable query from the pool so each open feels fresh
-  const [queryIndex] = useState(() => Math.floor(Math.random() * FEED_QUERIES.length));
-  const feedQuery = FEED_QUERIES[queryIndex];
-  const { data: feedTokens, isLoading: feedLoading, refetch: refetchFeed } =
-    useSearchTokens(feedQuery, true);
+  const { data: topTokens, isLoading: topLoading, refetch: refetchTopTokens } = useTopTokens(10);
 
   const addAlert = useAlertsStore((s) => s.addAlert);
   const setWsConnected = useAlertsStore((s) => s.setWsConnected);
@@ -390,8 +396,8 @@ export default function RadarScreen() {
     return () => wsCleanup.current?.();
   }, []);
 
-  const refreshing = statsLoading || feedLoading;
-  const onRefresh = () => { refetchStats(); refetchFeed(); };
+  const refreshing = statsLoading || topLoading;
+  const onRefresh = () => { refetchStats(); refetchTopTokens(); };
 
   const rugRate = stats?.rug_rate_24h_pct != null
     ? `${stats.rug_rate_24h_pct.toFixed(1)}%`
@@ -504,18 +510,20 @@ export default function RadarScreen() {
             )}
           </Animated.View>
 
-          {/* ── Live Feed ── */}
+          {/* ── Top Tokens 24h ── */}
           <Animated.View
             entering={FadeInDown.delay(180).duration(400)}
             style={[styles.section, { marginTop: 24 }]}
           >
             <View style={styles.sectionHeader}>
               <TrendingUp size={14} color={tokens.secondary} />
-              <Text style={styles.sectionTitle}>LIVE FEED</Text>
-              <Text style={styles.feedTag}>#{feedQuery.toUpperCase()}</Text>
+              <Text style={styles.sectionTitle}>TOP TOKENS 24H</Text>
+              {!topLoading && (topTokens ?? []).length > 0 && (
+                <Text style={styles.feedTag}>{(topTokens ?? []).length} TOKENS</Text>
+              )}
             </View>
 
-            {feedLoading
+            {topLoading
               ? Array.from({ length: 5 }).map((_, i) => (
                   <GlassCard key={i} noPadding style={{ marginBottom: 0 }}>
                     <View style={{ padding: tokens.spacing.cardPadding }}>
@@ -523,35 +531,24 @@ export default function RadarScreen() {
                     </View>
                   </GlassCard>
                 ))
-              : (feedTokens ?? []).length === 0
+              : (topTokens ?? []).length === 0
                 ? (
                   <GlassCard style={styles.emptyFeedCard}>
-                    <Text style={styles.emptyFeedText}>No tokens found — pull to refresh</Text>
+                    <Text style={styles.emptyFeedText}>No activity in 24h — pull to refresh</Text>
                   </GlassCard>
                 )
-                : <>
-                    {(feedTokens ?? []).slice(0, 5).map((token: TokenSearchResult, index: number) => (
-                      <Animated.View
-                        key={token.mint}
-                        entering={FadeInDown.delay(index * 35).duration(320).springify()}
-                      >
-                        <TokenCard
-                          token={token}
-                          apiKey={apiKey}
-                          onPress={() => router.push(`/token/${token.mint}` as any)}
-                        />
-                      </Animated.View>
-                    ))}
-                    {(feedTokens ?? []).length > 5 && (
-                      <TouchableOpacity
-                        onPress={() => router.push('/(tabs)/scan' as any)}
-                        style={styles.feedSeeAll}
-                        activeOpacity={0.7}
-                      >
-                        <Text style={styles.feedSeeAllText}>See all →</Text>
-                      </TouchableOpacity>
-                    )}
-                  </>
+                : (topTokens ?? []).map((token: TopToken, index: number) => (
+                    <Animated.View
+                      key={token.mint}
+                      entering={FadeInDown.delay(index * 35).duration(320).springify()}
+                    >
+                      <TokenCard
+                        token={topTokenToSearchResult(token)}
+                        apiKey={apiKey}
+                        onPress={() => router.push(`/token/${token.mint}` as any)}
+                      />
+                    </Animated.View>
+                  ))
             }
           </Animated.View>
         </ScrollView>

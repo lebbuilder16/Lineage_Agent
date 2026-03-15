@@ -13,6 +13,7 @@ import {
   getWatches,
   addWatch,
   deleteWatch,
+  getTopTokens,
 } from './api';
 import type {
   TokenSearchResult,
@@ -26,6 +27,7 @@ import type {
   HealthStatus,
   User,
   Watch,
+  TopToken,
 } from '../types/api';
 
 // Query keys
@@ -41,6 +43,7 @@ export const QK = {
   health: () => ['health'] as const,
   me: (key: string) => ['me', key] as const,
   watches: (key: string) => ['watches', key] as const,
+  topTokens: () => ['topTokens'] as const,
 };
 
 export function useSearchTokens(q: string, enabled = true) {
@@ -112,6 +115,15 @@ export function useGlobalStats() {
     queryFn: getGlobalStats,
     staleTime: 30_000,
     refetchInterval: 60_000,
+  });
+}
+
+export function useTopTokens(limit = 10) {
+  return useQuery<TopToken[]>({
+    queryKey: QK.topTokens(),
+    queryFn: () => getTopTokens(limit),
+    staleTime: 300_000,        // 5 min — matches backend cache TTL
+    refetchInterval: 300_000,
   });
 }
 

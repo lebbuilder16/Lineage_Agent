@@ -974,6 +974,18 @@ class NarrativeCount(BaseModel):
     count: int
 
 
+class TopToken(BaseModel):
+    """A token ranked by intelligence-event activity in the last 24 hours."""
+
+    mint: str = Field(..., description="Solana mint address")
+    name: str = Field("", description="Token name")
+    symbol: str = Field("", description="Token symbol")
+    narrative: Optional[str] = Field(None, description="Detected narrative/theme")
+    mcap_usd: Optional[float] = Field(None, description="Market cap USD at last event")
+    event_count: int = Field(1, description="Number of intelligence events in 24 h")
+    created_at: Optional[str] = Field(None, description="ISO timestamp of first detection")
+
+
 class GlobalStats(BaseModel):
     """Aggregate intelligence activity stats for the last 24 hours."""
 

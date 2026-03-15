@@ -90,6 +90,7 @@ from .models import (
     SolFlowReport,
     TokenCompareResult,
     TokenSearchResult,
+    TopToken,
 )
 from .rug_detector import cancel_rug_sweep, schedule_rug_sweep
 from .db_maintenance import cancel_db_maintenance, schedule_db_maintenance
@@ -2173,6 +2174,85 @@ async def get_stats_brief(request: Request) -> dict:
     )
 
     return {"text": text, "generated_at": datetime.now(tz=timezone.utc).isoformat()}
+
+
+# ---------------------------------------------------------------------------
+# /stats/top-tokens  — most active tokens in last 24 h
+# ---------------------------------------------------------------------------
+
+_top_tokens_cache: Optional[tuple[float, list[TopToken]]] = None
+_TOP_TOKENS_CACHE_TTL = 300.0  # 5-minute cache
+
+
+@app.get(
+    "/stats/top-tokens",
+    response_model=list[TopToken],
+    tags=["intelligence"],
+    summary="Tokens with most intelligence-event activity in the last 24 hours",
+)
+@limiter.limit("30/minute")
+async def get_top_tokens(
+    request: Request,
+    limit: int = Query(10, ge=1, le=50, description="Max tokens to return"),
+) -> list[TopToken]:
+    """Return tokens with the most recorded intelligence events in the last 24 h.
+
+    More events = the token has attracted more analytical attention (detections,
+    rug events, narrative updates, etc.). Results are cached for 5 minutes.
+    """
+    global _top_tokens_cache
+    now_mono = time.monotonic()
+    if _top_tokens_cache and (now_mono - _top_tokens_cache[0]) < _TOP_TOKENS_CACHE_TTL:
+        return _top_tokens_cache[1][:limit]
+
+    try:
+        from .data_sources._clients import cache as _cache  # noqa: PLC0415
+
+        cutoff_ts = time.time() - 86400.0
+        db = await _cache._get_conn()
+        cursor = await db.execute(
+            """
+            SELECT
+                mint,
+                MAX(name)       AS name,
+                MAX(symbol)     AS symbol,
+                MAX(narrative)  AS narrative,
+                MAX(mcap_usd)   AS mcap_usd,
+                MIN(created_at) AS created_at,
+                COUNT(*)        AS event_count
+            FROM intelligence_events
+            WHERE recorded_at >= ?
+              AND mint IS NOT NULL AND mint != ''
+            GROUP BY mint
+            ORDER BY event_count DESC, recorded_at DESC
+            LIMIT 50
+            """,
+            (cutoff_ts,),
+        )
+        rows = await cursor.fetchall()
+        col_names = [d[0] for d in cursor.description]
+
+        def _col(row: tuple, name: str):  # type: ignore[type-arg]
+            return row[col_names.index(name)]
+
+        result = [
+            TopToken(
+                mint=_col(row, "mint"),
+                name=_col(row, "name") or "",
+                symbol=_col(row, "symbol") or "",
+                narrative=_col(row, "narrative") or None,
+                mcap_usd=_col(row, "mcap_usd"),
+                created_at=_col(row, "created_at"),
+                event_count=_col(row, "event_count"),
+            )
+            for row in rows
+        ]
+        _top_tokens_cache = (now_mono, result)
+        return result[:limit]
+
+    except Exception as exc:
+        logger.exception("get_top_tokens failed")
+        raise HTTPException(status_code=500, detail="Internal server error") from exc
 
 
 if __name__ == "__main__":
