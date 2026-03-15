@@ -23,6 +23,25 @@ import { tokens } from '../../src/theme/tokens';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import type { TokenSearchResult } from '../../src/types/api';
 
+function TokenImage({ uri, symbol }: { uri?: string | null; symbol?: string }) {
+  const [errored, setErrored] = useState(false);
+  const hasUri = !!uri && uri.trim() !== '' && !errored;
+  if (hasUri) {
+    return (
+      <Image
+        source={{ uri }}
+        style={styles.tokenImg}
+        onError={() => setErrored(true)}
+      />
+    );
+  }
+  return (
+    <View style={[styles.tokenImg, styles.tokenImgFallback]}>
+      <Text style={styles.tokenImgText}>{symbol?.[0]?.toUpperCase() ?? '?'}</Text>
+    </View>
+  );
+}
+
 export default function ScanScreen() {
   const insets = useSafeAreaInsets();
   const [query, setQuery] = useState('');
@@ -68,7 +87,7 @@ export default function ScanScreen() {
   return (
     <View style={styles.container}>
       <AuroraBackground />
-      <View style={styles.safe}>
+      <View style={[styles.safe, { paddingTop: Math.max(insets.top, 16) }]}>
         <KeyboardAvoidingView
           style={styles.kav}
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -157,21 +176,19 @@ export default function ScanScreen() {
               >
                 <GlassCard style={styles.resultCard} noPadding>
                   <View style={styles.resultInner}>
-                    {item.image_uri ? (
-                      <Image source={{ uri: item.image_uri }} style={styles.tokenImg} />
-                    ) : (
-                      <View style={[styles.tokenImg, styles.tokenImgFallback]}>
-                        <Text style={styles.tokenImgText}>{item.symbol?.[0] ?? '?'}</Text>
-                      </View>
-                    )}
+                    <TokenImage uri={item.image_uri} symbol={item.symbol} />
                     <View style={styles.resultInfo}>
                       <Text style={styles.resultName} numberOfLines={1}>{item.name}</Text>
                       <Text style={styles.resultSymbol}>{item.symbol}</Text>
                     </View>
                     <View style={styles.resultRight}>
-                      {item.market_cap_usd != null && (
+                      {item.market_cap_usd != null && item.market_cap_usd > 0 && (
                         <Text style={styles.riskScore}>
-                          ${(item.market_cap_usd / 1_000).toFixed(0)}K
+                          {item.market_cap_usd >= 1_000_000
+                            ? `$${(item.market_cap_usd / 1_000_000).toFixed(1)}M`
+                            : item.market_cap_usd >= 1_000
+                            ? `$${(item.market_cap_usd / 1_000).toFixed(0)}K`
+                            : `$${item.market_cap_usd.toFixed(0)}`}
                         </Text>
                       )}
                     </View>
