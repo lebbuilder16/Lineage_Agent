@@ -14,6 +14,7 @@ interface AuthState {
   hydrated: boolean;
   recentSearches: string[];
   reportExpandMint: string | null;
+  pendingClockMint: string | null;
   setApiKey: (key: string | null) => void;
   setUser: (user: User | null) => void;
   setWatches: (watches: Watch[]) => void;
@@ -23,6 +24,7 @@ interface AuthState {
   addRecentSearch: (mint: string) => void;
   clearRecentSearches: () => void;
   setReportExpandMint: (mint: string | null) => void;
+  setPendingClockMint: (mint: string | null) => void;
   hydrate: () => Promise<void>;
 }
 
@@ -34,6 +36,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   hydrated: false,
   recentSearches: [],
   reportExpandMint: null,
+  pendingClockMint: null,
 
   setApiKey: (key) => {
     if (key) {
@@ -74,6 +77,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   },
 
   setReportExpandMint: (mint) => set({ reportExpandMint: mint }),
+  setPendingClockMint: (mint) => set({ pendingClockMint: mint }),
 
   hydrate: async () => {
     try {

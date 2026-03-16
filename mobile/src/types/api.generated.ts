@@ -895,6 +895,30 @@ export interface components {
             basis_breakdown?: {
                 [key: string]: number;
             };
+            /**
+             * Is Factory
+             * @description True when the deployer exhibits factory-like launch rhythm (new wallet per token)
+             * @default false
+             */
+            is_factory?: boolean;
+            /**
+             * Prediction Basis
+             * @description 'deployer' = samples from this wallet only; 'operator' = aggregated from linked wallets; 'insufficient' = no usable samples
+             * @default insufficient
+             * @enum {string}
+             */
+            prediction_basis?: "deployer" | "operator" | "insufficient";
+            /**
+             * Operator Sample Count
+             * @description Number of rug timing samples sourced from operator-network sibling deployers
+             * @default 0
+             */
+            operator_sample_count?: number;
+            /**
+             * Rug Probability Pct
+             * @description Composite rug probability 0-99 combining timing, confidence and live signals. Null when no prediction possible.
+             */
+            rug_probability_pct?: number | null;
         };
         /**
          * DeployerProfile

@@ -563,6 +563,28 @@ class DeathClockForecast(BaseModel):
         default_factory=dict,
         description="Rug mechanism distribution (from confirmed predictive rugs)",
     )
+    is_factory: bool = Field(
+        False,
+        description="True when the deployer exhibits factory-like launch rhythm (new wallet per token)",
+    )
+    prediction_basis: Literal["deployer", "operator", "insufficient"] = Field(
+        "insufficient",
+        description=(
+            "'deployer' = samples from this wallet only; "
+            "'operator' = aggregated from linked wallets sharing the same DNA fingerprint; "
+            "'insufficient' = no usable samples found"
+        ),
+    )
+    operator_sample_count: int = Field(
+        0, description="Number of rug timing samples sourced from operator-network sibling deployers"
+    )
+    rug_probability_pct: Optional[float] = Field(
+        None,
+        description=(
+            "Composite rug probability 0–99 combining timing position, "
+            "statistical confidence and live market signals. Null when no prediction is possible."
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------

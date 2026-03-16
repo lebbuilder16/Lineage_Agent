@@ -37,7 +37,7 @@ from .data_sources._clients import (
     get_jup_client as _get_jup_client,
     get_rpc_client as _get_rpc_client,
 )
-from .death_clock import compute_death_clock
+from .death_clock import _compute_rug_probability, compute_death_clock
 from .deployer_service import compute_deployer_profile
 from .factory_service import analyze_factory_rhythm, record_token_creation
 from .insider_sell_service import analyze_insider_sell
@@ -1276,6 +1276,22 @@ async def _detect_lineage_impl(
             result.operator_impact = await _oi_task
         except Exception as _oi_exc:
             logger.warning("[operator_impact] enricher failed: %s", _oi_exc)
+
+    # ── Enrich death_clock with rug_probability_pct ───────────────────────────
+    # Requires insider_sell (from gather 2) — runs as a pure in-memory calculation
+    # after both gathers are resolved; no additional I/O needed.
+    if result.death_clock is not None:
+        result.death_clock.rug_probability_pct = _compute_rug_probability(
+            elapsed_h=result.death_clock.elapsed_hours,
+            median_h=result.death_clock.median_rug_hours,
+            stdev_h=result.death_clock.stdev_rug_hours,
+            sample_count=result.death_clock.sample_count,
+            operator_sample_count=result.death_clock.operator_sample_count,
+            confidence_level=result.death_clock.confidence_level,
+            market_signals=result.death_clock.market_signals,
+            insider_verdict=getattr(result.insider_sell, "verdict", None),
+            deployer_exited=getattr(result.insider_sell, "deployer_exited", False),
+        )
 
     # ── PumpFun / Jito bundle extraction fix ─────────────────────────────────
     # Modern token launches (PumpFun, Jito bundles) extract SOL via bundle

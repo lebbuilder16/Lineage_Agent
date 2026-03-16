@@ -30,7 +30,6 @@ import {
   Shield,
 } from 'lucide-react-native';
 import { AuroraBackground } from '../../src/components/ui/AuroraBackground';
-import { DeathClockCard } from '../../src/components/ui/DeathClockCard';
 import { GlassCard } from '../../src/components/ui/GlassCard';
 import { RiskBadge } from '../../src/components/ui/RiskBadge';
 import { GaugeRing } from '../../src/components/ui/GaugeRing';
@@ -119,6 +118,7 @@ export default function TokenScreen() {
   const [showDetails, setShowDetails] = useState(false);
   const reportExpandMint = useAuthStore((s) => s.reportExpandMint);
   const setReportExpandMint = useAuthStore((s) => s.setReportExpandMint);
+  const setPendingClockMint = useAuthStore((s) => s.setPendingClockMint);
   const autoExpandedRef = useRef(false);
 
   useEffect(() => {
@@ -494,17 +494,53 @@ export default function TokenScreen() {
             {showDetails && (
               <Animated.View entering={FadeIn.duration(250)} style={styles.detailsSection}>
 
-                {/* Death Clock — AI Analysis result */}
-                {(data.death_clock || data.insider_sell) && (
-                  <DeathClockCard
-                    dc={data.death_clock ?? null}
-                    riskColor={riskColor}
-                    insiderSell={data.insider_sell ?? null}
-                    solExtracted={data.sol_flow?.total_extracted_sol ?? null}
-                    bundleVerdict={data.bundle_report?.overall_verdict ?? null}
-                    deployerProfile={data.deployer_profile ?? null}
-                  />
-                )}
+                {/* Death Clock — teaser card linking to dedicated tab */}
+                {(data.death_clock || data.insider_sell) && (() => {
+                  const dc = data.death_clock;
+                  const effectiveLabel = (() => {
+                    if (data.insider_sell?.verdict === 'insider_dump' && data.insider_sell?.deployer_exited) return 'CRITICAL';
+                    if (data.insider_sell?.verdict === 'insider_dump') return 'HIGH';
+                    if (displayRiskLevel === 'insufficient_data') return 'UNVERIFIED';
+                    return displayRiskLevel.toUpperCase().replace('_', ' ');
+                  })();
+                  return (
+                    <TouchableOpacity
+                      onPress={() => {
+                        setPendingClockMint(mint ?? null);
+                        router.push('/(tabs)/clock' as any);
+                      }}
+                      activeOpacity={0.75}
+                    >
+                      <GlassCard style={[styles.teaserCard, { borderColor: `${riskColor}30`, borderWidth: 1 }]}>
+                        <View style={styles.teaserRow}>
+                          <View style={[styles.teaserIconWrap, { backgroundColor: `${riskColor}15` }]}>
+                            <Skull size={16} color={riskColor} strokeWidth={2} />
+                          </View>
+                          <View style={styles.teaserInfo}>
+                            <View style={styles.teaserTitleRow}>
+                              <Text style={styles.teaserLabel}>DEATH CLOCK</Text>
+                              <View style={[styles.teaserBadge, { backgroundColor: `${riskColor}18`, borderColor: `${riskColor}35` }]}>
+                                <Text style={[styles.teaserBadgeText, { color: riskColor }]}>{effectiveLabel}</Text>
+                              </View>
+                            </View>
+                            {riskSummary && (
+                              <Text style={styles.teaserSub} numberOfLines={1}>{riskSummary}</Text>
+                            )}
+                            {dc?.rug_probability_pct != null && (
+                              <Text style={styles.teaserProb}>
+                                Rug probability:{' '}
+                                <Text style={{ color: riskColor, fontFamily: 'Lexend-Bold' }}>
+                                  {dc.rug_probability_pct.toFixed(0)}%
+                                </Text>
+                              </Text>
+                            )}
+                          </View>
+                          <ChevronRight size={16} color={tokens.white35} />
+                        </View>
+                      </GlassCard>
+                    </TouchableOpacity>
+                  );
+                })()}
 
                 {/* Suspicious flags */}
                 {(data.bundle_report?.evidence_chain?.length ?? 0) > 0 && (
@@ -787,6 +823,35 @@ const styles = StyleSheet.create({
 
   btnSecondaryText: { fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.small, color: tokens.primary },
   btnPrimaryText: { fontFamily: 'Lexend-Bold', fontSize: tokens.font.body, color: tokens.white100, letterSpacing: 0.5 },
+
+  // Death Clock teaser card
+  teaserCard: {},
+  teaserRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  teaserIconWrap: {
+    width: 32, height: 32, borderRadius: tokens.radius.xs,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  teaserInfo: { flex: 1, gap: 3 },
+  teaserTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  teaserLabel: {
+    fontFamily: 'Lexend-Bold', fontSize: tokens.font.tiny,
+    color: tokens.white60, letterSpacing: 1,
+  },
+  teaserBadge: {
+    paddingHorizontal: 7, paddingVertical: 2,
+    borderRadius: tokens.radius.pill, borderWidth: 1,
+  },
+  teaserBadgeText: {
+    fontFamily: 'Lexend-Bold', fontSize: 9, letterSpacing: 0.6,
+  },
+  teaserSub: {
+    fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny,
+    color: tokens.white60,
+  },
+  teaserProb: {
+    fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny,
+    color: tokens.white35,
+  },
 
   unverifiedBadge: {
     paddingHorizontal: 8, paddingVertical: 2,

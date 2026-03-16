@@ -10,44 +10,88 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
-import { Skull, ChevronRight, X } from 'lucide-react-native';
+import { Skull, ChevronRight, X, Factory } from 'lucide-react-native';
 import { AuroraBackground } from '../../src/components/ui/AuroraBackground';
 import { GlassCard } from '../../src/components/ui/GlassCard';
-import { GaugeRing } from '../../src/components/ui/GaugeRing';
-import { RiskBadge } from '../../src/components/ui/RiskBadge';
+import { DeathClockCard } from '../../src/components/ui/DeathClockCard';
 import { HapticButton } from '../../src/components/ui/HapticButton';
 import { SkeletonBlock } from '../../src/components/ui/SkeletonLoader';
 import { ScreenHeader } from '../../src/components/ui/ScreenHeader';
 import { useLineage } from '../../src/lib/query';
+import { useAuthStore } from '../../src/store/auth';
 import { tokens } from '../../src/theme/tokens';
 
-const RISK_COLOR: Record<string, string> = {
+// ─── Risk helpers (same cascade as token/[mint].tsx) ──────────────────────────
+
+type RiskLevel = 'low' | 'medium' | 'high' | 'critical' | 'first_rug' | 'insufficient_data';
+
+const RISK_COLOR: Record<RiskLevel, string> = {
   low: tokens.risk.low,
   medium: tokens.risk.medium,
   high: tokens.risk.high,
   critical: tokens.risk.critical,
+  first_rug: tokens.risk.high,
+  insufficient_data: tokens.white35,
 };
+
+function deriveRiskLevel(data: ReturnType<typeof useLineage>['data']): RiskLevel {
+  const dc = data?.death_clock;
+  if (dc?.risk_level && dc.risk_level !== 'insufficient_data') return dc.risk_level as RiskLevel;
+  const ins = data?.insider_sell;
+  if (ins?.verdict === 'insider_dump' && ins?.deployer_exited) return 'critical';
+  if (ins?.verdict === 'insider_dump') return 'high';
+  if (ins?.flags?.includes('PRICE_CRASH') && (ins?.sell_pressure_24h ?? 0) > 0.4) return 'high';
+  if (ins?.verdict === 'suspicious') return 'medium';
+  const verdict = data?.bundle_report?.overall_verdict;
+  if (verdict === 'confirmed_team_extraction') return 'critical';
+  if (verdict === 'suspected_team_extraction' || verdict === 'coordinated_dump_unknown_team') return 'high';
+  return 'insufficient_data';
+}
+
+// ─── Factory Banner ────────────────────────────────────────────────────────────
+
+function FactoryBanner({ operatorSamples }: { operatorSamples: number }) {
+  return (
+    <GlassCard style={styles.factoryCard}>
+      <View style={styles.factoryRow}>
+        <Factory size={16} color={tokens.risk.high} strokeWidth={2} />
+        <View style={styles.factoryInfo}>
+          <Text style={styles.factoryTitle}>FACTORY DEPLOYER</Text>
+          <Text style={styles.factoryNote}>
+            {operatorSamples > 0
+              ? `Prediction based on operator network · ${operatorSamples} sibling samples`
+              : 'Rotates wallet addresses — individual history unavailable'}
+          </Text>
+        </View>
+      </View>
+    </GlassCard>
+  );
+}
+
+// ─── Main ──────────────────────────────────────────────────────────────────────
 
 export default function DeathClockScreen() {
   const insets = useSafeAreaInsets();
-  const [mint, setMint] = useState('');
-  const [submitted, setSubmitted] = useState('');
+  const pendingClockMint = useAuthStore((s) => s.pendingClockMint);
+  const setPendingClockMint = useAuthStore((s) => s.setPendingClockMint);
 
-  const { data, isLoading, error, refetch } = useLineage(submitted, !!submitted);
-  const dc = data?.death_clock;
+  const [mint, setMint] = useState(pendingClockMint ?? '');
+  const [submitted, setSubmitted] = useState(pendingClockMint ?? '');
+
+  // Consume the pending mint once on mount
+  React.useEffect(() => {
+    if (pendingClockMint) setPendingClockMint(null);
+  }, []);
+
+  const { data, isLoading, error } = useLineage(submitted, !!submitted);
 
   const handleSubmit = () => {
     if (mint.trim().length >= 32) setSubmitted(mint.trim());
   };
 
-  const riskColor = dc?.risk_level ? RISK_COLOR[dc.risk_level] ?? tokens.accent : tokens.accent;
-  const reliability = dc ? Math.min((dc.sample_count ?? 0) / 20, 1) : 0;
-
-  function formatDate(iso: string | null | undefined): string {
-    if (!iso) return '';
-    const d = new Date(iso);
-    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
-  }
+  const riskLevel = deriveRiskLevel(data);
+  const riskColor = RISK_COLOR[riskLevel];
+  const hasResult = !!submitted && !isLoading && !error;
 
   return (
     <View style={styles.container}>
@@ -66,7 +110,7 @@ export default function DeathClockScreen() {
             style={{ paddingHorizontal: 0 }}
           />
 
-          {/* Input — pill shaped */}
+          {/* Input */}
           <View style={styles.inputPill}>
             <TextInput
               style={[styles.input, { flex: 1 }]}
@@ -90,6 +134,7 @@ export default function DeathClockScreen() {
               </TouchableOpacity>
             )}
           </View>
+
           <HapticButton
             variant="destructive"
             size="md"
@@ -122,66 +167,41 @@ export default function DeathClockScreen() {
             </GlassCard>
           )}
 
-          {/* Result */}
+          {/* Loading */}
           {submitted && isLoading && (
             <GlassCard>
               <SkeletonBlock lines={3} />
             </GlassCard>
           )}
 
+          {/* Error */}
           {submitted && !isLoading && error && (
             <GlassCard>
               <Text style={styles.errorText}>Failed to fetch data. Try again.</Text>
             </GlassCard>
           )}
 
-          {dc && !isLoading && (
+          {/* Full result */}
+          {hasResult && (
             <>
-              {/* Gauge */}
-              <GlassCard style={styles.gaugeCard}>
-                <View style={styles.gaugeRow}>
-                  <GaugeRing
-                    value={reliability}
-                    color={riskColor}
-                    size={140}
-                    label={String(dc.sample_count ?? 0)}
-                    sublabel="SAMPLES"
-                  />
-                  <View style={styles.gaugeInfo}>
-                    <RiskBadge level={dc.risk_level} size="md" />
-                    {dc.confidence_note ? (
-                      <Text style={styles.confidenceNote}>{dc.confidence_note}</Text>
-                    ) : null}
-                    {dc.predicted_window_start && (
-                      <View style={styles.windowRow}>
-                        <Text style={styles.windowLabel}>Window</Text>
-                        <Text style={styles.windowValue}>
-                          {formatDate(dc.predicted_window_start)}
-                          {dc.predicted_window_end ? ` – ${formatDate(dc.predicted_window_end)}` : ''}
-                        </Text>
-                      </View>
-                    )}
-                  </View>
-                </View>
-              </GlassCard>
-
-              {/* Market signals */}
-              {dc.market_signals && (
-                <GlassCard>
-                  <Text style={styles.sectionTitle}>MARKET SIGNALS</Text>
-                  <View style={styles.signals}>
-                    <SignalRow label="Volume trend" value={dc.market_signals.volume_trend ?? '–'} />
-                    {dc.market_signals.sell_pressure_pct != null && (
-                      <SignalRow
-                        label="Sell pressure"
-                        value={`${Math.round(dc.market_signals.sell_pressure_pct)}%`}
-                      />
-                    )}
-                  </View>
-                </GlassCard>
+              {/* Factory banner */}
+              {data?.death_clock?.is_factory && (
+                <FactoryBanner operatorSamples={data.death_clock.operator_sample_count ?? 0} />
               )}
 
-              {/* Link to full token */}
+              {/* Full Death Clock analysis */}
+              {(data?.death_clock || data?.insider_sell) && (
+                <DeathClockCard
+                  dc={data.death_clock ?? null}
+                  riskColor={riskColor}
+                  insiderSell={data.insider_sell ?? null}
+                  solExtracted={data.sol_flow?.total_extracted_sol ?? null}
+                  bundleVerdict={data.bundle_report?.overall_verdict ?? null}
+                  deployerProfile={data.deployer_profile ?? null}
+                />
+              )}
+
+              {/* Link to full report */}
               <TouchableOpacity
                 onPress={() => router.push(`/token/${submitted}` as any)}
                 activeOpacity={0.75}
@@ -201,21 +221,11 @@ export default function DeathClockScreen() {
   );
 }
 
-function SignalRow({ label, value }: { label: string; value: string }) {
-  return (
-    <View style={styles.signalRow}>
-      <Text style={styles.signalLabel}>{label}</Text>
-      <Text style={styles.signalValue}>{value}</Text>
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: tokens.bgMain },
   safe: { flex: 1 },
   content: {
     paddingHorizontal: tokens.spacing.screenPadding,
-    
     gap: 12,
   },
 
@@ -236,62 +246,6 @@ const styles = StyleSheet.create({
     color: tokens.white100,
   },
   cta: {},
-
-  gaugeCard: {},
-  gaugeRow: { flexDirection: 'row', alignItems: 'center', gap: 24 },
-  gaugeInfo: { flex: 1, gap: 12 },
-  windowRow: { gap: 4 },
-  windowLabel: {
-    fontFamily: 'Lexend-Regular',
-    fontSize: tokens.font.tiny,
-    color: tokens.white60,
-  },
-  windowValue: {
-    fontFamily: 'Lexend-SemiBold',
-    fontSize: tokens.font.body,
-    color: tokens.white100,
-  },
-
-  sectionTitle: {
-    fontFamily: 'Lexend-SemiBold',
-    fontSize: tokens.font.small,
-    color: tokens.white60,
-    letterSpacing: 1,
-    marginBottom: 12,
-  },
-  signals: { gap: 8 },
-  signalRow: { flexDirection: 'row', justifyContent: 'space-between' },
-  signalLabel: {
-    fontFamily: 'Lexend-Regular',
-    fontSize: tokens.font.body,
-    color: tokens.white60,
-  },
-  signalValue: {
-    fontFamily: 'Lexend-SemiBold',
-    fontSize: tokens.font.body,
-    color: tokens.white100,
-    textTransform: 'capitalize',
-  },
-
-  linkCard: {},
-  linkInner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: tokens.spacing.cardPadding,
-  },
-  linkText: {
-    fontFamily: 'Lexend-SemiBold',
-    fontSize: tokens.font.body,
-    color: tokens.secondary,
-  },
-
-  errorText: {
-    fontFamily: 'Lexend-Regular',
-    fontSize: tokens.font.body,
-    color: tokens.accent,
-    textAlign: 'center',
-  },
 
   tokenInfoCard: {},
   tokenInfoRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
@@ -316,10 +270,41 @@ const styles = StyleSheet.create({
     fontSize: tokens.font.small,
     color: tokens.white60,
   },
-  confidenceNote: {
-    fontFamily: 'Lexend-Regular',
+
+  factoryCard: { borderColor: `${tokens.risk.high}30`, borderWidth: 1 },
+  factoryRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
+  factoryInfo: { flex: 1 },
+  factoryTitle: {
+    fontFamily: 'Lexend-Bold',
     fontSize: tokens.font.small,
+    color: tokens.risk.high,
+    letterSpacing: 0.8,
+    marginBottom: 2,
+  },
+  factoryNote: {
+    fontFamily: 'Lexend-Regular',
+    fontSize: tokens.font.tiny,
     color: tokens.white60,
-    fontStyle: 'italic',
+    lineHeight: 16,
+  },
+
+  linkCard: {},
+  linkInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: tokens.spacing.cardPadding,
+  },
+  linkText: {
+    fontFamily: 'Lexend-SemiBold',
+    fontSize: tokens.font.body,
+    color: tokens.secondary,
+  },
+
+  errorText: {
+    fontFamily: 'Lexend-Regular',
+    fontSize: tokens.font.body,
+    color: tokens.accent,
+    textAlign: 'center',
   },
 });

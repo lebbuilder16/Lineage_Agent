@@ -442,7 +442,17 @@ export function DeathClockCard({ dc, riskColor, insiderSell, solExtracted, bundl
 
         {/* Header */}
         <View style={styles.headerRow}>
-          <Text style={styles.title}>DEATH CLOCK</Text>
+          <View style={styles.headerLeft}>
+            <Text style={styles.title}>DEATH CLOCK</Text>
+            {dc?.rug_probability_pct != null && (
+              <View style={styles.probWrap}>
+                <Text style={[styles.probValue, { color: effectiveBadgeColor }]}>
+                  {dc.rug_probability_pct.toFixed(0)}%
+                </Text>
+                <Text style={styles.probLabel}>RUG PROB</Text>
+              </View>
+            )}
+          </View>
           <View style={[styles.riskBadge, { backgroundColor: `${effectiveBadgeColor}18`, borderColor: `${effectiveBadgeColor}40` }]}>
             {isActive && <PulsingDot color={effectiveBadgeColor} />}
             <Text style={[styles.riskBadgeText, { color: effectiveBadgeColor }]}>{effectiveRiskLabel}</Text>
@@ -451,6 +461,11 @@ export function DeathClockCard({ dc, riskColor, insiderSell, solExtracted, bundl
 
         {/* Confidence note (deployer history) */}
         {dc && <Text style={styles.note}>{dc.confidence_note}</Text>}
+        {dc?.prediction_basis === 'operator' && (
+          <Text style={styles.basisNote}>
+            ↳ Operator network · {dc.operator_sample_count ?? 0} sibling samples
+          </Text>
+        )}
 
         {/* Countdown / status box */}
         {dc && (
@@ -580,6 +595,34 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    flex: 1,
+  },
+  probWrap: {
+    alignItems: 'center',
+    gap: 1,
+  },
+  probValue: {
+    fontFamily: 'Lexend-Bold',
+    fontSize: 18,
+    letterSpacing: 0.5,
+  },
+  probLabel: {
+    fontFamily: 'Lexend-Regular',
+    fontSize: 8,
+    color: tokens.white35,
+    letterSpacing: 0.8,
+  },
+  basisNote: {
+    fontFamily: 'Lexend-Regular',
+    fontSize: tokens.font.tiny,
+    color: tokens.white35,
+    fontStyle: 'italic',
     marginBottom: 8,
   },
   title: {

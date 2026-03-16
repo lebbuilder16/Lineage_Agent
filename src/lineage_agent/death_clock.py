@@ -18,7 +18,8 @@ from collections import Counter
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from .data_sources._clients import event_query
+from .data_sources._clients import event_query, operator_mapping_query_by_wallet
+from .factory_service import analyze_factory_rhythm
 from .models import (
     DeathClockForecast,
     EvidenceLevel,
@@ -56,12 +57,43 @@ def _is_confirmed_predictive_rug(row: dict) -> bool:
     return evidence_level in _CONFIRMED_EVIDENCE_LEVELS
 
 
+async def _fetch_deployer_durations(deployer: str) -> list[float]:
+    """Return confirmed predictive rug durations (hours) for a single deployer."""
+    rows = await event_query(
+        where="deployer = ? AND event_type = 'token_rugged' AND rugged_at IS NOT NULL AND created_at IS NOT NULL",
+        params=(deployer,),
+        columns="mint, created_at, rugged_at, rug_mechanism, evidence_level",
+    )
+    confirmed = [r for r in rows if _is_confirmed_predictive_rug(r)]
+    durations: list[float] = []
+    for row in confirmed:
+        try:
+            created = _parse_dt(row["created_at"])
+            rugged = _parse_dt(row["rugged_at"])
+            if created and rugged and rugged > created:
+                durations.append((rugged - created).total_seconds() / 3600.0)
+        except Exception:
+            continue
+    return durations
+
+
 async def compute_death_clock(
     deployer: str,
     token_created_at: Optional[datetime],
     token_metadata: Optional[TokenMetadata] = None,
 ) -> Optional[DeathClockForecast]:
     """Compute a rug timing forecast for a token based on deployer history.
+
+    Extends the base deployer-level prediction with two enhancements:
+
+    1. **Operator network fallback**: when the deployer has < 3 individual
+       samples, sibling deployers sharing the same DNA fingerprint are
+       queried and their rug timing is aggregated to improve coverage for
+       factory-style operators who rotate wallet addresses.
+
+    2. **Market signal escalation**: the ``adjusted_risk_boost`` computed
+       from live liquidity / mcap signals is now applied to the timing-based
+       ``risk_level`` (previously calculated but never wired).
 
     Parameters
     ----------
@@ -70,9 +102,7 @@ async def compute_death_clock(
     token_created_at:
         On-chain creation timestamp of the token being analysed.
     token_metadata:
-        Optional current market data.  When provided, live market signals
-        (low liquidity, sell pressure, price crash) can escalate the
-        timing-based ``risk_level`` by one step.
+        Optional current market data used for market signal escalation.
 
     Returns
     -------
@@ -83,21 +113,66 @@ async def compute_death_clock(
 
     await normalize_legacy_rug_events(deployer=deployer)
 
-    # Fetch historical rug events for this deployer
+    # ── Step 1: fetch deployer-specific rug events ──────────────────────────
     rows = await event_query(
         where="deployer = ? AND event_type = 'token_rugged' AND rugged_at IS NOT NULL AND created_at IS NOT NULL",
         params=(deployer,),
         columns="mint, created_at, rugged_at, rug_mechanism, evidence_level",
     )
-
     total_negative_outcomes = len(rows)
-    confirmed_rows = [row for row in rows if _is_confirmed_predictive_rug(row)]
+    confirmed_rows = [r for r in rows if _is_confirmed_predictive_rug(r)]
     basis_breakdown = Counter(
-        (row.get("rug_mechanism") or RugMechanism.UNKNOWN.value) for row in confirmed_rows
+        (r.get("rug_mechanism") or RugMechanism.UNKNOWN.value) for r in confirmed_rows
     )
 
-    if len(confirmed_rows) < _MIN_SAMPLES:
-        # Zero rug events — no forecast possible at all
+    deployer_durations = await _fetch_deployer_durations(deployer)
+
+    # ── Step 2: factory detection + operator-network fallback ───────────────
+    is_factory = False
+    operator_sample_count = 0
+    prediction_basis: str = "insufficient"
+    operator_durations: list[float] = []
+
+    try:
+        factory_report = await analyze_factory_rhythm(deployer)
+        if factory_report is not None:
+            is_factory = factory_report.is_factory
+    except Exception:
+        pass
+
+    if len(deployer_durations) < 3:
+        # Try to enrich via operator fingerprint (sibling deployers)
+        try:
+            fingerprint_rows = await operator_mapping_query_by_wallet(deployer)
+            seen_deployers: set[str] = {deployer}
+            for fp_row in fingerprint_rows:
+                fingerprint = fp_row.get("fingerprint")
+                if not fingerprint:
+                    continue
+                # Import here to avoid circular — _clients already imported above
+                from .data_sources._clients import operator_mapping_query  # noqa: PLC0415
+                sibling_rows = await operator_mapping_query(fingerprint)
+                for sib in sibling_rows:
+                    sib_wallet = sib.get("wallet") or sib.get("deployer") or ""
+                    if sib_wallet and sib_wallet not in seen_deployers:
+                        seen_deployers.add(sib_wallet)
+                        sib_durations = await _fetch_deployer_durations(sib_wallet)
+                        operator_durations.extend(sib_durations)
+            operator_sample_count = len(operator_durations)
+        except Exception as exc:
+            logger.debug("[death_clock] operator fallback failed: %s", exc)
+
+    all_durations = deployer_durations + operator_durations
+
+    if len(deployer_durations) >= _MIN_SAMPLES:
+        prediction_basis = "deployer"
+    elif len(all_durations) >= _MIN_SAMPLES:
+        prediction_basis = "operator"
+    else:
+        prediction_basis = "insufficient"
+
+    # ── Step 3: return insufficient_data when no samples at all ─────────────
+    if len(all_durations) < _MIN_SAMPLES:
         return DeathClockForecast(
             deployer=deployer,
             historical_rug_count=0,
@@ -110,43 +185,27 @@ async def compute_death_clock(
             confidence_level="low",
             total_negative_outcome_count=total_negative_outcomes,
             basis_breakdown=dict(basis_breakdown),
+            is_factory=is_factory,
+            prediction_basis="insufficient",  # type: ignore[arg-type]
+            operator_sample_count=operator_sample_count,
         )
 
-    # Parse durations
-    durations_h: list[float] = []
-    for row in confirmed_rows:
-        try:
-            created = _parse_dt(row["created_at"])
-            rugged = _parse_dt(row["rugged_at"])
-            if created and rugged and rugged > created:
-                hours = (rugged - created).total_seconds() / 3600.0
-                durations_h.append(hours)
-        except Exception:
-            continue
-
-    if len(durations_h) < _MIN_SAMPLES:
-        return None
-
-    single_sample = len(durations_h) == 1
-    median_h = statistics.median(durations_h)
+    # ── Step 4: compute timing statistics ───────────────────────────────────
+    single_sample = len(all_durations) == 1
+    median_h = statistics.median(all_durations)
 
     if single_sample:
-        # Single rug in history: use a ±50% band to communicate low confidence
         stdev_h = median_h * 0.5
     else:
         stdev_h = (
-            statistics.stdev(durations_h)
-            if len(durations_h) >= 3
-            else median_h * 0.30
+            statistics.stdev(all_durations) if len(all_durations) >= 3 else median_h * 0.30
         )
-        # Cap stdev to avoid absurd windows
         stdev_h = min(stdev_h, median_h * _MAX_STDEV_RATIO)
 
     elapsed_h = _elapsed_hours(token_created_at)
     ratio = elapsed_h / median_h if median_h > 0 else 0.0
 
     if single_sample:
-        # Single-sample mode: always show as "first_rug" regardless of elapsed ratio
         risk_level = "first_rug"
     elif ratio < 0.5:
         risk_level = "low"
@@ -157,44 +216,113 @@ async def compute_death_clock(
     else:
         risk_level = "critical"
 
-    # Compute absolute predicted window
+    # ── Step 5: wire market-signal boost to risk_level ──────────────────────
+    market_signals = _compute_market_signals(token_metadata, risk_level)
+    if market_signals and market_signals.adjusted_risk_boost >= 1.0 and risk_level not in ("first_rug", "insufficient_data"):
+        steps = int(market_signals.adjusted_risk_boost)
+        for _ in range(steps):
+            risk_level = _RISK_ESCALATION.get(risk_level, risk_level)
+
+    # ── Step 6: predicted window ─────────────────────────────────────────────
     window_start = token_created_at + timedelta(hours=max(0.0, median_h - stdev_h))
     window_end = token_created_at + timedelta(hours=median_h + stdev_h)
-
-    # Ensure timezone-aware
     if token_created_at.tzinfo is None:
         token_created_at = token_created_at.replace(tzinfo=timezone.utc)
         window_start = window_start.replace(tzinfo=timezone.utc)
         window_end = window_end.replace(tzinfo=timezone.utc)
 
-    # Compute confidence level based on sample count
-    if len(durations_h) >= 5:
+    # ── Step 7: confidence level ─────────────────────────────────────────────
+    total_samples = len(all_durations)
+    if total_samples >= 5:
         _confidence_level = "high"
-    elif len(durations_h) >= 2:
+    elif total_samples >= 2:
         _confidence_level = "medium"
     else:
         _confidence_level = "low"
 
+    # ── Step 8: confidence note ──────────────────────────────────────────────
+    deployer_n = len(deployer_durations)
+    operator_n = operator_sample_count
+    if prediction_basis == "operator":
+        n_siblings = len({w for w in [] if w})  # placeholder; count noted in operator_sample_count
+        confidence_note = (
+            f"Based on {total_samples} samples from operator network "
+            f"({deployer_n} direct + {operator_n} sibling deployers)"
+        )
+    elif single_sample:
+        confidence_note = "Single prior rug — estimate based on 1 data point (\u00b150% window)"
+    else:
+        confidence_note = f"Based on {deployer_n} confirmed rug(s)"
+
     return DeathClockForecast(
         deployer=deployer,
-        historical_rug_count=len(durations_h),
+        historical_rug_count=deployer_n,
         median_rug_hours=round(median_h, 2),
         stdev_rug_hours=round(stdev_h, 2),
         elapsed_hours=round(elapsed_h, 2),
         risk_level=risk_level,  # type: ignore[arg-type]
         predicted_window_start=window_start,
         predicted_window_end=window_end,
-        sample_count=len(durations_h),
+        sample_count=deployer_n,
         confidence_level=_confidence_level,  # type: ignore[arg-type]
         total_negative_outcome_count=total_negative_outcomes,
         basis_breakdown=dict(basis_breakdown),
-        confidence_note=(
-            "Single prior rug — estimate based on 1 data point (\u00b150% window)"
-            if single_sample
-            else f"Based on {len(durations_h)} confirmed rug(s)"
-        ),
-        market_signals=_compute_market_signals(token_metadata, risk_level),
+        confidence_note=confidence_note,
+        market_signals=market_signals,
+        is_factory=is_factory,
+        prediction_basis=prediction_basis,  # type: ignore[arg-type]
+        operator_sample_count=operator_sample_count,
     )
+
+
+def _compute_rug_probability(
+    elapsed_h: float,
+    median_h: float,
+    stdev_h: float,
+    sample_count: int,
+    operator_sample_count: int,
+    confidence_level: str,
+    market_signals: Optional[MarketSignals],
+    insider_verdict: Optional[str],
+    deployer_exited: bool,
+) -> Optional[float]:
+    """Composite rug probability 0–99 from timing + confidence + live signals.
+
+    Returns None when no sample data is available (no prediction possible).
+    """
+    total_samples = sample_count + operator_sample_count
+    if total_samples == 0 or median_h <= 0:
+        # No timing history — still possible to compute a signal-only estimate
+        # when live signals are very strong (deployer exited = near-certain rug)
+        if deployer_exited and insider_verdict == "insider_dump":
+            return 88.0
+        if insider_verdict == "insider_dump":
+            return 65.0
+        return None
+
+    # 1. Timing score (0–50 pts) — how far through the expected rug window
+    window_end_h = median_h + stdev_h
+    timing_score = min(elapsed_h / window_end_h, 1.2) * 50.0
+
+    # 2. Confidence weight degrades score when few samples exist
+    conf_weight = {"low": 0.45, "medium": 0.72, "high": 1.0}.get(confidence_level, 0.45)
+    timing_score *= conf_weight
+
+    # 3. Live signal bonuses (0–40 pts)
+    bonus = 0.0
+    if market_signals is not None:
+        if market_signals.adjusted_risk_boost >= 2.0:
+            bonus += 18.0
+        elif market_signals.adjusted_risk_boost >= 1.0:
+            bonus += 9.0
+    if deployer_exited:
+        bonus += 22.0
+    elif insider_verdict == "insider_dump":
+        bonus += 14.0
+    elif insider_verdict == "suspicious":
+        bonus += 6.0
+
+    return round(min(timing_score + bonus, 99.0), 1)
 
 
 def _elapsed_hours(created_at: datetime) -> float:
