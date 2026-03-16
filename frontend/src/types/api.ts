@@ -257,6 +257,16 @@ export interface Watch {
   label?: string;
 }
 
+export interface TopToken {
+  mint: string;
+  name: string;
+  symbol: string;
+  narrative?: string | null;
+  mcap_usd?: number | null;
+  event_count: number;
+  created_at?: string | null;
+}
+
 export interface HealthStatus {
   status: 'ok' | 'degraded' | 'down';
   version?: string;

@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Lexend:wght@300;400;500;600;700&display=swap');
+/* Lexend font imported in index.css — not duplicated here */
 
 @custom-variant dark (&:is(.dark *));
 
@@ -52,7 +52,7 @@
   --secondary: var(--color-secondary);
   --secondary-foreground: var(--color-primary);
   --muted: rgba(255, 255, 255, 0.1);
-  --muted-foreground: rgba(255, 255, 255, 0.6);
+  --muted-foreground: rgba(255, 255, 255, 0.75);
   --accent: var(--color-neon-pink);
   --accent-foreground: #ffffff;
   --destructive: var(--color-error);
@@ -134,7 +134,7 @@
       font-size: var(--text-body);
       font-weight: 400;
       line-height: 1.5;
-      color: rgba(255, 255, 255, 0.6);
+      color: rgba(255, 255, 255, 0.75);
       font-family: 'Lexend', sans-serif;
     }
 
@@ -142,7 +142,7 @@
       font-size: var(--text-small);
       font-weight: 500;
       line-height: 1.4;
-      color: rgba(255, 255, 255, 0.5);
+      color: rgba(255, 255, 255, 0.65);
       font-family: 'Lexend', sans-serif;
       text-transform: uppercase;
       letter-spacing: 0.05em;
@@ -218,6 +218,51 @@ html {
   .text-tiny {
     font-size: var(--text-tiny);
   }
+}
+
+/* Focus indicators — accessible visible focus ring */
+:focus-visible {
+  outline: 2px solid var(--color-secondary) !important;
+  outline-offset: 2px !important;
+}
+
+input:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--color-secondary) !important;
+  outline-offset: 0 !important;
+  box-shadow: 0 0 0 3px rgba(173, 206, 255, 0.2);
+}
+
+/* Screen reader only — visually hidden but accessible */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+/* Skip navigation link */
+.skip-nav {
+  position: absolute;
+  top: -40px;
+  left: 0;
+  padding: 8px 16px;
+  background: var(--color-primary);
+  color: #fff;
+  z-index: 10000;
+  text-decoration: none;
+  font-family: 'Lexend', sans-serif;
+  font-size: 14px;
+  transition: top 0.2s;
+  border-radius: 0 0 8px 0;
+}
+.skip-nav:focus {
+  top: 0;
 }
 
 /* Reduced motion support */

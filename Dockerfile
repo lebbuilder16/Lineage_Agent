@@ -43,9 +43,8 @@ RUN npm run build
 
 FROM nginx:stable-alpine AS frontend
 
-# Serve on port 3000 with SPA fallback routing
-RUN printf 'server {\n  listen 3000;\n  root /usr/share/nginx/html;\n  index index.html;\n  location / { try_files $uri $uri/ /index.html; }\n}\n' \
-    > /etc/nginx/conf.d/default.conf
+# Serve on port 3000 with SPA fallback routing and security headers
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 
 COPY --from=frontend-builder /app/build /usr/share/nginx/html
 
