@@ -1,5 +1,6 @@
 /* ─────────────────────────────────────────────
-   DATA
+   DATA — Lineage Agent content adapted to
+   the Frame & Form structure
 ───────────────────────────────────────────── */
 
 const features = [
@@ -7,76 +8,70 @@ const features = [
     title: 'Token Radar',
     category: 'Market Intelligence & Discovery',
     description:
-      'Our real-time radar surfaces emerging tokens before they trend, analyzing volume patterns and deployer history across Solana.',
+      'Our real-time radar surfaces emerging tokens before they trend, analyzing volume patterns and deployer history across the entire Solana ecosystem. Stay ahead with instant alerts and curated insights.',
   },
   {
     title: 'Lineage Scan',
     category: 'Clone Detection & Family Mapping',
     description:
-      'Deep scan any token to uncover its full lineage tree, identifying forks, clones, and imposters across the Solana ecosystem.',
+      'Deep scan any token to uncover its full lineage tree, identifying forks, clones, and imposters. Our detection engine maps derivative chains across the Solana ecosystem with precision.',
   },
   {
     title: 'Death Clock',
     category: 'Rug Probability & Soft Rug Detection',
     description:
-      'Advanced risk scoring using deployer DNA, factory detection, and behavioral pattern analysis to flag threats before they materialize.',
+      'Advanced risk scoring using deployer DNA, factory detection, and behavioral pattern analysis. We flag threats before they materialize, giving you time to protect your portfolio.',
   },
   {
     title: 'Family Tree',
     category: 'Visual Lineage Visualization',
     description:
-      'Interactive graph mapping the complete family tree of any token, exposing hidden relationships and derivative chains at a glance.',
+      'Interactive graph mapping the complete family tree of any token, exposing hidden relationships and derivative chains at a glance. Understand the full genealogy of your tokens.',
   },
   {
     title: 'Cartel Detection',
     category: 'Coordinated Deployer Networks',
     description:
-      'Identify clusters of wallets operating as coordinated bad actors, deploying waves of scam tokens across the Solana ecosystem.',
+      'Identify clusters of wallets operating as coordinated bad actors, deploying waves of scam tokens across Solana. Our network analysis reveals the connections others miss.',
   },
   {
     title: 'Sol Trace',
     category: 'On-Chain Transaction Forensics',
     description:
-      "Trace any token's complete on-chain footprint from genesis block through current activity with full transparency and precision.",
+      "Trace any token's complete on-chain footprint from genesis block through current activity. Full transparency and precision in tracking fund flows and transaction histories.",
   },
 ];
 
 const stats = [
-  { value: '—', label: 'Tokens analyzed across the Solana ecosystem' },
-  { value: '—', label: 'Active lineage families tracked in real time' },
-  { value: '—', label: 'Rug attempts identified and flagged' },
-];
-
-const marqueeItems = [
-  'TOKEN RADAR',
-  'LINEAGE SCAN',
-  'DEATH CLOCK',
-  'FAMILY TREE',
-  'CARTEL DETECTION',
-  'SOL TRACE',
-  'ON-CHAIN INTELLIGENCE',
-  'SOLANA ECOSYSTEM',
+  { value: '50K+', label: 'Tokens analyzed across the Solana ecosystem' },
+  { value: '1K+', label: 'Active lineage families tracked in real time' },
+  { value: '500+', label: 'Rug attempts identified and flagged' },
 ];
 
 /* ─────────────────────────────────────────────
-   CSS — all animations + hover states
+   CSS — animations + hover states matching
+   Frame & Form (Figma) exactly
 ───────────────────────────────────────────── */
 
 const css = `
-  @keyframes marqueeScroll {
-    from { transform: translateX(0); }
-    to   { transform: translateX(-50%); }
+  /* ── Global Reset for Landing ── */
+  .la-root {
+    font-family: "Instrument Sans", ui-sans-serif, system-ui, sans-serif;
+    background: #ffffff;
+    color: #000000;
+    min-height: 100vh;
+    overflow-x: hidden;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 
-  .la-marquee-track {
-    display: flex;
-    width: max-content;
-    animation: marqueeScroll 30s linear infinite;
-  }
-  .la-marquee-wrap:hover .la-marquee-track {
-    animation-play-state: paused;
+  .la-root *, .la-root *::before, .la-root *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
   }
 
+  /* ── Navigation Links ── */
   .la-nav-link {
     font-size: 20px;
     color: #000;
@@ -87,11 +82,13 @@ const css = `
     border: none;
     cursor: pointer;
     padding: 0;
+    line-height: 1;
   }
   .la-nav-link:hover {
     text-decoration: underline;
   }
 
+  /* ── "See Feature →" Buttons ── */
   .la-see-btn {
     display: flex;
     align-items: center;
@@ -108,17 +105,19 @@ const css = `
     align-self: center;
     white-space: nowrap;
     text-decoration: none;
+    line-height: 1;
   }
   .la-see-btn:hover {
     text-decoration: underline;
   }
   .la-see-btn .la-arrow {
-    transition: transform 0.2s ease;
+    transition: transform 0.25s ease;
   }
   .la-see-btn:hover .la-arrow {
     transform: translateX(5px);
   }
 
+  /* ── Hero CTA Button ── */
   .la-cta-btn {
     display: inline-flex;
     align-items: center;
@@ -133,25 +132,55 @@ const css = `
     border: none;
     cursor: pointer;
     text-decoration: none;
+    line-height: 1;
   }
   .la-cta-btn:hover {
     text-decoration: underline;
   }
   .la-cta-btn .la-arrow {
-    transition: transform 0.2s ease;
+    transition: transform 0.25s ease;
   }
   .la-cta-btn:hover .la-arrow {
     transform: translateX(5px);
   }
 
+  /* ── About CTA Button ── */
+  .la-about-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 30px;
+    padding: 0;
+    font-size: 20px;
+    letter-spacing: -0.48px;
+    font-family: "Instrument Sans", ui-sans-serif, system-ui, sans-serif;
+    color: #000;
+    background: none;
+    border: none;
+    cursor: pointer;
+    text-decoration: none;
+    line-height: 1;
+  }
+  .la-about-btn:hover {
+    text-decoration: underline;
+  }
+  .la-about-btn .la-arrow {
+    transition: transform 0.25s ease;
+  }
+  .la-about-btn:hover .la-arrow {
+    transform: translateX(5px);
+  }
+
+  /* ── Stats Item Hover ── */
   .la-stat-arrow {
     flex-shrink: 0;
-    transition: transform 0.2s ease;
+    transition: transform 0.25s ease;
   }
   .la-stat-item:hover .la-stat-arrow {
     transform: translate(3px, -3px);
   }
 
+  /* ── Footer Links ── */
   .la-footer-link {
     font-size: 16px;
     color: #000;
@@ -162,9 +191,74 @@ const css = `
     cursor: pointer;
     padding: 0;
     font-family: "Instrument Sans", ui-sans-serif, system-ui, sans-serif;
+    line-height: 1;
   }
   .la-footer-link:hover {
     text-decoration: underline;
+  }
+
+  /* ── Social Link ── */
+  .la-social-link {
+    font-size: 15px;
+    color: #000;
+    text-decoration: none;
+    letter-spacing: -0.48px;
+    font-family: "Instrument Sans", ui-sans-serif, system-ui, sans-serif;
+    line-height: 1.6;
+  }
+  .la-social-link:hover {
+    text-decoration: underline;
+  }
+
+  /* ── Feature Item Hover ── */
+  .la-feature-item {
+    transition: background-color 0.2s ease;
+  }
+  .la-feature-item:hover {
+    background-color: #fafafa;
+  }
+
+  /* ── Responsive Breakpoints ── */
+  @media (max-width: 800px) {
+    .la-hero-heading {
+      font-size: 44px !important;
+      letter-spacing: -2px !important;
+    }
+    .la-feature-item {
+      flex-direction: column !important;
+      align-items: flex-start !important;
+      gap: 20px !important;
+    }
+    .la-stats-section {
+      flex-direction: column !important;
+      gap: 40px !important;
+    }
+    .la-footer-grid {
+      grid-template-columns: 1fr !important;
+      gap: 40px !important;
+    }
+    .la-footer-columns {
+      flex-direction: column !important;
+      gap: 30px !important;
+    }
+    .la-footer-bottom {
+      flex-direction: column !important;
+      align-items: flex-start !important;
+      gap: 20px !important;
+    }
+    .la-see-btn {
+      font-size: 16px;
+    }
+    .la-nav-link {
+      font-size: 16px;
+    }
+  }
+
+  @media (min-width: 1280px) {
+    .la-hero-heading {
+      font-size: 75px !important;
+      letter-spacing: -5.25px !important;
+    }
   }
 `;
 
@@ -173,16 +267,34 @@ const css = `
 ───────────────────────────────────────────── */
 
 const ArrowRight = ({ className = '' }: { className?: string }) => (
-  <svg className={className} width="20" height="20" viewBox="0 0 24 24" fill="none"
-    stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+  <svg
+    className={className}
+    width="20"
+    height="20"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.5"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
     <line x1="5" y1="12" x2="19" y2="12" />
     <polyline points="12 5 19 12 12 19" />
   </svg>
 );
 
 const ArrowUpRight = ({ className = '' }: { className?: string }) => (
-  <svg className={className} width="20" height="20" viewBox="0 0 24 24" fill="none"
-    stroke="#767676" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+  <svg
+    className={className}
+    width="20"
+    height="20"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="#767676"
+    strokeWidth="1.5"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
     <line x1="7" y1="17" x2="17" y2="7" />
     <polyline points="7 7 17 7 17 17" />
   </svg>
@@ -205,8 +317,16 @@ const NavLogo = () => (
         if (sib) sib.style.display = 'block';
       }}
     />
-    <span style={{ display: 'none', fontSize: '20px', fontWeight: 600, letterSpacing: '-0.48px' }}>
-      Lineage
+    <span
+      style={{
+        display: 'none',
+        fontSize: '20px',
+        fontWeight: 600,
+        letterSpacing: '-0.48px',
+        lineHeight: 1,
+      }}
+    >
+      Lineage Agent
     </span>
   </>
 );
@@ -223,44 +343,19 @@ const FooterLogo = () => (
         if (sib) sib.style.display = 'block';
       }}
     />
-    <span style={{ display: 'none', fontSize: 'clamp(32px, 5vw, 59px)', fontWeight: 600, letterSpacing: '-3px', lineHeight: 1 }}>
-      Lineage
+    <span
+      style={{
+        display: 'none',
+        fontSize: 'clamp(32px, 5vw, 59px)',
+        fontWeight: 600,
+        letterSpacing: '-3px',
+        lineHeight: 1,
+      }}
+    >
+      Lineage Agent
     </span>
   </>
 );
-
-/* ─────────────────────────────────────────────
-   MARQUEE
-───────────────────────────────────────────── */
-
-const Marquee = () => {
-  const items = [...marqueeItems, ...marqueeItems];
-  return (
-    <div
-      className="la-marquee-wrap"
-      style={{ overflow: 'hidden', borderBottom: '1px solid #000', borderTop: '1px solid #000', padding: '12px 0' }}
-    >
-      <div className="la-marquee-track">
-        {items.map((item, i) => (
-          <span
-            key={i}
-            style={{
-              fontSize: '15px',
-              fontWeight: 500,
-              letterSpacing: '-0.48px',
-              textTransform: 'uppercase',
-              paddingRight: '73px',
-              whiteSpace: 'nowrap',
-              color: i % 2 === 0 ? '#000' : '#767676',
-            }}
-          >
-            {item}
-          </span>
-        ))}
-      </div>
-    </div>
-  );
-};
 
 /* ─────────────────────────────────────────────
    COMPONENT
@@ -268,15 +363,7 @@ const Marquee = () => {
 
 export function LandingScreen() {
   return (
-    <div
-      style={{
-        fontFamily: '"Instrument Sans", ui-sans-serif, system-ui, sans-serif',
-        background: '#ffffff',
-        color: '#000000',
-        minHeight: '100vh',
-        overflowX: 'hidden',
-      }}
-    >
+    <div className="la-root">
       <style>{css}</style>
 
       {/* ── Navigation ── */}
@@ -293,16 +380,22 @@ export function LandingScreen() {
           alignItems: 'center',
           justifyContent: 'space-between',
           padding: '0 15px',
-          zIndex: 100,
+          zIndex: 9999,
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center' }}>
           <NavLogo />
         </div>
         <div style={{ display: 'flex', gap: '32px', alignItems: 'center' }}>
-          <a href="#features" className="la-nav-link">Features</a>
-          <a href="#about"    className="la-nav-link">About</a>
-          <a href="#contact"  className="la-nav-link">Contact</a>
+          <a href="#features" className="la-nav-link">
+            Features
+          </a>
+          <a href="#about" className="la-nav-link">
+            About
+          </a>
+          <a href="#contact" className="la-nav-link">
+            Contact
+          </a>
         </div>
       </nav>
 
@@ -317,16 +410,19 @@ export function LandingScreen() {
         }}
       >
         <h1
+          className="la-hero-heading"
           style={{
             fontSize: 'clamp(44px, 5vw, 64px)',
             fontWeight: 400,
             letterSpacing: '-3.2px',
-            lineHeight: 1.05,
+            lineHeight: 1,
             margin: 0,
             maxWidth: '915px',
+            fontFamily: '"Instrument Sans", ui-sans-serif, system-ui, sans-serif',
           }}
         >
-          Lineage Agent specializes in tracking the on-chain lineage of your Solana tokens
+          Lineage Agent specializes in tracking the on-chain lineage of your
+          Solana tokens
         </h1>
 
         <a href="#features" className="la-cta-btn">
@@ -335,31 +431,63 @@ export function LandingScreen() {
         </a>
       </section>
 
-      {/* ── Marquee ── */}
-      <Marquee />
-
       {/* ── Features ── */}
-      <section id="features" style={{ padding: '0 15px', borderBottom: '1px solid #000000' }}>
+      <section
+        id="features"
+        style={{ padding: '0 15px', borderBottom: '1px solid #000000' }}
+      >
         {features.map((feature, i) => (
           <div
             key={i}
+            className="la-feature-item"
             style={{
               display: 'flex',
               justifyContent: 'space-between',
               alignItems: 'flex-start',
-              padding: '30px 0',
-              borderBottom: i < features.length - 1 ? '1px solid #000000' : 'none',
+              padding: '32px 0',
+              borderBottom:
+                i < features.length - 1 ? '1px solid #000000' : 'none',
               gap: '32px',
             }}
           >
             <div style={{ flex: 1 }}>
-              <p style={{ fontSize: '16px', color: '#767676', letterSpacing: '-0.48px', margin: '0 0 10px 0', fontWeight: 400 }}>
+              <p
+                style={{
+                  fontSize: '15px',
+                  color: '#767676',
+                  letterSpacing: '-0.48px',
+                  margin: '0 0 10px 0',
+                  fontWeight: 400,
+                  fontFamily: '"Figtree", sans-serif',
+                }}
+              >
                 {feature.category}
               </p>
-              <h2 style={{ fontSize: 'clamp(24px, 3vw, 37px)', fontWeight: 400, letterSpacing: '-2px', margin: '0 0 15px 0', lineHeight: 1.1 }}>
+              <h2
+                style={{
+                  fontSize: 'clamp(24px, 3vw, 37px)',
+                  fontWeight: 400,
+                  letterSpacing: '-2px',
+                  margin: '0 0 15px 0',
+                  lineHeight: 1.1,
+                  color: '#000000',
+                  fontFamily:
+                    '"Instrument Sans", ui-sans-serif, system-ui, sans-serif',
+                }}
+              >
                 {feature.title}
               </h2>
-              <p style={{ fontSize: '20px', color: '#767676', letterSpacing: '-1px', margin: 0, maxWidth: '600px', lineHeight: 1.4 }}>
+              <p
+                style={{
+                  fontSize: '20px',
+                  color: '#767676',
+                  letterSpacing: '-1px',
+                  margin: 0,
+                  maxWidth: '633px',
+                  lineHeight: 1.4,
+                  fontFamily: '"Figtree", sans-serif',
+                }}
+              >
                 {feature.description}
               </p>
             </div>
@@ -373,6 +501,7 @@ export function LandingScreen() {
 
       {/* ── Stats ── */}
       <section
+        className="la-stats-section"
         style={{
           padding: '50px 15px',
           borderBottom: '1px solid #000000',
@@ -382,12 +511,42 @@ export function LandingScreen() {
         }}
       >
         {stats.map((stat, i) => (
-          <div key={i} className="la-stat-item" style={{ display: 'flex', alignItems: 'center', gap: '15px', flex: '1 1 200px', cursor: 'default' }}>
+          <div
+            key={i}
+            className="la-stat-item"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '15px',
+              flex: '1 1 200px',
+              cursor: 'default',
+            }}
+          >
             <div>
-              <p style={{ fontSize: 'clamp(24px, 3vw, 37px)', fontWeight: 600, letterSpacing: '-2px', margin: '0 0 4px 0', lineHeight: 1 }}>
+              <p
+                style={{
+                  fontSize: 'clamp(24px, 3vw, 37px)',
+                  fontWeight: 600,
+                  letterSpacing: '-2px',
+                  margin: '0 0 4px 0',
+                  lineHeight: 1,
+                  color: '#000000',
+                  fontFamily:
+                    '"Instrument Sans", ui-sans-serif, system-ui, sans-serif',
+                }}
+              >
                 {stat.value}
               </p>
-              <p style={{ fontSize: '16px', color: '#767676', letterSpacing: '-0.48px', margin: 0, lineHeight: 1.4 }}>
+              <p
+                style={{
+                  fontSize: '16px',
+                  color: '#767676',
+                  letterSpacing: '-0.48px',
+                  margin: 0,
+                  lineHeight: 1.4,
+                  fontFamily: '"Figtree", sans-serif',
+                }}
+              >
                 {stat.label}
               </p>
             </div>
@@ -397,50 +556,228 @@ export function LandingScreen() {
       </section>
 
       {/* ── About ── */}
-      <section id="about" style={{ padding: '80px 15px', borderBottom: '1px solid #000000' }}>
+      <section
+        id="about"
+        style={{
+          padding: '80px 15px',
+          borderBottom: '1px solid #000000',
+        }}
+      >
         <h2
-          style={{ fontSize: 'clamp(24px, 3vw, 37px)', fontWeight: 400, letterSpacing: '-2px', margin: 0, maxWidth: '700px', lineHeight: 1.2 }}
+          style={{
+            fontSize: 'clamp(24px, 3vw, 37px)',
+            fontWeight: 400,
+            letterSpacing: '-2px',
+            margin: 0,
+            maxWidth: '700px',
+            lineHeight: 1.2,
+            color: '#000000',
+            fontFamily:
+              '"Instrument Sans", ui-sans-serif, system-ui, sans-serif',
+          }}
         >
-          Lineage Agent builds on-chain intelligence that protects your Solana portfolio
+          Lineage Agent builds on-chain intelligence that protects your Solana
+          portfolio
+        </h2>
+        <a href="#contact" className="la-about-btn">
+          About
+          <ArrowRight className="la-arrow" />
+        </a>
+      </section>
+
+      {/* ── Contact CTA ── */}
+      <section
+        style={{
+          padding: '80px 15px',
+          borderBottom: '1px solid #000000',
+        }}
+      >
+        <h2
+          style={{
+            fontSize: 'clamp(24px, 3vw, 37px)',
+            fontWeight: 400,
+            letterSpacing: '-2px',
+            margin: 0,
+            maxWidth: '700px',
+            lineHeight: 1.2,
+            color: '#000000',
+            fontFamily:
+              '"Instrument Sans", ui-sans-serif, system-ui, sans-serif',
+          }}
+        >
+          Connect with us to explore your token's lineage potential
         </h2>
       </section>
 
       {/* ── Footer ── */}
       <footer id="contact" style={{ padding: '50px 15px' }}>
+        {/* Footer columns */}
         <div
+          className="la-footer-columns"
           style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+            display: 'flex',
+            justifyContent: 'space-between',
             gap: '50px',
-            marginBottom: '50px',
+            marginBottom: '60px',
+            flexWrap: 'wrap',
           }}
         >
-          <h3 style={{ fontSize: 'clamp(24px, 3vw, 37px)', fontWeight: 400, letterSpacing: '-2px', margin: 0, lineHeight: 1.2 }}>
-            Connect with us to explore your token's lineage potential
-          </h3>
+          {/* ECOSYSTEM */}
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '10px',
+            }}
+          >
+            <p
+              style={{
+                fontSize: '13px',
+                color: '#767676',
+                margin: 0,
+                letterSpacing: '0.5px',
+                textTransform: 'uppercase',
+                fontWeight: 500,
+                fontFamily: '"Figtree", sans-serif',
+              }}
+            >
+              ECOSYSTEM
+            </p>
+            <p
+              style={{
+                fontSize: '15px',
+                color: '#000',
+                margin: 0,
+                letterSpacing: '-0.48px',
+                lineHeight: 1.5,
+                fontFamily: '"Figtree", sans-serif',
+              }}
+            >
+              Solana Blockchain
+              <br />
+              On-Chain Intelligence
+            </p>
+          </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            <p style={{ fontSize: '15px', color: '#767676', margin: 0, letterSpacing: '-0.48px' }}>Solana Ecosystem</p>
-            <p style={{ fontSize: '15px', color: '#767676', margin: 0, letterSpacing: '-0.48px' }}>hello@lineageagent.com</p>
-            <div style={{ display: 'flex', gap: '20px', marginTop: '10px' }}>
-              {['Twitter', 'Telegram', 'GitHub'].map((link) => (
-                <a key={link} href="#" className="la-footer-link">{link}</a>
+          {/* CONTACT */}
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '10px',
+            }}
+          >
+            <p
+              style={{
+                fontSize: '13px',
+                color: '#767676',
+                margin: 0,
+                letterSpacing: '0.5px',
+                textTransform: 'uppercase',
+                fontWeight: 500,
+                fontFamily: '"Figtree", sans-serif',
+              }}
+            >
+              CONTACT
+            </p>
+            <a
+              href="mailto:hello@lineageagent.com"
+              className="la-social-link"
+              style={{ color: '#000' }}
+            >
+              hello@lineageagent.com
+            </a>
+          </div>
+
+          {/* SOCIAL */}
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '10px',
+            }}
+          >
+            <p
+              style={{
+                fontSize: '13px',
+                color: '#767676',
+                margin: 0,
+                letterSpacing: '0.5px',
+                textTransform: 'uppercase',
+                fontWeight: 500,
+                fontFamily: '"Figtree", sans-serif',
+              }}
+            >
+              SOCIAL
+            </p>
+            <div
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '4px',
+              }}
+            >
+              {[
+                { name: 'Twitter', href: '#' },
+                { name: 'Telegram', href: '#' },
+                { name: 'GitHub', href: '#' },
+              ].map((link) => (
+                <a
+                  key={link.name}
+                  href={link.href}
+                  className="la-social-link"
+                >
+                  {link.name}
+                </a>
               ))}
             </div>
           </div>
         </div>
 
-        <div style={{ borderTop: '1px solid #000000', paddingTop: '26px', display: 'flex', flexDirection: 'column', gap: '26px' }}>
+        {/* Footer bottom */}
+        <div
+          style={{
+            borderTop: '1px solid #000000',
+            paddingTop: '26px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '26px',
+          }}
+        >
           <div>
             <FooterLogo />
           </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+          <div
+            className="la-footer-bottom"
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: '10px',
+            }}
+          >
             <div style={{ display: 'flex', gap: '32px' }}>
-              <a href="#features" className="la-footer-link">Features</a>
-              <a href="#about"    className="la-footer-link">About</a>
-              <a href="#contact"  className="la-footer-link">Contact</a>
+              <a href="#features" className="la-footer-link">
+                Features
+              </a>
+              <a href="#about" className="la-footer-link">
+                About
+              </a>
+              <a href="#contact" className="la-footer-link">
+                Contact
+              </a>
             </div>
-            <span style={{ fontSize: '15px', color: '#767676', letterSpacing: '-0.48px' }}>© 2026 Lineage Agent</span>
+            <span
+              style={{
+                fontSize: '15px',
+                color: '#767676',
+                letterSpacing: '-0.48px',
+                fontFamily: '"Figtree", sans-serif',
+              }}
+            >
+              © 2026 Lineage Agent
+            </span>
           </div>
         </div>
       </footer>
