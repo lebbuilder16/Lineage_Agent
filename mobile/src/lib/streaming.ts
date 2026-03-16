@@ -7,9 +7,7 @@ const BASE_URL = (
   process.env.EXPO_PUBLIC_API_URL ?? 'https://lineage-agent.fly.dev'
 ).replace(/\/$/, '');
 
-// Analyze token via SSE stream.
-// Uses XMLHttpRequest + onprogress for reliable incremental delivery in React Native
-// (fetch ReadableStream has inconsistent behaviour across RN versions/devices).
+// Analyze token via SSE stream (React Native has no built-in EventSource)
 export function analyzeStream(
   mint: string,
   onStep: (step: AnalysisStep) => void,
@@ -18,86 +16,84 @@ export function analyzeStream(
 ): () => void {
   const url = `${BASE_URL}/analyze/${encodeURIComponent(mint)}/stream`;
   let cancelled = false;
-  let done = false;
-  let offset = 0;
-  let buffer = '';
-  let pendingEvent = '';
 
-  const processNewText = (newText: string) => {
-    buffer += newText;
-    const lines = buffer.split('\n');
-    buffer = lines.pop() ?? '';
-    for (const line of lines) {
-      if (line.startsWith('event: ')) {
-        pendingEvent = line.slice(7).trim();
-      } else if (line === '') {
-        pendingEvent = '';
-      } else if (line.startsWith('data: ')) {
-        const text = line.slice(6);
-        try {
-          const payload = JSON.parse(text);
-          if (pendingEvent === 'complete') {
-            if (!done) { done = true; onDone(payload as LineageResult); }
-            return;
-          } else if (pendingEvent === 'error') {
-            if (!done) {
-              done = true;
-              onError?.(new Error((payload as { detail?: string }).detail ?? 'Analysis error'));
-              onDone();
-            }
-            return;
-          } else {
-            onStep(payload as AnalysisStep);
-          }
-        } catch (e) {
-          console.warn('[analyzeStream] unparseable SSE line', e);
-        }
+  fetch(url, { headers: { Accept: 'text/event-stream' } })
+    .then((res) => {
+      if (!res.ok || !res.body) {
+        onError?.(new Error(`Stream ${res.status}`));
+        onDone();
+        return;
       }
-    }
-  };
 
-  const xhr = new XMLHttpRequest();
-  xhr.open('GET', url, true);
-  xhr.setRequestHeader('Accept', 'text/event-stream');
-  xhr.setRequestHeader('Cache-Control', 'no-cache');
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let pendingEvent = '';
 
-  xhr.onprogress = () => {
-    if (cancelled) return;
-    const newText = xhr.responseText.slice(offset);
-    offset = xhr.responseText.length;
-    if (newText) processNewText(newText);
-  };
+      const read = () => {
+        if (cancelled) return;
+        reader.read().then(({ done, value }) => {
+          if (done) { onDone(); return; }
+          buffer += decoder.decode(value, { stream: true });
+          // Handle both \r\n and \n line endings
+          const lines = buffer.split(/\r?\n/);
+          buffer = lines.pop() ?? '';
+          for (const line of lines) {
+            if (line.startsWith('event: ')) {
+              // Track named SSE event type for the upcoming data line
+              pendingEvent = line.slice(7).trim();
+            } else if (line === '') {
+              // Empty line = end of event block, reset event type
+              pendingEvent = '';
+            } else if (line.startsWith('data: ')) {
+              const dataText = line.slice(6);
+              if (pendingEvent === 'complete') {
+                // Final result — parse as LineageResult
+                try {
+                  const result = JSON.parse(dataText) as LineageResult;
+                  onDone(result);
+                } catch {
+                  onDone();
+                }
+                return;
+              } else if (pendingEvent === 'error') {
+                try {
+                  const data = JSON.parse(dataText) as { detail?: string };
+                  onError?.(new Error(data.detail ?? 'Analysis error'));
+                } catch {
+                  onError?.(new Error(dataText));
+                }
+                onDone();
+                return;
+              } else {
+                // step event — parse as AnalysisStep
+                try {
+                  const step = JSON.parse(dataText) as AnalysisStep;
+                  onStep(step);
+                } catch (e) {
+                  console.warn('[analyzeStream] unparseable SSE data', e);
+                }
+              }
+            }
+          }
+          read();
+        }).catch((err: unknown) => {
+          if (!cancelled) onError?.(err instanceof Error ? err : new Error(String(err)));
+          onDone();
+        });
+      };
 
-  xhr.onload = () => {
-    if (cancelled || done) return;
-    // Drain any remaining buffer
-    const newText = xhr.responseText.slice(offset);
-    if (newText) processNewText(newText);
-    if (!done) { done = true; onDone(); }
-  };
+      read();
+    })
+    .catch((err: unknown) => {
+      if (!cancelled) onError?.(err instanceof Error ? err : new Error(String(err)));
+      onDone();
+    });
 
-  xhr.onerror = () => {
-    if (cancelled || done) return;
-    done = true;
-    onError?.(new Error('Stream connection failed'));
-    onDone();
-  };
-
-  xhr.ontimeout = () => {
-    if (cancelled || done) return;
-    done = true;
-    onError?.(new Error('Stream timed out'));
-    onDone();
-  };
-
-  xhr.timeout = 120_000; // 2 min max
-  xhr.send();
-
-  return () => { cancelled = true; xhr.abort(); };
+  return () => { cancelled = true; };
 }
 
-// Chat stream via POST SSE.
-// Uses XMLHttpRequest for reliable incremental delivery in React Native.
+// Chat stream via POST SSE
 export function chatStream(
   mint: string | undefined,
   message: string,
@@ -108,89 +104,77 @@ export function chatStream(
 ): Promise<() => void> {
   const path = mint ? `/chat/${encodeURIComponent(mint)}` : '/chat';
 
-  let cancelled = false;
-  let done = false;
-  let offset = 0;
-  let buffer = '';
-  let pendingEvent = '';
-
-  const processNewText = (newText: string) => {
-    buffer += newText;
-    const lines = buffer.split('\n');
-    buffer = lines.pop() ?? '';
-    for (const line of lines) {
-      if (line.startsWith('event: ')) {
-        pendingEvent = line.slice(7).trim();
-      } else if (line === '') {
-        pendingEvent = '';
-      } else if (line.startsWith('data: ')) {
-        const text = line.slice(6);
-        if (pendingEvent === 'done' || text === '[DONE]') {
-          if (!done) { done = true; onDone(); }
-          return;
-        }
-        if (pendingEvent === 'error') {
-          if (!done) {
-            done = true;
-            try {
-              const parsed = JSON.parse(text) as { detail?: string };
-              onError?.(new Error(parsed.detail ?? 'Chat error'));
-            } catch { onError?.(new Error(text)); }
-            onDone();
-          }
-          return;
-        }
-        // event: token → { text: "<chunk>" }
-        try {
-          const parsed = JSON.parse(text) as unknown;
-          const chunk =
-            parsed !== null && typeof (parsed as { text?: string }).text === 'string'
-              ? (parsed as { text: string }).text
-              : typeof parsed === 'string' ? parsed : '';
-          if (chunk) onChunk(chunk);
-        } catch { if (text) onChunk(text); }
-      }
+  return fetch(`${BASE_URL}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+    body: JSON.stringify({ message, history }),
+  }).then((res) => {
+    if (!res.ok || !res.body) {
+      onError?.(new Error(`Chat API ${res.status}`));
+      onDone();
+      return () => {};
     }
-  };
 
-  const xhr = new XMLHttpRequest();
-  xhr.open('POST', `${BASE_URL}${path}`, true);
-  xhr.setRequestHeader('Content-Type', 'application/json');
-  xhr.setRequestHeader('Accept', 'text/event-stream');
-  xhr.setRequestHeader('Cache-Control', 'no-cache');
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let cancelled = false;
+    let pendingEvent = '';
 
-  xhr.onprogress = () => {
-    if (cancelled) return;
-    const newText = xhr.responseText.slice(offset);
-    offset = xhr.responseText.length;
-    if (newText) processNewText(newText);
-  };
+    const read = () => {
+      if (cancelled) return;
+      reader.read().then(({ done, value }) => {
+        if (done) { onDone(); return; }
+        buffer += decoder.decode(value, { stream: true });
+        // Handle both \r\n and \n line endings
+        const lines = buffer.split(/\r?\n/);
+        buffer = lines.pop() ?? '';
+        for (const line of lines) {
+          if (line.startsWith('event: ')) {
+            pendingEvent = line.slice(7).trim();
+          } else if (line === '') {
+            pendingEvent = '';
+          } else if (line.startsWith('data: ')) {
+            const text = line.slice(6);
+            if (pendingEvent === 'done' || text === '[DONE]') {
+              onDone();
+              return;
+            }
+            if (pendingEvent === 'error') {
+              try {
+                const parsed = JSON.parse(text) as { detail?: string };
+                onError?.(new Error(parsed.detail ?? 'Chat error'));
+              } catch {
+                onError?.(new Error(text));
+              }
+              onDone();
+              return;
+            }
+            // token event: extract string from {"text": "..."} object
+            try {
+              const parsed = JSON.parse(text) as unknown;
+              const chunk =
+                typeof parsed === 'string'
+                  ? parsed
+                  : parsed !== null && typeof (parsed as { text?: string }).text === 'string'
+                    ? (parsed as { text: string }).text
+                    : '';
+              if (chunk) onChunk(chunk);
+            } catch {
+              if (text) onChunk(text);
+            }
+          }
+        }
+        read();
+      }).catch((err: unknown) => {
+        if (!cancelled) onError?.(err instanceof Error ? err : new Error(String(err)));
+        onDone();
+      });
+    };
 
-  xhr.onload = () => {
-    if (cancelled || done) return;
-    const newText = xhr.responseText.slice(offset);
-    if (newText) processNewText(newText);
-    if (!done) { done = true; onDone(); }
-  };
-
-  xhr.onerror = () => {
-    if (cancelled || done) return;
-    done = true;
-    onError?.(new Error('Chat connection failed'));
-    onDone();
-  };
-
-  xhr.timeout = 60_000;
-  xhr.ontimeout = () => {
-    if (cancelled || done) return;
-    done = true;
-    onError?.(new Error('Chat timed out'));
-    onDone();
-  };
-
-  xhr.send(JSON.stringify({ message, history }));
-
-  return Promise.resolve(() => { cancelled = true; xhr.abort(); });
+    read();
+    return () => { cancelled = true; reader.cancel(); };
+  });
 }
 
 // WebSocket: real-time alerts feed
@@ -259,8 +243,8 @@ export function connectLineageWS(
       ws.onopen = () => resolve();
       ws.onmessage = (event) => {
         try {
-          const data = JSON.parse(event.data as string) as { is_done?: boolean; result?: LineageResult } & AnalysisStep;
-          if (data.is_done && data.result) {
+          const data = JSON.parse(event.data as string) as { done?: boolean; result?: LineageResult } & AnalysisStep;
+          if (data.done && data.result) {
             onDone(data.result);
           } else {
             onProgress(data);

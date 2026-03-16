@@ -38,6 +38,13 @@ _MIN_RECORDED_LIQ = 500.0         # only consider tokens that once had real liqu
 _LOOKBACK_SECONDS = 48 * 3600     # scan tokens recorded in last 48 h
 _BATCH_CONCURRENCY = 3            # concurrent DexScreener lookups per sweep
 
+# Soft-rug / liquidity drain thresholds
+# A token that shed ≥90% of its recorded liquidity but stays above the absolute
+# floor (e.g. $80k → $4k) is still effectively rugged on Solana today.
+_DRAIN_RUG_MIN_RECORDED_LIQ = 5_000.0  # only apply to tokens that once had ≥$5k liq
+_DRAIN_RUG_PCT_STRONG       = 0.95      # ≥95% drain → STRONG evidence
+_DRAIN_RUG_PCT_MODERATE     = 0.90      # ≥90% drain → MODERATE evidence
+
 _sweep_task: Optional[asyncio.Task] = None
 _RUG_SEMANTICS_VERSION = "rug-semantics-v1"
 _RUG_NORMALIZE_VERSION = "rug-normalize-v1"
@@ -386,10 +393,51 @@ async def _run_rug_sweep() -> int:
         for p in pairs:
             current_liq += float((p.get("liquidity") or {}).get("usd") or 0)
 
-        if current_liq >= _RUG_LIQ_THRESHOLD:
+        recorded_liq = float(row.get("liq_usd") or 0)
+
+        # Keep recorded_liq tracking the peak: if the token's liquidity has
+        # grown since the initial scan, update the stored value so that future
+        # drain calculations use the true high-water mark.
+        if current_liq > recorded_liq:
+            try:
+                await event_update(
+                    where="mint = ? AND event_type = 'token_created'",
+                    params=(mint,),
+                    liq_usd=current_liq,
+                )
+            except Exception:
+                pass  # non-critical — worst case we under-estimate drain this cycle
+            recorded_liq = current_liq
+
+        # ── Classify the rug type ──────────────────────────────────────────
+        if current_liq < _RUG_LIQ_THRESHOLD:
+            # Hard rug: absolute floor hit
+            rug_mechanism = RugMechanism.DEX_LIQUIDITY_RUG.value
+            evidence_level = EvidenceLevel.STRONG.value
+            reason_codes = ["dex_context_confirmed", "liquidity_below_dead_threshold"]
+
+        elif (
+            recorded_liq >= _DRAIN_RUG_MIN_RECORDED_LIQ
+            and recorded_liq > 0
+            and (recorded_liq - current_liq) / recorded_liq >= _DRAIN_RUG_PCT_MODERATE
+        ):
+            # Soft rug: ≥90% relative liquidity drain (e.g. $80k → $4k)
+            drain_pct = (recorded_liq - current_liq) / recorded_liq
+            rug_mechanism = RugMechanism.LIQUIDITY_DRAIN_RUG.value
+            evidence_level = (
+                EvidenceLevel.STRONG.value
+                if drain_pct >= _DRAIN_RUG_PCT_STRONG
+                else EvidenceLevel.MODERATE.value
+            )
+            reason_codes = [
+                "dex_context_confirmed",
+                f"liquidity_drained_{int(drain_pct * 100)}pct",
+            ]
+
+        else:
             return  # still alive
 
-        # Rug detected
+        # ── Persist rug event ─────────────────────────────────────────────
         now_iso = datetime.now(tz=timezone.utc).isoformat()
         try:
             await event_insert(
@@ -397,24 +445,21 @@ async def _run_rug_sweep() -> int:
                 mint=mint,
                 deployer=row.get("deployer", ""),
                 liq_usd=current_liq,
-                rug_mechanism=RugMechanism.DEX_LIQUIDITY_RUG.value,
+                rug_mechanism=rug_mechanism,
                 rugged_at=now_iso,
                 created_at=row.get("created_at"),
                 launch_platform=row.get("launch_platform"),
                 lifecycle_stage=row.get("lifecycle_stage") or LifecycleStage.DEX_LISTED.value,
                 market_surface=MarketSurface.DEX_POOL_OBSERVED.value,
-                evidence_level=EvidenceLevel.STRONG.value,
-                reason_codes=json.dumps([
-                    "dex_context_confirmed",
-                    "liquidity_below_dead_threshold",
-                ]),
+                evidence_level=evidence_level,
+                reason_codes=json.dumps(reason_codes),
                 analysis_version=_RUG_SEMANTICS_VERSION,
                 policy_version=_RUG_SEMANTICS_VERSION,
             )
             rugs_found += 1
             logger.info(
-                "Rug detected: %s (was $%.0f → now $%.0f)",
-                mint, row.get("liq_usd", 0), current_liq,
+                "Rug detected [%s]: %s (was $%.0f → now $%.0f)",
+                rug_mechanism, mint, recorded_liq, current_liq,
             )
             # Fire-and-forget: trace where the SOL went (Initiative 2)
             _deployer = row.get("deployer", "")

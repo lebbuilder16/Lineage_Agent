@@ -38,6 +38,7 @@ _MAX_STDEV_RATIO = 2.0    # cap stdev at 2× median to avoid absurd windows
 _PREDICTIVE_RUG_MECHANISMS = {
     RugMechanism.DEX_LIQUIDITY_RUG.value,
     RugMechanism.PRE_DEX_EXTRACTION_RUG.value,
+    RugMechanism.LIQUIDITY_DRAIN_RUG.value,
 }
 _CONFIRMED_EVIDENCE_LEVELS = {
     EvidenceLevel.MODERATE.value,

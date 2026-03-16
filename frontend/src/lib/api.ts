@@ -97,7 +97,7 @@ export function analyzeStream(
   const es = new EventSource(url);
 
   // Named SSE events require addEventListener — onmessage only fires for unnamed events.
-  es.addEventListener('step', (event: any) => {
+  es.addEventListener('step', (event) => {
     try {
       const data = JSON.parse(event.data) as AnalysisStep;
       onStep(data);
@@ -106,7 +106,7 @@ export function analyzeStream(
     }
   });
 
-  es.addEventListener('complete', (event: any) => {
+  es.addEventListener('complete', (event) => {
     try {
       const result = JSON.parse(event.data) as LineageResult;
       es.close();
@@ -117,7 +117,7 @@ export function analyzeStream(
     }
   });
 
-  es.addEventListener('error', (event: any) => {
+  es.addEventListener('error', (event) => {
     es.close();
     try {
       const data = JSON.parse(event.data) as { detail?: string };
