@@ -157,9 +157,8 @@ async function doConnect(host: string, token: string) {
       },
       role: 'operator',
       auth: { token },
-      scopes: ['operator.read', 'operator.write'],
+      scopes: ['operator.read', 'operator.write', 'operator.admin'],
       caps: ['lineage.scan', 'lineage.watchlist', 'lineage.alert', 'notifications.send'],
-      device: identity,
     };
     const frame: OpenClawRequest = {
       type: 'req',
