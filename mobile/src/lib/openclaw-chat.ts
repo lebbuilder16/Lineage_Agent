@@ -93,10 +93,8 @@ async function openClawChatStream(
       clearInterval(chunkInterval);
     };
   } catch (err) {
-    if (!cancelled) {
-      onError?.(err instanceof Error ? err : new Error('OpenClaw chat failed'));
-      onDone();
-    }
-    return () => { cancelled = true; };
+    // Rethrow so smartChatStream can fall back to the direct Lineage API
+    cancelled = true;
+    throw err;
   }
 }
