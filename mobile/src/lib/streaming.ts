@@ -3,6 +3,10 @@
 import { WS_BASE } from './api-client';
 import type { AnalysisStep, AlertItem, LineageResult } from '../types/api';
 import * as Notifications from 'expo-notifications';
+import { isOpenClawAvailable } from './openclaw';
+import { routeAlertToChannels, enrichAlert } from './openclaw-alerts';
+import { useAlertPrefsStore } from '../store/alert-prefs';
+import { useAlertsStore } from '../store/alerts';
 
 const BASE_URL = (
   process.env.EXPO_PUBLIC_API_URL ?? 'https://lineage-agent.fly.dev'
@@ -291,6 +295,19 @@ export function connectAlertsWS(
         if (!data.read) data.read = false;
         if (isDuplicate(data)) return;
         onAlert(data);
+
+        // OpenClaw: multi-channel routing + AI enrichment (best-effort, async)
+        if (isOpenClawAvailable()) {
+          routeAlertToChannels(data);
+          if (useAlertPrefsStore.getState().enrichmentEnabled) {
+            enrichAlert(data).then((enriched) => {
+              if (enriched) {
+                useAlertsStore.getState().updateEnrichment(data.id, enriched);
+              }
+            }).catch(() => {});
+          }
+        }
+
         Notifications.scheduleNotificationAsync({
           content: {
             title: data.title ?? data.token_name ?? data.type.toUpperCase(),

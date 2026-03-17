@@ -10,25 +10,38 @@ import {
   Platform,
   StyleSheet,
 } from 'react-native';
-import { X, Key, LogOut } from 'lucide-react-native';
+import { X, Key, LogOut, Wifi, WifiOff, Zap } from 'lucide-react-native';
 import { tokens } from '../../theme/tokens';
 import { HapticButton } from './HapticButton';
 import { useAuthStore } from '../../store/auth';
+import { useOpenClawStore } from '../../store/openclaw';
+import { connectOpenClaw, disconnectOpenClaw } from '../../lib/openclaw';
 
 interface SettingsSheetProps {
   visible: boolean;
   onClose: () => void;
 }
 
-/** Slide-up modal for managing the API key. */
+/** Slide-up modal for managing the API key + OpenClaw connection. */
 export function SettingsSheet({ visible, onClose }: SettingsSheetProps) {
   const apiKey = useAuthStore((s) => s.apiKey);
   const setApiKey = useAuthStore((s) => s.setApiKey);
   const [pendingKey, setPendingKey] = useState('');
 
-  // reset input each time the sheet opens
+  // OpenClaw state
+  const ocHost = useOpenClawStore((s) => s.host);
+  const ocStatus = useOpenClawStore((s) => s.status);
+  const ocConnected = useOpenClawStore((s) => s.connected);
+  const [pendingHost, setPendingHost] = useState('');
+  const [pendingToken, setPendingToken] = useState('');
+
+  // reset inputs each time the sheet opens
   useEffect(() => {
-    if (visible) setPendingKey('');
+    if (visible) {
+      setPendingKey('');
+      setPendingHost('');
+      setPendingToken('');
+    }
   }, [visible]);
 
   const handleSave = () => {
@@ -144,6 +157,116 @@ export function SettingsSheet({ visible, onClose }: SettingsSheetProps) {
             Get your key at{' '}
             <Text style={styles.hintLink}>lineage-agent.fly.dev/dashboard</Text>
           </Text>
+
+          {/* ── OpenClaw Section ─────────────────────────────────── */}
+          <View style={styles.divider} />
+
+          <View style={styles.titleRow}>
+            <View style={styles.titleLeft}>
+              <Zap size={18} color={tokens.secondary} />
+              <Text style={styles.title}>OpenClaw</Text>
+            </View>
+            <View style={styles.statusRow}>
+              <View
+                style={[
+                  styles.statusDot,
+                  ocStatus === 'connected' && styles.statusDotConnected,
+                  ocStatus === 'reconnecting' && styles.statusDotReconnecting,
+                  (ocStatus === 'offline' || ocStatus === 'unconfigured') && styles.statusDotOffline,
+                ]}
+              />
+              <Text style={styles.statusText}>
+                {ocStatus === 'connected'
+                  ? 'Connected'
+                  : ocStatus === 'reconnecting'
+                    ? 'Reconnecting…'
+                    : ocHost
+                      ? 'Offline'
+                      : 'Not configured'}
+              </Text>
+            </View>
+          </View>
+
+          {ocHost && ocConnected ? (
+            <>
+              <View style={styles.currentRow}>
+                <Text style={styles.currentLabel}>Gateway</Text>
+                <Text style={styles.currentValue} numberOfLines={1}>
+                  {ocHost}
+                </Text>
+              </View>
+              <HapticButton
+                variant="ghost"
+                size="md"
+                fullWidth
+                onPress={() => {
+                  disconnectOpenClaw();
+                  useOpenClawStore.getState().reset();
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="Disconnect OpenClaw"
+              >
+                <View style={styles.removeInner}>
+                  <WifiOff size={14} color={tokens.accent} />
+                  <Text style={styles.removeText}>Disconnect</Text>
+                </View>
+              </HapticButton>
+            </>
+          ) : (
+            <>
+              <Text style={styles.inputLabel}>Gateway host</Text>
+              <TextInput
+                style={styles.input}
+                value={pendingHost}
+                onChangeText={setPendingHost}
+                placeholder="192.168.1.x:18789"
+                placeholderTextColor={tokens.white35}
+                autoCapitalize="none"
+                autoCorrect={false}
+                accessibilityLabel="OpenClaw gateway host"
+              />
+              <Text style={styles.inputLabel}>Device token (optional)</Text>
+              <TextInput
+                style={styles.input}
+                value={pendingToken}
+                onChangeText={setPendingToken}
+                placeholder="Token from openclaw pair"
+                placeholderTextColor={tokens.white35}
+                autoCapitalize="none"
+                autoCorrect={false}
+                secureTextEntry
+                accessibilityLabel="OpenClaw device token"
+              />
+              <HapticButton
+                variant="secondary"
+                size="md"
+                fullWidth
+                onPress={() => {
+                  const host = pendingHost.trim();
+                  if (!host) return;
+                  const token = pendingToken.trim();
+                  const store = useOpenClawStore.getState();
+                  store.setHost(host);
+                  store.setDeviceToken(token || null);
+                  connectOpenClaw(host, token);
+                }}
+                style={styles.saveBtn}
+                accessibilityRole="button"
+                accessibilityLabel="Connect to OpenClaw"
+              >
+                <View style={styles.removeInner}>
+                  <Wifi size={14} color={tokens.bgMain} />
+                  <Text style={{ fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.body, color: tokens.bgMain }}>
+                    Connect
+                  </Text>
+                </View>
+              </HapticButton>
+            </>
+          )}
+
+          <Text style={styles.hint}>
+            Self-host OpenClaw for multi-channel alerts, voice, and proactive monitoring.
+          </Text>
         </View>
       </KeyboardAvoidingView>
     </Modal>
@@ -253,5 +376,28 @@ const styles = StyleSheet.create({
   hintLink: {
     color: tokens.secondary,
     fontFamily: 'Lexend-SemiBold',
+  },
+  divider: {
+    height: 1,
+    backgroundColor: tokens.borderSubtle,
+    marginVertical: 8,
+  },
+  statusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  statusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  statusDotConnected: { backgroundColor: tokens.success },
+  statusDotReconnecting: { backgroundColor: tokens.warning },
+  statusDotOffline: { backgroundColor: tokens.white35 },
+  statusText: {
+    fontFamily: 'Lexend-Regular',
+    fontSize: tokens.font.tiny,
+    color: tokens.white60,
   },
 });

@@ -9,6 +9,10 @@ import { StyleSheet, View, AppState } from 'react-native';
 import * as Linking from 'expo-linking';
 import * as Notifications from 'expo-notifications';
 import { checkWatchedTokenAlerts } from '../src/lib/notifications';
+import { connectOpenClaw, disconnectOpenClaw } from '../src/lib/openclaw';
+import { useOpenClawStore } from '../src/store/openclaw';
+import { registerDeviceNode, startNodeCommandListener } from '../src/lib/openclaw-node';
+import { startRugResponseListener } from '../src/lib/openclaw-rug-response';
 import { tokens } from '../src/theme/tokens';
 import { ErrorBoundary } from '../src/components/ui/ErrorBoundary';
 import { useAuthStore } from '../src/store/auth';
@@ -36,7 +40,11 @@ export default function RootLayout() {
   const hydrated = useAuthStore((s) => s.hydrated);
   const setApiKey = useAuthStore((s) => s.setApiKey);
 
-  // Handle lineage://activate?key=XXX deep links
+  // OpenClaw connection state
+  const ocHost = useOpenClawStore((s) => s.host);
+  const ocToken = useOpenClawStore((s) => s.deviceToken);
+
+  // Handle deep links: lineage://activate?key=XXX | lineage://openclaw?host=X&token=Y
   const url = Linking.useURL();
   useEffect(() => {
     if (!url) return;
@@ -44,6 +52,13 @@ export default function RootLayout() {
       const parsed = Linking.parse(url);
       if (parsed.hostname === 'activate' && typeof parsed.queryParams?.key === 'string' && parsed.queryParams.key) {
         setApiKey(parsed.queryParams.key);
+      } else if (parsed.hostname === 'openclaw' && typeof parsed.queryParams?.host === 'string') {
+        const store = useOpenClawStore.getState();
+        store.setHost(parsed.queryParams.host);
+        if (typeof parsed.queryParams?.token === 'string') {
+          store.setDeviceToken(parsed.queryParams.token);
+        }
+        connectOpenClaw(parsed.queryParams.host, parsed.queryParams.token as string ?? '');
       }
     } catch { /* ignore malformed URLs */ }
   }, [url]);
@@ -61,11 +76,31 @@ export default function RootLayout() {
       }),
     });
 
+    // Boot OpenClaw connection if previously configured
+    let unsubNode: (() => void) | undefined;
+    let unsubRug: (() => void) | undefined;
+
+    if (ocHost) {
+      connectOpenClaw(ocHost, ocToken ?? '');
+      // Register device node + start listeners after a short delay to let the
+      // WS handshake complete before sending node.register
+      setTimeout(() => {
+        registerDeviceNode();
+        unsubNode = startNodeCommandListener();
+        unsubRug = startRugResponseListener();
+      }, 1_500);
+    }
+
     // Check watched tokens for risk signals when app comes to foreground
     const sub = AppState.addEventListener('change', (state) => {
       if (state === 'active') checkWatchedTokenAlerts();
     });
-    return () => sub.remove();
+    return () => {
+      sub.remove();
+      disconnectOpenClaw();
+      unsubNode?.();
+      unsubRug?.();
+    };
   }, []);
 
   useEffect(() => {

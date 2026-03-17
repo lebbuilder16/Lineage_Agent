@@ -14,6 +14,8 @@ interface AlertsState {
   markAllRead: () => void;
   deleteAlert: (id: string) => void;
   unreadCount: () => number;
+  updateEnrichment: (id: string, data: NonNullable<AlertItem['enrichedData']>) => void;
+  markDelivered: (id: string, channels: string[]) => void;
 }
 
 export const useAlertsStore = create<AlertsState>()(
@@ -41,6 +43,20 @@ export const useAlertsStore = create<AlertsState>()(
         set((state) => ({ alerts: state.alerts.map((a) => ({ ...a, read: true })) })),
 
       unreadCount: () => get().alerts.filter((a) => !a.read).length,
+
+      updateEnrichment: (id, data) =>
+        set((state) => ({
+          alerts: state.alerts.map((a) =>
+            a.id === id ? { ...a, enrichedData: data } : a,
+          ),
+        })),
+
+      markDelivered: (id, channels) =>
+        set((state) => ({
+          alerts: state.alerts.map((a) =>
+            a.id === id ? { ...a, deliveredChannels: channels } : a,
+          ),
+        })),
     }),
     {
       name: 'lineage-alerts',

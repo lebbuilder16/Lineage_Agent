@@ -10,12 +10,11 @@ import {
   Platform,
   ActivityIndicator,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router, Stack } from 'expo-router';
 import { ChevronLeft, Send, Bot } from 'lucide-react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AuroraBackground } from '../../src/components/ui/AuroraBackground';
-import { chatStream } from '../../src/lib/api';
+import { smartChatStream, isChatOpenClawMode } from '../../src/lib/openclaw-chat';
 import { tokens } from '../../src/theme/tokens';
 
 const CHAT_KEY = (mint: string) => `chat:${mint}`;
@@ -37,7 +36,6 @@ const WELCOME: Message = {
 };
 
 export default function ChatScreen() {
-  const insets = useSafeAreaInsets();
   const { mint } = useLocalSearchParams<{ mint: string }>();
   const [messages, setMessages] = useState<Message[]>([WELCOME]);
   const [input, setInput] = useState('');
@@ -107,11 +105,11 @@ export default function ChatScreen() {
     setBusy(true);
 
     try {
-      const cancel = await chatStream(
+      const cancel = await smartChatStream(
         mint,
         text,
         history,
-        (chunk) => {
+        (chunk: string) => {
           setMessages((prev) =>
             prev.map((m) =>
               m.id === assistantId ? { ...m, content: m.content + chunk } : m,
@@ -204,6 +202,11 @@ export default function ChatScreen() {
           <View style={styles.navCenter}>
             <Bot size={15} color={tokens.secondary} />
             <Text style={styles.navTitle}>AI CHAT</Text>
+            {isChatOpenClawMode() && (
+              <View style={styles.modeBadge}>
+                <Text style={styles.modeBadgeText}>OpenClaw</Text>
+              </View>
+            )}
           </View>
           <View style={{ width: 24 }} />
         </View>
@@ -366,6 +369,20 @@ const styles = StyleSheet.create({
     backgroundColor: tokens.secondary,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  modeBadge: {
+    backgroundColor: `${tokens.secondary}20`,
+    borderRadius: tokens.radius.pill,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderWidth: 1,
+    borderColor: `${tokens.secondary}40`,
+  },
+  modeBadgeText: {
+    fontFamily: 'Lexend-SemiBold',
+    fontSize: tokens.font.tiny,
+    color: tokens.secondary,
+    letterSpacing: 0.5,
   },
   sendBtnDisabled: {
     backgroundColor: tokens.white20,

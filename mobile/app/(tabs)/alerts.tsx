@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import { router } from 'expo-router';
 import Animated, { FadeInDown, LinearTransition } from 'react-native-reanimated';
-import { Bell, CheckCheck, AlertTriangle, Zap, Skull, BookMarked, Trash2 } from 'lucide-react-native';
+import { Bell, CheckCheck, AlertTriangle, Zap, Skull, BookMarked, Trash2, ChevronDown, ChevronUp, Bot } from 'lucide-react-native';
 import { Swipeable } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AuroraBackground } from '../../src/components/ui/AuroraBackground';
@@ -22,6 +22,13 @@ import { tokens } from '../../src/theme/tokens';
 import { timeAgo } from '../../src/lib/format';
 import { haptic } from '../../src/lib/haptics';
 import type { AlertItem } from '../../src/types/api';
+
+const CHANNEL_COLORS: Record<string, string> = {
+  telegram: '#2AABEE',
+  whatsapp: '#25D366',
+  discord: '#5865F2',
+  push: tokens.secondary,
+};
 
 const ALERT_ICONS: Record<string, React.ReactNode> = {
   rug: <AlertTriangle size={18} color={tokens.risk.critical} />,
@@ -60,7 +67,16 @@ export default function AlertsScreen() {
   const wsConnected = useAlertsStore((s) => s.wsConnected);
   const unreadCount = useAlertsStore((s) => s.alerts.filter((a) => !a.read).length);
   const [activeFilter, setActiveFilter] = useState<AlertItem['type'] | null>(null);
+  const [expandedEnrichments, setExpandedEnrichments] = useState<Set<string>>(new Set());
   const insets = useSafeAreaInsets();
+
+  const toggleEnrichment = useCallback((id: string) => {
+    setExpandedEnrichments((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }, []);
 
   const filtered = activeFilter ? alerts.filter((a) => a.type === activeFilter) : alerts;
 
@@ -197,6 +213,7 @@ export default function AlertsScreen() {
                       style={[styles.alertCard, !item.read && styles.alertCardUnread]}
                       noPadding
                     >
+                  {/* Main row */}
                   <View style={styles.alertInner}>
                     <View style={styles.alertIcon}>
                       {ALERT_ICONS[item.type] ?? <Bell size={18} color={tokens.primary} />}
@@ -208,14 +225,56 @@ export default function AlertsScreen() {
                       <Text style={styles.alertMessage} numberOfLines={2}>
                         {item.message}
                       </Text>
+                      {/* Delivered channel pills */}
+                      {item.deliveredChannels && item.deliveredChannels.length > 0 && (
+                        <View style={styles.channelRow}>
+                          {item.deliveredChannels.map((ch) => (
+                            <View
+                              key={ch}
+                              style={[styles.channelPill, { borderColor: `${CHANNEL_COLORS[ch] ?? tokens.white35}50` }]}
+                            >
+                              <Text style={[styles.channelPillText, { color: CHANNEL_COLORS[ch] ?? tokens.white60 }]}>
+                                {ch}
+                              </Text>
+                            </View>
+                          ))}
+                        </View>
+                      )}
                     </View>
                     <View style={styles.alertMeta}>
                       <Text style={styles.alertTime}>
                         {timeAgo(item.timestamp ?? item.created_at ?? '')}
                       </Text>
                       {!item.read && <View style={styles.unreadDot} />}
+                      {/* AI enrichment toggle */}
+                      {item.enrichedData && (
+                        <TouchableOpacity
+                          onPress={(e) => { e.stopPropagation?.(); toggleEnrichment(item.id); }}
+                          hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                        >
+                          {expandedEnrichments.has(item.id)
+                            ? <ChevronUp size={14} color={tokens.secondary} />
+                            : <ChevronDown size={14} color={tokens.secondary} />}
+                        </TouchableOpacity>
+                      )}
                     </View>
                   </View>
+
+                  {/* AI enrichment panel */}
+                  {item.enrichedData && expandedEnrichments.has(item.id) && (
+                    <View style={styles.enrichPanel}>
+                      <View style={styles.enrichHeader}>
+                        <Bot size={12} color={tokens.secondary} />
+                        <Text style={styles.enrichLabel}>AI Context</Text>
+                      </View>
+                      <Text style={styles.enrichSummary}>{item.enrichedData.summary}</Text>
+                      {item.enrichedData.recommendedAction && (
+                        <Text style={styles.enrichAction}>
+                          → {item.enrichedData.recommendedAction}
+                        </Text>
+                      )}
+                    </View>
+                  )}
                   </GlassCard>
                   </TouchableOpacity>
                 </Swipeable>
@@ -353,5 +412,58 @@ const styles = StyleSheet.create({
     width: 70,
     borderTopRightRadius: tokens.radius.xl,
     borderBottomRightRadius: tokens.radius.xl,
+  },
+
+  // Channel delivery pills
+  channelRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 4,
+    marginTop: 6,
+  },
+  channelPill: {
+    borderRadius: tokens.radius.pill,
+    borderWidth: 1,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  channelPillText: {
+    fontFamily: 'Lexend-SemiBold',
+    fontSize: tokens.font.tiny,
+    textTransform: 'capitalize',
+  },
+
+  // AI enrichment panel
+  enrichPanel: {
+    marginHorizontal: tokens.spacing.cardPadding,
+    marginBottom: tokens.spacing.cardPadding,
+    backgroundColor: `${tokens.secondary}0A`,
+    borderRadius: tokens.radius.sm,
+    borderWidth: 1,
+    borderColor: `${tokens.secondary}25`,
+    padding: 10,
+    gap: 6,
+  },
+  enrichHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  enrichLabel: {
+    fontFamily: 'Lexend-SemiBold',
+    fontSize: tokens.font.tiny,
+    color: tokens.secondary,
+    letterSpacing: 0.5,
+  },
+  enrichSummary: {
+    fontFamily: 'Lexend-Regular',
+    fontSize: tokens.font.small,
+    color: tokens.white80,
+    lineHeight: 18,
+  },
+  enrichAction: {
+    fontFamily: 'Lexend-SemiBold',
+    fontSize: tokens.font.small,
+    color: tokens.secondary,
   },
 });

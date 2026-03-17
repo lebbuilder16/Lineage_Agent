@@ -26,6 +26,8 @@ import { SettingsSheet } from '../../src/components/ui/SettingsSheet';
 import { useToast } from '../../src/components/ui/Toast';
 import { useWatches, useDeleteWatch, useAddWatch } from '../../src/lib/query';
 import { useAuthStore } from '../../src/store/auth';
+import { syncWatchlistCrons } from '../../src/lib/openclaw-cron';
+import { isOpenClawAvailable } from '../../src/lib/openclaw';
 import { tokens } from '../../src/theme/tokens';
 import { isValidSolanaAddress } from '../../src/lib/risk';
 import { haptic } from '../../src/lib/haptics';
@@ -59,7 +61,13 @@ export default function WatchlistScreen() {
           style: 'destructive',
           onPress: () => {
             haptic.heavy();
-            deleteMutation.mutate(id, { onSuccess: () => refetch() });
+            deleteMutation.mutate(id, {
+              onSuccess: () => {
+                refetch().then(({ data }) => {
+                  if (isOpenClawAvailable() && data) syncWatchlistCrons(data).catch(() => {});
+                });
+              },
+            });
           },
         },
       ],
@@ -81,7 +89,12 @@ export default function WatchlistScreen() {
     }
     setAddError('');
     addMutation.mutate({ sub_type: addType, value: v }, {
-      onSuccess: () => { refetch(); setAddOpen(false); setAddValue(''); setAddError(''); },
+      onSuccess: () => {
+        refetch().then(({ data }) => {
+          if (isOpenClawAvailable() && data) syncWatchlistCrons(data).catch(() => {});
+        });
+        setAddOpen(false); setAddValue(''); setAddError('');
+      },
     });
   };
 

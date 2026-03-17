@@ -45,6 +45,7 @@ import { useGlobalStats, useTopTokens, useAddWatch } from '../../src/lib/query';
 import { connectAlertsWS } from '../../src/lib/api';
 import { useAlertsStore } from '../../src/store/alerts';
 import { useAuthStore } from '../../src/store/auth';
+import { useBriefingStore, startBriefingListener } from '../../src/lib/openclaw-briefing';
 import { tokens } from '../../src/theme/tokens';
 import { RiskBadge } from '../../src/components/ui/RiskBadge';
 import type { TokenSearchResult, TopToken, AlertItem } from '../../src/types/api';
@@ -417,6 +418,11 @@ export default function RadarScreen() {
   const wsCleanup = useRef<(() => void) | null>(null);
   const insets = useSafeAreaInsets();
 
+  const briefing = useBriefingStore((s) => s.latest);
+  const briefingUnread = useBriefingStore((s) => s.unread);
+  const markBriefingRead = useBriefingStore((s) => s.markRead);
+  const [briefingExpanded, setBriefingExpanded] = useState(false);
+
   useEffect(() => {
     wsCleanup.current = connectAlertsWS(
       addAlert,
@@ -424,7 +430,11 @@ export default function RadarScreen() {
       setWsConnected,
       setWsStatus,
     );
-    return () => wsCleanup.current?.();
+    const unsubBriefing = startBriefingListener();
+    return () => {
+      wsCleanup.current?.();
+      unsubBriefing();
+    };
   }, []);
 
   const refreshing = statsLoading || topLoading;
@@ -499,6 +509,44 @@ export default function RadarScreen() {
               </Animated.View>
             )}
           </View>
+
+          {/* ── Daily Briefing Card (OpenClaw) ── */}
+          {briefing && (
+            <Animated.View entering={FadeInDown.delay(100).duration(400)} style={styles.section}>
+              <TouchableOpacity
+                onPress={() => {
+                  setBriefingExpanded((v) => !v);
+                  if (briefingUnread) markBriefingRead();
+                }}
+                activeOpacity={0.8}
+                accessibilityRole="button"
+                accessibilityLabel="Daily intelligence briefing"
+              >
+                <GlassCard style={styles.briefingCard} noPadding={false}>
+                  <View style={styles.briefingHeader}>
+                    <View style={styles.briefingTitleRow}>
+                      <View style={styles.briefingDot} />
+                      <Text style={styles.briefingTitle}>DAILY BRIEFING</Text>
+                      {briefingUnread && <View style={styles.briefingUnread} />}
+                    </View>
+                    {briefingExpanded
+                      ? <ChevronRight size={14} color={tokens.secondary} style={{ transform: [{ rotate: '90deg' }] }} />
+                      : <ChevronRight size={14} color={tokens.secondary} />}
+                  </View>
+                  {briefingExpanded && (
+                    <Text style={styles.briefingContent} selectable>
+                      {briefing}
+                    </Text>
+                  )}
+                  {!briefingExpanded && (
+                    <Text style={styles.briefingPreview} numberOfLines={2}>
+                      {briefing}
+                    </Text>
+                  )}
+                </GlassCard>
+              </TouchableOpacity>
+            </Animated.View>
+          )}
 
           {/* ── Live Alerts ── */}
           <Animated.View entering={FadeInDown.delay(120).duration(400)} style={[styles.section, { gap: 6 }]}>
@@ -720,4 +768,53 @@ const styles = StyleSheet.create({
   sonarDot: { width: 40, height: 40, borderRadius: 20, backgroundColor: `${tokens.secondary}18`, borderWidth: 1, borderColor: `${tokens.secondary}50`, alignItems: 'center', justifyContent: 'center' },
   emptyTitle: { fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.body, color: tokens.white80, textAlign: 'center' },
   emptySubtitle: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.small, color: tokens.white35, textAlign: 'center', maxWidth: 260, lineHeight: 18 },
+
+  // Briefing card (OpenClaw daily intelligence)
+  briefingCard: {
+    borderWidth: 1,
+    borderColor: `${tokens.secondary}25`,
+    backgroundColor: `${tokens.secondary}08`,
+  },
+  briefingHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  briefingTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+  },
+  briefingDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: tokens.secondary,
+  },
+  briefingTitle: {
+    fontFamily: 'Lexend-SemiBold',
+    fontSize: tokens.font.tiny,
+    color: tokens.secondary,
+    letterSpacing: 1.2,
+  },
+  briefingUnread: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: tokens.accent,
+  },
+  briefingPreview: {
+    fontFamily: 'Lexend-Regular',
+    fontSize: tokens.font.small,
+    color: tokens.white60,
+    lineHeight: 18,
+    marginTop: 8,
+  },
+  briefingContent: {
+    fontFamily: 'Lexend-Regular',
+    fontSize: tokens.font.small,
+    color: tokens.white80,
+    lineHeight: 20,
+    marginTop: 8,
+  },
 });

@@ -68,6 +68,22 @@ export interface AlertItem {
   timestamp: string;
   created_at?: string;
   read: boolean;
+  /** OpenClaw AI enrichment — added asynchronously after receipt */
+  enrichedData?: {
+    summary: string;
+    relatedTokens: string[];
+    riskDelta: number;
+    deployerHistory?: string;
+    recommendedAction?: string;
+  };
+  /** Agent-proposed actions (Phase 5 — device node) */
+  actions?: {
+    label: string;
+    action: string;
+    params: Record<string, string>;
+  }[];
+  /** Which external channels delivered this alert */
+  deliveredChannels?: string[];
 }
 
 export interface AnalysisStep {

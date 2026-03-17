@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -9,11 +9,14 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router, Stack } from 'expo-router';
-import { ChevronLeft, ChevronRight } from 'lucide-react-native';
+import { ChevronLeft, ChevronRight, Activity, ActivitySquare } from 'lucide-react-native';
 import { AuroraBackground } from '../../src/components/ui/AuroraBackground';
 import { GlassCard } from '../../src/components/ui/GlassCard';
 import { SkeletonBlock } from '../../src/components/ui/SkeletonLoader';
+import { HapticButton } from '../../src/components/ui/HapticButton';
 import { useCartel } from '../../src/lib/query';
+import { isOpenClawAvailable } from '../../src/lib/openclaw';
+import { startCartelMonitor, stopCartelMonitor, isCartelMonitored } from '../../src/lib/openclaw-cartel-monitor';
 import { tokens } from '../../src/theme/tokens';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 
@@ -21,6 +24,31 @@ export default function CartelScreen() {
   const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
   const { data, isLoading, error, refetch } = useCartel(id ?? '');
+  const ocAvailable = isOpenClawAvailable();
+  const [monitored, setMonitored] = useState(false);
+  const [monitorLoading, setMonitorLoading] = useState(false);
+
+  // Check monitoring status on mount
+  useEffect(() => {
+    if (!id || !ocAvailable) return;
+    isCartelMonitored(id).then(setMonitored).catch(() => {});
+  }, [id, ocAvailable]);
+
+  const handleMonitorToggle = async () => {
+    if (!id || monitorLoading) return;
+    setMonitorLoading(true);
+    try {
+      if (monitored) {
+        await stopCartelMonitor(id);
+        setMonitored(false);
+      } else {
+        const label = data?.deployer_community?.wallets?.[0]?.slice(0, 8);
+        await startCartelMonitor(id, label);
+        setMonitored(true);
+      }
+    } catch { /* best-effort */ }
+    setMonitorLoading(false);
+  };
 
   return (
     <View style={styles.container}>
@@ -37,7 +65,23 @@ export default function CartelScreen() {
             <ChevronLeft size={24} color={tokens.white100} />
           </TouchableOpacity>
           <Text style={styles.navTitle}>CARTEL NETWORK</Text>
-          <View style={{ width: 24 }} />
+          {ocAvailable ? (
+            <HapticButton
+              variant="ghost"
+              size="sm"
+              loading={monitorLoading}
+              onPress={handleMonitorToggle}
+              style={monitored ? styles.monitorBtnActive : styles.monitorBtn}
+              accessibilityRole="button"
+              accessibilityLabel={monitored ? 'Stop monitoring cartel' : 'Monitor this cartel'}
+            >
+              {monitored
+                ? <ActivitySquare size={16} color={tokens.success} />
+                : <Activity size={16} color={tokens.white60} />}
+            </HapticButton>
+          ) : (
+            <View style={{ width: 36 }} />
+          )}
         </View>
 
         <ScrollView
@@ -185,5 +229,20 @@ const styles = StyleSheet.create({
     fontSize: tokens.font.body,
     color: tokens.accent,
     textAlign: 'center',
+  },
+  monitorBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: tokens.radius.sm,
+    borderWidth: 1,
+    borderColor: tokens.borderSubtle,
+  },
+  monitorBtnActive: {
+    width: 36,
+    height: 36,
+    borderRadius: tokens.radius.sm,
+    borderWidth: 1,
+    borderColor: `${tokens.success}50`,
+    backgroundColor: `${tokens.success}10`,
   },
 });
