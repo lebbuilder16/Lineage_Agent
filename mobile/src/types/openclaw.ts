@@ -31,7 +31,7 @@ export interface OpenClawEvent {
 
 /** Connect handshake params sent as the first frame */
 export interface ConnectParams {
-  id: string;
+  client: string;
   token?: string;
   deviceToken?: string;
   platform: 'ios' | 'android';

@@ -129,7 +129,7 @@ function doConnect(host: string, token: string) {
   ws.onopen = () => {
     // Send connect handshake
     const params: ConnectParams = {
-      id: `lineage-${Platform.OS}-${Date.now()}`,
+      client: `lineage-${Platform.OS}-${Date.now()}`,
       token,
       platform: Platform.OS as 'ios' | 'android',
       mode: 'node',
