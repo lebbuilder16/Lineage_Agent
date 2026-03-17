@@ -76,21 +76,6 @@ export default function RootLayout() {
       }),
     });
 
-    // Boot OpenClaw connection if previously configured
-    let unsubNode: (() => void) | undefined;
-    let unsubRug: (() => void) | undefined;
-
-    if (ocHost) {
-      connectOpenClaw(ocHost, ocToken ?? '');
-      // Register device node + start listeners after a short delay to let the
-      // WS handshake complete before sending node.register
-      setTimeout(() => {
-        registerDeviceNode();
-        unsubNode = startNodeCommandListener();
-        unsubRug = startRugResponseListener();
-      }, 1_500);
-    }
-
     // Check watched tokens for risk signals when app comes to foreground
     const sub = AppState.addEventListener('change', (state) => {
       if (state === 'active') checkWatchedTokenAlerts();
@@ -98,10 +83,26 @@ export default function RootLayout() {
     return () => {
       sub.remove();
       disconnectOpenClaw();
+    };
+  }, []);
+
+  // Connect OpenClaw when host becomes available (after AsyncStorage hydration)
+  useEffect(() => {
+    if (!ocHost) return;
+    connectOpenClaw(ocHost, ocToken ?? '');
+    let unsubNode: (() => void) | undefined;
+    let unsubRug: (() => void) | undefined;
+    const t = setTimeout(() => {
+      registerDeviceNode();
+      unsubNode = startNodeCommandListener();
+      unsubRug = startRugResponseListener();
+    }, 1_500);
+    return () => {
+      clearTimeout(t);
       unsubNode?.();
       unsubRug?.();
     };
-  }, []);
+  }, [ocHost]);
 
   useEffect(() => {
     if ((fontsLoaded || fontError) && hydrated) {
