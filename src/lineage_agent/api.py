@@ -1348,7 +1348,7 @@ async def stream_ai_analysis(
     """Same as /analyze/{mint} but streams progress via Server-Sent Events.
 
     Events:
-      step  {"step":"lineage"|"bundle"|"sol_flow"|"ai", "status":"running"|"done", "ms":<int>}
+      step  {"step":"lineage"|"deployer"|"cartel"|"bundle"|"sol_flow"|"ai", "status":"running"|"done", "ms":<int>}
       complete  <full AnalyzeResponse JSON>
       error  {"detail":"..."}
     """
@@ -1376,7 +1376,34 @@ async def stream_ai_analysis(
             lineage_res = None
         yield _evt("step", {"step": "lineage", "status": "done", "ms": int((_time.monotonic() - _t0) * 1000)})
 
-        # 2. Bundle + SOL flow
+        # 2. Deployer profile
+        yield _evt("step", {"step": "deployer", "status": "running"})
+        _td = _time.monotonic()
+        _deployer_addr = _analysis_deployer_from_lineage(lineage_res)
+        try:
+            if _deployer_addr:
+                await asyncio.wait_for(
+                    compute_deployer_profile(_deployer_addr),
+                    timeout=20.0,
+                )
+        except Exception as _dep_exc:
+            logger.warning("[stream] deployer profile failed for %s: %s", mint[:12], _dep_exc)
+        yield _evt("step", {"step": "deployer", "status": "done", "ms": int((_time.monotonic() - _td) * 1000)})
+
+        # 3. Cartel detection
+        yield _evt("step", {"step": "cartel", "status": "running"})
+        _tc = _time.monotonic()
+        try:
+            if _deployer_addr:
+                await asyncio.wait_for(
+                    compute_cartel_report(_deployer_addr),
+                    timeout=20.0,
+                )
+        except Exception as _cartel_exc:
+            logger.warning("[stream] cartel detection failed for %s: %s", mint[:12], _cartel_exc)
+        yield _evt("step", {"step": "cartel", "status": "done", "ms": int((_time.monotonic() - _tc) * 1000)})
+
+        # 4. Bundle + SOL flow
         yield _evt("step", {"step": "bundle", "status": "running"})
         yield _evt("step", {"step": "sol_flow", "status": "running"})
         _t1 = _time.monotonic()
@@ -1398,7 +1425,7 @@ async def stream_ai_analysis(
             yield _evt("error", {"detail": "No on-chain data found. Run /lineage?mint=... first."})
             return
 
-        # 3. AI analysis
+        # 6. AI analysis
         try:
             from .data_sources._clients import cache as _cache  # noqa: PLC0415
         except Exception:
