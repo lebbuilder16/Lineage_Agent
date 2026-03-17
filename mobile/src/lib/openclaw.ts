@@ -5,6 +5,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { Platform } from 'react-native';
 import { useOpenClawStore } from '../store/openclaw';
+import { getDeviceIdentity } from './openclaw-identity';
 import type {
   OpenClawRequest,
   OpenClawResponse,
@@ -54,7 +55,9 @@ export function connectOpenClaw(host: string, token: string): void {
   const store = useOpenClawStore.getState();
   store.setStatus('reconnecting');
 
-  doConnect(host, token);
+  doConnect(host, token).catch(() => {
+    // Errors are handled inside doConnect; this guards against unhandled rejection.
+  });
 }
 
 /** Disconnect and stop reconnecting */
@@ -120,7 +123,18 @@ export function subscribe(
 
 // ─── Internal ────────────────────────────────────────────────────────────────
 
-function doConnect(host: string, token: string) {
+async function doConnect(host: string, token: string) {
+  // Resolve device identity before opening the socket so the handshake
+  // includes a valid signature on the very first frame.
+  let identity: Awaited<ReturnType<typeof getDeviceIdentity>> | undefined;
+  try {
+    identity = await getDeviceIdentity();
+  } catch {
+    // If identity generation fails (e.g. SecureStore unavailable), proceed
+    // without it — the gateway may reject the connection, which is fine;
+    // the reconnect loop will retry.
+  }
+
   const protocol = host.startsWith('wss://') || host.startsWith('ws://') ? '' : 'ws://';
   const url = `${protocol}${host}`;
 
@@ -144,6 +158,7 @@ function doConnect(host: string, token: string) {
       role: 'node',
       auth: { token },
       caps: ['lineage.scan', 'lineage.watchlist', 'lineage.alert', 'notifications.send'],
+      device: identity,
     };
     const frame: OpenClawRequest = {
       type: 'req',
@@ -176,7 +191,7 @@ function doConnect(host: string, token: string) {
       const delay = Math.min(BACKOFF_BASE * Math.pow(2, retryCount), BACKOFF_MAX);
       retryCount++;
       store.setStatus('reconnecting');
-      reconnectTimer = setTimeout(() => doConnect(host, token), delay);
+      reconnectTimer = setTimeout(() => { doConnect(host, token).catch(() => {}); }, delay);
     } else {
       store.setStatus('offline');
     }
