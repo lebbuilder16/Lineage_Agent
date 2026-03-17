@@ -10,6 +10,10 @@
 import nacl from 'tweetnacl';
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { sha256 } = require('@noble/hashes/sha2') as { sha256: (data: Uint8Array) => Uint8Array };
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { bytesToHex } = require('@noble/hashes/utils') as { bytesToHex: (bytes: Uint8Array) => string };
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -33,13 +37,10 @@ function base64UrlDecode(input: string): Uint8Array {
   return bytes;
 }
 
-// ─── SHA-256 (SubtleCrypto — available in Hermes ≥ RN 0.71) ─────────────────
+// ─── SHA-256 (pure JS via @noble/hashes — no native deps) ───────────────────
 
-async function sha256Hex(bytes: Uint8Array): Promise<string> {
-  const hashBuffer = await crypto.subtle.digest('SHA-256', bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer);
-  return Array.from(new Uint8Array(hashBuffer))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
+function sha256Hex(bytes: Uint8Array): string {
+  return bytesToHex(sha256(bytes));
 }
 
 // ─── Keypair persistence ──────────────────────────────────────────────────────
@@ -95,7 +96,7 @@ export async function signDeviceIdentity(params: SignParams): Promise<DeviceIden
   const { secretKey, publicKey } = await getOrCreateKeypair();
 
   // Device ID = SHA-256 of raw 32-byte public key, hex-encoded
-  const deviceId = await sha256Hex(publicKey);
+  const deviceId = sha256Hex(publicKey);
 
   const signedAt = Date.now();
   const platform = Platform.OS; // 'ios' | 'android'
