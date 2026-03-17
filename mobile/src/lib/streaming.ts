@@ -239,25 +239,57 @@ export function chatStream(
 
 // ─── WebSocket: real-time alerts feed ────────────────────────────────────────
 
+const BACKOFF_BASE = 2_000;
+const BACKOFF_MAX = 30_000;
+const DEDUP_WINDOW_MS = 60_000;
+
+export type WsStatus = 'connected' | 'reconnecting' | 'offline';
+
 export function connectAlertsWS(
   onAlert: (alert: AlertItem) => void,
   onError?: () => void,
   onStatusChange?: (connected: boolean) => void,
+  onStatusDetailed?: (status: WsStatus) => void,
 ): () => void {
   let ws: WebSocket | null = null;
   let reconnectTimer: ReturnType<typeof setTimeout>;
   let closed = false;
+  let retryCount = 0;
+
+  // Dedup: track recent alerts by mint+type within a time window
+  const recentAlerts = new Map<string, number>();
+
+  function isDuplicate(alert: AlertItem): boolean {
+    const key = `${alert.mint ?? ''}:${alert.type}`;
+    const lastSeen = recentAlerts.get(key);
+    const now = Date.now();
+    if (lastSeen && now - lastSeen < DEDUP_WINDOW_MS) return true;
+    recentAlerts.set(key, now);
+    // Prune old entries periodically
+    if (recentAlerts.size > 200) {
+      for (const [k, ts] of recentAlerts) {
+        if (now - ts > DEDUP_WINDOW_MS) recentAlerts.delete(k);
+      }
+    }
+    return false;
+  }
 
   const connect = () => {
+    onStatusDetailed?.('reconnecting');
     ws = new WebSocket(`${WS_BASE}/ws/alerts`);
 
-    ws.onopen = () => onStatusChange?.(true);
+    ws.onopen = () => {
+      retryCount = 0;
+      onStatusChange?.(true);
+      onStatusDetailed?.('connected');
+    };
 
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data as string) as AlertItem;
         if (!data.id) data.id = `${Date.now()}-${Math.random()}`;
         if (!data.read) data.read = false;
+        if (isDuplicate(data)) return;
         onAlert(data);
         Notifications.scheduleNotificationAsync({
           content: {
@@ -272,11 +304,21 @@ export function connectAlertsWS(
       }
     };
 
-    ws.onerror = () => { onError?.(); onStatusChange?.(false); };
+    ws.onerror = () => {
+      onError?.();
+      onStatusChange?.(false);
+    };
 
     ws.onclose = () => {
       onStatusChange?.(false);
-      if (!closed) reconnectTimer = setTimeout(connect, 5_000);
+      if (!closed) {
+        const delay = Math.min(BACKOFF_BASE * Math.pow(2, retryCount), BACKOFF_MAX);
+        retryCount++;
+        onStatusDetailed?.('reconnecting');
+        reconnectTimer = setTimeout(connect, delay);
+      } else {
+        onStatusDetailed?.('offline');
+      }
     };
   };
 
@@ -286,6 +328,7 @@ export function connectAlertsWS(
     closed = true;
     clearTimeout(reconnectTimer);
     ws?.close();
+    onStatusDetailed?.('offline');
   };
 }
 

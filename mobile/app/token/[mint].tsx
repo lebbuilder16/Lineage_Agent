@@ -42,42 +42,17 @@ import { addWatch } from '../../src/lib/api';
 import { tokens } from '../../src/theme/tokens';
 import Animated, { FadeInDown, FadeIn } from 'react-native-reanimated';
 import * as Clipboard from 'expo-clipboard';
-import * as Haptics from 'expo-haptics';
-
-// ─── Risk helpers ─────────────────────────────────────────────────────────────
-
-type RiskLevel = 'low' | 'medium' | 'high' | 'critical' | 'first_rug' | 'insufficient_data';
-
-const RISK_COLOR: Record<RiskLevel, string> = {
-  low: tokens.risk.low,
-  medium: tokens.risk.medium,
-  high: tokens.risk.high,
-  critical: tokens.risk.critical,
-  first_rug: tokens.risk.high,
-  insufficient_data: tokens.white35,
-};
-
-function riskLevelToScore(level: RiskLevel | undefined): number | null {
-  switch (level) {
-    case 'critical':          return 1.0;
-    case 'high':              return 0.75;
-    case 'first_rug':         return 0.70;
-    case 'medium':            return 0.50;
-    case 'low':               return 0.25;
-    case 'insufficient_data': return null;
-    default:                  return null;
-  }
-}
-
-function fmtMcap(n: number): string {
-  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `$${(n / 1_000).toFixed(0)}K`;
-  return `$${n.toFixed(0)}`;
-}
-
-function shortAddr(addr: string): string {
-  return `${addr.slice(0, 4)}…${addr.slice(-4)}`;
-}
+import { haptic } from '../../src/lib/haptics';
+import { fmtMcap, shortAddr } from '../../src/lib/format';
+import {
+  type RiskLevel,
+  RISK_COLOR,
+  riskLevelToScore,
+  riskColor as getRiskColor,
+  deriveRiskLevel,
+} from '../../src/lib/risk';
+import { ErrorBanner } from '../../src/components/ui/ErrorBanner';
+import { handleApiError } from '../../src/lib/error-handler';
 
 // ─── Hero Image ───────────────────────────────────────────────────────────────
 
@@ -136,7 +111,7 @@ export default function TokenScreen() {
 
   const handleCopy = async (value: string, label = 'Address') => {
     await Clipboard.setStringAsync(value);
-    await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    await haptic.success();
     showToast(`${label} copied`);
   };
 
@@ -156,32 +131,8 @@ export default function TokenScreen() {
 
   // ── derived values ──────────────────────────────────────────────────────────
 
-  const riskLevel = data?.death_clock?.risk_level as RiskLevel | undefined;
-
-  // Fallback risk level — cascades through ALL available signals
-  const displayRiskLevel: RiskLevel = (() => {
-    // 1. death_clock — primary predictive source
-    if (riskLevel && riskLevel !== 'insufficient_data') return riskLevel;
-    // 2. insider_sell — live market reality (deployer exited = confirmed rug-in-progress)
-    const ins = data?.insider_sell;
-    if (ins?.verdict === 'insider_dump' && ins?.deployer_exited) return 'critical';
-    if (ins?.verdict === 'insider_dump') return 'high';
-    if (ins?.flags?.includes('PRICE_CRASH') && (ins?.sell_pressure_24h ?? 0) > 0.4) return 'high';
-    if (ins?.verdict === 'suspicious') return 'medium';
-    // 3. bundle_report verdict
-    const verdict = data?.bundle_report?.overall_verdict;
-    if (verdict === 'confirmed_team_extraction') return 'critical';
-    if (verdict === 'suspected_team_extraction' || verdict === 'coordinated_dump_unknown_team') return 'high';
-    // 4. deployer rug rate
-    const rugRate = data?.deployer_profile?.rug_rate_pct;
-    if (rugRate != null && rugRate > 70) return 'critical';
-    if (rugRate != null && rugRate > 40) return 'high';
-    if (rugRate != null && rugRate > 15) return 'medium';
-    // 5. final fallback — token exists but no signal data yet
-    return 'insufficient_data';
-  })();
-
-  const riskColor = displayRiskLevel ? (RISK_COLOR[displayRiskLevel] ?? tokens.white35) : tokens.white35;
+  const displayRiskLevel = deriveRiskLevel(data);
+  const riskColorVal = getRiskColor(displayRiskLevel);
   const riskScore = riskLevelToScore(displayRiskLevel);
 
   // Auto-expand full report for high/critical risk tokens (once, on data load)
@@ -300,9 +251,7 @@ export default function TokenScreen() {
 
         {/* Error */}
         {!isLoading && error && (
-          <GlassCard>
-            <Text style={styles.errorText}>Could not load token. Is the mint address valid?</Text>
-          </GlassCard>
+          <ErrorBanner error={handleApiError(error)} onRetry={refetch} />
         )}
 
         {data && !isLoading && (
@@ -354,7 +303,7 @@ export default function TokenScreen() {
                 {riskScore != null ? (
                   <GaugeRing
                     value={riskScore}
-                    color={riskColor}
+                    color={riskColorVal}
                     size={76}
                     strokeWidth={6}
                     label={(displayRiskLevel === 'first_rug' ? 'FIRST' : displayRiskLevel?.toUpperCase() ?? '—').split(' ')[0]}
@@ -395,14 +344,14 @@ export default function TokenScreen() {
             {displayRiskLevel && displayRiskLevel !== 'insufficient_data' && (
               <GlassCard style={[
                 styles.summaryCard,
-                { borderColor: `${riskColor}30`, borderWidth: 1 },
+                { borderColor: `${riskColorVal}30`, borderWidth: 1 },
               ]}>
                 <View style={styles.summaryRow}>
-                  <View style={[styles.summaryIconWrap, { backgroundColor: `${riskColor}18` }]}>
-                    <RiskIcon size={20} color={riskColor} strokeWidth={2} />
+                  <View style={[styles.summaryIconWrap, { backgroundColor: `${riskColorVal}18` }]}>
+                    <RiskIcon size={20} color={riskColorVal} strokeWidth={2} />
                   </View>
                   <View style={styles.summaryInfo}>
-                    <Text style={[styles.summaryTitle, { color: riskColor }]}>
+                    <Text style={[styles.summaryTitle, { color: riskColorVal }]}>
                       {displayRiskLevel === 'first_rug' ? 'FIRST RUG DETECTED' : `${displayRiskLevel.toUpperCase()} RISK`}
                     </Text>
                     {riskSummary && (
@@ -511,16 +460,16 @@ export default function TokenScreen() {
                       }}
                       activeOpacity={0.75}
                     >
-                      <GlassCard style={[styles.teaserCard, { borderColor: `${riskColor}30`, borderWidth: 1 }]}>
+                      <GlassCard style={[styles.teaserCard, { borderColor: `${riskColorVal}30`, borderWidth: 1 }]}>
                         <View style={styles.teaserRow}>
-                          <View style={[styles.teaserIconWrap, { backgroundColor: `${riskColor}15` }]}>
-                            <Skull size={16} color={riskColor} strokeWidth={2} />
+                          <View style={[styles.teaserIconWrap, { backgroundColor: `${riskColorVal}15` }]}>
+                            <Skull size={16} color={riskColorVal} strokeWidth={2} />
                           </View>
                           <View style={styles.teaserInfo}>
                             <View style={styles.teaserTitleRow}>
                               <Text style={styles.teaserLabel}>DEATH CLOCK</Text>
-                              <View style={[styles.teaserBadge, { backgroundColor: `${riskColor}18`, borderColor: `${riskColor}35` }]}>
-                                <Text style={[styles.teaserBadgeText, { color: riskColor }]}>{effectiveLabel}</Text>
+                              <View style={[styles.teaserBadge, { backgroundColor: `${riskColorVal}18`, borderColor: `${riskColorVal}35` }]}>
+                                <Text style={[styles.teaserBadgeText, { color: riskColorVal }]}>{effectiveLabel}</Text>
                               </View>
                             </View>
                             {riskSummary && (
@@ -529,7 +478,7 @@ export default function TokenScreen() {
                             {dc?.rug_probability_pct != null && (
                               <Text style={styles.teaserProb}>
                                 Rug probability:{' '}
-                                <Text style={{ color: riskColor, fontFamily: 'Lexend-Bold' }}>
+                                <Text style={{ color: riskColorVal, fontFamily: 'Lexend-Bold' }}>
                                   {dc.rug_probability_pct.toFixed(0)}%
                                 </Text>
                               </Text>
@@ -640,34 +589,52 @@ export default function TokenScreen() {
                   </TouchableOpacity>
                 )}
 
-                {/* Cartel */}
-                {data.cartel_report?.deployer_community?.community_id && (
-                  <TouchableOpacity
-                    onPress={() => router.push(`/cartel/${data.cartel_report!.deployer_community!.community_id}` as any)}
-                    activeOpacity={0.75}
-                  >
-                    <GlassCard
-                      style={[styles.linkCard, { borderLeftColor: `${tokens.accent}60`, borderLeftWidth: 3 }]}
-                      noPadding
+                {/* Cartel — enriched section */}
+                {data.cartel_report?.deployer_community?.community_id && (() => {
+                  const community = data.cartel_report!.deployer_community!;
+                  const walletCount = community.wallets?.length ?? 0;
+                  const totalRugs = community.total_rugs ?? 0;
+                  const damageUsd = community.estimated_extracted_usd;
+                  return (
+                    <TouchableOpacity
+                      onPress={() => router.push(`/cartel/${community.community_id}` as any)}
+                      activeOpacity={0.75}
                     >
-                      <View style={styles.linkRow}>
-                        <Zap size={18} color={tokens.accent} />
-                        <View style={styles.linkInfo}>
-                          <Text style={styles.linkLabel}>Cartel Network</Text>
-                          {data.cartel_report.deployer_community.wallets != null && (
-                            <Text style={styles.linkMeta}>
-                              {data.cartel_report.deployer_community.wallets.length} deployers
-                              {data.cartel_report.deployer_community.estimated_extracted_usd != null
-                                ? ` · ${fmtMcap(data.cartel_report.deployer_community.estimated_extracted_usd)}`
-                                : ''}
-                            </Text>
+                      <GlassCard style={[styles.cartelCard, { borderColor: `${tokens.accent}30`, borderWidth: 1 }]}>
+                        <View style={styles.cartelHeader}>
+                          <View style={styles.cartelIconWrap}>
+                            <Zap size={16} color={tokens.accent} strokeWidth={2} />
+                          </View>
+                          <Text style={styles.cartelTitle}>CARTEL NETWORK</Text>
+                          <ChevronRight size={16} color={tokens.white35} />
+                        </View>
+
+                        <View style={styles.cartelStatsRow}>
+                          {walletCount > 0 && (
+                            <View style={styles.cartelStat}>
+                              <Text style={styles.cartelStatValue}>{walletCount}</Text>
+                              <Text style={styles.cartelStatLabel}>Deployers</Text>
+                            </View>
+                          )}
+                          {totalRugs > 0 && (
+                            <View style={styles.cartelStat}>
+                              <Text style={[styles.cartelStatValue, { color: tokens.risk.critical }]}>{totalRugs}</Text>
+                              <Text style={styles.cartelStatLabel}>Total rugs</Text>
+                            </View>
+                          )}
+                          {damageUsd != null && damageUsd > 0 && (
+                            <View style={styles.cartelStat}>
+                              <Text style={[styles.cartelStatValue, { color: tokens.accent }]}>{fmtMcap(damageUsd)}</Text>
+                              <Text style={styles.cartelStatLabel}>Damages</Text>
+                            </View>
                           )}
                         </View>
-                        <ChevronRight size={18} color={tokens.white35} />
-                      </View>
-                    </GlassCard>
-                  </TouchableOpacity>
-                )}
+
+                        <Text style={styles.cartelCta}>View network details</Text>
+                      </GlassCard>
+                    </TouchableOpacity>
+                  );
+                })()}
 
               </Animated.View>
             )}
@@ -851,6 +818,29 @@ const styles = StyleSheet.create({
   teaserProb: {
     fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny,
     color: tokens.white35,
+  },
+
+  // ── Cartel section ──────────────────────────────────────────────────────────
+  cartelCard: {},
+  cartelHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 },
+  cartelIconWrap: {
+    width: 28, height: 28, borderRadius: tokens.radius.xs,
+    backgroundColor: `${tokens.accent}15`, alignItems: 'center', justifyContent: 'center',
+  },
+  cartelTitle: {
+    flex: 1, fontFamily: 'Lexend-Bold', fontSize: tokens.font.tiny,
+    color: tokens.white60, letterSpacing: 1,
+  },
+  cartelStatsRow: {
+    flexDirection: 'row', gap: 0,
+    borderTopWidth: 1, borderTopColor: tokens.borderSubtle, paddingTop: 10,
+  },
+  cartelStat: { flex: 1, alignItems: 'center', gap: 2 },
+  cartelStatValue: { fontFamily: 'Lexend-Bold', fontSize: tokens.font.body, color: tokens.white100 },
+  cartelStatLabel: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny, color: tokens.white35, letterSpacing: 0.4 },
+  cartelCta: {
+    fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.small,
+    color: tokens.accent, textAlign: 'center', marginTop: 10, letterSpacing: 0.3,
   },
 
   unverifiedBadge: {

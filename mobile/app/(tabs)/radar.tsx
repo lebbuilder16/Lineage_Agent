@@ -48,6 +48,8 @@ import { useAuthStore } from '../../src/store/auth';
 import { tokens } from '../../src/theme/tokens';
 import { RiskBadge } from '../../src/components/ui/RiskBadge';
 import type { TokenSearchResult, TopToken, AlertItem } from '../../src/types/api';
+import { fmtMcap, fmtCount, timeAgo } from '../../src/lib/format';
+import { deriveMarketRisk } from '../../src/lib/risk';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -63,38 +65,6 @@ function topTokenToSearchResult(t: TopToken): TokenSearchResult {
     market_cap_usd: t.mcap_usd ?? null,
     pair_created_at: t.created_at ?? null,
   };
-}
-
-function deriveRisk(token: TokenSearchResult): 'low' | 'medium' | 'high' | 'critical' {
-  const mcap = token.market_cap_usd ?? 0;
-  const liq = token.liquidity_usd ?? 0;
-  const ageMs = token.pair_created_at
-    ? Date.now() - new Date(token.pair_created_at).getTime()
-    : Infinity;
-  const ageDays = ageMs / (1000 * 60 * 60 * 24);
-  if (mcap < 10_000 || ageDays < 0.5) return 'critical';
-  if (mcap < 100_000 || ageDays < 2 || (liq > 0 && mcap > 0 && liq / mcap < 0.05)) return 'high';
-  if (mcap < 1_000_000 || ageDays < 7) return 'medium';
-  return 'low';
-}
-
-function timeAgo(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
-  if (diff < 60_000) return `${Math.floor(diff / 1000)}s ago`;
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
-  return `${Math.floor(diff / 86_400_000)}d ago`;
-}
-
-function fmtMcap(n: number): string {
-  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `$${(n / 1_000).toFixed(0)}K`;
-  return `$${n.toFixed(0)}`;
-}
-
-function fmtCount(n: number): string {
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
-  return String(n);
 }
 
 // ─── Alert type icons ─────────────────────────────────────────────────────────
@@ -305,7 +275,7 @@ function TokenCard({
   const isNew = token.pair_created_at
     ? Date.now() - new Date(token.pair_created_at).getTime() < 24 * 60 * 60 * 1000
     : false;
-  const risk = deriveRisk(token);
+  const risk = deriveMarketRisk(token);
 
   const riskAccent =
     risk === 'critical' ? tokens.risk.critical
@@ -443,11 +413,17 @@ export default function RadarScreen() {
 
   const apiKey = useAuthStore((s) => s.apiKey);
 
+  const [wsStatus, setWsStatus] = useState<'connected' | 'reconnecting' | 'offline'>('offline');
   const wsCleanup = useRef<(() => void) | null>(null);
   const insets = useSafeAreaInsets();
 
   useEffect(() => {
-    wsCleanup.current = connectAlertsWS(addAlert, undefined, setWsConnected);
+    wsCleanup.current = connectAlertsWS(
+      addAlert,
+      undefined,
+      setWsConnected,
+      setWsStatus,
+    );
     return () => wsCleanup.current?.();
   }, []);
 
@@ -472,6 +448,14 @@ export default function RadarScreen() {
           paddingBottom={8}
           style={{ paddingHorizontal: tokens.spacing.screenPadding }}
         />
+        {wsStatus !== 'connected' && (
+          <View style={styles.wsBanner}>
+            <View style={[styles.wsDot, { backgroundColor: wsStatus === 'reconnecting' ? tokens.risk.medium : tokens.risk.critical }]} />
+            <Text style={styles.wsBannerText}>
+              {wsStatus === 'reconnecting' ? 'Reconnecting...' : 'Offline'}
+            </Text>
+          </View>
+        )}
         <ScrollView
           style={styles.scroll}
           contentContainerStyle={[styles.content, { paddingBottom: 24 }]}
@@ -648,6 +632,14 @@ const styles = StyleSheet.create({
   safe: { flex: 1 },
   scroll: { flex: 1 },
   content: { paddingHorizontal: tokens.spacing.screenPadding },
+  wsBanner: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    paddingVertical: 6, marginHorizontal: tokens.spacing.screenPadding,
+    marginBottom: 8, borderRadius: tokens.radius.sm,
+    backgroundColor: `${tokens.risk.medium}15`, borderWidth: 1, borderColor: `${tokens.risk.medium}30`,
+  },
+  wsDot: { width: 6, height: 6, borderRadius: 3 },
+  wsBannerText: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny, color: tokens.white60 },
 
   // Bento grid
   bentoGrid: { flexDirection: 'row', gap: 10, marginBottom: 10 },

@@ -13,9 +13,14 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router, Stack } from 'expo-router';
 import { ChevronLeft, Send, Bot } from 'lucide-react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AuroraBackground } from '../../src/components/ui/AuroraBackground';
 import { chatStream } from '../../src/lib/api';
 import { tokens } from '../../src/theme/tokens';
+
+const CHAT_KEY = (mint: string) => `chat:${mint}`;
+const MAX_PERSISTED = 50;
+const MAX_HISTORY_TO_SERVER = 20;
 
 interface Message {
   id: string;
@@ -39,6 +44,33 @@ export default function ChatScreen() {
   const [busy, setBusy] = useState(false);
   const flatListRef = useRef<FlatList<Message>>(null);
   const cancelRef = useRef<(() => void) | null>(null);
+  const saveTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  // Load persisted chat on mount
+  useEffect(() => {
+    if (!mint) return;
+    AsyncStorage.getItem(CHAT_KEY(mint)).then((stored) => {
+      if (stored) {
+        try {
+          const parsed = JSON.parse(stored) as Message[];
+          if (parsed.length > 0) setMessages([WELCOME, ...parsed]);
+        } catch { /* ignore corrupt data */ }
+      }
+    }).catch(() => {});
+  }, [mint]);
+
+  // Persist messages (debounced) when they change
+  useEffect(() => {
+    if (!mint || messages.length <= 1) return; // skip if only welcome
+    clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => {
+      const toSave = messages
+        .filter((m) => m.id !== 'welcome' && !m.streaming)
+        .slice(-MAX_PERSISTED);
+      AsyncStorage.setItem(CHAT_KEY(mint), JSON.stringify(toSave)).catch(() => {});
+    }, 500);
+    return () => clearTimeout(saveTimer.current);
+  }, [messages, mint]);
 
   // Cancel any in-flight stream on unmount
   useEffect(() => () => { cancelRef.current?.(); }, []);
@@ -65,10 +97,11 @@ export default function ChatScreen() {
       streaming: true,
     };
 
-    // Build history from current messages (before new user message)
+    // Build history from current messages (capped to avoid token limit)
     const history = messages
       .filter((m) => m.id !== 'welcome' && !m.streaming)
-      .map((m) => ({ role: m.role, content: m.content }));
+      .map((m) => ({ role: m.role, content: m.content }))
+      .slice(-MAX_HISTORY_TO_SERVER);
 
     setMessages((prev) => [...prev, userMsg, assistantMsg]);
     setBusy(true);

@@ -16,7 +16,6 @@ import Animated, { FadeInDown, LinearTransition } from 'react-native-reanimated'
 import { Bookmark, Trash2, Plus, Settings, Copy } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Clipboard from 'expo-clipboard';
-import * as Haptics from 'expo-haptics';
 import { Swipeable } from 'react-native-gesture-handler';
 import { AuroraBackground } from '../../src/components/ui/AuroraBackground';
 import { GlassCard } from '../../src/components/ui/GlassCard';
@@ -28,6 +27,8 @@ import { useToast } from '../../src/components/ui/Toast';
 import { useWatches, useDeleteWatch, useAddWatch } from '../../src/lib/query';
 import { useAuthStore } from '../../src/store/auth';
 import { tokens } from '../../src/theme/tokens';
+import { isValidSolanaAddress } from '../../src/lib/risk';
+import { haptic } from '../../src/lib/haptics';
 import type { Watch } from '../../src/types/api';
 
 export default function WatchlistScreen() {
@@ -45,21 +46,42 @@ export default function WatchlistScreen() {
   const swipeableRefs = useRef<Map<string, Swipeable | null>>(new Map());
   const { showToast, toast } = useToast();
 
+  const [addError, setAddError] = useState('');
+
   const handleDelete = (id: string) => {
-    deleteMutation.mutate(id, { onSuccess: () => refetch() });
+    Alert.alert(
+      'Remove watch?',
+      'You will no longer receive alerts for this item.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Remove',
+          style: 'destructive',
+          onPress: () => {
+            haptic.heavy();
+            deleteMutation.mutate(id, { onSuccess: () => refetch() });
+          },
+        },
+      ],
+    );
   };
 
   const handleCopy = async (value: string) => {
     await Clipboard.setStringAsync(value);
-    await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    await haptic.success();
     showToast('Address copied');
   };
 
   const handleAddSubmit = () => {
     const v = addValue.trim();
     if (!v) return;
+    if (!isValidSolanaAddress(v)) {
+      setAddError('Invalid Solana address (32-44 base58 characters)');
+      return;
+    }
+    setAddError('');
     addMutation.mutate({ sub_type: addType, value: v }, {
-      onSuccess: () => { refetch(); setAddOpen(false); setAddValue(''); },
+      onSuccess: () => { refetch(); setAddOpen(false); setAddValue(''); setAddError(''); },
     });
   };
 
@@ -176,7 +198,7 @@ export default function WatchlistScreen() {
             <TextInput
               style={styles.addInput}
               value={addValue}
-              onChangeText={setAddValue}
+              onChangeText={(t) => { setAddValue(t); setAddError(''); }}
               placeholder={addType === 'mint' ? 'Token mint address…' : 'Deployer address…'}
               placeholderTextColor={tokens.white35}
               autoCapitalize="none"
@@ -185,6 +207,9 @@ export default function WatchlistScreen() {
               onSubmitEditing={handleAddSubmit}
               autoFocus
             />
+            {addError !== '' && (
+              <Text style={styles.addErrorText}>{addError}</Text>
+            )}
             <HapticButton
               variant="secondary"
               size="md"
@@ -431,6 +456,13 @@ const styles = StyleSheet.create({
     fontFamily: 'Lexend-Regular',
     fontSize: tokens.font.body,
     color: tokens.white100,
+  },
+  addErrorText: {
+    fontFamily: 'Lexend-Regular',
+    fontSize: tokens.font.tiny,
+    color: tokens.accent,
+    marginTop: -4,
+    paddingHorizontal: 16,
   },
 
   lockout: {

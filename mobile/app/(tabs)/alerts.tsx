@@ -6,6 +6,7 @@ import {
   ScrollView,
   TouchableOpacity,
   StyleSheet,
+  Alert,
 } from 'react-native';
 import { router } from 'expo-router';
 import Animated, { FadeInDown, LinearTransition } from 'react-native-reanimated';
@@ -18,6 +19,8 @@ import { HapticButton } from '../../src/components/ui/HapticButton';
 import { ScreenHeader } from '../../src/components/ui/ScreenHeader';
 import { useAlertsStore } from '../../src/store/alerts';
 import { tokens } from '../../src/theme/tokens';
+import { timeAgo } from '../../src/lib/format';
+import { haptic } from '../../src/lib/haptics';
 import type { AlertItem } from '../../src/types/api';
 
 const ALERT_ICONS: Record<string, React.ReactNode> = {
@@ -39,14 +42,6 @@ const FILTER_TYPES: { label: string; value: AlertItem['type'] }[] = [
   { label: 'Deployer', value: 'deployer' },
   { label: 'Narrative', value: 'narrative' },
 ];
-
-function timeAgo(ts: string): string {
-  const diff = Math.floor((Date.now() - new Date(ts).getTime()) / 1000);
-  if (diff < 60) return `${diff}s ago`;
-  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-  return `${Math.floor(diff / 86400)}d ago`;
-}
 
 function dateGroup(ts: string): string {
   const d = new Date(ts);
@@ -172,7 +167,20 @@ export default function AlertsScreen() {
                   renderRightActions={() => (
                     <TouchableOpacity
                       style={styles.deleteAction}
-                      onPress={() => deleteAlert(item.id)}
+                      onPress={() => {
+                        Alert.alert(
+                          'Delete alert?',
+                          undefined,
+                          [
+                            { text: 'Cancel', style: 'cancel' },
+                            {
+                              text: 'Delete',
+                              style: 'destructive',
+                              onPress: () => { haptic.heavy(); deleteAlert(item.id); },
+                            },
+                          ],
+                        );
+                      }}
                       activeOpacity={0.8}
                     >
                       <Trash2 color={tokens.white100} size={20} />
