@@ -165,8 +165,8 @@ async function doConnect(host: string, token: string) {
         device = await signDeviceIdentity({
           nonce: challengePayload.nonce,
           clientId,
-          clientMode: 'ui',
-          role: 'operator',
+          clientMode: 'node',
+          role: 'node',
           scopes: SCOPES,
           token,
         });
@@ -177,8 +177,8 @@ async function doConnect(host: string, token: string) {
       const params: ConnectParams = {
         minProtocol: PROTOCOL_VERSION,
         maxProtocol: PROTOCOL_VERSION,
-        client: { id: clientId, version: '1.0.0', platform: Platform.OS, mode: 'ui', deviceFamily: 'mobile' },
-        role: 'operator',
+        client: { id: clientId, version: '1.0.0', platform: Platform.OS, mode: 'node', deviceFamily: 'mobile' },
+        role: 'node',
         auth: {
           token,
           ...(useOpenClawStore.getState().roleToken
