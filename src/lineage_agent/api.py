@@ -1376,44 +1376,35 @@ async def stream_ai_analysis(
             lineage_res = None
         yield _evt("step", {"step": "lineage", "status": "done", "ms": int((_time.monotonic() - _t0) * 1000)})
 
-        # 2-5. Deployer, Cartel, Bundle, SOL flow — all in parallel
+        # 2. Deployer profile
         _deployer_addr = _analysis_deployer_from_lineage(lineage_res)
         yield _evt("step", {"step": "deployer", "status": "running"})
+        _td = _time.monotonic()
+        try:
+            if _deployer_addr:
+                await asyncio.wait_for(compute_deployer_profile(_deployer_addr), timeout=15.0)
+        except Exception as _dep_exc:
+            logger.warning("[stream] deployer failed for %s: %s", mint[:12], _dep_exc)
+        yield _evt("step", {"step": "deployer", "status": "done", "ms": int((_time.monotonic() - _td) * 1000)})
+
+        # 3. Cartel detection
         yield _evt("step", {"step": "cartel", "status": "running"})
+        _tc = _time.monotonic()
+        try:
+            if _deployer_addr:
+                await asyncio.wait_for(compute_cartel_report(mint, _deployer_addr), timeout=15.0)
+        except Exception as _cartel_exc:
+            logger.warning("[stream] cartel failed for %s: %s", mint[:12], _cartel_exc)
+        yield _evt("step", {"step": "cartel", "status": "done", "ms": int((_time.monotonic() - _tc) * 1000)})
+
+        # 4-5. Bundle + SOL flow
         yield _evt("step", {"step": "bundle", "status": "running"})
         yield _evt("step", {"step": "sol_flow", "status": "running"})
         _t1 = _time.monotonic()
-
-        async def _run_deployer():
-            if _deployer_addr:
-                await asyncio.wait_for(compute_deployer_profile(_deployer_addr), timeout=20.0)
-
-        async def _run_cartel():
-            if _deployer_addr:
-                await asyncio.wait_for(compute_cartel_report(mint, _deployer_addr), timeout=20.0)
-
-        async def _run_supporting():
-            return await _load_analyze_supporting_reports(mint, lineage_res, force_refresh=force_refresh)
-
-        _deployer_task = asyncio.create_task(_run_deployer())
-        _cartel_task = asyncio.create_task(_run_cartel())
-        _supporting_task = asyncio.create_task(_run_supporting())
-
-        # Await all, catch individual failures
         try:
-            await _deployer_task
-        except Exception as _dep_exc:
-            logger.warning("[stream] deployer profile failed for %s: %s", mint[:12], _dep_exc)
-        yield _evt("step", {"step": "deployer", "status": "done", "ms": int((_time.monotonic() - _t1) * 1000)})
-
-        try:
-            await _cartel_task
-        except Exception as _cartel_exc:
-            logger.warning("[stream] cartel detection failed for %s: %s", mint[:12], _cartel_exc)
-        yield _evt("step", {"step": "cartel", "status": "done", "ms": int((_time.monotonic() - _t1) * 1000)})
-
-        try:
-            _bundle_res, _sol_res = await _supporting_task
+            _bundle_res, _sol_res = await _load_analyze_supporting_reports(
+                mint, lineage_res, force_refresh=force_refresh,
+            )
         except Exception as _support_exc:
             logger.warning("[stream] supporting reports failed for %s: %s", mint[:12], _support_exc)
             _bundle_res = None
@@ -1435,7 +1426,7 @@ async def stream_ai_analysis(
         yield _evt("step", {"step": "ai", "status": "running", "heuristic": _hscore})
         _t2 = _time.monotonic()
         try:
-            _ai_task = asyncio.create_task(
+            ai_result = await asyncio.wait_for(
                 _analyze_token(
                     mint,
                     lineage_result=lineage_res,
@@ -1443,16 +1434,9 @@ async def stream_ai_analysis(
                     sol_flow_report=_sol_res,
                     cache=_cache,
                     force_refresh=force_refresh,
-                )
+                ),
+                timeout=55.0,
             )
-            # Send keepalive comments every 15s to prevent proxy timeout
-            while not _ai_task.done():
-                try:
-                    await asyncio.wait_for(asyncio.shield(_ai_task), timeout=15.0)
-                except asyncio.TimeoutError:
-                    if not _ai_task.done():
-                        yield {"comment": "keepalive"}
-            ai_result = _ai_task.result()
         except asyncio.TimeoutError:
             yield _evt("error", {"detail": "AI analysis timed out"})
             return
