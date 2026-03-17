@@ -157,6 +157,7 @@ async function doConnect(host: string, token: string) {
       },
       role: 'operator',
       auth: { token },
+      scopes: ['operator.read', 'operator.write'],
       caps: ['lineage.scan', 'lineage.watchlist', 'lineage.alert', 'notifications.send'],
       device: identity,
     };
