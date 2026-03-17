@@ -15,6 +15,7 @@ import type {
   AlertItem,
   User,
   Watch,
+  TopToken,
 } from '../types/api';
 
 const BASE_URL = 'https://lineage-agent.fly.dev';
@@ -97,7 +98,7 @@ export function analyzeStream(
   const es = new EventSource(url);
 
   // Named SSE events require addEventListener — onmessage only fires for unnamed events.
-  es.addEventListener('step', (event) => {
+  es.addEventListener('step', (event: any) => {
     try {
       const data = JSON.parse(event.data) as AnalysisStep;
       onStep(data);
@@ -106,7 +107,7 @@ export function analyzeStream(
     }
   });
 
-  es.addEventListener('complete', (event) => {
+  es.addEventListener('complete', (event: any) => {
     try {
       const result = JSON.parse(event.data) as LineageResult;
       es.close();
@@ -117,7 +118,7 @@ export function analyzeStream(
     }
   });
 
-  es.addEventListener('error', (event) => {
+  es.addEventListener('error', (event: any) => {
     es.close();
     try {
       const data = JSON.parse(event.data) as { detail?: string };
@@ -338,4 +339,10 @@ export async function deleteWatch(apiKey: string, id: string): Promise<void> {
     method: 'DELETE',
     headers: { 'X-API-Key': apiKey },
   });
+}
+
+// ─── top tokens ──────────────────────────────────────────────────────────────
+
+export function getTopTokens(limit = 10): Promise<TopToken[]> {
+  return apiFetch<TopToken[]>(`/stats/top-tokens?limit=${limit}`);
 }

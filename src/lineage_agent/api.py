@@ -28,7 +28,7 @@ from typing import Optional
 import sentry_sdk
 from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -86,9 +86,11 @@ from .models import (
     LineageResult,
     NarrativeCount,
     OperatorImpactReport,
+    ProblemDetail,
     SolFlowReport,
     TokenCompareResult,
     TokenSearchResult,
+    TopToken,
 )
 from .rug_detector import cancel_rug_sweep, schedule_rug_sweep
 from .db_maintenance import cancel_db_maintenance, schedule_db_maintenance
@@ -265,6 +267,11 @@ async def lifespan(application: FastAPI):
     else:
         logger.info("WALLET_LABELS_CSV_URL not set — using static labels only")
 
+    # -----------------------------------------------------------------------
+    # Telegram bot — start inline with FastAPI (no separate process needed)
+    # -----------------------------------------------------------------------
+    _bot_polling_task: asyncio.Task | None = None
+
     yield
 
     # -----------------------------------------------------------------------
@@ -288,7 +295,7 @@ app = FastAPI(
 
 # Attach rate-limiter state
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]
 
 # CORS (so the Next.js frontend can call from localhost:3000 and Vercel)
 app.add_middleware(
@@ -327,6 +334,69 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
 
 
 app.add_middleware(RequestIdMiddleware)
+
+
+# ---------------------------------------------------------------------------
+# RFC 9457 – structured error handlers
+# ---------------------------------------------------------------------------
+from fastapi.exceptions import RequestValidationError  # noqa: E402
+from fastapi.responses import JSONResponse  # noqa: E402
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
+    """Return RFC 9457 Problem Details for HTTPException."""
+    problem = ProblemDetail(
+        type=f"https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/{exc.status_code}",
+        title=exc.detail if isinstance(exc.detail, str) else "HTTP Error",
+        status=exc.status_code,
+        detail=str(exc.detail),
+        instance=str(request.url),
+    )
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=problem.model_dump(exclude_none=False),
+        headers={"Content-Type": "application/problem+json"},
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    """Return RFC 9457 Problem Details for Pydantic/FastAPI validation errors."""
+    errors = [
+        f"{' -> '.join(str(loc) for loc in e['loc'])}: {e['msg']}"
+        for e in exc.errors()
+    ]
+    problem = ProblemDetail(
+        type="https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/422",
+        title="Unprocessable Entity",
+        status=422,
+        detail="; ".join(errors),
+        instance=str(request.url),
+    )
+    return JSONResponse(
+        status_code=422,
+        content=problem.model_dump(exclude_none=False),
+        headers={"Content-Type": "application/problem+json"},
+    )
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    """Catch-all for unhandled exceptions — hides internal details from clients."""
+    logger.exception("Unhandled exception on %s %s", request.method, request.url)
+    problem = ProblemDetail(
+        type="https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/500",
+        title="Internal Server Error",
+        status=500,
+        detail="An unexpected error occurred. Please try again later.",
+        instance=str(request.url),
+    )
+    return JSONResponse(
+        status_code=500,
+        content=problem.model_dump(exclude_none=False),
+        headers={"Content-Type": "application/problem+json"},
+    )
 
 
 def _analysis_deployer_from_lineage(lineage_res: Optional[LineageResult]) -> str:
@@ -666,8 +736,6 @@ async def ws_alerts(websocket: WebSocket):
             await websocket.close()
         except Exception:
             pass
-
-
 
 @app.get(
     "/search",
@@ -1257,11 +1325,11 @@ async def get_ai_analysis(
             timeout=55.0,
         )
     except Exception as exc:
-        lineage_res = exc
+        lineage_res = exc  # type: ignore[assignment]
 
     if isinstance(lineage_res, Exception):
         logger.warning("[analyze] lineage cache read failed for %s: %s", mint[:12], lineage_res)
-        lineage_res = None
+        lineage_res = None  # type: ignore[assignment]
 
     try:
         bundle_res, sol_flow_res = await _load_analyze_supporting_reports(
@@ -1348,7 +1416,7 @@ async def stream_ai_analysis(
     """Same as /analyze/{mint} but streams progress via Server-Sent Events.
 
     Events:
-      step  {"step":"lineage"|"deployer"|"cartel"|"bundle"|"sol_flow"|"ai", "status":"running"|"done", "ms":<int>}
+      step  {"step":"lineage"|"bundle"|"sol_flow"|"ai", "status":"running"|"done", "ms":<int>}
       complete  <full AnalyzeResponse JSON>
       error  {"detail":"..."}
     """
@@ -1376,34 +1444,15 @@ async def stream_ai_analysis(
             lineage_res = None
         yield _evt("step", {"step": "lineage", "status": "done", "ms": int((_time.monotonic() - _t0) * 1000)})
 
-        # 2. Deployer profile
-        _deployer_addr = _analysis_deployer_from_lineage(lineage_res)
-        yield _evt("step", {"step": "deployer", "status": "running"})
-        _td = _time.monotonic()
-        try:
-            if _deployer_addr:
-                await asyncio.wait_for(compute_deployer_profile(_deployer_addr), timeout=15.0)
-        except Exception as _dep_exc:
-            logger.warning("[stream] deployer failed for %s: %s", mint[:12], _dep_exc)
-        yield _evt("step", {"step": "deployer", "status": "done", "ms": int((_time.monotonic() - _td) * 1000)})
-
-        # 3. Cartel detection
-        yield _evt("step", {"step": "cartel", "status": "running"})
-        _tc = _time.monotonic()
-        try:
-            if _deployer_addr:
-                await asyncio.wait_for(compute_cartel_report(mint, _deployer_addr), timeout=15.0)
-        except Exception as _cartel_exc:
-            logger.warning("[stream] cartel failed for %s: %s", mint[:12], _cartel_exc)
-        yield _evt("step", {"step": "cartel", "status": "done", "ms": int((_time.monotonic() - _tc) * 1000)})
-
-        # 4-5. Bundle + SOL flow
+        # 2. Bundle + SOL flow
         yield _evt("step", {"step": "bundle", "status": "running"})
         yield _evt("step", {"step": "sol_flow", "status": "running"})
         _t1 = _time.monotonic()
         try:
             _bundle_res, _sol_res = await _load_analyze_supporting_reports(
-                mint, lineage_res, force_refresh=force_refresh,
+                mint,
+                lineage_res,
+                force_refresh=force_refresh,
             )
         except Exception as _support_exc:
             logger.warning("[stream] supporting reports failed for %s: %s", mint[:12], _support_exc)
@@ -1417,7 +1466,7 @@ async def stream_ai_analysis(
             yield _evt("error", {"detail": "No on-chain data found. Run /lineage?mint=... first."})
             return
 
-        # 6. AI analysis
+        # 3. AI analysis
         try:
             from .data_sources._clients import cache as _cache  # noqa: PLC0415
         except Exception:
@@ -1435,7 +1484,7 @@ async def stream_ai_analysis(
                     cache=_cache,
                     force_refresh=force_refresh,
                 ),
-                timeout=55.0,
+                timeout=70.0,
             )
         except asyncio.TimeoutError:
             yield _evt("error", {"detail": "AI analysis timed out"})
@@ -1647,75 +1696,6 @@ async def forensic_chat(
 
         except Exception as _exc:
             logger.exception("[chat] stream failed for %s", mint[:12])
-            yield _evt("error", {"detail": f"Chat error: {type(_exc).__name__}"})
-
-    return EventSourceResponse(_generator())
-
-
-# ------------------------------------------------------------------
-# AI General Chat — no token context (SSE streaming)
-# ------------------------------------------------------------------
-
-@app.post(
-    "/chat",
-    tags=["chat"],
-    summary="General AI forensics chat — no specific token context (SSE streaming)",
-)
-@limiter.limit("20/minute")
-async def general_chat(
-    request: Request,
-    body: ChatRequest,
-) -> EventSourceResponse:
-    """Stream a Claude reply for general Solana forensics questions.
-
-    Events:
-      token  {"text": "<chunk>"}
-      done   {}
-      error  {"detail": "..."}
-    """
-    if not body.message or len(body.message) > 2000:
-        raise HTTPException(status_code=400, detail="Message required (max 2000 chars)")
-
-    async def _generator():
-        import json as _json
-        from .ai_analyst import _get_client as _get_ai_client, _MODEL
-
-        def _evt(event: str, data: dict) -> dict:
-            return {"event": event, "data": _json.dumps(data)}
-
-        _general_system = """\
-You are a Solana blockchain forensics detective embedded in the Lineage Agent platform.
-No specific token has been selected. Answer general questions about Solana, rug pulls,
-token forensics, deployer patterns, and on-chain analysis.
-
-RULES:
-- Be concise but complete — bullet points are welcome.
-- NEVER fabricate specific on-chain data (addresses, balances, timestamps).
-- If the user asks about a specific token, tell them to select it first via the Scan screen.
-- Keep responses tight: 2–5 sentences or a short bullet list. No padding.
-"""
-        messages = [
-            {"role": msg.role, "content": msg.content}
-            for msg in body.history[-8:]
-        ]
-        messages.append({"role": "user", "content": body.message})
-
-        try:
-            client = _get_ai_client()
-            async with client.messages.stream(
-                model=_MODEL,
-                max_tokens=400,
-                temperature=0,
-                system=_general_system,
-                messages=messages,
-            ) as stream:
-                async for text_chunk in stream.text_stream:
-                    yield _evt("token", {"text": text_chunk})
-
-            yield _evt("done", {})
-
-        except Exception as _exc:
-            logger.exception("[chat/general] stream failed")
             yield _evt("error", {"detail": f"Chat error: {type(_exc).__name__}"})
 
     return EventSourceResponse(_generator())
@@ -2067,7 +2047,7 @@ def _is_confirmed_rug_stats_row(row: dict) -> bool:
     evidence_level = str(row.get("evidence_level") or "").strip().lower()
     if not mechanism:
         return True
-    if mechanism not in {"dex_liquidity_rug", "pre_dex_extraction_rug", "liquidity_drain_rug"}:
+    if mechanism not in {"dex_liquidity_rug", "pre_dex_extraction_rug"}:
         return False
     if not evidence_level:
         return True
@@ -2194,6 +2174,85 @@ async def get_stats_brief(request: Request) -> dict:
     )
 
     return {"text": text, "generated_at": datetime.now(tz=timezone.utc).isoformat()}
+
+
+# ---------------------------------------------------------------------------
+# /stats/top-tokens  — most active tokens in last 24 h
+# ---------------------------------------------------------------------------
+
+_top_tokens_cache: Optional[tuple[float, list[TopToken]]] = None
+_TOP_TOKENS_CACHE_TTL = 300.0  # 5-minute cache
+
+
+@app.get(
+    "/stats/top-tokens",
+    response_model=list[TopToken],
+    tags=["intelligence"],
+    summary="Tokens with most intelligence-event activity in the last 24 hours",
+)
+@limiter.limit("30/minute")
+async def get_top_tokens(
+    request: Request,
+    limit: int = Query(10, ge=1, le=50, description="Max tokens to return"),
+) -> list[TopToken]:
+    """Return tokens with the most recorded intelligence events in the last 24 h.
+
+    More events = the token has attracted more analytical attention (detections,
+    rug events, narrative updates, etc.). Results are cached for 5 minutes.
+    """
+    global _top_tokens_cache
+    now_mono = time.monotonic()
+    if _top_tokens_cache and (now_mono - _top_tokens_cache[0]) < _TOP_TOKENS_CACHE_TTL:
+        return _top_tokens_cache[1][:limit]
+
+    try:
+        from .data_sources._clients import cache as _cache  # noqa: PLC0415
+
+        cutoff_ts = time.time() - 86400.0
+        db = await _cache._get_conn()
+        cursor = await db.execute(
+            """
+            SELECT
+                mint,
+                MAX(name)       AS name,
+                MAX(symbol)     AS symbol,
+                MAX(narrative)  AS narrative,
+                MAX(mcap_usd)   AS mcap_usd,
+                MIN(created_at) AS created_at,
+                COUNT(*)        AS event_count
+            FROM intelligence_events
+            WHERE recorded_at >= ?
+              AND mint IS NOT NULL AND mint != ''
+            GROUP BY mint
+            ORDER BY event_count DESC, recorded_at DESC
+            LIMIT 50
+            """,
+            (cutoff_ts,),
+        )
+        rows = await cursor.fetchall()
+        col_names = [d[0] for d in cursor.description]
+
+        def _col(row: tuple, name: str):  # type: ignore[type-arg]
+            return row[col_names.index(name)]
+
+        result = [
+            TopToken(
+                mint=_col(row, "mint"),
+                name=_col(row, "name") or "",
+                symbol=_col(row, "symbol") or "",
+                narrative=_col(row, "narrative") or None,
+                mcap_usd=_col(row, "mcap_usd"),
+                created_at=_col(row, "created_at"),
+                event_count=_col(row, "event_count"),
+            )
+            for row in rows
+        ]
+        _top_tokens_cache = (now_mono, result)
+        return result[:limit]
+
+    except Exception as exc:
+        logger.exception("get_top_tokens failed")
+        raise HTTPException(status_code=500, detail="Internal server error") from exc
 
 
 if __name__ == "__main__":

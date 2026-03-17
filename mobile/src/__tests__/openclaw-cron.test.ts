@@ -28,9 +28,12 @@ const mockSendRequest = jest.mocked(OpenClaw.sendRequest);
 const makeJob = (name: string, id: string): CronJobStatus => ({
   id,
   name,
+  schedule: { cron: '0 */6 * * *' },
+  payload: { type: 'agentTurn', message: 'check' },
   enabled: true,
-  nextRunAt: null,
-  lastRunAt: null,
+  status: 'active',
+  nextRun: undefined,
+  lastRun: undefined,
 });
 
 const makeWatch = (id: string, value = `sol${id}`, sub_type: 'mint' | 'deployer' = 'mint'): Watch => ({

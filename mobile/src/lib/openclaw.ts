@@ -5,7 +5,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { Platform } from 'react-native';
 import { useOpenClawStore } from '../store/openclaw';
-import { getDeviceIdentity } from './openclaw-identity';
+import { signDeviceIdentity } from './openclaw-identity';
 import type {
   OpenClawRequest,
   OpenClawResponse,
@@ -124,58 +124,77 @@ export function subscribe(
 // ─── Internal ────────────────────────────────────────────────────────────────
 
 async function doConnect(host: string, token: string) {
-  // Resolve device identity before opening the socket so the handshake
-  // includes a valid signature on the very first frame.
-  let identity: Awaited<ReturnType<typeof getDeviceIdentity>> | undefined;
-  try {
-    identity = await getDeviceIdentity();
-  } catch {
-    // If identity generation fails (e.g. SecureStore unavailable), proceed
-    // without it — the gateway may reject the connection, which is fine;
-    // the reconnect loop will retry.
-  }
-
   const protocol = host.startsWith('wss://') || host.startsWith('ws://') ? '' : 'ws://';
   const url = `${protocol}${host}`;
 
+  const clientId = Platform.OS === 'ios'
+    ? 'openclaw-ios' as const
+    : Platform.OS === 'android'
+      ? 'openclaw-android' as const
+      : 'node-host' as const;
+
+  const SCOPES = [
+    'operator.admin',
+    'operator.read',
+    'operator.write',
+    'operator.approvals',
+    'operator.pairing',
+  ];
+
   ws = new WebSocket(url);
 
+  // The gateway immediately sends connect.challenge after WS open.
+  // We wait for it before sending the connect frame.
   ws.onopen = () => {
-    // Send connect handshake
-    const params: ConnectParams = {
-      minProtocol: PROTOCOL_VERSION,
-      maxProtocol: PROTOCOL_VERSION,
-      client: {
-        id: Platform.OS === 'ios'
-          ? 'openclaw-ios'
-          : Platform.OS === 'android'
-            ? 'openclaw-android'
-            : 'node-host',
-        version: '1.0.0',
-        platform: Platform.OS,
-        mode: 'node',
-      },
-      role: 'operator',
-      auth: { token },
-      scopes: ['operator.read', 'operator.write', 'operator.admin'],
-      caps: ['lineage.scan', 'lineage.watchlist', 'lineage.alert', 'notifications.send'],
-    };
-    const frame: OpenClawRequest = {
-      type: 'req',
-      id: 'connect-0',
-      method: 'connect',
-      params: params as unknown as Record<string, unknown>,
-    };
-    ws!.send(JSON.stringify(frame));
+    // Nothing — wait for connect.challenge from server
   };
 
-  ws.onmessage = (event) => {
+  ws.onmessage = async (event) => {
+    let frame: OpenClawResponse | OpenClawEvent;
     try {
-      const frame = JSON.parse(event.data as string) as OpenClawResponse | OpenClawEvent;
-      handleFrame(frame, host, token);
+      frame = JSON.parse(event.data as string) as OpenClawResponse | OpenClawEvent;
     } catch {
-      // ignore malformed frames
+      return; // ignore malformed frames
     }
+
+    // Handle server challenge: sign nonce and send connect handshake
+    if (frame.type === 'event' && (frame as OpenClawEvent).event === 'connect.challenge') {
+      const challengePayload = (frame as OpenClawEvent).payload as { nonce: string; ts: number };
+      let device: ConnectParams['device'];
+      try {
+        device = await signDeviceIdentity({
+          nonce: challengePayload.nonce,
+          clientId,
+          clientMode: 'ui',
+          role: 'operator',
+          scopes: SCOPES,
+          token,
+        });
+      } catch {
+        // Proceed without device identity — gateway will assign minimal scopes
+      }
+
+      const params: ConnectParams = {
+        minProtocol: PROTOCOL_VERSION,
+        maxProtocol: PROTOCOL_VERSION,
+        client: { id: clientId, version: '1.0.0', platform: Platform.OS, mode: 'ui' },
+        role: 'operator',
+        auth: { token },
+        scopes: SCOPES,
+        caps: ['lineage.scan', 'lineage.watchlist', 'lineage.alert', 'notifications.send'],
+        ...(device ? { device } : {}),
+      };
+      const connectFrame: OpenClawRequest = {
+        type: 'req',
+        id: 'connect-0',
+        method: 'connect',
+        params: params as unknown as Record<string, unknown>,
+      };
+      ws!.send(JSON.stringify(connectFrame));
+      return;
+    }
+
+    handleFrame(frame, host, token);
   };
 
   ws.onerror = () => {
@@ -200,8 +219,8 @@ async function doConnect(host: string, token: string) {
 
 function handleFrame(
   frame: OpenClawResponse | OpenClawEvent,
-  host: string,
-  token: string,
+  _host: string,
+  _token: string,
 ) {
   if (frame.type === 'res') {
     const res = frame as OpenClawResponse;

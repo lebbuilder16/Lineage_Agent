@@ -20,9 +20,33 @@ import { ScreenHeader } from '../../src/components/ui/ScreenHeader';
 import { useLineage } from '../../src/lib/query';
 import { useAuthStore } from '../../src/store/auth';
 import { tokens } from '../../src/theme/tokens';
-import { deriveRiskLevel, RISK_COLOR, isValidSolanaAddress } from '../../src/lib/risk';
-import { ErrorBanner } from '../../src/components/ui/ErrorBanner';
-import { handleApiError } from '../../src/lib/error-handler';
+
+// ─── Risk helpers (same cascade as token/[mint].tsx) ──────────────────────────
+
+type RiskLevel = 'low' | 'medium' | 'high' | 'critical' | 'first_rug' | 'insufficient_data';
+
+const RISK_COLOR: Record<RiskLevel, string> = {
+  low: tokens.risk.low,
+  medium: tokens.risk.medium,
+  high: tokens.risk.high,
+  critical: tokens.risk.critical,
+  first_rug: tokens.risk.high,
+  insufficient_data: tokens.white35,
+};
+
+function deriveRiskLevel(data: ReturnType<typeof useLineage>['data']): RiskLevel {
+  const dc = data?.death_clock;
+  if (dc?.risk_level && dc.risk_level !== 'insufficient_data') return dc.risk_level as RiskLevel;
+  const ins = data?.insider_sell;
+  if (ins?.verdict === 'insider_dump' && ins?.deployer_exited) return 'critical';
+  if (ins?.verdict === 'insider_dump') return 'high';
+  if (ins?.flags?.includes('PRICE_CRASH') && (ins?.sell_pressure_24h ?? 0) > 0.4) return 'high';
+  if (ins?.verdict === 'suspicious') return 'medium';
+  const verdict = data?.bundle_report?.overall_verdict;
+  if (verdict === 'confirmed_team_extraction') return 'critical';
+  if (verdict === 'suspected_team_extraction' || verdict === 'coordinated_dump_unknown_team') return 'high';
+  return 'insufficient_data';
+}
 
 // ─── Factory Banner ────────────────────────────────────────────────────────────
 
@@ -61,16 +85,8 @@ export default function DeathClockScreen() {
 
   const { data, isLoading, error } = useLineage(submitted, !!submitted);
 
-  const [validationError, setValidationError] = useState('');
-
   const handleSubmit = () => {
-    const trimmed = mint.trim();
-    if (!isValidSolanaAddress(trimmed)) {
-      setValidationError('Invalid Solana address');
-      return;
-    }
-    setValidationError('');
-    setSubmitted(trimmed);
+    if (mint.trim().length >= 32) setSubmitted(mint.trim());
   };
 
   const riskLevel = deriveRiskLevel(data);
@@ -99,7 +115,7 @@ export default function DeathClockScreen() {
             <TextInput
               style={[styles.input, { flex: 1 }]}
               value={mint}
-              onChangeText={(t) => { setMint(t); setValidationError(''); }}
+              onChangeText={setMint}
               placeholder="Mint address…"
               placeholderTextColor={tokens.white35}
               autoCapitalize="none"
@@ -118,9 +134,6 @@ export default function DeathClockScreen() {
               </TouchableOpacity>
             )}
           </View>
-          {validationError !== '' && (
-            <Text style={styles.validationError}>{validationError}</Text>
-          )}
 
           <HapticButton
             variant="destructive"
@@ -163,10 +176,9 @@ export default function DeathClockScreen() {
 
           {/* Error */}
           {submitted && !isLoading && error && (
-            <ErrorBanner
-              error={handleApiError(error)}
-              onRetry={() => setSubmitted(mint.trim())}
-            />
+            <GlassCard>
+              <Text style={styles.errorText}>Failed to fetch data. Try again.</Text>
+            </GlassCard>
           )}
 
           {/* Full result */}
@@ -294,12 +306,5 @@ const styles = StyleSheet.create({
     fontSize: tokens.font.body,
     color: tokens.accent,
     textAlign: 'center',
-  },
-  validationError: {
-    fontFamily: 'Lexend-Regular',
-    fontSize: tokens.font.tiny,
-    color: tokens.accent,
-    paddingHorizontal: 20,
-    marginTop: -4,
   },
 });

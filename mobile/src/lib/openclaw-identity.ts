@@ -1,124 +1,127 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// OpenClaw Device Identity — Ed25519 keypair generation & signing
-// Generates a persistent device identity stored in expo-secure-store.
-// The gateway requires a signed device field in ConnectParams.
+// OpenClaw Device Identity — Ed25519 keypair + challenge-response signing
+//
+// Flow:
+//   1. WS opens → server sends connect.challenge { nonce, ts }
+//   2. App calls signDeviceIdentity(params) with server nonce
+//   3. App sends connect frame with device field
+//   4. Gateway verifies signature → approves or queues pairing request
 // ─────────────────────────────────────────────────────────────────────────────
 import nacl from 'tweetnacl';
-import { encodeBase64, decodeBase64 } from 'tweetnacl-util';
 import * as SecureStore from 'expo-secure-store';
+import { Platform } from 'react-native';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const SK_KEY = 'openclaw-device-sk';
-const ID_KEY = 'openclaw-device-id';
-const NONCE_BYTES = 16;
 
-// ─── Types ───────────────────────────────────────────────────────────────────
+// ─── base64url (RFC 4648) ─────────────────────────────────────────────────────
 
-export interface DeviceIdentity {
-  id: string;
-  publicKey: string;   // base64
-  signature: string;   // base64
-  signedAt: string;    // ISO 8601
-  nonce: string;       // base64 random 16 bytes
+export function base64UrlEncode(bytes: Uint8Array): string {
+  // btoa operates on Latin-1 — convert byte by byte
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-/** Generate a v4-style UUID using crypto.getRandomValues (Hermes-compatible). */
-function generateUUID(): string {
-  const bytes = new Uint8Array(16);
-  crypto.getRandomValues(bytes);
-  // Set version 4 (0100) in byte 6
-  bytes[6] = (bytes[6] & 0x0f) | 0x40;
-  // Set variant 10xx in byte 8
-  bytes[8] = (bytes[8] & 0x3f) | 0x80;
-
-  const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
-  return [
-    hex.slice(0, 8),
-    hex.slice(8, 12),
-    hex.slice(12, 16),
-    hex.slice(16, 20),
-    hex.slice(20, 32),
-  ].join('-');
+function base64UrlDecode(input: string): Uint8Array {
+  const normalized = input.replace(/-/g, '+').replace(/_/g, '/');
+  const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4);
+  const binary = atob(padded);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
 }
 
-/** Generate cryptographically random bytes. */
-function randomBytes(n: number): Uint8Array {
-  const buf = new Uint8Array(n);
-  crypto.getRandomValues(buf);
-  return buf;
+// ─── SHA-256 (SubtleCrypto — available in Hermes ≥ RN 0.71) ─────────────────
+
+async function sha256Hex(bytes: Uint8Array): Promise<string> {
+  const hashBuffer = await crypto.subtle.digest('SHA-256', bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer);
+  return Array.from(new Uint8Array(hashBuffer))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
 }
 
-/** Encode a string to UTF-8 bytes. */
-function encodeUTF8(s: string): Uint8Array {
-  const encoder = new TextEncoder();
-  return encoder.encode(s);
+// ─── Keypair persistence ──────────────────────────────────────────────────────
+
+interface Keypair {
+  secretKey: Uint8Array; // 64 bytes (seed + public)
+  publicKey: Uint8Array; // 32 bytes
 }
 
-// ─── Keypair persistence ─────────────────────────────────────────────────────
-
-interface StoredKeypair {
-  deviceId: string;
-  secretKey: Uint8Array;
-  publicKey: Uint8Array;
-}
-
-/** Load or create the device keypair from secure storage. */
-async function getOrCreateKeypair(): Promise<StoredKeypair> {
-  const storedSk = await SecureStore.getItemAsync(SK_KEY);
-  const storedId = await SecureStore.getItemAsync(ID_KEY);
-
-  if (storedSk && storedId) {
-    // Reconstruct keypair from stored secret key
-    const secretKey = decodeBase64(storedSk);
-    // Ed25519 secret keys in tweetnacl are 64 bytes (seed + public key appended)
+async function getOrCreateKeypair(): Promise<Keypair> {
+  const stored = await SecureStore.getItemAsync(SK_KEY);
+  if (stored) {
+    const secretKey = base64UrlDecode(stored);
     const publicKey = secretKey.slice(32);
-    return { deviceId: storedId, secretKey, publicKey };
+    return { secretKey, publicKey };
   }
-
-  // First run — generate fresh keypair
-  const keyPair = nacl.sign.keyPair();
-  const deviceId = generateUUID();
-
-  await SecureStore.setItemAsync(SK_KEY, encodeBase64(keyPair.secretKey));
-  await SecureStore.setItemAsync(ID_KEY, deviceId);
-
-  return {
-    deviceId,
-    secretKey: keyPair.secretKey,
-    publicKey: keyPair.publicKey,
-  };
+  const kp = nacl.sign.keyPair();
+  await SecureStore.setItemAsync(SK_KEY, base64UrlEncode(kp.secretKey));
+  return { secretKey: kp.secretKey, publicKey: kp.publicKey };
 }
 
-// ─── Public API ──────────────────────────────────────────────────────────────
+// ─── Public types ─────────────────────────────────────────────────────────────
+
+/** Fields sent in ConnectParams.device */
+export interface DeviceIdentity {
+  id: string;        // SHA-256(publicKey) as hex — 64 hex chars
+  publicKey: string; // base64url-encoded 32-byte Ed25519 public key
+  signature: string; // base64url-encoded Ed25519 signature
+  signedAt: number;  // milliseconds since epoch (integer)
+  nonce: string;     // server-issued nonce from connect.challenge
+}
+
+export interface SignParams {
+  /** Server-issued nonce from the connect.challenge event */
+  nonce: string;
+  clientId: 'openclaw-android' | 'openclaw-ios' | 'node-host';
+  clientMode: string;
+  role: string;
+  scopes: string[];
+  /** Gateway auth token */
+  token: string;
+}
+
+// ─── Public API ───────────────────────────────────────────────────────────────
 
 /**
- * Returns a fresh DeviceIdentity for use in ConnectParams.device.
+ * Sign a device identity using the server-issued nonce.
  *
- * The keypair is generated once and persisted; each call produces a new
- * nonce + timestamp + signature so every connection attempt is unique.
- *
- * Signed message format (UTF-8 bytes):
- *   <nonce_base64> + "." + <deviceId> + "." + <signedAt_ISO>
+ * Payload format (v3):
+ *   v3|{deviceId}|{clientId}|{mode}|{role}|{scopes,}|{signedAtMs}|{token}|{nonce}|{platform}|{deviceFamily}
  */
-export async function getDeviceIdentity(): Promise<DeviceIdentity> {
-  const { deviceId, secretKey, publicKey } = await getOrCreateKeypair();
+export async function signDeviceIdentity(params: SignParams): Promise<DeviceIdentity> {
+  const { secretKey, publicKey } = await getOrCreateKeypair();
 
-  const nonce = randomBytes(NONCE_BYTES);
-  const nonceB64 = encodeBase64(nonce);
-  const signedAt = new Date().toISOString();
+  // Device ID = SHA-256 of raw 32-byte public key, hex-encoded
+  const deviceId = await sha256Hex(publicKey);
 
-  // Build the message: nonce_base64.deviceId.signedAt
-  const message = encodeUTF8(`${nonceB64}.${deviceId}.${signedAt}`);
-  const signature = nacl.sign.detached(message, secretKey);
+  const signedAt = Date.now();
+  const platform = Platform.OS; // 'ios' | 'android'
+
+  const payload = [
+    'v3',
+    deviceId,
+    params.clientId,
+    params.clientMode,
+    params.role,
+    params.scopes.join(','),
+    String(signedAt),
+    params.token,
+    params.nonce,
+    platform,
+    'mobile', // deviceFamily
+  ].join('|');
+
+  const messageBytes = new TextEncoder().encode(payload);
+  const signature = nacl.sign.detached(messageBytes, secretKey);
 
   return {
     id: deviceId,
-    publicKey: encodeBase64(publicKey),
-    signature: encodeBase64(signature),
+    publicKey: base64UrlEncode(publicKey),
+    signature: base64UrlEncode(signature),
     signedAt,
-    nonce: nonceB64,
+    nonce: params.nonce,
   };
 }

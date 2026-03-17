@@ -183,7 +183,7 @@ const makeAlert = (id: string): AlertItem => ({
   id,
   type: 'rug',
   message: 'Rug pull detected',
-  timestamp: Date.now(),
+  timestamp: new Date().toISOString(),
   read: false,
 });
 

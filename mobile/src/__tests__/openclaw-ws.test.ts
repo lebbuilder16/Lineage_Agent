@@ -205,7 +205,7 @@ describe('handshake response', () => {
       type: 'res',
       id: 'connect-0',
       ok: false,
-      error: { message: 'Invalid token', code: 401 },
+      error: { message: 'Invalid token', code: '401' },
     } as OpenClawResponse);
 
     expect(mockSetPaired).toHaveBeenCalledWith(false);
@@ -277,7 +277,7 @@ describe('sendRequest', () => {
       type: 'res',
       id: frame.id,
       ok: false,
-      error: { message: 'Not found', code: 404 },
+      error: { message: 'Not found', code: '404' },
     } as OpenClawResponse);
 
     await expect(promise).rejects.toThrow('Not found');

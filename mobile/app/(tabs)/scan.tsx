@@ -20,9 +20,6 @@ import { ScreenHeader } from '../../src/components/ui/ScreenHeader';
 import { searchTokens } from '../../src/lib/api';
 import { useAuthStore } from '../../src/store/auth';
 import { tokens } from '../../src/theme/tokens';
-import { ErrorBanner } from '../../src/components/ui/ErrorBanner';
-import { handleApiError, type UserError } from '../../src/lib/error-handler';
-import { fmtMcap } from '../../src/lib/format';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import type { TokenSearchResult } from '../../src/types/api';
 
@@ -50,7 +47,6 @@ export default function ScanScreen() {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<TokenSearchResult[]>([]);
   const [loading, setLoading] = useState(false);
-  const [searchError, setSearchError] = useState<UserError | null>(null);
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const recentSearches = useAuthStore((s) => s.recentSearches);
   const addRecentSearch = useAuthStore((s) => s.addRecentSearch);
@@ -58,7 +54,6 @@ export default function ScanScreen() {
 
   const handleChange = useCallback((text: string) => {
     setQuery(text);
-    setSearchError(null);
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
     if (text.length < 2) { setResults([]); return; }
 
@@ -67,10 +62,7 @@ export default function ScanScreen() {
       try {
         const data = await searchTokens(text);
         setResults(data);
-        setSearchError(null);
-      } catch (err) {
-        setSearchError(handleApiError(err));
-      } finally {
+      } catch { /* ignore */ } finally {
         setLoading(false);
       }
     }, 250);
@@ -82,10 +74,9 @@ export default function ScanScreen() {
     if (text.trim().length < 2) return;
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
     setLoading(true);
-    setSearchError(null);
     searchTokens(text.trim())
       .then((data) => { setResults(data); addRecentSearch(text.trim()); })
-      .catch((err) => setSearchError(handleApiError(err)))
+      .catch(() => {})
       .finally(() => setLoading(false));
   }, [addRecentSearch]);
 
@@ -168,11 +159,6 @@ export default function ScanScreen() {
             </View>
           )}
 
-          {/* Error banner */}
-          {searchError && (
-            <ErrorBanner error={searchError} onRetry={() => runSearch(query)} />
-          )}
-
           {/* Results */}
           <FlatList
             data={results}
@@ -198,7 +184,11 @@ export default function ScanScreen() {
                     <View style={styles.resultRight}>
                       {item.market_cap_usd != null && item.market_cap_usd > 0 && (
                         <Text style={styles.riskScore}>
-                          {fmtMcap(item.market_cap_usd)}
+                          {item.market_cap_usd >= 1_000_000
+                            ? `$${(item.market_cap_usd / 1_000_000).toFixed(1)}M`
+                            : item.market_cap_usd >= 1_000
+                            ? `$${(item.market_cap_usd / 1_000).toFixed(0)}K`
+                            : `$${item.market_cap_usd.toFixed(0)}`}
                         </Text>
                       )}
                     </View>

@@ -36,7 +36,9 @@ const H_GAP = 52;
 const V_GAP = 14;
 const PAD = 16;
 
-import { shortAddr } from '../../src/lib/format';
+function shortAddr(addr: string) {
+  return addr.length > 12 ? `${addr.slice(0, 5)}…${addr.slice(-4)}` : addr;
+}
 
 function nodeLabel(addr: string, label?: string | null) {
   return label || shortAddr(addr);

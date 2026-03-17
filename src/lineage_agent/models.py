@@ -74,7 +74,6 @@ class RugMechanism(str, Enum):
     UNKNOWN = "unknown"
     DEX_LIQUIDITY_RUG = "dex_liquidity_rug"
     PRE_DEX_EXTRACTION_RUG = "pre_dex_extraction_rug"
-    LIQUIDITY_DRAIN_RUG = "liquidity_drain_rug"  # ≥90% relative drain without hitting absolute floor
     MARKET_DUMP = "market_dump"
     UNPROVEN_ABANDONMENT = "unproven_abandonment"
 

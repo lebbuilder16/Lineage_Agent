@@ -8,7 +8,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router, Stack } from 'expo-router';
-import { X, CheckCircle, Circle, AlertTriangle } from 'lucide-react-native';
+import { X, CheckCircle, Circle } from 'lucide-react-native';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -90,7 +90,6 @@ export default function AnalysisModal() {
   const { mint } = useLocalSearchParams<{ mint: string }>();
   const [steps, setSteps] = useState<Record<string, AnalysisStep>>({});
   const [done, setDone] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<LineageResult | null>(null);
   const cancelRef = useRef<(() => void) | undefined>(undefined);
   const queryClient = useQueryClient();
@@ -99,12 +98,8 @@ export default function AnalysisModal() {
   // Progress bar animated value
   const progressAnim = useSharedValue(0);
 
-  const startAnalysis = () => {
+  useEffect(() => {
     if (!mint) return;
-    setSteps({});
-    setDone(false);
-    setError(null);
-    setResult(null);
     cancelRef.current = analyzeStream(
       mint,
       (step) => {
@@ -114,14 +109,7 @@ export default function AnalysisModal() {
         setDone(true);
         if (finalResult) setResult(finalResult);
       },
-      (err) => {
-        setError(err.message || 'Analysis failed');
-      },
     );
-  };
-
-  useEffect(() => {
-    startAnalysis();
     return () => cancelRef.current?.();
   }, [mint]);
 
@@ -221,24 +209,6 @@ export default function AnalysisModal() {
             );
           })}
         </ScrollView>
-
-        {/* Error */}
-        {error && !done && (
-          <Animated.View entering={FadeInDown.duration(300).springify()} style={styles.doneSection}>
-            <View style={styles.doneTitleRow}>
-              <AlertTriangle size={18} color={tokens.danger} strokeWidth={2} />
-              <Text style={[styles.doneTitle, { color: tokens.danger }]}>{error}</Text>
-            </View>
-            <HapticButton
-              variant="primary"
-              size="md"
-              fullWidth
-              onPress={startAnalysis}
-            >
-              <Text style={styles.btnText}>RETRY</Text>
-            </HapticButton>
-          </Animated.View>
-        )}
 
         {/* Done */}
         {done && (

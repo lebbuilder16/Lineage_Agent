@@ -29,7 +29,7 @@ const makeAlert = (overrides: Partial<AlertItem> = {}): AlertItem => ({
   id: 'alert-1',
   type: 'rug',
   message: 'Rug pull detected on TokenXYZ',
-  timestamp: 1_700_000_000_000,
+  timestamp: "2023-11-14T22:13:20.000Z",
   read: false,
   risk_score: 95,
   token_name: 'TokenXYZ',

@@ -382,7 +382,7 @@ describe('startRugResponseListener', () => {
     mockIsAvailable.mockReturnValue(true);
     startRugResponseListener();
 
-    emitEvent('alert', { id: 'a1', type: 'narrative', message: 'x', timestamp: Date.now(), read: false });
+    emitEvent('alert', { id: 'a1', type: 'narrative', message: 'x', timestamp: new Date().toISOString(), read: false });
 
     await Promise.resolve();
     expect(mockRouteAlertToChannels).not.toHaveBeenCalled();
@@ -400,7 +400,7 @@ describe('startRugResponseListener', () => {
       id: 'rug-1',
       type: 'rug',
       message: 'LP drained',
-      timestamp: Date.now(),
+      timestamp: new Date().toISOString(),
       read: false,
       mint: 'scam-mint-111',
       risk_score: 80,
@@ -428,7 +428,7 @@ describe('startRugResponseListener', () => {
       id: 'rug-2',
       type: 'rug',
       message: 'no mint',
-      timestamp: Date.now(),
+      timestamp: new Date().toISOString(),
       read: false,
     });
 
@@ -445,7 +445,7 @@ describe('startRugResponseListener', () => {
       id: 'rug-3',
       type: 'rug',
       message: 'rug',
-      timestamp: Date.now(),
+      timestamp: new Date().toISOString(),
       read: false,
       mint: 'some-mint',
     });
@@ -467,7 +467,7 @@ describe('startRugResponseListener', () => {
       id: 'rug-4',
       type: 'rug',
       message: 'Drained',
-      timestamp: Date.now(),
+      timestamp: new Date().toISOString(),
       read: false,
       mint: 'rug-mint-abc',
       risk_score: 95,
@@ -554,9 +554,12 @@ describe('stopCartelMonitor', () => {
     const mockJob: CronJobStatus = {
       id: 'cron-xyz',
       name: 'lineage:cartel:cartel-1',
+      schedule: { cron: '0 */2 * * *' },
+      payload: { type: 'agentTurn', message: 'check' },
       enabled: true,
-      nextRunAt: null,
-      lastRunAt: null,
+      status: 'active',
+      nextRun: undefined,
+      lastRun: undefined,
     };
     mockListCronJobs.mockResolvedValueOnce([mockJob]);
 
@@ -584,7 +587,7 @@ describe('isCartelMonitored', () => {
   it('returns true when matching cron job exists', async () => {
     mockIsAvailable.mockReturnValue(true);
     mockListCronJobs.mockResolvedValueOnce([
-      { id: 'j1', name: 'lineage:cartel:cartel-abc', enabled: true, nextRunAt: null, lastRunAt: null },
+      { id: 'j1', name: 'lineage:cartel:cartel-abc', enabled: true, status: 'active' as const, schedule: { cron: '0 */2 * * *' }, payload: { type: 'agentTurn' as const, message: 'check' }, nextRun: undefined, lastRun: undefined },
     ]);
 
     const result = await isCartelMonitored('cartel-abc');
@@ -594,7 +597,7 @@ describe('isCartelMonitored', () => {
   it('returns false when no matching cron job exists', async () => {
     mockIsAvailable.mockReturnValue(true);
     mockListCronJobs.mockResolvedValueOnce([
-      { id: 'j2', name: 'lineage:cartel:other', enabled: true, nextRunAt: null, lastRunAt: null },
+      { id: 'j2', name: 'lineage:cartel:other', enabled: true, status: 'active' as const, schedule: { cron: '0 */2 * * *' }, payload: { type: 'agentTurn' as const, message: 'check' }, nextRun: undefined, lastRun: undefined },
     ]);
 
     const result = await isCartelMonitored('cartel-abc');

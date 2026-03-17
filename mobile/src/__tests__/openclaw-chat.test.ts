@@ -61,7 +61,7 @@ describe('smartChatStream — fallback mode (OpenClaw unavailable)', () => {
   it('calls chatStream when OpenClaw is not available', async () => {
     mockIsAvailable.mockReturnValue(false);
     const cancel = jest.fn();
-    mockChatStream.mockReturnValue(cancel);
+    mockChatStream.mockResolvedValue(cancel);
 
     const onChunk = jest.fn();
     const onDone = jest.fn();
@@ -73,7 +73,7 @@ describe('smartChatStream — fallback mode (OpenClaw unavailable)', () => {
 
   it('passes undefined mint correctly', async () => {
     mockIsAvailable.mockReturnValue(false);
-    mockChatStream.mockReturnValue(jest.fn());
+    mockChatStream.mockResolvedValue(jest.fn());
 
     await smartChatStream(undefined, 'hello', [], jest.fn(), jest.fn());
     expect(mockChatStream).toHaveBeenCalledWith(undefined, 'hello', [], expect.any(Function), expect.any(Function), undefined);
@@ -81,7 +81,7 @@ describe('smartChatStream — fallback mode (OpenClaw unavailable)', () => {
 
   it('passes error callback to chatStream', async () => {
     mockIsAvailable.mockReturnValue(false);
-    mockChatStream.mockReturnValue(jest.fn());
+    mockChatStream.mockResolvedValue(jest.fn());
     const onError = jest.fn();
 
     await smartChatStream('mint', 'hi', [], jest.fn(), jest.fn(), onError);
@@ -122,9 +122,9 @@ describe('smartChatStream — OpenClaw mode', () => {
 
     await smartChatStream('mint999', 'what is risk?', [], jest.fn(), jest.fn());
 
-    const callArgs = mockSendRequest.mock.calls[0][1];
-    expect(callArgs.message).toContain('mint999');
-    expect(callArgs.message).toContain('what is risk?');
+    const callArgs = mockSendRequest.mock.calls[0]?.[1];
+    expect(callArgs?.message).toContain('mint999');
+    expect(callArgs?.message).toContain('what is risk?');
   });
 
   it('delivers response as word chunks via interval', async () => {
