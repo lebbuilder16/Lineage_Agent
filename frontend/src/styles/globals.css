@@ -1,66 +1,42 @@
-/* Lexend font imported in index.css — not duplicated here */
+/* ═══════════════════════════════════════════════════════════
+   Frame & Form Design System — Lineage Agent
+   Monochrome • Minimal • Premium
+   ═══════════════════════════════════════════════════════════ */
+
+@import "tailwindcss";
 
 @custom-variant dark (&:is(.dark *));
 
+/* ── Design Tokens ────────────────────────────────────────── */
 :root {
-  --font-size: 16px;
-  
-  /* Aurora Glass System - Dark Theme */
-  --color-primary: #6F6ACF;
-  --color-secondary: #ADCEFF;
-  --color-success: #00FF88;
-  --color-warning: #FF9933;
-  --color-error: #FF0033;
-  --color-neon-pink: #FF3366;
-  --color-accent: #FF3366;
-  --color-neutral: #6B7280;
-  
-  /* Background System */
-  --bg-main: #0A0A07;
-  --bg-app: #0D0D0A;
-  --bg-card: rgba(255, 255, 255, 0.03);
-  --bg-glass: rgba(255, 255, 255, 0.05);
-  
-  /* Typography Sizes */
-  --text-main-heading: 28px;
-  --text-section-header: 20px;
-  --text-subheading: 16px;
-  --text-body: 14px;
-  --text-small: 12px;
-  --text-tiny: 10px;
-  
-  /* Shadow System */
-  --shadow-glow: 0 0 15px rgba(173, 200, 255, 0.2);
-  --shadow-neon-pink: 0 0 20px rgba(255, 51, 102, 0.4);
-  --shadow-neon-green: 0 0 20px rgba(0, 255, 136, 0.4);
-  
-  /* Border Radius System */
-  --radius-small: 12px;
-  --radius-standard: 20px;
-  --radius-card: 24px;
-  --radius-pill: 50px;
-  
-  /* Base variables */
-  --background: var(--bg-main);
-  --foreground: #ffffff;
-  --card: var(--bg-card);
-  --card-foreground: #ffffff;
-  --popover: var(--bg-app);
-  --popover-foreground: #ffffff;
-  --primary: var(--color-primary);
+  --ff-font: "Instrument Sans", ui-sans-serif, system-ui, sans-serif;
+  --ff-white: #ffffff;
+  --ff-black: #000000;
+  --ff-gray: #6B6B6B;
+  --ff-light: #f0f0f0;
+  --ff-nav-h: 53px;
+
+  /* Tailwind semantic mappings */
+  --background: #ffffff;
+  --foreground: #000000;
+  --card: #ffffff;
+  --card-foreground: #000000;
+  --popover: #ffffff;
+  --popover-foreground: #000000;
+  --primary: #000000;
   --primary-foreground: #ffffff;
-  --secondary: var(--color-secondary);
-  --secondary-foreground: var(--color-primary);
-  --muted: rgba(255, 255, 255, 0.1);
-  --muted-foreground: rgba(255, 255, 255, 0.75);
-  --accent: var(--color-neon-pink);
+  --secondary: #f0f0f0;
+  --secondary-foreground: #6B6B6B;
+  --muted: #f0f0f0;
+  --muted-foreground: #6B6B6B;
+  --accent: #000000;
   --accent-foreground: #ffffff;
-  --destructive: var(--color-error);
+  --destructive: #000000;
   --destructive-foreground: #ffffff;
-  --border: rgba(255, 255, 255, 0.1);
-  --input: rgba(255, 255, 255, 0.05);
-  --ring: var(--color-secondary);
-  --radius: var(--radius-standard);
+  --border: #000000;
+  --input: #ffffff;
+  --ring: #000000;
+  --radius: 0px;
 }
 
 @theme inline {
@@ -83,157 +59,251 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
+  --radius-sm: 0px;
+  --radius-md: 0px;
+  --radius-lg: 0px;
+  --radius-xl: 0px;
+
+  --animate-fade-in: ff-fadeIn 0.4s ease both;
+  --animate-fade-in-up: ff-fadeInUp 0.6s ease both;
+  --animate-pulse: ff-pulse 1.5s ease infinite;
 }
 
+/* ── Keyframes ─────────────────────────────────────────── */
+@keyframes ff-fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes ff-fadeInUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes ff-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+/* ── Base Layer ────────────────────────────────────────── */
 @layer base {
   * {
-    @apply border-border outline-ring/50;
+    @apply border-border;
   }
-
+  html {
+    scroll-behavior: smooth;
+  }
   body {
-    @apply bg-background text-foreground;
-    font-family: 'Lexend', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-family: var(--ff-font);
+    background: var(--ff-white);
+    color: var(--ff-black);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 }
 
-/**
- * Aurora Glass Typography System
- */
-@layer base {
-  :where(:not(:has([class*=" text-"]), :not(:has([class^="text-"])))) {
-    h1 {
-      font-size: var(--text-main-heading);
-      font-weight: 700;
-      line-height: 1.2;
-      color: #ffffff;
-      font-family: 'Lexend', sans-serif;
-      letter-spacing: -0.02em;
-    }
+/* ── Frame & Form Typography ──────────────────────────── */
 
-    h2 {
-      font-size: var(--text-section-header);
-      font-weight: 600;
-      line-height: 1.3;
-      color: #ffffff;
-      font-family: 'Lexend', sans-serif;
-    }
-
-    h3 {
-      font-size: var(--text-subheading);
-      font-weight: 600;
-      line-height: 1.4;
-      color: #ffffff;
-      font-family: 'Lexend', sans-serif;
-    }
-
-    p {
-      font-size: var(--text-body);
-      font-weight: 400;
-      line-height: 1.5;
-      color: rgba(255, 255, 255, 0.75);
-      font-family: 'Lexend', sans-serif;
-    }
-
-    label {
-      font-size: var(--text-small);
-      font-weight: 500;
-      line-height: 1.4;
-      color: rgba(255, 255, 255, 0.65);
-      font-family: 'Lexend', sans-serif;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-    }
-  }
+/* Page title — used as section/page headings */
+.ff-page-title {
+  font-size: clamp(24px, 3vw, 37px);
+  font-weight: 400;
+  letter-spacing: -1.11px;
+  line-height: 1;
+  color: var(--ff-black);
+  margin: 0;
 }
 
-html {
-  font-size: var(--font-size);
+/* Hero display — ultra-large numbers/headlines */
+.ff-display {
+  font-size: clamp(44px, 5vw, 64px);
+  font-weight: 400;
+  letter-spacing: -3.2px;
+  line-height: 1;
+  color: var(--ff-black);
 }
 
-/* Custom scrollbar utilities */
-.scrollbar-hide {
-  -ms-overflow-style: none;
-  scrollbar-width: none;
+/* Stat number — even larger for impact */
+.ff-stat-number {
+  font-size: clamp(48px, 6vw, 80px);
+  font-weight: 400;
+  letter-spacing: -3px;
+  line-height: 1;
+  color: var(--ff-black);
 }
 
-.scrollbar-hide::-webkit-scrollbar {
-  display: none;
+/* Label — muted category text */
+.ff-label {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.48px;
+  color: var(--ff-gray);
+  margin: 0;
 }
 
-/* Aurora Glass Utility Classes */
-@layer utilities {
-  .bg-glass {
-    background: rgba(255, 255, 255, 0.02);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-  }
-
-  .bg-card-glass {
-    background: rgba(255, 255, 255, 0.04);
-    backdrop-filter: blur(24px);
-    -webkit-backdrop-filter: blur(24px);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-  }
-
-  .shadow-glow {
-    box-shadow: var(--shadow-glow);
-  }
-
-  .text-gradient {
-    background: linear-gradient(135deg, #ADC8FF 0%, #FFFFFF 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-  }
-
-  .animate-touch {
-    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  }
-
-  .animate-touch:active {
-    transform: scale(0.95);
-  }
-
-  /* Typography Size Utilities */
-  .text-main-heading {
-    font-size: var(--text-main-heading);
-  }
-  .text-section-header {
-    font-size: var(--text-section-header);
-  }
-  .text-subheading {
-    font-size: var(--text-subheading);
-  }
-  .text-body {
-    font-size: var(--text-body);
-  }
-  .text-small {
-    font-size: var(--text-small);
-  }
-  .text-tiny {
-    font-size: var(--text-tiny);
-  }
+/* Body text */
+.ff-body {
+  font-size: 16px;
+  font-weight: 400;
+  letter-spacing: -0.48px;
+  line-height: 1.4;
+  color: var(--ff-gray);
 }
 
-/* Focus indicators — accessible visible focus ring */
-:focus-visible {
-  outline: 2px solid var(--color-secondary) !important;
-  outline-offset: 2px !important;
+/* Small/meta text */
+.ff-small {
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--ff-gray);
 }
 
-input:focus-visible,
-textarea:focus-visible {
-  outline: 2px solid var(--color-secondary) !important;
-  outline-offset: 0 !important;
-  box-shadow: 0 0 0 3px rgba(173, 206, 255, 0.2);
+/* Monospace addresses */
+.ff-address {
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 13px;
+  letter-spacing: 0.02em;
+  color: var(--ff-gray);
+  user-select: all;
+  cursor: text;
 }
 
-/* Screen reader only — visually hidden but accessible */
+/* ── Layout Utilities ────────────────────────────────── */
+
+/* Section divider */
+.ff-section {
+  padding: 30px 0;
+  border-bottom: 1px solid var(--ff-black);
+}
+.ff-section:last-child {
+  border-bottom: none;
+}
+
+/* Row item in a list */
+.ff-row {
+  padding: 20px 0;
+  border-bottom: 1px solid var(--ff-black);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+}
+.ff-row:last-child {
+  border-bottom: none;
+}
+
+/* Stat grid */
+.ff-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 24px;
+}
+
+/* ── Interactive Elements ────────────────────────────── */
+
+/* Link with arrow */
+.ff-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 16px;
+  font-weight: 400;
+  letter-spacing: -0.48px;
+  color: var(--ff-black);
+  text-decoration: none;
+  cursor: pointer;
+  background: none;
+  border: none;
+  padding: 0;
+  font-family: var(--ff-font);
+}
+.ff-link:hover {
+  text-decoration: underline;
+}
+.ff-link .ff-arrow {
+  transition: transform 0.2s ease;
+}
+.ff-link:hover .ff-arrow {
+  transform: translateX(4px);
+}
+
+/* CTA link — underlined by default */
+.ff-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 20px;
+  font-weight: 400;
+  letter-spacing: -1px;
+  color: var(--ff-black);
+  text-decoration: underline;
+  text-underline-position: from-font;
+  cursor: pointer;
+  background: none;
+  border: none;
+  padding: 0;
+  font-family: var(--ff-font);
+}
+.ff-cta .ff-arrow {
+  transition: transform 0.2s ease;
+}
+.ff-cta:hover .ff-arrow {
+  transform: translateX(5px);
+}
+
+/* Search input */
+.ff-input {
+  height: 44px;
+  padding: 0 16px;
+  border: 1px solid var(--ff-black);
+  background: var(--ff-white);
+  font-family: var(--ff-font);
+  font-size: 16px;
+  letter-spacing: -0.48px;
+  color: var(--ff-black);
+  outline: none;
+  width: 100%;
+}
+.ff-input:focus {
+  outline: 2px solid var(--ff-black);
+  outline-offset: -1px;
+}
+.ff-input::placeholder {
+  color: var(--ff-gray);
+}
+
+/* Button (filled) */
+.ff-btn {
+  height: 44px;
+  padding: 0 24px;
+  border: 1px solid var(--ff-black);
+  background: var(--ff-black);
+  color: var(--ff-white);
+  font-family: var(--ff-font);
+  font-size: 16px;
+  letter-spacing: -0.48px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.ff-btn:hover {
+  background: #333;
+}
+
+/* ── Skeleton Loading ────────────────────────────────── */
+.ff-skeleton {
+  background: var(--ff-light);
+  animation: ff-pulse 1.5s ease infinite;
+}
+
+/* ── Scroll Reveal ───────────────────────────────────── */
+.ff-reveal {
+  opacity: 0;
+  transform: translateY(20px);
+  transition: opacity 0.6s ease, transform 0.6s ease;
+}
+.ff-reveal.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* ── Screen Reader Only ──────────────────────────────── */
 .sr-only {
   position: absolute;
   width: 1px;
@@ -246,30 +316,50 @@ textarea:focus-visible {
   border-width: 0;
 }
 
-/* Skip navigation link */
+/* ── Skip Navigation ─────────────────────────────────── */
 .skip-nav {
   position: absolute;
   top: -40px;
   left: 0;
   padding: 8px 16px;
-  background: var(--color-primary);
-  color: #fff;
+  background: var(--ff-black);
+  color: var(--ff-white);
   z-index: 10000;
   text-decoration: none;
-  font-family: 'Lexend', sans-serif;
+  font-family: var(--ff-font);
   font-size: 14px;
   transition: top 0.2s;
-  border-radius: 0 0 8px 0;
 }
 .skip-nav:focus {
   top: 0;
 }
 
-/* Reduced motion support */
+/* ── Focus Indicators ────────────────────────────────── */
+:focus-visible {
+  outline: 2px solid var(--ff-black) !important;
+  outline-offset: 2px !important;
+}
+input:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--ff-black) !important;
+  outline-offset: -1px !important;
+}
+
+/* ── Reduced Motion ──────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+  .ff-reveal { opacity: 1; transform: none; transition: none; }
+}
+
+/* ── Mobile ──────────────────────────────────────────── */
+@media (max-width: 640px) {
+  .ff-hide-mobile { display: none !important; }
+  .ff-show-mobile { display: flex !important; }
+}
+@media (min-width: 641px) {
+  .ff-show-mobile { display: none !important; }
 }

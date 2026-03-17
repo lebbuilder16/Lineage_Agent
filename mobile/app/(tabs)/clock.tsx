@@ -7,7 +7,6 @@ import {
   ScrollView,
   StyleSheet,
   Image,
-  RefreshControl,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
@@ -21,16 +20,6 @@ import { ScreenHeader } from '../../src/components/ui/ScreenHeader';
 import { useLineage } from '../../src/lib/query';
 import { useAuthStore } from '../../src/store/auth';
 import { tokens } from '../../src/theme/tokens';
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function timeAgo(ms: number): string {
-  const diff = Date.now() - ms;
-  if (diff < 60_000) return `${Math.floor(diff / 1000)}s ago`;
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
-  return `${Math.floor(diff / 86_400_000)}d ago`;
-}
 
 // ─── Risk helpers (same cascade as token/[mint].tsx) ──────────────────────────
 
@@ -94,14 +83,7 @@ export default function DeathClockScreen() {
     if (pendingClockMint) setPendingClockMint(null);
   }, []);
 
-  const { data, isLoading, error, refetch, dataUpdatedAt } = useLineage(submitted, !!submitted);
-
-  const [refreshing, setRefreshing] = useState(false);
-  const onRefresh = async () => {
-    setRefreshing(true);
-    await refetch();
-    setRefreshing(false);
-  };
+  const { data, isLoading, error } = useLineage(submitted, !!submitted);
 
   const handleSubmit = () => {
     if (mint.trim().length >= 32) setSubmitted(mint.trim());
@@ -111,14 +93,6 @@ export default function DeathClockScreen() {
   const riskColor = RISK_COLOR[riskLevel];
   const hasResult = !!submitted && !isLoading && !error;
 
-  const errorMessage = (() => {
-    if (!error) return null;
-    const e = error as any;
-    if (e?.status === 404 || e?.status === 422) return 'Token not found — check the address.';
-    if (e?.status === 429) return 'Rate limit reached — wait a moment and try again.';
-    return 'Could not analyze token. Check the address and try again.';
-  })();
-
   return (
     <View style={styles.container}>
       <AuroraBackground />
@@ -126,11 +100,6 @@ export default function DeathClockScreen() {
         <ScrollView
           contentContainerStyle={[styles.content, { paddingBottom: Math.max(insets.bottom + 100, 120) }]}
           showsVerticalScrollIndicator={false}
-          refreshControl={
-            submitted ? (
-              <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={tokens.secondary} />
-            ) : undefined
-          }
         >
           <ScreenHeader
             icon={<Skull size={26} color={tokens.accent} strokeWidth={2.5} />}
@@ -198,11 +167,6 @@ export default function DeathClockScreen() {
             </GlassCard>
           )}
 
-          {/* Last updated */}
-          {hasResult && dataUpdatedAt > 0 && (
-            <Text style={styles.lastUpdated}>Updated {timeAgo(dataUpdatedAt)}</Text>
-          )}
-
           {/* Loading */}
           {submitted && isLoading && (
             <GlassCard>
@@ -213,7 +177,7 @@ export default function DeathClockScreen() {
           {/* Error */}
           {submitted && !isLoading && error && (
             <GlassCard>
-              <Text style={styles.errorText}>{errorMessage}</Text>
+              <Text style={styles.errorText}>Failed to fetch data. Try again.</Text>
             </GlassCard>
           )}
 
@@ -335,14 +299,6 @@ const styles = StyleSheet.create({
     fontFamily: 'Lexend-SemiBold',
     fontSize: tokens.font.body,
     color: tokens.secondary,
-  },
-
-  lastUpdated: {
-    fontFamily: 'Lexend-Regular',
-    fontSize: tokens.font.tiny,
-    color: tokens.white35,
-    textAlign: 'right',
-    marginTop: -4,
   },
 
   errorText: {
