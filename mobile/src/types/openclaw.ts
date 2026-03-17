@@ -31,15 +31,29 @@ export interface OpenClawEvent {
 
 /** Connect handshake params sent as the first frame */
 export interface ConnectParams {
-  client: string;
-  token?: string;
-  deviceToken?: string;
-  platform: 'ios' | 'android';
-  mode: 'node' | 'backend' | 'webchat';
-  version: string;
   minProtocol: number;
   maxProtocol: number;
-  capabilities?: string[];
+  client: {
+    id: string;
+    version: string;
+    platform: string;
+    mode: string;
+  };
+  role: 'operator' | 'node';
+  auth: { token: string };
+  scopes?: string[];
+  caps?: string[];
+  commands?: string[];
+  permissions?: Record<string, boolean>;
+  locale?: string;
+  userAgent?: string;
+  device?: {
+    id: string;
+    publicKey: string;
+    signature: string;
+    signedAt: string;
+    nonce: string;
+  };
 }
 
 /** Hello-ok response payload from Gateway after successful connect */

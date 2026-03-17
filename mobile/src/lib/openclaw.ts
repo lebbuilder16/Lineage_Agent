@@ -129,14 +129,17 @@ function doConnect(host: string, token: string) {
   ws.onopen = () => {
     // Send connect handshake
     const params: ConnectParams = {
-      client: `lineage-${Platform.OS}-${Date.now()}`,
-      token,
-      platform: Platform.OS as 'ios' | 'android',
-      mode: 'node',
-      version: '1.0.0',
       minProtocol: PROTOCOL_VERSION,
       maxProtocol: PROTOCOL_VERSION,
-      capabilities: ['lineage.scan', 'lineage.watchlist', 'lineage.alert', 'notifications.send'],
+      client: {
+        id: `lineage-${Platform.OS}-${Date.now()}`,
+        version: '1.0.0',
+        platform: Platform.OS,
+        mode: 'node',
+      },
+      role: 'node',
+      auth: { token },
+      caps: ['lineage.scan', 'lineage.watchlist', 'lineage.alert', 'notifications.send'],
     };
     const frame: OpenClawRequest = {
       type: 'req',
