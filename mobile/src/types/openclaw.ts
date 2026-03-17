@@ -37,6 +37,8 @@ export interface ConnectParams {
   platform: 'ios' | 'android';
   mode: 'node' | 'backend' | 'webchat';
   version: string;
+  minProtocol: number;
+  maxProtocol: number;
   capabilities?: string[];
 }
 

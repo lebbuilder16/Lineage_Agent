@@ -134,6 +134,8 @@ function doConnect(host: string, token: string) {
       platform: Platform.OS as 'ios' | 'android',
       mode: 'node',
       version: '1.0.0',
+      minProtocol: PROTOCOL_VERSION,
+      maxProtocol: PROTOCOL_VERSION,
       capabilities: ['lineage.scan', 'lineage.watchlist', 'lineage.alert', 'notifications.send'],
     };
     const frame: OpenClawRequest = {
