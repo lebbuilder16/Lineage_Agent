@@ -69,7 +69,7 @@ export interface ConnectParams {
     instanceId?: string;
   };
   role: 'operator' | 'node';
-  auth: { token: string };
+  auth: { token: string; deviceToken?: string };
   scopes?: string[];
   caps?: string[];
   commands?: string[];

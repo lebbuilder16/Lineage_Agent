@@ -31,6 +31,7 @@ export function SettingsSheet({ visible, onClose }: SettingsSheetProps) {
   const { host, connected, status } = useOpenClawStore();
   const [pendingHost, setPendingHost] = useState('');
   const [pendingToken, setPendingToken] = useState('');
+  const [pendingRoleToken, setPendingRoleToken] = useState('');
 
   // reset inputs each time the sheet opens
   useEffect(() => {
@@ -38,6 +39,7 @@ export function SettingsSheet({ visible, onClose }: SettingsSheetProps) {
       setPendingKey('');
       setPendingHost('');
       setPendingToken('');
+      setPendingRoleToken('');
     }
   }, [visible]);
 
@@ -47,6 +49,9 @@ export function SettingsSheet({ visible, onClose }: SettingsSheetProps) {
     if (h && t) {
       useOpenClawStore.getState().setHost(h);
       useOpenClawStore.getState().setDeviceToken(t);
+      if (pendingRoleToken.trim()) {
+        useOpenClawStore.getState().setRoleToken(pendingRoleToken.trim());
+      }
       connectOpenClaw(h, t);
     }
   };
@@ -227,14 +232,26 @@ export function SettingsSheet({ visible, onClose }: SettingsSheetProps) {
                 style={styles.input}
                 value={pendingToken}
                 onChangeText={setPendingToken}
-                placeholder="Token"
+                placeholder="Gateway token"
+                placeholderTextColor={tokens.white35}
+                autoCapitalize="none"
+                autoCorrect={false}
+                secureTextEntry
+                returnKeyType="next"
+                accessibilityLabel="OpenClaw gateway token"
+              />
+              <TextInput
+                style={styles.input}
+                value={pendingRoleToken}
+                onChangeText={setPendingRoleToken}
+                placeholder="Device token (from openclaw devices rotate)"
                 placeholderTextColor={tokens.white35}
                 autoCapitalize="none"
                 autoCorrect={false}
                 secureTextEntry
                 returnKeyType="done"
                 onSubmitEditing={handleConnect}
-                accessibilityLabel="OpenClaw token"
+                accessibilityLabel="OpenClaw device role token"
               />
               <HapticButton
                 variant="secondary"

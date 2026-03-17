@@ -179,7 +179,12 @@ async function doConnect(host: string, token: string) {
         maxProtocol: PROTOCOL_VERSION,
         client: { id: clientId, version: '1.0.0', platform: Platform.OS, mode: 'ui', deviceFamily: 'mobile' },
         role: 'operator',
-        auth: { token },
+        auth: {
+          token,
+          ...(useOpenClawStore.getState().roleToken
+            ? { deviceToken: useOpenClawStore.getState().roleToken! }
+            : {}),
+        },
         scopes: SCOPES,
         caps: ['lineage.scan', 'lineage.watchlist', 'lineage.alert', 'notifications.send'],
         ...(device ? { device } : {}),

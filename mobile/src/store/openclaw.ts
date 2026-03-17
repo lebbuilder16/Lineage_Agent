@@ -8,10 +8,12 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 export type OpenClawStatus = 'connected' | 'reconnecting' | 'offline' | 'unconfigured';
 
 interface OpenClawState {
-  /** Gateway host, e.g. "192.168.1.50:18789" or "my-claw.tail1234.ts.net" */
+  /** Gateway host, e.g. "192.168.1.50:18789" */
   host: string | null;
-  /** Device token issued after pairing */
+  /** Gateway auth token (entered by user in Settings) */
   deviceToken: string | null;
+  /** Device role token from `openclaw devices rotate` — grants full operator scopes */
+  roleToken: string | null;
   /** Whether the WebSocket is currently open and authenticated */
   connected: boolean;
   /** Detailed connection status for UI */
@@ -22,6 +24,7 @@ interface OpenClawState {
   // Actions
   setHost: (host: string | null) => void;
   setDeviceToken: (token: string | null) => void;
+  setRoleToken: (token: string | null) => void;
   setConnected: (connected: boolean) => void;
   setStatus: (status: OpenClawStatus) => void;
   setPaired: (paired: boolean) => void;
@@ -33,12 +36,14 @@ export const useOpenClawStore = create<OpenClawState>()(
     (set) => ({
       host: null,
       deviceToken: null,
+      roleToken: null,
       connected: false,
       status: 'unconfigured',
       paired: false,
 
       setHost: (host) => set({ host }),
       setDeviceToken: (deviceToken) => set({ deviceToken }),
+      setRoleToken: (roleToken) => set({ roleToken }),
       setConnected: (connected) => set({ connected }),
       setStatus: (status) => set({ status }),
       setPaired: (paired) => set({ paired }),
@@ -46,6 +51,7 @@ export const useOpenClawStore = create<OpenClawState>()(
         set({
           host: null,
           deviceToken: null,
+          roleToken: null,
           connected: false,
           status: 'unconfigured',
           paired: false,
@@ -57,6 +63,7 @@ export const useOpenClawStore = create<OpenClawState>()(
       partialize: (state) => ({
         host: state.host,
         deviceToken: state.deviceToken,
+        roleToken: state.roleToken,
         paired: state.paired,
       }),
     },
