@@ -177,7 +177,7 @@ async function doConnect(host: string, token: string) {
       const params: ConnectParams = {
         minProtocol: PROTOCOL_VERSION,
         maxProtocol: PROTOCOL_VERSION,
-        client: { id: clientId, version: '1.0.0', platform: Platform.OS, mode: 'ui' },
+        client: { id: clientId, version: '1.0.0', platform: Platform.OS, mode: 'ui', deviceFamily: 'mobile' },
         role: 'operator',
         auth: { token },
         scopes: SCOPES,
