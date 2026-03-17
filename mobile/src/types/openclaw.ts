@@ -29,15 +29,44 @@ export interface OpenClawEvent {
   stateVersion?: number;
 }
 
+/** Valid client IDs accepted by the OpenClaw Gateway (v2026.3.13) */
+export type GatewayClientId =
+  | 'cli'
+  | 'webchat'
+  | 'webchat-ui'
+  | 'openclaw-control-ui'
+  | 'gateway-client'
+  | 'openclaw-macos'
+  | 'openclaw-ios'
+  | 'openclaw-android'
+  | 'node-host'
+  | 'test'
+  | 'fingerprint'
+  | 'openclaw-probe';
+
+/** Valid client modes accepted by the OpenClaw Gateway */
+export type GatewayClientMode =
+  | 'node'
+  | 'cli'
+  | 'ui'
+  | 'webchat'
+  | 'test'
+  | 'backend'
+  | 'probe';
+
 /** Connect handshake params sent as the first frame */
 export interface ConnectParams {
   minProtocol: number;
   maxProtocol: number;
   client: {
-    id: string;
+    id: GatewayClientId;
     version: string;
     platform: string;
-    mode: string;
+    mode: GatewayClientMode;
+    displayName?: string;
+    deviceFamily?: string;
+    modelIdentifier?: string;
+    instanceId?: string;
   };
   role: 'operator' | 'node';
   auth: { token: string };

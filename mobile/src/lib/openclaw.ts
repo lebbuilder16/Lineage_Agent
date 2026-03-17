@@ -132,7 +132,11 @@ function doConnect(host: string, token: string) {
       minProtocol: PROTOCOL_VERSION,
       maxProtocol: PROTOCOL_VERSION,
       client: {
-        id: `lineage-${Platform.OS}-${Date.now()}`,
+        id: Platform.OS === 'ios'
+          ? 'openclaw-ios'
+          : Platform.OS === 'android'
+            ? 'openclaw-android'
+            : 'node-host',
         version: '1.0.0',
         platform: Platform.OS,
         mode: 'node',
