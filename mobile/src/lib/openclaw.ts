@@ -234,9 +234,23 @@ function handleFrame(
         store.setConnected(true);
         store.setStatus('connected');
         store.setPaired(true);
-        // Store device token if issued
+        // Store device token if issued by gateway
         if (hello?.deviceToken) {
           store.setDeviceToken(hello.deviceToken);
+        }
+        // If the hello response did NOT include a device token, the device is
+        // not yet paired. Explicitly request pairing so the admin can approve.
+        if (!hello?.deviceToken && ws && ws.readyState === WebSocket.OPEN) {
+          const pairFrame: OpenClawRequest = {
+            type: 'req',
+            id: 'pair-0',
+            method: 'node.pair.request',
+            params: {
+              scopes: ['operator.admin', 'operator.read', 'operator.write', 'operator.approvals', 'operator.pairing'],
+              label: `Lineage Agent (${typeof navigator !== 'undefined' ? navigator.userAgent : 'mobile'})`,
+            },
+          };
+          try { ws.send(JSON.stringify(pairFrame)); } catch { /* ignore */ }
         }
       } else {
         // Auth failed — don't reconnect
