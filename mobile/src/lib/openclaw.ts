@@ -155,7 +155,7 @@ async function doConnect(host: string, token: string) {
         platform: Platform.OS,
         mode: 'node',
       },
-      role: 'node',
+      role: 'operator',
       auth: { token },
       caps: ['lineage.scan', 'lineage.watchlist', 'lineage.alert', 'notifications.send'],
       device: identity,
