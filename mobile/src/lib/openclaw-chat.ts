@@ -4,7 +4,7 @@
 // When OpenClaw is active, injects full scan data (lineage, death clock,
 // bundle, insider sell) into the prompt so the AI can give precise analysis.
 // ─────────────────────────────────────────────────────────────────────────────
-import { isOpenClawAvailable, sendRequest } from './openclaw';
+import { isOpenClawAvailable, sendRequest, subscribe } from './openclaw';
 import { chatStream } from './streaming';
 import { queryClient } from './query-client';
 import { QK } from './query';
@@ -144,10 +144,10 @@ function formatNum(n: number): string {
 async function openClawChatStream(
   mint: string | undefined,
   message: string,
-  history: ChatMessage[],
+  _history: ChatMessage[],
   onChunk: (text: string) => void,
   onDone: () => void,
-  onError?: (err: Error) => void,
+  _onError?: (err: Error) => void,
 ): Promise<() => void> {
   let cancelled = false;
 
@@ -159,40 +159,132 @@ async function openClawChatStream(
     : '[General Lineage Agent chat. Use your Lineage skill to fetch data if needed.]';
 
   const enrichedMessage = `[SCAN DATA]\n${context}\n[END SCAN DATA]\n\nUser question: ${message}`;
+  const idempotencyKey = `chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
-  try {
-    const result = await sendRequest<{ text?: string; chunks?: string[] }>('chat.send', {
-      sessionKey,
-      message: enrichedMessage,
-      idempotencyKey: `chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+  // Send chat.send — returns { runId, status: "started" }
+  // Then listen for streaming events from that run
+  const startResult = await sendRequest<{ runId?: string; status?: string; text?: string }>('chat.send', {
+    sessionKey,
+    message: enrichedMessage,
+    idempotencyKey,
+  });
+
+  if (cancelled) return () => {};
+
+  const runId = startResult?.runId;
+
+  // If the response already contains text (non-streaming mode), display it directly
+  if (startResult?.text) {
+    deliverText(startResult.text, onChunk, onDone, () => cancelled);
+    return () => { cancelled = true; };
+  }
+
+  // If we got a runId, listen for stream events
+  if (runId) {
+    let gotResult = false;
+
+    // Listen for chat result/stream events
+    const unsubChunk = subscribe('chat.stream.chunk', (payload) => {
+      const p = payload as { runId?: string; text?: string; chunk?: string; delta?: string };
+      if (p.runId !== runId || cancelled) return;
+      const text = p.chunk ?? p.delta ?? p.text ?? '';
+      if (text) onChunk(text);
     });
 
-    if (cancelled) return () => {};
-
-    const fullText = typeof result === 'string'
-      ? result
-      : (result as { text?: string })?.text ?? JSON.stringify(result);
-
-    // Simulate streaming by chunking the response
-    const words = fullText.split(' ');
-    let i = 0;
-    const chunkInterval = setInterval(() => {
-      if (cancelled || i >= words.length) {
-        clearInterval(chunkInterval);
-        if (!cancelled) onDone();
-        return;
+    const unsubDone = subscribe('chat.stream.done', (payload) => {
+      const p = payload as { runId?: string; text?: string; result?: string };
+      if (p.runId !== runId || cancelled) return;
+      gotResult = true;
+      const finalText = p.text ?? p.result;
+      if (finalText && !gotChunks) {
+        // Got full text in done event — deliver it
+        deliverText(finalText, onChunk, onDone, () => cancelled);
+      } else {
+        onDone();
       }
-      const chunk = (i > 0 ? ' ' : '') + words[i];
-      onChunk(chunk);
-      i++;
-    }, 20); // ~50 words/sec for natural feel
+      cleanup();
+    });
+
+    // Also listen for generic run completion events
+    const unsubResult = subscribe('chat.result', (payload) => {
+      const p = payload as { runId?: string; text?: string; result?: string };
+      if (p.runId !== runId || cancelled || gotResult) return;
+      gotResult = true;
+      const finalText = p.text ?? p.result ?? '';
+      if (finalText) {
+        deliverText(finalText, onChunk, onDone, () => cancelled);
+      } else {
+        onDone();
+      }
+      cleanup();
+    });
+
+    // Also listen for command.result which is what OpenClaw actually uses
+    const unsubCmd = subscribe('command.result', (payload) => {
+      const p = payload as { runId?: string; text?: string; result?: string; output?: string };
+      if (p.runId !== runId || cancelled || gotResult) return;
+      gotResult = true;
+      const finalText = p.text ?? p.result ?? p.output ?? '';
+      if (finalText) {
+        deliverText(finalText, onChunk, onDone, () => cancelled);
+      } else {
+        onDone();
+      }
+      cleanup();
+    });
+
+    let gotChunks = false;
+    const origOnChunk = onChunk;
+    onChunk = (text: string) => {
+      gotChunks = true;
+      origOnChunk(text);
+    };
+
+    // Timeout: if no result after 60s, call onDone
+    const timeout = setTimeout(() => {
+      if (!gotResult && !cancelled) {
+        onDone();
+        cleanup();
+      }
+    }, 60_000);
+
+    const cleanup = () => {
+      unsubChunk();
+      unsubDone();
+      unsubResult();
+      unsubCmd();
+      clearTimeout(timeout);
+    };
 
     return () => {
       cancelled = true;
-      clearInterval(chunkInterval);
+      cleanup();
     };
-  } catch (err) {
-    cancelled = true;
-    throw err;
   }
+
+  // Fallback: no runId, no text — shouldn't happen but handle gracefully
+  onChunk('OpenClaw is processing your request...');
+  onDone();
+  return () => { cancelled = true; };
+}
+
+/** Deliver text word-by-word for smooth UX */
+function deliverText(
+  text: string,
+  onChunk: (text: string) => void,
+  onDone: () => void,
+  isCancelled: () => boolean,
+) {
+  const words = text.split(' ');
+  let i = 0;
+  const interval = setInterval(() => {
+    if (isCancelled() || i >= words.length) {
+      clearInterval(interval);
+      if (!isCancelled()) onDone();
+      return;
+    }
+    const chunk = (i > 0 ? ' ' : '') + words[i];
+    onChunk(chunk);
+    i++;
+  }, 20);
 }
