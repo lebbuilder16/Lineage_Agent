@@ -42,13 +42,8 @@ export async function setupWatchlistMonitor(): Promise<void> {
 
     await sendRequest('cron.add', {
       name: CRON_NAME,
-      schedule: { cron: '0 */2 * * *' }, // every 2 hours
-      session: 'isolated',
-      payload: {
-        type: 'agentTurn',
-        message: 'Run watchlist monitoring check. Use the Lineage skill to rescan all watched tokens and alert on risk escalations.',
-        timeout: 120_000,
-      },
+      schedule: { kind: 'cron', at: '0 */2 * * *' },
+      text: 'Run watchlist monitoring check. Use the Lineage skill to rescan all watched tokens and alert on risk escalations.',
       delivery: { mode: 'announce' },
       enabled: true,
     });

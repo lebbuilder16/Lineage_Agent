@@ -14,29 +14,20 @@ export async function startCartelMonitor(cartelId: string, label?: string): Prom
   if (!isOpenClawAvailable()) return;
 
   try {
-    const config: CronJobConfig = {
+    await sendRequest('cron.add', {
       name: `${CRON_TAG_CARTEL}:${cartelId}`,
-      schedule: { cron: '0 */2 * * *' }, // every 2h
-      session: 'isolated',
-      payload: {
-        type: 'agentTurn',
-        message: [
-          `Monitor cartel network ${cartelId}${label ? ` (${label})` : ''}.`,
-          'Use the Lineage cartel API to:',
-          '1. Check for new deployer wallets joining the network',
-          '2. Detect new tokens launched by cartel members',
-          '3. Identify wallet movements and SOL extractions',
-          '4. Alert if new rug activity or new risky tokens detected.',
-        ].join('\n'),
-        timeout: 60_000,
-      },
-      delivery: {
-        mode: 'announce',
-      },
+      schedule: { kind: 'cron', at: '0 */2 * * *' },
+      text: [
+        `Monitor cartel network ${cartelId}${label ? ` (${label})` : ''}.`,
+        'Use the Lineage cartel API to:',
+        '1. Check for new deployer wallets joining the network',
+        '2. Detect new tokens launched by cartel members',
+        '3. Identify wallet movements and SOL extractions',
+        '4. Alert if new rug activity or new risky tokens detected.',
+      ].join('\n'),
+      delivery: { mode: 'announce' },
       enabled: true,
-    };
-
-    await sendRequest('cron.add', config as unknown as Record<string, unknown>);
+    });
   } catch {
     // Best-effort
   }
