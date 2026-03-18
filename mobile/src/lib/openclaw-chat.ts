@@ -128,16 +128,71 @@ function buildTokenContext(mint: string, lineage: LineageResult | null): string 
     const ins = insider as Record<string, unknown>;
     if (ins.verdict) parts.push(`  Verdict: ${ins.verdict}`);
     if (ins.deployer_sold_pct != null) parts.push(`  Deployer sold: ${ins.deployer_sold_pct}%`);
+    if (ins.deployer_exited != null) parts.push(`  Deployer exited: ${ins.deployer_exited}`);
     if (ins.flags && Array.isArray(ins.flags)) parts.push(`  Flags: ${ins.flags.join(', ')}`);
+    if (ins.sell_pressure_1h != null) parts.push(`  Sell pressure 1h: ${((ins.sell_pressure_1h as number) * 100).toFixed(1)}%`);
+    if (ins.sell_pressure_6h != null) parts.push(`  Sell pressure 6h: ${((ins.sell_pressure_6h as number) * 100).toFixed(1)}%`);
+    if (ins.sell_pressure_24h != null) parts.push(`  Sell pressure 24h: ${((ins.sell_pressure_24h as number) * 100).toFixed(1)}%`);
+    if (ins.price_change_1h != null) parts.push(`  Price change 1h: ${ins.price_change_1h}%`);
+    if (ins.price_change_24h != null) parts.push(`  Price change 24h: ${ins.price_change_24h}%`);
+  }
+
+  if (!insider) {
+    parts.push(`\nINSIDER SELL: no data available`);
+  }
+  if (!bundle) {
+    parts.push(`\nBUNDLE REPORT: no bundle detected`);
   }
 
   if (operator) {
     parts.push(`\nOPERATOR:`);
     const op = operator as Record<string, unknown>;
-    if (op.operator_id) parts.push(`  ID: ${op.operator_id}`);
-    if (op.total_tokens != null) parts.push(`  Tokens: ${op.total_tokens}`);
-    if (op.rug_rate != null) parts.push(`  Rug rate: ${(op.rug_rate as number * 100).toFixed(0)}%`);
+    if (op.fingerprint) parts.push(`  Fingerprint: ${op.fingerprint}`);
+    if (op.linked_wallets && Array.isArray(op.linked_wallets)) parts.push(`  Linked wallets: ${(op.linked_wallets as string[]).length}`);
+    if (op.upload_service) parts.push(`  Upload service: ${op.upload_service}`);
+    if (op.description_pattern) parts.push(`  Pattern: ${op.description_pattern}`);
+    if (op.confidence) parts.push(`  Confidence: ${op.confidence}`);
   }
+
+  // Liquidity architecture
+  const liqArch = (lineage as Record<string, unknown>).liquidity_arch as Record<string, unknown> | undefined;
+  if (liqArch) {
+    parts.push(`\nLIQUIDITY ARCHITECTURE:`);
+    if (liqArch.concentration_hhi != null) parts.push(`  HHI: ${liqArch.concentration_hhi}`);
+    if (liqArch.pool_count != null) parts.push(`  Pools: ${liqArch.pool_count}`);
+    if (liqArch.pools && typeof liqArch.pools === 'object') {
+      const pools = liqArch.pools as Record<string, number>;
+      parts.push(`  Distribution: ${Object.entries(pools).map(([k, v]) => `${k}: $${formatNum(v)}`).join(', ')}`);
+    }
+    if (liqArch.authenticity_score != null) parts.push(`  Authenticity: ${liqArch.authenticity_score}`);
+  }
+
+  // SOL flow summary
+  const solFlow = (lineage as Record<string, unknown>).sol_flow as Record<string, unknown> | undefined;
+  if (solFlow) {
+    parts.push(`\nSOL FLOW:`);
+    if (solFlow.total_extracted_sol != null) parts.push(`  Total extracted: ${solFlow.total_extracted_sol} SOL`);
+    if (solFlow.hop_count != null) parts.push(`  Hops: ${solFlow.hop_count}`);
+    if (solFlow.known_cex_detected != null) parts.push(`  CEX detected: ${solFlow.known_cex_detected}`);
+    if (solFlow.rug_timestamp) parts.push(`  Extraction started: ${solFlow.rug_timestamp}`);
+    if (solFlow.terminal_wallets && Array.isArray(solFlow.terminal_wallets)) {
+      parts.push(`  Terminal/sink wallets: ${(solFlow.terminal_wallets as string[]).join(', ')}`);
+    }
+    const flows = solFlow.flows as Array<Record<string, unknown>> | undefined;
+    if (flows) {
+      const uniqueIntermediaries = new Set<string>();
+      for (const f of flows) {
+        if (f.from_address) uniqueIntermediaries.add(f.from_address as string);
+        if (f.to_address) uniqueIntermediaries.add(f.to_address as string);
+      }
+      parts.push(`  Unique wallets in flow: ${uniqueIntermediaries.size}`);
+      parts.push(`  Total flow edges: ${flows.length}`);
+    }
+  }
+
+  // Family size
+  const familySize = (lineage as Record<string, unknown>).family_size;
+  if (familySize != null) parts.push(`\nFamily size: ${familySize} tokens total`);
 
   if (lineage.zombie_alert) {
     parts.push(`\n⚠ ZOMBIE ALERT: Token relaunch detected`);
