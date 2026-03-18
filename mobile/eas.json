@@ -15,6 +15,10 @@
     "preview": {
       "distribution": "internal",
       "channel": "preview",
+      "android": {
+        "buildType": "apk",
+        "gradleCommand": ":app:assembleRelease"
+      },
       "ios": { "simulator": true },
       "env": {
         "EXPO_PUBLIC_API_URL": "https://lineage-agent.fly.dev"
