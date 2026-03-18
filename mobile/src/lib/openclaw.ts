@@ -170,8 +170,10 @@ async function doConnect(host: string, token: string) {
           scopes: SCOPES,
           token,
         });
-      } catch {
-        // Proceed without device identity — gateway will assign minimal scopes
+      } catch (err) {
+        console.error('[openclaw] signDeviceIdentity failed:', err);
+        useOpenClawStore.getState().setStatus('offline');
+        return; // Cannot connect without device identity
       }
 
       const params: ConnectParams = {
