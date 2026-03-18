@@ -161,110 +161,69 @@ async function openClawChatStream(
   const enrichedMessage = `[SCAN DATA]\n${context}\n[END SCAN DATA]\n\nUser question: ${message}`;
   const idempotencyKey = `chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
-  // Send chat.send with a long timeout — AI responses can take 60s+
-  const startResult = await sendRequest<{ runId?: string; status?: string; text?: string }>('chat.send', {
-    sessionKey,
-    message: enrichedMessage,
-    idempotencyKey,
-  }, 120_000);
+  // Collect all events received during the chat for debugging
+  const receivedEvents: string[] = [];
+  const unsubWildcard = subscribe('*', (payload) => {
+    const p = payload as { event?: string };
+    if (p.event) receivedEvents.push(p.event);
+  });
 
-  if (cancelled) return () => {};
-
-  const runId = startResult?.runId;
-
-  // If the response already contains text (non-streaming mode), display it directly
-  if (startResult?.text) {
-    deliverText(startResult.text, onChunk, onDone, () => cancelled);
-    return () => { cancelled = true; };
+  // Send chat.send with a long timeout — AI responses can take 120s+
+  let result: Record<string, unknown>;
+  try {
+    result = await sendRequest<Record<string, unknown>>('chat.send', {
+      sessionKey,
+      message: enrichedMessage,
+      idempotencyKey,
+    }, 120_000);
+  } catch (err) {
+    unsubWildcard();
+    // On timeout or error, show what events we received
+    if (receivedEvents.length > 0) {
+      onChunk(`[Debug] Events received: ${[...new Set(receivedEvents)].join(', ')}`);
+    }
+    throw err;
   }
 
-  // If we got a runId, listen for stream events
-  if (runId) {
-    let gotResult = false;
+  unsubWildcard();
 
-    // Listen for chat result/stream events
-    const unsubChunk = subscribe('chat.stream.chunk', (payload) => {
-      const p = payload as { runId?: string; text?: string; chunk?: string; delta?: string };
-      if (p.runId !== runId || cancelled) return;
-      const text = p.chunk ?? p.delta ?? p.text ?? '';
-      if (text) onChunk(text);
-    });
+  if (cancelled) return () => { cancelled = true; };
 
-    const unsubDone = subscribe('chat.stream.done', (payload) => {
-      const p = payload as { runId?: string; text?: string; result?: string };
-      if (p.runId !== runId || cancelled) return;
-      gotResult = true;
-      const finalText = p.text ?? p.result;
-      if (finalText && !gotChunks) {
-        // Got full text in done event — deliver it
-        deliverText(finalText, onChunk, onDone, () => cancelled);
-      } else {
-        onDone();
-      }
-      cleanup();
-    });
+  // Extract text from response — try every possible field name
+  const text = extractText(result);
 
-    // Also listen for generic run completion events
-    const unsubResult = subscribe('chat.result', (payload) => {
-      const p = payload as { runId?: string; text?: string; result?: string };
-      if (p.runId !== runId || cancelled || gotResult) return;
-      gotResult = true;
-      const finalText = p.text ?? p.result ?? '';
-      if (finalText) {
-        deliverText(finalText, onChunk, onDone, () => cancelled);
-      } else {
-        onDone();
-      }
-      cleanup();
-    });
-
-    // Also listen for command.result which is what OpenClaw actually uses
-    const unsubCmd = subscribe('command.result', (payload) => {
-      const p = payload as { runId?: string; text?: string; result?: string; output?: string };
-      if (p.runId !== runId || cancelled || gotResult) return;
-      gotResult = true;
-      const finalText = p.text ?? p.result ?? p.output ?? '';
-      if (finalText) {
-        deliverText(finalText, onChunk, onDone, () => cancelled);
-      } else {
-        onDone();
-      }
-      cleanup();
-    });
-
-    let gotChunks = false;
-    const origOnChunk = onChunk;
-    onChunk = (text: string) => {
-      gotChunks = true;
-      origOnChunk(text);
-    };
-
-    // Timeout: if no result after 60s, call onDone
-    const timeout = setTimeout(() => {
-      if (!gotResult && !cancelled) {
-        onDone();
-        cleanup();
-      }
-    }, 60_000);
-
-    const cleanup = () => {
-      unsubChunk();
-      unsubDone();
-      unsubResult();
-      unsubCmd();
-      clearTimeout(timeout);
-    };
-
-    return () => {
-      cancelled = true;
-      cleanup();
-    };
+  if (text) {
+    deliverText(text, onChunk, onDone, () => cancelled);
+  } else {
+    // Show raw response + events for debugging
+    const debug = [
+      `[Debug] Response: ${JSON.stringify(result).slice(0, 500)}`,
+      receivedEvents.length > 0
+        ? `Events: ${[...new Set(receivedEvents)].join(', ')}`
+        : 'No events received',
+    ].join('\n');
+    onChunk(debug);
+    onDone();
   }
 
-  // Fallback: no runId, no text — shouldn't happen but handle gracefully
-  onChunk('OpenClaw is processing your request...');
-  onDone();
   return () => { cancelled = true; };
+}
+
+/** Try every possible field name to find the AI response text */
+function extractText(obj: Record<string, unknown>): string | null {
+  for (const key of ['text', 'result', 'output', 'content', 'message', 'response', 'answer', 'body']) {
+    if (typeof obj[key] === 'string' && obj[key]) return obj[key] as string;
+  }
+  // Check nested: obj.result.text, obj.data.text, etc.
+  for (const key of ['result', 'data', 'payload', 'response']) {
+    if (obj[key] && typeof obj[key] === 'object') {
+      const nested = obj[key] as Record<string, unknown>;
+      for (const k of ['text', 'content', 'message', 'output']) {
+        if (typeof nested[k] === 'string' && nested[k]) return nested[k] as string;
+      }
+    }
+  }
+  return null;
 }
 
 /** Deliver text word-by-word for smooth UX */
