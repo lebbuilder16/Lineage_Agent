@@ -149,7 +149,7 @@ async function doConnect(host: string, token: string) {
     // Nothing — wait for connect.challenge from server
   };
 
-  ws.onmessage = async (event) => {
+  ws.onmessage = (event) => {
     let frame: OpenClawResponse | OpenClawEvent;
     try {
       frame = JSON.parse(event.data as string) as OpenClawResponse | OpenClawEvent;
@@ -160,44 +160,48 @@ async function doConnect(host: string, token: string) {
     // Handle server challenge: sign nonce and send connect handshake
     if (frame.type === 'event' && (frame as OpenClawEvent).event === 'connect.challenge') {
       const challengePayload = (frame as OpenClawEvent).payload as { nonce: string; ts: number };
-      let device: ConnectParams['device'];
-      try {
-        device = await signDeviceIdentity({
-          nonce: challengePayload.nonce,
-          clientId,
-          clientMode: 'node',
-          role: 'node',
-          scopes: SCOPES,
-          token,
-        });
-      } catch (err) {
-        console.error('[openclaw] signDeviceIdentity failed:', err);
-        useOpenClawStore.getState().setStatus('offline');
-        return; // Cannot connect without device identity
-      }
+      console.log('[openclaw] received connect.challenge, signing device identity...');
 
-      const params: ConnectParams = {
-        minProtocol: PROTOCOL_VERSION,
-        maxProtocol: PROTOCOL_VERSION,
-        client: { id: clientId, version: '1.0.0', platform: Platform.OS, mode: 'node', deviceFamily: 'mobile' },
+      // Handle async signing in a .then/.catch chain (not async handler)
+      signDeviceIdentity({
+        nonce: challengePayload.nonce,
+        clientId,
+        clientMode: 'node',
         role: 'node',
-        auth: {
-          token,
-          ...(useOpenClawStore.getState().roleToken
-            ? { deviceToken: useOpenClawStore.getState().roleToken! }
-            : {}),
-        },
         scopes: SCOPES,
-        caps: ['lineage.scan', 'lineage.watchlist', 'lineage.alert', 'notifications.send'],
-        ...(device ? { device } : {}),
-      };
-      const connectFrame: OpenClawRequest = {
-        type: 'req',
-        id: 'connect-0',
-        method: 'connect',
-        params: params as unknown as Record<string, unknown>,
-      };
-      ws!.send(JSON.stringify(connectFrame));
+        token,
+      })
+        .then((device) => {
+          console.log('[openclaw] device identity signed, sending connect frame...');
+          const params: ConnectParams = {
+            minProtocol: PROTOCOL_VERSION,
+            maxProtocol: PROTOCOL_VERSION,
+            client: { id: clientId, version: '1.0.0', platform: Platform.OS, mode: 'node', deviceFamily: 'mobile' },
+            role: 'node',
+            auth: {
+              token,
+              ...(useOpenClawStore.getState().roleToken
+                ? { deviceToken: useOpenClawStore.getState().roleToken! }
+                : {}),
+            },
+            scopes: SCOPES,
+            caps: ['lineage.scan', 'lineage.watchlist', 'lineage.alert', 'notifications.send'],
+            device,
+          };
+          const connectFrame: OpenClawRequest = {
+            type: 'req',
+            id: 'connect-0',
+            method: 'connect',
+            params: params as unknown as Record<string, unknown>,
+          };
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify(connectFrame));
+          }
+        })
+        .catch((err) => {
+          console.error('[openclaw] signDeviceIdentity failed:', err);
+          useOpenClawStore.getState().setStatus('offline');
+        });
       return;
     }
 
