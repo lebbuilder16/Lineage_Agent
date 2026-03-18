@@ -1,8 +1,12 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // OpenClaw Chat — Dual-mode adapter
 // Routes chat through OpenClaw when available, falls back to Lineage API.
-// When OpenClaw is active, injects full scan data (lineage, death clock,
-// bundle, insider sell) into the prompt so the AI can give precise analysis.
+//
+// Protocol: chat.send is non-blocking. It acks with {runId, status:"started"}.
+// The AI response streams via "chat" events:
+//   state:"delta"  → cumulative text so far (every ~150ms)
+//   state:"final"  → complete response
+//   state:"error"  → agent error
 // ─────────────────────────────────────────────────────────────────────────────
 import { isOpenClawAvailable, sendRequest, subscribe } from './openclaw';
 import { chatStream } from './streaming';
@@ -27,19 +31,13 @@ export async function smartChatStream(
   onDone: () => void,
   onError?: (err: Error) => void,
 ): Promise<() => void> {
-  // Try OpenClaw first
   if (isOpenClawAvailable()) {
     try {
-      console.log('[openclaw-chat] sending via OpenClaw...');
-      return await openClawChatStream(mint, message, history, onChunk, onDone, onError);
+      return await openClawChatStream(mint, message, onChunk, onDone, onError);
     } catch (err) {
       console.warn('[openclaw-chat] OpenClaw failed, falling back to direct API:', err);
     }
-  } else {
-    console.log('[openclaw-chat] OpenClaw not available, using direct API');
   }
-
-  // Fallback: direct Lineage API chat
   return chatStream(mint, message, history, onChunk, onDone, onError);
 }
 
@@ -63,7 +61,6 @@ function buildTokenContext(mint: string): string {
 
   const parts: string[] = [];
 
-  // Token identity
   parts.push(`TOKEN: ${root.name} (${root.symbol}) — mint: ${mint}`);
   parts.push(`Deployer: ${root.deployer}`);
   if (root.created_at) parts.push(`Created: ${root.created_at}`);
@@ -72,42 +69,35 @@ function buildTokenContext(mint: string): string {
   if (root.lifecycle_stage) parts.push(`Lifecycle: ${root.lifecycle_stage}`);
   if (root.market_surface) parts.push(`Market surface: ${root.market_surface}`);
 
-  // Lineage tree
   const derivCount = lineage.derivatives?.length ?? 0;
   if (derivCount > 0) {
-    parts.push(`\nLINEAGE: ${derivCount} derivative(s) detected (confidence: ${(lineage.confidence * 100).toFixed(0)}%)`);
+    parts.push(`\nLINEAGE: ${derivCount} derivative(s) (confidence: ${(lineage.confidence * 100).toFixed(0)}%)`);
   }
 
-  // Death Clock
   if (dc) {
     parts.push(`\nDEATH CLOCK:`);
     parts.push(`  Risk level: ${dc.risk_level}`);
-    parts.push(`  Historical rugs by deployer: ${dc.historical_rug_count}`);
+    parts.push(`  Historical rugs: ${dc.historical_rug_count}`);
     if (dc.rug_probability_pct != null) parts.push(`  Rug probability: ${dc.rug_probability_pct}%`);
     if (dc.median_rug_hours > 0) parts.push(`  Median rug timing: ${dc.median_rug_hours.toFixed(1)}h`);
     parts.push(`  Elapsed: ${dc.elapsed_hours.toFixed(1)}h since launch`);
     if (dc.predicted_window_start) parts.push(`  Rug window: ${dc.predicted_window_start} → ${dc.predicted_window_end}`);
     parts.push(`  Confidence: ${dc.confidence_level} (${dc.confidence_note})`);
-    parts.push(`  Prediction basis: ${dc.prediction_basis} (${dc.sample_count} samples)`);
+    parts.push(`  Basis: ${dc.prediction_basis} (${dc.sample_count} samples)`);
     if (dc.basis_breakdown && Object.keys(dc.basis_breakdown).length > 0) {
-      parts.push(`  Rug mechanisms: ${Object.entries(dc.basis_breakdown).map(([k, v]) => `${k}: ${v}`).join(', ')}`);
+      parts.push(`  Mechanisms: ${Object.entries(dc.basis_breakdown).map(([k, v]) => `${k}: ${v}`).join(', ')}`);
     }
-    if (dc.is_factory) parts.push(`  ⚠ Factory-pattern deployer detected`);
+    if (dc.is_factory) parts.push(`  ⚠ Factory-pattern deployer`);
   }
 
-  // Bundle report
   if (bundle) {
     parts.push(`\nBUNDLE REPORT:`);
     const b = bundle as Record<string, unknown>;
-    if (b.bundle_count != null) parts.push(`  Bundles detected: ${b.bundle_count}`);
-    if (b.total_extracted_sol != null) parts.push(`  Total extracted: ${b.total_extracted_sol} SOL`);
+    if (b.bundle_count != null) parts.push(`  Bundles: ${b.bundle_count}`);
+    if (b.total_extracted_sol != null) parts.push(`  Extracted: ${b.total_extracted_sol} SOL`);
     if (b.verdict) parts.push(`  Verdict: ${b.verdict}`);
-    if (b.team_wallets && Array.isArray(b.team_wallets)) {
-      parts.push(`  Team wallets: ${b.team_wallets.length}`);
-    }
   }
 
-  // Insider sell
   if (insider) {
     parts.push(`\nINSIDER SELL:`);
     const ins = insider as Record<string, unknown>;
@@ -116,16 +106,14 @@ function buildTokenContext(mint: string): string {
     if (ins.flags && Array.isArray(ins.flags)) parts.push(`  Flags: ${ins.flags.join(', ')}`);
   }
 
-  // Operator fingerprint
   if (operator) {
-    parts.push(`\nOPERATOR FINGERPRINT:`);
+    parts.push(`\nOPERATOR:`);
     const op = operator as Record<string, unknown>;
-    if (op.operator_id) parts.push(`  Operator: ${op.operator_id}`);
-    if (op.total_tokens != null) parts.push(`  Total tokens by operator: ${op.total_tokens}`);
+    if (op.operator_id) parts.push(`  ID: ${op.operator_id}`);
+    if (op.total_tokens != null) parts.push(`  Tokens: ${op.total_tokens}`);
     if (op.rug_rate != null) parts.push(`  Rug rate: ${(op.rug_rate as number * 100).toFixed(0)}%`);
   }
 
-  // Zombie alerts
   if (lineage.zombie_alert) {
     parts.push(`\n⚠ ZOMBIE ALERT: Token relaunch detected`);
   }
@@ -141,108 +129,100 @@ function formatNum(n: number): string {
 
 // ─── OpenClaw chat via Gateway WebSocket ─────────────────────────────────────
 
+interface ChatEventPayload {
+  runId: string;
+  sessionKey: string;
+  seq: number;
+  state: 'delta' | 'final' | 'error' | 'aborted';
+  message?: {
+    role: string;
+    content: Array<{ type: string; text: string }>;
+    timestamp?: number;
+    stopReason?: string;
+  };
+  errorMessage?: string;
+}
+
 async function openClawChatStream(
   mint: string | undefined,
   message: string,
-  _history: ChatMessage[],
   onChunk: (text: string) => void,
   onDone: () => void,
-  _onError?: (err: Error) => void,
+  onError?: (err: Error) => void,
 ): Promise<() => void> {
   let cancelled = false;
+  let lastTextLen = 0;
 
   const sessionKey = mint ? `lineage:token:${mint}` : 'lineage:chat:global';
+  const idempotencyKey = `chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
-  // Build rich context from cached scan data
   const context = mint
     ? buildTokenContext(mint)
     : '[General Lineage Agent chat. Use your Lineage skill to fetch data if needed.]';
 
   const enrichedMessage = `[SCAN DATA]\n${context}\n[END SCAN DATA]\n\nUser question: ${message}`;
-  const idempotencyKey = `chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
-  // Collect all events received during the chat for debugging
-  const receivedEvents: string[] = [];
-  const unsubWildcard = subscribe('*', (payload) => {
-    const p = payload as { event?: string };
-    if (p.event) receivedEvents.push(p.event);
+  // 1. Subscribe to "chat" events BEFORE sending the request
+  const unsub = subscribe('chat', (payload) => {
+    const evt = payload as ChatEventPayload;
+    if (evt.runId !== idempotencyKey || cancelled) return;
+
+    const text = evt.message?.content?.[0]?.text ?? '';
+
+    if (evt.state === 'delta') {
+      // Text is cumulative — deliver only the NEW portion
+      if (text.length > lastTextLen) {
+        onChunk(text.slice(lastTextLen));
+        lastTextLen = text.length;
+      }
+    }
+
+    if (evt.state === 'final') {
+      // Deliver any remaining text
+      if (text.length > lastTextLen) {
+        onChunk(text.slice(lastTextLen));
+      }
+      onDone();
+      unsub();
+      clearTimeout(timeout);
+    }
+
+    if (evt.state === 'error' || evt.state === 'aborted') {
+      const errMsg = evt.errorMessage ?? 'AI agent error';
+      if (onError) onError(new Error(errMsg));
+      else onDone();
+      unsub();
+      clearTimeout(timeout);
+    }
   });
 
-  // Send chat.send with a long timeout — AI responses can take 120s+
-  let result: Record<string, unknown>;
+  // 2. Timeout safety: if no final event after 120s
+  const timeout = setTimeout(() => {
+    if (!cancelled) {
+      unsub();
+      if (lastTextLen === 0) {
+        onChunk('Request timed out. Please try again.');
+      }
+      onDone();
+    }
+  }, 120_000);
+
+  // 3. Send chat.send — ack is just { runId, status: "started" }
   try {
-    result = await sendRequest<Record<string, unknown>>('chat.send', {
+    await sendRequest('chat.send', {
       sessionKey,
       message: enrichedMessage,
       idempotencyKey,
-    }, 120_000);
+    });
   } catch (err) {
-    unsubWildcard();
-    // On timeout or error, show what events we received
-    if (receivedEvents.length > 0) {
-      onChunk(`[Debug] Events received: ${[...new Set(receivedEvents)].join(', ')}`);
-    }
+    unsub();
+    clearTimeout(timeout);
     throw err;
   }
 
-  unsubWildcard();
-
-  if (cancelled) return () => { cancelled = true; };
-
-  // Extract text from response — try every possible field name
-  const text = extractText(result);
-
-  if (text) {
-    deliverText(text, onChunk, onDone, () => cancelled);
-  } else {
-    // Show raw response + events for debugging
-    const debug = [
-      `[Debug] Response: ${JSON.stringify(result).slice(0, 500)}`,
-      receivedEvents.length > 0
-        ? `Events: ${[...new Set(receivedEvents)].join(', ')}`
-        : 'No events received',
-    ].join('\n');
-    onChunk(debug);
-    onDone();
-  }
-
-  return () => { cancelled = true; };
-}
-
-/** Try every possible field name to find the AI response text */
-function extractText(obj: Record<string, unknown>): string | null {
-  for (const key of ['text', 'result', 'output', 'content', 'message', 'response', 'answer', 'body']) {
-    if (typeof obj[key] === 'string' && obj[key]) return obj[key] as string;
-  }
-  // Check nested: obj.result.text, obj.data.text, etc.
-  for (const key of ['result', 'data', 'payload', 'response']) {
-    if (obj[key] && typeof obj[key] === 'object') {
-      const nested = obj[key] as Record<string, unknown>;
-      for (const k of ['text', 'content', 'message', 'output']) {
-        if (typeof nested[k] === 'string' && nested[k]) return nested[k] as string;
-      }
-    }
-  }
-  return null;
-}
-
-/** Deliver text word-by-word for smooth UX */
-function deliverText(
-  text: string,
-  onChunk: (text: string) => void,
-  onDone: () => void,
-  isCancelled: () => boolean,
-) {
-  const words = text.split(' ');
-  let i = 0;
-  const interval = setInterval(() => {
-    if (isCancelled() || i >= words.length) {
-      clearInterval(interval);
-      if (!isCancelled()) onDone();
-      return;
-    }
-    const chunk = (i > 0 ? ' ' : '') + words[i];
-    onChunk(chunk);
-    i++;
-  }, 20);
+  return () => {
+    cancelled = true;
+    unsub();
+    clearTimeout(timeout);
+  };
 }

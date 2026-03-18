@@ -251,11 +251,6 @@ function handleFrame(
   _host: string,
   _token: string,
 ) {
-  // Debug: log all frames except connect handshake
-  if (frame.type === 'event' || (frame.type === 'res' && (frame as OpenClawResponse).id !== 'connect-0')) {
-    console.log('[openclaw] frame:', JSON.stringify(frame).slice(0, 300));
-  }
-
   if (frame.type === 'res') {
     const res = frame as OpenClawResponse;
 
