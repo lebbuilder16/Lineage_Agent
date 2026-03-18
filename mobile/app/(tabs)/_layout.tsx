@@ -54,6 +54,7 @@ export default function TabLayout() {
           <Tabs.Screen name="clock" />
           <Tabs.Screen name="alerts" />
           <Tabs.Screen name="watchlist" />
+          <Tabs.Screen name="account" options={{ href: null }} />
         </Tabs>
       </View>
       <GlassTabBar

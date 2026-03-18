@@ -23,6 +23,7 @@ import {
   BookMarked,
   ChevronRight,
   ScanLine,
+  User,
 } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, {
@@ -458,6 +459,11 @@ export default function RadarScreen() {
           dotConnected={wsConnected}
           paddingBottom={8}
           style={{ paddingHorizontal: tokens.spacing.screenPadding }}
+          rightAction={
+            <Pressable onPress={() => router.push('/(tabs)/account' as any)} hitSlop={8}>
+              <User size={22} color={tokens.white60} strokeWidth={2} />
+            </Pressable>
+          }
         />
         {wsStatus !== 'connected' && (
           <View style={styles.wsBanner}>
