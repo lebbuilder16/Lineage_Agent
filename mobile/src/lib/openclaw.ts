@@ -18,6 +18,7 @@ import type {
 
 const BACKOFF_BASE = 2_000;
 const BACKOFF_MAX = 30_000;
+const MAX_RETRIES = 5;
 const REQUEST_TIMEOUT = 15_000;
 const PROTOCOL_VERSION = 3;
 
@@ -235,13 +236,15 @@ async function doConnect(host: string, token: string) {
       return;
     }
 
-    if (!closed) {
+    if (!closed && retryCount < MAX_RETRIES) {
       const delay = Math.min(BACKOFF_BASE * Math.pow(2, retryCount), BACKOFF_MAX);
       retryCount++;
       store.setStatus('reconnecting');
       reconnectTimer = setTimeout(() => { doConnect(host, token).catch(() => {}); }, delay);
     } else {
+      closed = true;
       store.setStatus('offline');
+      console.log(`[openclaw] giving up after ${retryCount} retries — going offline`);
     }
   };
 }

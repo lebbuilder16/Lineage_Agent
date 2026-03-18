@@ -124,19 +124,20 @@ export function SettingsSheet({ visible, onClose }: SettingsSheetProps) {
 
   const handleConnect = () => {
     const h = pendingHost.trim();
-    const t = pendingToken.trim();
-    if (h && t) {
-      useOpenClawStore.getState().setHost(h);
-      useOpenClawStore.getState().setDeviceToken(t);
-      if (pendingRoleToken.trim()) {
-        useOpenClawStore.getState().setRoleToken(pendingRoleToken.trim());
-      }
-      connectOpenClaw(h, t);
-    }
+    const gwToken = pendingToken.trim();
+    const roleToken = pendingRoleToken.trim();
+    const token = gwToken || roleToken; // use whichever is provided
+    if (!h) return;
+    const store = useOpenClawStore.getState();
+    store.setHost(h);
+    if (gwToken) store.setDeviceToken(gwToken);
+    if (roleToken) store.setRoleToken(roleToken);
+    connectOpenClaw(h, token);
   };
 
   const handleDisconnect = () => {
     disconnectOpenClaw();
+    useOpenClawStore.getState().reset();
   };
 
   const handleSave = () => {
