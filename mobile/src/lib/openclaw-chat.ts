@@ -183,7 +183,7 @@ function buildTokenContext(mint: string, fetched: FetchedLineage | null): string
     if (liqArch.authenticity_score != null) parts.push(`  Authenticity: ${liqArch.authenticity_score}`);
   }
 
-  // SOL flow summary
+  // SOL flow — compact summary (individual edges are too large for LLM context)
   const solFlow = (lineage as Record<string, unknown>).sol_flow as Record<string, unknown> | undefined;
   if (solFlow) {
     parts.push(`\nSOL FLOW:`);
@@ -193,21 +193,36 @@ function buildTokenContext(mint: string, fetched: FetchedLineage | null): string
         : ' (USD conversion unavailable — do not assume SOL price)';
       parts.push(`  Total extracted: ${solFlow.total_extracted_sol} SOL${usd}`);
     }
+    if (solFlow.deployer) parts.push(`  Deployer wallet: ${solFlow.deployer}`);
     if (solFlow.hop_count != null) parts.push(`  Hops: ${solFlow.hop_count}`);
     if (solFlow.known_cex_detected != null) parts.push(`  CEX detected: ${solFlow.known_cex_detected}`);
     if (solFlow.rug_timestamp) parts.push(`  Extraction started: ${solFlow.rug_timestamp}`);
     if (solFlow.terminal_wallets && Array.isArray(solFlow.terminal_wallets)) {
       parts.push(`  Terminal/sink wallets: ${(solFlow.terminal_wallets as string[]).join(', ')}`);
     }
+    // Summarize flows instead of listing each edge — saves ~2000 tokens
     const flows = solFlow.flows as Array<Record<string, unknown>> | undefined;
-    if (flows) {
-      const uniqueIntermediaries = new Set<string>();
+    if (flows && flows.length > 0) {
+      const wallets = new Set<string>();
+      const amountByHop: Record<number, number> = {};
       for (const f of flows) {
-        if (f.from_address) uniqueIntermediaries.add(f.from_address as string);
-        if (f.to_address) uniqueIntermediaries.add(f.to_address as string);
+        if (f.from_address) wallets.add(f.from_address as string);
+        if (f.to_address) wallets.add(f.to_address as string);
+        const hop = (f.hop as number) ?? 0;
+        amountByHop[hop] = (amountByHop[hop] ?? 0) + ((f.amount_sol as number) ?? 0);
       }
-      parts.push(`  Unique wallets in flow: ${uniqueIntermediaries.size}`);
+      parts.push(`  Unique wallets in flow: ${wallets.size}`);
       parts.push(`  Total flow edges: ${flows.length}`);
+      const hopSummary = Object.entries(amountByHop)
+        .sort(([a], [b]) => Number(a) - Number(b))
+        .map(([hop, sol]) => `hop${hop}: ${sol.toFixed(3)} SOL`)
+        .join(', ');
+      parts.push(`  Volume by hop: ${hopSummary}`);
+      // Time span of extraction
+      const times = flows.map((f) => f.block_time as string).filter(Boolean).sort();
+      if (times.length >= 2) {
+        parts.push(`  Time span: ${times[0]} → ${times[times.length - 1]}`);
+      }
     }
   }
 
@@ -257,15 +272,7 @@ async function openClawChatStream(
   const sessionKey = mint ? `lineage:token:${mint}` : 'lineage:chat:global';
   const idempotencyKey = `chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
-  // Fetch FRESH lineage data (not stale cache) for accurate market data
-  const fetched = mint ? await fetchFreshLineage(mint) : null;
-  const context = mint
-    ? buildTokenContext(mint, fetched)
-    : '[General Lineage Agent chat. Use your Lineage skill to fetch data if needed.]';
-
-  const enrichedMessage = `[SCAN DATA — USE THESE NUMBERS, DO NOT CALL THE API AGAIN]\n${context}\n[END SCAN DATA]\n\nUser question: ${message}`;
-
-  // 1. Subscribe to "chat" events BEFORE sending the request
+  // 1. Subscribe to "chat" events FIRST (before any async work)
   const unsub = subscribe('chat', (payload) => {
     const evt = payload as ChatEventPayload;
     if (evt.runId !== idempotencyKey || cancelled) return;
@@ -310,7 +317,15 @@ async function openClawChatStream(
     }
   }, 120_000);
 
-  // 3. Send chat.send — ack is just { runId, status: "started" }
+  // 3. Fetch lineage data (subscription is already active)
+  const fetched = mint ? await fetchFreshLineage(mint) : null;
+  const context = mint
+    ? buildTokenContext(mint, fetched)
+    : '[General Lineage Agent chat. Use your Lineage skill to fetch data if needed.]';
+
+  const enrichedMessage = `[SCAN DATA — USE THESE NUMBERS, DO NOT CALL THE API AGAIN]\n${context}\n[END SCAN DATA]\n\nUser question: ${message}`;
+
+  // 4. Send chat.send — ack is just { runId, status: "started" }
   try {
     await sendRequest('chat.send', {
       sessionKey,
