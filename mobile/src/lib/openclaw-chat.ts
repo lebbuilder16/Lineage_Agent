@@ -49,19 +49,31 @@ export function isChatOpenClawMode(): boolean {
 
 // ─── Build rich context from cached scan data ────────────────────────────────
 
-async function fetchFreshLineage(mint: string): Promise<LineageResult | null> {
+interface FetchedLineage {
+  data: LineageResult;
+  fromCache: boolean;
+  fetchedAt: string;
+}
+
+async function fetchFreshLineage(mint: string): Promise<FetchedLineage | null> {
   try {
     const fresh = await getLineage(mint);
     queryClient.setQueryData(QK.lineage(mint), fresh);
-    return fresh;
+    return { data: fresh, fromCache: false, fetchedAt: new Date().toISOString() };
   } catch {
-    // Fall back to cache
-    return queryClient.getQueryData<LineageResult>(QK.lineage(mint)) ?? null;
+    const cached = queryClient.getQueryData<LineageResult>(QK.lineage(mint));
+    if (!cached) return null;
+    return { data: cached, fromCache: true, fetchedAt: new Date().toISOString() };
   }
 }
 
-function buildTokenContext(mint: string, lineage: LineageResult | null): string {
-  if (!lineage) return `[Analyzing Solana token ${mint}. No scan data available.]`;
+function buildTokenContext(mint: string, fetched: FetchedLineage | null): string {
+  if (!fetched) return `[Analyzing Solana token ${mint}. No scan data available.]`;
+
+  const lineage = fetched.data;
+  const dataSource = fetched.fromCache
+    ? `CACHED DATA (fetched from local cache at ${fetched.fetchedAt} — may be up to 60s old)`
+    : `LIVE DATA (fetched at ${fetched.fetchedAt})`;
 
   // Use query_token (the actual scanned token) when available — root is the
   // oldest ancestor in the lineage tree and may have different market data.
@@ -78,7 +90,8 @@ function buildTokenContext(mint: string, lineage: LineageResult | null): string 
   const mcap = root.market_cap_usd as number | null | undefined;
   const liq = root.liquidity_usd as number | null | undefined;
 
-  parts.push(`DATA FETCHED AT: ${new Date().toISOString()} (live)`);
+  parts.push(`DATA SOURCE: ${dataSource}`);
+  parts.push(`⚠ SOL PRICE NOTE: No SOL/USD price is provided. Do NOT state or assume a SOL price. Report SOL amounts as-is. Only convert to USD if total_extracted_usd is explicitly provided.`);
   parts.push(`TOKEN: ${root.name} (${root.symbol}) — mint: ${mint}`);
   parts.push(`Deployer: ${root.deployer}`);
   if (root.created_at) parts.push(`Created: ${root.created_at}`);
@@ -119,7 +132,10 @@ function buildTokenContext(mint: string, lineage: LineageResult | null): string 
     parts.push(`\nBUNDLE REPORT:`);
     const b = bundle as Record<string, unknown>;
     if (b.bundle_count != null) parts.push(`  Bundles: ${b.bundle_count}`);
-    if (b.total_extracted_sol != null) parts.push(`  Extracted: ${b.total_extracted_sol} SOL`);
+    if (b.total_extracted_sol != null) {
+      const usd = b.total_extracted_usd != null ? ` ($${formatNum(b.total_extracted_usd as number)})` : ' (USD conversion unavailable)';
+      parts.push(`  Extracted: ${b.total_extracted_sol} SOL${usd}`);
+    }
     if (b.verdict) parts.push(`  Verdict: ${b.verdict}`);
   }
 
@@ -171,7 +187,12 @@ function buildTokenContext(mint: string, lineage: LineageResult | null): string 
   const solFlow = (lineage as Record<string, unknown>).sol_flow as Record<string, unknown> | undefined;
   if (solFlow) {
     parts.push(`\nSOL FLOW:`);
-    if (solFlow.total_extracted_sol != null) parts.push(`  Total extracted: ${solFlow.total_extracted_sol} SOL`);
+    if (solFlow.total_extracted_sol != null) {
+      const usd = solFlow.total_extracted_usd != null
+        ? ` ($${formatNum(solFlow.total_extracted_usd as number)})`
+        : ' (USD conversion unavailable — do not assume SOL price)';
+      parts.push(`  Total extracted: ${solFlow.total_extracted_sol} SOL${usd}`);
+    }
     if (solFlow.hop_count != null) parts.push(`  Hops: ${solFlow.hop_count}`);
     if (solFlow.known_cex_detected != null) parts.push(`  CEX detected: ${solFlow.known_cex_detected}`);
     if (solFlow.rug_timestamp) parts.push(`  Extraction started: ${solFlow.rug_timestamp}`);
@@ -237,9 +258,9 @@ async function openClawChatStream(
   const idempotencyKey = `chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
   // Fetch FRESH lineage data (not stale cache) for accurate market data
-  const lineage = mint ? await fetchFreshLineage(mint) : null;
+  const fetched = mint ? await fetchFreshLineage(mint) : null;
   const context = mint
-    ? buildTokenContext(mint, lineage)
+    ? buildTokenContext(mint, fetched)
     : '[General Lineage Agent chat. Use your Lineage skill to fetch data if needed.]';
 
   const enrichedMessage = `[SCAN DATA — USE THESE NUMBERS, DO NOT CALL THE API AGAIN]\n${context}\n[END SCAN DATA]\n\nUser question: ${message}`;
