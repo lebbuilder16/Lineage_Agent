@@ -266,20 +266,8 @@ function handleFrame(
         if (hello?.deviceToken) {
           store.setDeviceToken(hello.deviceToken);
         }
-        // If the hello response did NOT include a device token AND we don't
-        // already have one stored, the device is not yet paired.
-        if (!hello?.deviceToken && !store.deviceToken && ws && ws.readyState === WebSocket.OPEN) {
-          const pairFrame: OpenClawRequest = {
-            type: 'req',
-            id: 'pair-0',
-            method: 'node.pair.request',
-            params: {
-              scopes: ['operator.admin', 'operator.read', 'operator.write', 'operator.approvals', 'operator.pairing'],
-              label: `Lineage Agent (${typeof navigator !== 'undefined' ? navigator.userAgent : 'mobile'})`,
-            },
-          };
-          try { ws.send(JSON.stringify(pairFrame)); } catch { /* ignore */ }
-        }
+        // node.pair.request is no longer needed — pairing is handled via
+        // the connect handshake with device identity + admin approval.
       } else {
         // Auth failed — don't reconnect
         closed = true;

@@ -161,7 +161,7 @@ async function openClawChatStream(
     const result = await sendRequest<{ text?: string; chunks?: string[] }>('chat.send', {
       sessionKey,
       message: enrichedMessage,
-      stream: false,
+      idempotencyKey: `chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     });
 
     if (cancelled) return () => {};
