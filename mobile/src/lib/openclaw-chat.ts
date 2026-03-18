@@ -10,6 +10,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { isOpenClawAvailable, sendRequest, subscribe } from './openclaw';
 import { chatStream } from './streaming';
+import { getLineage } from './api';
 import { queryClient } from './query-client';
 import { QK } from './query';
 import type { LineageResult } from '../types/api';
@@ -48,9 +49,19 @@ export function isChatOpenClawMode(): boolean {
 
 // ─── Build rich context from cached scan data ────────────────────────────────
 
-function buildTokenContext(mint: string): string {
-  const lineage = queryClient.getQueryData<LineageResult>(QK.lineage(mint));
-  if (!lineage) return `[Analyzing Solana token ${mint}. No scan data cached yet.]`;
+async function fetchFreshLineage(mint: string): Promise<LineageResult | null> {
+  try {
+    const fresh = await getLineage(mint);
+    queryClient.setQueryData(QK.lineage(mint), fresh);
+    return fresh;
+  } catch {
+    // Fall back to cache
+    return queryClient.getQueryData<LineageResult>(QK.lineage(mint)) ?? null;
+  }
+}
+
+function buildTokenContext(mint: string, lineage: LineageResult | null): string {
+  if (!lineage) return `[Analyzing Solana token ${mint}. No scan data available.]`;
 
   const root = lineage.root ?? undefined;
   if (!root) return `[Analyzing Solana token ${mint}. Scan data incomplete.]`;
@@ -61,6 +72,7 @@ function buildTokenContext(mint: string): string {
 
   const parts: string[] = [];
 
+  parts.push(`DATA FETCHED AT: ${new Date().toISOString()} (live)`);
   parts.push(`TOKEN: ${root.name} (${root.symbol}) — mint: ${mint}`);
   parts.push(`Deployer: ${root.deployer}`);
   if (root.created_at) parts.push(`Created: ${root.created_at}`);
@@ -156,11 +168,13 @@ async function openClawChatStream(
   const sessionKey = mint ? `lineage:token:${mint}` : 'lineage:chat:global';
   const idempotencyKey = `chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
+  // Fetch FRESH lineage data (not stale cache) for accurate market data
+  const lineage = mint ? await fetchFreshLineage(mint) : null;
   const context = mint
-    ? buildTokenContext(mint)
+    ? buildTokenContext(mint, lineage)
     : '[General Lineage Agent chat. Use your Lineage skill to fetch data if needed.]';
 
-  const enrichedMessage = `[SCAN DATA]\n${context}\n[END SCAN DATA]\n\nUser question: ${message}`;
+  const enrichedMessage = `[SCAN DATA — USE THESE NUMBERS, DO NOT CALL THE API AGAIN]\n${context}\n[END SCAN DATA]\n\nUser question: ${message}`;
 
   // 1. Subscribe to "chat" events BEFORE sending the request
   const unsub = subscribe('chat', (payload) => {

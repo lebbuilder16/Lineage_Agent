@@ -16,10 +16,10 @@ Use `web_fetch` to call these endpoints. Always return clean, readable summaries
 
 ### Scan a token
 ```
-GET https://lineage-agent.fly.dev/lineage?mint={MINT_ADDRESS}
-Headers: X-API-Key: $LINEAGE_API_KEY
+GET https://lineage-agent.fly.dev/lineage?mint={MINT_ADDRESS}&force_refresh=true
 ```
 Returns full on-chain lineage: deployer, bundle data, risk score, insider wallets, narrative signals.
+Always use `force_refresh=true` to get live DexScreener data (market cap, liquidity, price).
 Use this when the user asks about a token address or wants a security check.
 
 ---
@@ -27,7 +27,6 @@ Use this when the user asks about a token address or wants a security check.
 ### AI Analysis of a token
 ```
 GET https://lineage-agent.fly.dev/analyze/{MINT_ADDRESS}
-Headers: X-API-Key: $LINEAGE_API_KEY
 ```
 Returns a structured AI risk analysis: risk score, risk factors, deployer assessment, recommended action.
 Use this for deeper analysis after a lineage scan.
@@ -37,7 +36,6 @@ Use this for deeper analysis after a lineage scan.
 ### Deployer profile
 ```
 GET https://lineage-agent.fly.dev/deployer/{DEPLOYER_ADDRESS}
-Headers: X-API-Key: $LINEAGE_API_KEY
 ```
 Returns full deployer history: all tokens deployed, rug rate, bundle usage, known aliases.
 
@@ -46,7 +44,6 @@ Returns full deployer history: all tokens deployed, rug rate, bundle usage, know
 ### Bundle report
 ```
 GET https://lineage-agent.fly.dev/bundle/{MINT_ADDRESS}
-Headers: X-API-Key: $LINEAGE_API_KEY
 ```
 Returns bundle extraction data: coordinated wallets, seed wallets, bundle percentage.
 
@@ -55,7 +52,6 @@ Returns bundle extraction data: coordinated wallets, seed wallets, bundle percen
 ### Sol-trace (fund flow)
 ```
 GET https://lineage-agent.fly.dev/lineage/{MINT_ADDRESS}/sol-trace
-Headers: X-API-Key: $LINEAGE_API_KEY
 ```
 Traces SOL fund flows from the deployer wallet. Detects common funding sources (exchanges, mixers, known wallets).
 
@@ -64,7 +60,6 @@ Traces SOL fund flows from the deployer wallet. Detects common funding sources (
 ### Search tokens or deployers
 ```
 GET https://lineage-agent.fly.dev/search?q={QUERY}
-Headers: X-API-Key: $LINEAGE_API_KEY
 ```
 Searches the Lineage database for tokens or deployers matching the query.
 
@@ -73,7 +68,6 @@ Searches the Lineage database for tokens or deployers matching the query.
 ### Cartel search
 ```
 GET https://lineage-agent.fly.dev/cartel/search?q={QUERY}
-Headers: X-API-Key: $LINEAGE_API_KEY
 ```
 Searches for cartel networks (coordinated deployer groups).
 
@@ -82,7 +76,6 @@ Searches for cartel networks (coordinated deployer groups).
 ### Cartel details
 ```
 GET https://lineage-agent.fly.dev/cartel/{COMMUNITY_ID}
-Headers: X-API-Key: $LINEAGE_API_KEY
 ```
 Returns full cartel profile: member deployers, tokens deployed, financial graph summary.
 
@@ -91,7 +84,6 @@ Returns full cartel profile: member deployers, tokens deployed, financial graph 
 ### Global stats
 ```
 GET https://lineage-agent.fly.dev/stats/brief
-Headers: X-API-Key: $LINEAGE_API_KEY
 ```
 Returns a brief of global stats: tokens scanned today, rug rate, top risk deployers.
 
@@ -104,8 +96,10 @@ Returns a brief of global stats: tokens scanned today, rug rate, top risk deploy
 3. **For deployer questions** → call `/deployer/{address}`.
 4. **Always cite the risk score** (0–100) in your response. Above 70 = high risk, above 90 = likely rug.
 5. **Keep responses concise** — lead with verdict, then key facts, then details on request.
-6. **Never expose raw API URLs or the API key** in your response to the user.
+6. **Never expose raw API URLs** in your response to the user.
 7. **Session memory**: remember tokens discussed earlier in the session. If the user says "compare with the previous one", refer back to the last scanned mint.
+8. **IMPORTANT — Injected scan data**: When the user message starts with `[SCAN DATA]`, use those numbers (market cap, liquidity, risk level, etc.) as the authoritative source. Do NOT call the API again for the same token — the injected data is fresher than any cached API response.
+9. **Always cite data freshness**: mention "as of [timestamp]" when quoting market cap or liquidity figures from the injected data.
 
 ## Risk score scale
 
