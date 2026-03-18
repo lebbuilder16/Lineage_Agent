@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 import { router } from 'expo-router';
 import Animated, { FadeInDown, LinearTransition } from 'react-native-reanimated';
-import { Bookmark, Trash2, Plus, Settings, Copy } from 'lucide-react-native';
+import { Bookmark, Trash2, Plus, Settings, Copy, Zap } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Clipboard from 'expo-clipboard';
 import { Swipeable } from 'react-native-gesture-handler';
@@ -325,9 +325,17 @@ export default function WatchlistScreen() {
                     <Text style={styles.watchLabel} numberOfLines={1}>
                       {item.label ?? item.identifier ?? item.value}
                     </Text>
-                    <Text style={styles.watchAddress} numberOfLines={1}>
-                      {item.value}
-                    </Text>
+                    <View style={styles.watchAddressRow}>
+                      <Text style={styles.watchAddress} numberOfLines={1}>
+                        {item.value}
+                      </Text>
+                      {isOpenClawAvailable() && (
+                        <View style={styles.monitorBadge}>
+                          <Zap size={9} color={tokens.secondary} />
+                          <Text style={styles.monitorText}>Monitored</Text>
+                        </View>
+                      )}
+                    </View>
                   </TouchableOpacity>
                 </GlassCard>
                 </Swipeable>
@@ -391,6 +399,27 @@ const styles = StyleSheet.create({
     fontFamily: 'Lexend-Regular',
     fontSize: tokens.font.tiny,
     color: tokens.white35,
+    flex: 1,
+  },
+  watchAddressRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  monitorBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: `${tokens.secondary}15`,
+    borderRadius: tokens.radius.pill,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  monitorText: {
+    fontFamily: 'Lexend-SemiBold',
+    fontSize: 9,
+    color: tokens.secondary,
+    letterSpacing: 0.3,
   },
 
   swipeDeleteBtn: {

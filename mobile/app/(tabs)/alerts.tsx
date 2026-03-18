@@ -273,6 +273,28 @@ export default function AlertsScreen() {
                           → {item.enrichedData.recommendedAction}
                         </Text>
                       )}
+                      {/* Proposed actions from rug auto-response */}
+                      {item.actions && item.actions.length > 0 && (
+                        <View style={styles.actionsRow}>
+                          {item.actions.map((act, i) => (
+                            <TouchableOpacity
+                              key={i}
+                              style={styles.actionBtn}
+                              onPress={() => {
+                                if (act.action === 'lineage.navigate' && act.params.path) {
+                                  router.push(act.params.path as any);
+                                } else if (act.action === 'lineage.scan_batch' && act.params.mints) {
+                                  const first = act.params.mints.split(',')[0];
+                                  if (first) router.push(`/token/${first}` as any);
+                                }
+                              }}
+                              activeOpacity={0.7}
+                            >
+                              <Text style={styles.actionBtnText}>{act.label}</Text>
+                            </TouchableOpacity>
+                          ))}
+                        </View>
+                      )}
                     </View>
                   )}
                   </GlassCard>
@@ -464,6 +486,25 @@ const styles = StyleSheet.create({
   enrichAction: {
     fontFamily: 'Lexend-SemiBold',
     fontSize: tokens.font.small,
+    color: tokens.secondary,
+  },
+  actionsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 6,
+  },
+  actionBtn: {
+    backgroundColor: `${tokens.secondary}18`,
+    borderRadius: tokens.radius.pill,
+    borderWidth: 1,
+    borderColor: `${tokens.secondary}30`,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  actionBtnText: {
+    fontFamily: 'Lexend-SemiBold',
+    fontSize: tokens.font.tiny,
     color: tokens.secondary,
   },
 });

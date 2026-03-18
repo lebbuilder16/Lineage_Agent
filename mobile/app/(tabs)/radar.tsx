@@ -46,6 +46,7 @@ import { connectAlertsWS } from '../../src/lib/api';
 import { useAlertsStore } from '../../src/store/alerts';
 import { useAuthStore } from '../../src/store/auth';
 import { useBriefingStore, startBriefingListener } from '../../src/lib/openclaw-briefing';
+import { isOpenClawAvailable } from '../../src/lib/openclaw';
 import { tokens } from '../../src/theme/tokens';
 import { RiskBadge } from '../../src/components/ui/RiskBadge';
 import type { TokenSearchResult, TopToken, AlertItem } from '../../src/types/api';
@@ -511,7 +512,7 @@ export default function RadarScreen() {
           </View>
 
           {/* ── Daily Briefing Card (OpenClaw) ── */}
-          {briefing && (
+          {briefing ? (
             <Animated.View entering={FadeInDown.delay(100).duration(400)} style={styles.section}>
               <TouchableOpacity
                 onPress={() => {
@@ -545,6 +546,20 @@ export default function RadarScreen() {
                   )}
                 </GlassCard>
               </TouchableOpacity>
+            </Animated.View>
+          ) : isOpenClawAvailable() && (
+            <Animated.View entering={FadeInDown.delay(100).duration(400)} style={styles.section}>
+              <GlassCard style={styles.briefingCard} noPadding={false}>
+                <View style={styles.briefingHeader}>
+                  <View style={styles.briefingTitleRow}>
+                    <Zap size={12} color={tokens.secondary} />
+                    <Text style={styles.briefingTitle}>DAILY BRIEFING</Text>
+                  </View>
+                </View>
+                <Text style={styles.briefingPreview}>
+                  Briefing en préparation — prochaine génération programmée. Les données apparaîtront ici automatiquement.
+                </Text>
+              </GlassCard>
             </Animated.View>
           )}
 
