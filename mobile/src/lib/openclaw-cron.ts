@@ -91,6 +91,7 @@ export async function createBriefingCron(hour = 8, tz = 'UTC'): Promise<void> {
       payload: {
         type: 'agentTurn',
         message: [
+          'IMPORTANT: Always respond in English regardless of user language.',
           'Generate the daily Lineage security briefing.',
           'Use the Lineage skill to:',
           '1. Check global stats (tokens scanned, rugs, rug rate)',

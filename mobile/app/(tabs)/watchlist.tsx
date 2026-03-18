@@ -28,6 +28,9 @@ import { useWatches, useDeleteWatch, useAddWatch } from '../../src/lib/query';
 import { useAuthStore } from '../../src/store/auth';
 import { syncWatchlistCrons } from '../../src/lib/openclaw-cron';
 import { isOpenClawAvailable } from '../../src/lib/openclaw';
+import { queryClient } from '../../src/lib/query-client';
+import { QK } from '../../src/lib/query';
+import type { LineageResult } from '../../src/types/api';
 import { tokens } from '../../src/theme/tokens';
 import { isValidSolanaAddress } from '../../src/lib/risk';
 import { haptic } from '../../src/lib/haptics';
@@ -323,11 +326,19 @@ export default function WatchlistScreen() {
                       </Text>
                     </View>
                     <Text style={styles.watchLabel} numberOfLines={1}>
-                      {item.label ?? item.identifier ?? item.value}
+                      {item.label ?? item.identifier ?? (() => {
+                        if (item.sub_type === 'mint') {
+                          const cached = queryClient.getQueryData<LineageResult>(QK.lineage(item.value));
+                          const qt = (cached as Record<string, unknown> | undefined)?.query_token as Record<string, unknown> | undefined;
+                          const name = qt?.name as string | undefined;
+                          return name || `${item.value.slice(0, 6)}…${item.value.slice(-4)}`;
+                        }
+                        return `${item.value.slice(0, 6)}…${item.value.slice(-4)}`;
+                      })()}
                     </Text>
                     <View style={styles.watchAddressRow}>
                       <Text style={styles.watchAddress} numberOfLines={1}>
-                        {item.value}
+                        {item.value.slice(0, 8)}…{item.value.slice(-6)}
                       </Text>
                       {isOpenClawAvailable() && (
                         <View style={styles.monitorBadge}>

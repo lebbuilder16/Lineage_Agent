@@ -12,7 +12,7 @@ interface AuthState {
   watches: Watch[];
   scanCount: number;
   hydrated: boolean;
-  recentSearches: string[];
+  recentSearches: { mint: string; name: string; symbol: string }[];
   reportExpandMint: string | null;
   pendingClockMint: string | null;
   setApiKey: (key: string | null) => void;
@@ -21,7 +21,7 @@ interface AuthState {
   addWatch: (watch: Watch) => void;
   removeWatch: (id: string) => void;
   incrementScanCount: () => void;
-  addRecentSearch: (mint: string) => void;
+  addRecentSearch: (mint: string, name?: string, symbol?: string) => void;
   clearRecentSearches: () => void;
   setReportExpandMint: (mint: string | null) => void;
   setPendingClockMint: (mint: string | null) => void;
@@ -64,9 +64,10 @@ export const useAuthStore = create<AuthState>((set) => ({
   incrementScanCount: () =>
     set((state) => ({ scanCount: state.scanCount + 1 })),
 
-  addRecentSearch: (mint) =>
+  addRecentSearch: (mint, name = '', symbol = '') =>
     set((state) => {
-      const deduped = [mint, ...state.recentSearches.filter((r) => r !== mint)].slice(0, MAX_RECENT);
+      const entry = { mint, name, symbol };
+      const deduped = [entry, ...state.recentSearches.filter((r) => r.mint !== mint)].slice(0, MAX_RECENT);
       SecureStore.setItemAsync(LS_RECENT_KEY, JSON.stringify(deduped)).catch(() => {});
       return { recentSearches: deduped };
     }),
@@ -83,7 +84,16 @@ export const useAuthStore = create<AuthState>((set) => ({
     try {
       const key = await SecureStore.getItemAsync(LS_KEY);
       const recentRaw = await SecureStore.getItemAsync(LS_RECENT_KEY);
-      const recentSearches: string[] = recentRaw ? (JSON.parse(recentRaw) as string[]) : [];
+      let recentSearches: { mint: string; name: string; symbol: string }[] = [];
+      if (recentRaw) {
+        const parsed = JSON.parse(recentRaw) as unknown;
+        if (Array.isArray(parsed)) {
+          // Backward compat: old format was string[], new format is object[]
+          recentSearches = parsed.map((item) =>
+            typeof item === 'string' ? { mint: item, name: '', symbol: '' } : (item as { mint: string; name: string; symbol: string }),
+          );
+        }
+      }
       set({ apiKey: key ?? null, hydrated: true, recentSearches });
     } catch (e) {
       console.error('[auth] SecureStore.getItem failed during hydration', e);

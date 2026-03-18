@@ -2,8 +2,6 @@ import React, { useState, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
-  SectionList,
-  ScrollView,
   TouchableOpacity,
   StyleSheet,
   Alert,
@@ -40,24 +38,12 @@ const ALERT_ICONS: Record<string, React.ReactNode> = {
   narrative: <Bell size={18} color={tokens.secondary} />,
 };
 
-const FILTER_TYPES: { label: string; value: AlertItem['type'] }[] = [
-  { label: 'Rug', value: 'rug' },
-  { label: 'Bundle', value: 'bundle' },
-  { label: 'Insider', value: 'insider' },
-  { label: 'Zombie', value: 'zombie' },
-  { label: 'Death Clock', value: 'death_clock' },
-  { label: 'Deployer', value: 'deployer' },
-  { label: 'Narrative', value: 'narrative' },
+type QuickFilter = 'all' | 'critical' | 'unread';
+const QUICK_FILTERS: { label: string; value: QuickFilter }[] = [
+  { label: 'All', value: 'all' },
+  { label: 'Critical', value: 'critical' },
+  { label: 'Unread', value: 'unread' },
 ];
-
-function dateGroup(ts: string): string {
-  const d = new Date(ts);
-  const today = new Date();
-  const yesterday = new Date(); yesterday.setDate(today.getDate() - 1);
-  if (d.toDateString() === today.toDateString()) return 'Today';
-  if (d.toDateString() === yesterday.toDateString()) return 'Yesterday';
-  return 'Older';
-}
 
 export default function AlertsScreen() {
   const alerts = useAlertsStore((s) => s.alerts);
@@ -66,7 +52,7 @@ export default function AlertsScreen() {
   const deleteAlert = useAlertsStore((s) => s.deleteAlert);
   const wsConnected = useAlertsStore((s) => s.wsConnected);
   const unreadCount = useAlertsStore((s) => s.alerts.filter((a) => !a.read).length);
-  const [activeFilter, setActiveFilter] = useState<AlertItem['type'] | null>(null);
+  const [activeFilter, setActiveFilter] = useState<QuickFilter>('all');
   const [expandedEnrichments, setExpandedEnrichments] = useState<Set<string>>(new Set());
   const insets = useSafeAreaInsets();
 
@@ -78,18 +64,12 @@ export default function AlertsScreen() {
     });
   }, []);
 
-  const filtered = activeFilter ? alerts.filter((a) => a.type === activeFilter) : alerts;
-
-  const sections = useMemo(() => {
-    const groups: Record<string, AlertItem[]> = { Today: [], Yesterday: [], Older: [] };
-    for (const a of filtered) {
-      const key = dateGroup(a.timestamp ?? a.created_at ?? '');
-      groups[key].push(a);
-    }
-    return (['Today', 'Yesterday', 'Older'] as const)
-      .filter((k) => groups[k].length > 0)
-      .map((k) => ({ title: k, data: groups[k] }));
-  }, [filtered]);
+  const CRITICAL_TYPES = new Set(['rug', 'death_clock', 'bundle', 'insider']);
+  const filtered = useMemo(() => {
+    if (activeFilter === 'critical') return alerts.filter((a) => CRITICAL_TYPES.has(a.type));
+    if (activeFilter === 'unread') return alerts.filter((a) => !a.read);
+    return alerts;
+  }, [alerts, activeFilter]);
 
   const handlePress = (alert: AlertItem) => {
     markRead(alert.id);
@@ -121,60 +101,47 @@ export default function AlertsScreen() {
           }
         />
 
-        {/* Type filter chips */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.chipsRow}
-          style={{ marginBottom: 8 }}
-        >
-          <TouchableOpacity
-            onPress={() => setActiveFilter(null)}
-            style={[styles.chip, activeFilter === null && styles.chipActive]}
-          >
-            <Text style={[styles.chipText, activeFilter === null && styles.chipTextActive]}>All</Text>
-          </TouchableOpacity>
-          {FILTER_TYPES.map((ft) => (
+        {/* Offline banner */}
+        {!wsConnected && (
+          <View style={styles.offlineBanner}>
+            <View style={styles.offlineDot} />
+            <Text style={styles.offlineText}>Alerts offline — reconnecting…</Text>
+          </View>
+        )}
+
+        {/* Quick filter chips */}
+        <View style={styles.chipsRow}>
+          {QUICK_FILTERS.map((ft) => (
             <TouchableOpacity
               key={ft.value}
-              onPress={() => setActiveFilter(activeFilter === ft.value ? null : ft.value)}
+              onPress={() => setActiveFilter(ft.value)}
               style={[styles.chip, activeFilter === ft.value && styles.chipActive]}
             >
               <Text style={[styles.chipText, activeFilter === ft.value && styles.chipTextActive]}>{ft.label}</Text>
             </TouchableOpacity>
           ))}
-        </ScrollView>
+        </View>
 
         {filtered.length === 0 ? (
           <Animated.View entering={FadeInDown.springify()} style={styles.empty}>
             <GlassCard style={styles.emptyCard} noPadding={false}>
-              <View style={[styles.emptyIconWrapper, { backgroundColor: activeFilter ? `${tokens.secondary}15` : `${tokens.white100}10`, borderColor: activeFilter ? `${tokens.secondary}30` : `${tokens.white100}20` }]}>
-                <Bell size={36} color={activeFilter ? tokens.secondary : tokens.white60} />
+              <View style={[styles.emptyIconWrapper, { backgroundColor: `${tokens.white100}10`, borderColor: `${tokens.white100}20` }]}>
+                <Bell size={36} color={tokens.white60} />
               </View>
-              <Text style={styles.emptyTitle}>{activeFilter ? `No ${activeFilter} alerts` : 'All clear for now'}</Text>
-              <Text style={styles.emptySubtitle}>
-                {activeFilter ? 'Try clearing your filters to see more.' : 'Your radar is silent. We will notify you when action happens.'}
+              <Text style={styles.emptyTitle}>
+                {activeFilter === 'critical' ? 'No critical alerts' : activeFilter === 'unread' ? 'All caught up' : 'All clear for now'}
               </Text>
-              {activeFilter && (
-                <View style={styles.emptyAction}>
-                  <HapticButton 
-                    onPress={() => setActiveFilter(null)} 
-                    variant="secondary"
-                  >  Clear Filters  </HapticButton>
-                </View>
-              )}
+              <Text style={styles.emptySubtitle}>
+                Your radar is silent. We will notify you when action happens.
+              </Text>
             </GlassCard>
           </Animated.View>
         ) : (
-          <SectionList
-            sections={sections}
+          <Animated.FlatList
+            data={filtered}
             keyExtractor={(item) => item.id}
             contentContainerStyle={[styles.listContent, { paddingBottom: Math.max(insets.bottom + 100, 120) }]}
             showsVerticalScrollIndicator={false}
-            stickySectionHeadersEnabled={false}
-            renderSectionHeader={({ section }) => (
-              <Text style={styles.sectionLabel}>{section.title}</Text>
-            )}
             renderItem={({ item, index }) => (
               <Animated.View exiting={FadeInDown} entering={FadeInDown.delay(index * 50).springify()} layout={LinearTransition.springify()}>
                 <Swipeable
@@ -313,10 +280,31 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: tokens.bgMain },
   safe: { flex: 1, paddingHorizontal: tokens.spacing.screenPadding },
 
-  chipsRow: {
-    paddingHorizontal: tokens.spacing.screenPadding,
+  offlineBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 6,
-    paddingBottom: 4,
+    backgroundColor: `${tokens.risk.critical}15`,
+    borderRadius: tokens.radius.sm,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    marginBottom: 8,
+  },
+  offlineDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: tokens.risk.critical,
+  },
+  offlineText: {
+    fontFamily: 'Lexend-Regular',
+    fontSize: tokens.font.tiny,
+    color: tokens.risk.critical,
+  },
+  chipsRow: {
+    flexDirection: 'row',
+    gap: 6,
+    paddingBottom: 8,
   },
   chip: {
     paddingHorizontal: 12,
@@ -373,15 +361,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
 
-  listContent: { gap: 8 },
-  sectionLabel: {
-    fontFamily: 'Lexend-SemiBold',
-    fontSize: tokens.font.small,
-    color: tokens.white35,
-    letterSpacing: 0.5,
-    paddingVertical: 6,
-    paddingTop: 12,
-  },
+  listContent: { gap: 10 },
   alertCard: { borderWidth: 1, borderColor: 'transparent' },
   alertCardUnread: { borderColor: `${tokens.secondary}30` },
   alertInner: {

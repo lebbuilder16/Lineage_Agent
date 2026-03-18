@@ -7,6 +7,8 @@ import {
   TouchableOpacity,
   Image,
   RefreshControl,
+  Platform,
+  StatusBar,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router, Stack } from 'expo-router';
@@ -141,16 +143,26 @@ export default function TokenScreen() {
   };
 
   const handleWatch = async () => {
-    if (!apiKey || !mint || watching || submitting.current) return;
+    if (!apiKey) {
+      showToast('API key required — go to Settings');
+      return;
+    }
+    if (!mint || watching || submitting.current) return;
     submitting.current = true;
     setWatching(true);
     try {
       const w = await addWatch(apiKey, 'mint', mint);
       addWatchFn(w);
+      showToast('Token added to watchlist');
     } catch (err) {
       setWatching(false);
       submitting.current = false;
-      console.error('[handleWatch]', err);
+      const msg = err instanceof Error ? err.message : '';
+      if (msg.includes('409') || msg.includes('already')) {
+        setWatching(true);
+      } else {
+        showToast('Failed to watch token');
+      }
     }
   };
 
@@ -271,7 +283,7 @@ export default function TokenScreen() {
       <Stack.Screen options={{ headerShown: false }} />
 
       {/* ── Navbar ── */}
-      <View style={[styles.navbar, { paddingTop: Math.max(insets.top, 16) }]}>
+      <View style={[styles.navbar, { paddingTop: Math.max(insets.top, Platform.OS === 'android' ? (StatusBar.currentHeight ?? 24) + 8 : 16) }]}>
         <TouchableOpacity onPress={() => router.back()} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
           <ChevronLeft size={24} color={tokens.white100} />
         </TouchableOpacity>
@@ -369,21 +381,19 @@ export default function TokenScreen() {
               </View>
 
               {/* Watch */}
-              {apiKey && (
-                watching ? (
-                  <View style={styles.watchingBadge}>
-                    <Text style={styles.watchingText}>Watching ✓</Text>
-                  </View>
-                ) : (
-                  <HapticButton
-                    variant="secondary"
-                    size="sm"
-                    onPress={handleWatch}
-                    style={{ marginTop: 14 }}
-                  >
-                    <Text style={styles.btnSecondaryText}>Watch Token</Text>
-                  </HapticButton>
-                )
+              {watching ? (
+                <View style={styles.watchingBadge}>
+                  <Text style={styles.watchingText}>Watching ✓</Text>
+                </View>
+              ) : (
+                <HapticButton
+                  variant="secondary"
+                  size="sm"
+                  onPress={handleWatch}
+                  style={{ marginTop: 14 }}
+                >
+                  <Text style={styles.btnSecondaryText}>Watch Token</Text>
+                </HapticButton>
               )}
             </GlassCard>
 

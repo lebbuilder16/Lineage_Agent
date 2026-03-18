@@ -75,12 +75,16 @@ export default function ScanScreen() {
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
     setLoading(true);
     searchTokens(text.trim())
-      .then((data) => { setResults(data); addRecentSearch(text.trim()); })
+      .then((data) => {
+        setResults(data);
+        if (data.length > 0) addRecentSearch(data[0].mint, data[0].name, data[0].symbol);
+      })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [addRecentSearch]);
 
-  const handleSelect = (mint: string) => {
+  const handleSelect = (mint: string, name?: string, symbol?: string) => {
+    addRecentSearch(mint, name, symbol);
     router.push(`/token/${mint}` as any);
   };
 
@@ -146,14 +150,24 @@ export default function ScanScreen() {
                   <Text style={styles.recentClear}>Clear</Text>
                 </TouchableOpacity>
               </View>
-              {recentSearches.map((addr) => (
+              {recentSearches.map((item) => (
                 <TouchableOpacity
-                  key={addr}
-                  onPress={() => { setQuery(addr); runSearch(addr); }}
+                  key={item.mint}
+                  onPress={() => { handleSelect(item.mint, item.name, item.symbol); }}
                   style={styles.recentItem}
                 >
                   <Search size={14} color={tokens.white35} />
-                  <Text style={styles.recentAddr} numberOfLines={1}>{addr}</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.recentName} numberOfLines={1}>
+                      {item.name || item.mint}
+                      {item.symbol ? ` (${item.symbol})` : ''}
+                    </Text>
+                    {item.name ? (
+                      <Text style={styles.recentAddr} numberOfLines={1}>
+                        {item.mint.slice(0, 6)}…{item.mint.slice(-4)}
+                      </Text>
+                    ) : null}
+                  </View>
                 </TouchableOpacity>
               ))}
             </View>
@@ -169,7 +183,7 @@ export default function ScanScreen() {
             renderItem={({ item, index }) => (
               <Animated.View entering={FadeInDown.delay(index * 30).duration(300).springify()}>
               <TouchableOpacity
-                onPress={() => handleSelect(item.mint)}
+                onPress={() => handleSelect(item.mint, item.name, item.symbol)}
                 accessibilityRole="button"
                 accessibilityLabel={`Scan token ${item.name} (${item.symbol})`}
                 activeOpacity={0.75}
@@ -324,10 +338,15 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: tokens.borderSubtle,
   },
+  recentName: {
+    fontFamily: 'Lexend-SemiBold',
+    fontSize: tokens.font.body,
+    color: tokens.white100,
+  },
   recentAddr: {
     fontFamily: 'Lexend-Regular',
-    fontSize: tokens.font.small,
-    color: tokens.white60,
-    flex: 1,
+    fontSize: tokens.font.tiny,
+    color: tokens.white35,
+    marginTop: 1,
   },
 });

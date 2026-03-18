@@ -96,7 +96,7 @@ export default function DeathClockScreen() {
   return (
     <View style={styles.container}>
       <AuroraBackground />
-      <View style={styles.safe}>
+      <View style={[styles.safe, { paddingTop: Math.max(insets.top, 16) }]}>
         <ScrollView
           contentContainerStyle={[styles.content, { paddingBottom: Math.max(insets.bottom + 100, 120) }]}
           showsVerticalScrollIndicator={false}
@@ -145,7 +145,7 @@ export default function DeathClockScreen() {
             accessibilityRole="button"
             accessibilityLabel="Predict rug probability"
           >
-            PREDICT
+            <Text style={styles.ctaText}>PREDICT</Text>
           </HapticButton>
 
           {/* Token identity preview */}
@@ -245,7 +245,13 @@ const styles = StyleSheet.create({
     fontSize: tokens.font.body,
     color: tokens.white100,
   },
-  cta: {},
+  cta: { zIndex: 1 },
+  ctaText: {
+    fontFamily: 'Lexend-Bold',
+    fontSize: tokens.font.body,
+    color: tokens.white100,
+    letterSpacing: 1.5,
+  },
 
   tokenInfoCard: {},
   tokenInfoRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
