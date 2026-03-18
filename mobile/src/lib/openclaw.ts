@@ -219,9 +219,20 @@ async function doConnect(host: string, token: string) {
     store.setConnected(false);
   };
 
-  ws.onclose = () => {
+  ws.onclose = (event) => {
     const store = useOpenClawStore.getState();
     store.setConnected(false);
+
+    // If gateway says "pairing required", reset paired state and retry as node role
+    const reason = (event as { reason?: string }).reason ?? '';
+    if (event.code === 1008 && reason.includes('pairing')) {
+      console.log('[openclaw] pairing required — resetting paired state, retrying as node');
+      store.setPaired(false);
+      store.setDeviceToken(null);
+      store.setStatus('reconnecting');
+      reconnectTimer = setTimeout(() => { doConnect(host, token).catch(() => {}); }, 1000);
+      return;
+    }
 
     if (!closed) {
       const delay = Math.min(BACKOFF_BASE * Math.pow(2, retryCount), BACKOFF_MAX);
