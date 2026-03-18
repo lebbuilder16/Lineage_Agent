@@ -15,6 +15,8 @@ import { useOpenClawStore } from '../src/store/openclaw';
 import { registerDeviceNode, startNodeCommandListener } from '../src/lib/openclaw-node';
 import { startRugResponseListener } from '../src/lib/openclaw-rug-response';
 import { setupWatchlistMonitor, startWatchlistMonitorListener } from '../src/lib/openclaw-monitor';
+import { createBriefingCron } from '../src/lib/openclaw-cron';
+import { startBriefingListener } from '../src/lib/openclaw-briefing';
 import { tokens } from '../src/theme/tokens';
 import { ErrorBoundary } from '../src/components/ui/ErrorBoundary';
 import { useAuthStore } from '../src/store/auth';
@@ -85,23 +87,26 @@ export default function RootLayout() {
   useEffect(() => {
     if (!ocHost) return;
     connectOpenClaw(ocHost, ocToken ?? '');
-    let unsubNode: (() => void) | undefined;
-    let unsubRug: (() => void) | undefined;
-    let unsubMonitor: (() => void) | undefined;
-    const t = setTimeout(() => {
-      registerDeviceNode();
-      unsubNode = startNodeCommandListener();
-      unsubRug = startRugResponseListener();
-      unsubMonitor = startWatchlistMonitorListener();
-      setupWatchlistMonitor();
-    }, 1_500);
-    return () => {
-      clearTimeout(t);
-      unsubNode?.();
-      unsubRug?.();
-      unsubMonitor?.();
-    };
   }, [ocHost]);
+
+  // Initialize listeners + crons once OpenClaw is connected (no race condition)
+  const ocConnected = useOpenClawStore((s) => s.connected);
+  useEffect(() => {
+    if (!ocConnected) return;
+    registerDeviceNode();
+    const unsubNode = startNodeCommandListener();
+    const unsubRug = startRugResponseListener();
+    const unsubMonitor = startWatchlistMonitorListener();
+    const unsubBriefing = startBriefingListener();
+    setupWatchlistMonitor();
+    createBriefingCron(8, Intl.DateTimeFormat().resolvedOptions().timeZone);
+    return () => {
+      unsubNode();
+      unsubRug();
+      unsubMonitor();
+      unsubBriefing();
+    };
+  }, [ocConnected]);
 
   useEffect(() => {
     if ((fontsLoaded || fontError) && hydrated) {

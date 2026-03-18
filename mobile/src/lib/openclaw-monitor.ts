@@ -15,24 +15,45 @@ import type { LineageResult, AlertItem } from '../types/api';
 const CRON_NAME = 'lineage:watchlist-monitor';
 const MONITOR_INTERVAL_MS = 2 * 60 * 60 * 1000; // 2 hours
 
+let localIntervalId: ReturnType<typeof setInterval> | null = null;
+
 /**
  * Register the watchlist monitoring cron job on the OpenClaw gateway.
- * Safe to call multiple times — upserts the cron.
+ * Falls back to a local setInterval when the gateway lacks cron.add.
+ * Safe to call multiple times — deduplicates.
  */
 export async function setupWatchlistMonitor(): Promise<void> {
+  // Always start a local interval as baseline (works even without OpenClaw)
+  if (!localIntervalId) {
+    localIntervalId = setInterval(() => {
+      runWatchlistCheck().catch(() => {});
+    }, MONITOR_INTERVAL_MS);
+  }
+
   if (!isOpenClawAvailable()) return;
-  // cron.upsert is operator-only — skip if not paired yet
   if (!useOpenClawStore.getState().paired) return;
 
   try {
-    await sendRequest('cron.upsert', {
+    // Try gateway cron via cron.add (same pattern as openclaw-cron.ts)
+    const list = await sendRequest<{ jobs: Array<{ name: string; id: string }> }>('cron.list', {});
+    const jobs = list?.jobs ?? (Array.isArray(list) ? (list as Array<{ name: string; id: string }>) : []);
+    const existing = jobs.find((j) => j.name === CRON_NAME);
+    if (existing) return; // already registered
+
+    await sendRequest('cron.add', {
       name: CRON_NAME,
-      intervalMs: MONITOR_INTERVAL_MS,
-      command: 'lineage.watchlist-check',
+      schedule: { cron: '0 */2 * * *' }, // every 2 hours
+      session: 'isolated',
+      payload: {
+        type: 'agentTurn',
+        message: 'Run watchlist monitoring check. Use the Lineage skill to rescan all watched tokens and alert on risk escalations.',
+        timeout: 120_000,
+      },
+      delivery: { mode: 'announce' },
       enabled: true,
     });
   } catch {
-    // Cron registration is best-effort
+    // Gateway cron failed — local interval is the fallback
   }
 }
 

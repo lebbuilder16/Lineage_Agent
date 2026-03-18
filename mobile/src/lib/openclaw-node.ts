@@ -8,6 +8,7 @@ import { useAuthStore } from '../store/auth';
 import { useAlertsStore } from '../store/alerts';
 import { getLineage } from './api';
 import { apiClient } from './api-client';
+import { router } from 'expo-router';
 import type { AlertItem } from '../types/api';
 import type { DeviceNodeCommand, DeviceNodeResult } from '../types/openclaw';
 import * as Notifications from 'expo-notifications';
@@ -122,6 +123,13 @@ async function dispatchCommand(
         trigger: null,
       });
       return { delivered: true };
+    }
+
+    case 'lineage.navigate': {
+      const path = params.path as string;
+      if (!path) throw new Error('path param required');
+      router.push(path as never);
+      return { navigated: true };
     }
 
     default:
