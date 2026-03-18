@@ -30,10 +30,13 @@ export async function smartChatStream(
   // Try OpenClaw first
   if (isOpenClawAvailable()) {
     try {
+      console.log('[openclaw-chat] sending via OpenClaw...');
       return await openClawChatStream(mint, message, history, onChunk, onDone, onError);
-    } catch {
-      // OpenClaw failed — fall through to direct API
+    } catch (err) {
+      console.warn('[openclaw-chat] OpenClaw failed, falling back to direct API:', err);
     }
+  } else {
+    console.log('[openclaw-chat] OpenClaw not available, using direct API');
   }
 
   // Fallback: direct Lineage API chat
