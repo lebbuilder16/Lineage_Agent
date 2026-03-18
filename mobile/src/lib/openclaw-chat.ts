@@ -161,13 +161,12 @@ async function openClawChatStream(
   const enrichedMessage = `[SCAN DATA]\n${context}\n[END SCAN DATA]\n\nUser question: ${message}`;
   const idempotencyKey = `chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
-  // Send chat.send — returns { runId, status: "started" }
-  // Then listen for streaming events from that run
+  // Send chat.send with a long timeout — AI responses can take 60s+
   const startResult = await sendRequest<{ runId?: string; status?: string; text?: string }>('chat.send', {
     sessionKey,
     message: enrichedMessage,
     idempotencyKey,
-  });
+  }, 120_000);
 
   if (cancelled) return () => {};
 

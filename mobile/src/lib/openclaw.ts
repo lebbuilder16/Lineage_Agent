@@ -84,6 +84,7 @@ export function disconnectOpenClaw(): void {
 export function sendRequest<T = unknown>(
   method: string,
   params: Record<string, unknown> = {},
+  timeoutMs: number = REQUEST_TIMEOUT,
 ): Promise<T> {
   return new Promise((resolve, reject) => {
     if (!ws || ws.readyState !== WebSocket.OPEN) {
@@ -95,7 +96,7 @@ export function sendRequest<T = unknown>(
     const timer = setTimeout(() => {
       pending.delete(id);
       reject(new Error(`OpenClaw request timeout: ${method}`));
-    }, REQUEST_TIMEOUT);
+    }, timeoutMs);
 
     pending.set(id, { resolve: resolve as (v: unknown) => void, reject, timer });
 
