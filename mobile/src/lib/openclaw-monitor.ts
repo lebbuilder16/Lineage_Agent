@@ -4,6 +4,7 @@
 // for each watched token, then compares risk levels and fires alerts.
 // ─────────────────────────────────────────────────────────────────────────────
 import { isOpenClawAvailable, sendRequest, subscribe } from './openclaw';
+import { useOpenClawStore } from '../store/openclaw';
 import { useAuthStore } from '../store/auth';
 import { useAlertsStore } from '../store/alerts';
 import { getLineage } from './api';
@@ -20,6 +21,8 @@ const MONITOR_INTERVAL_MS = 2 * 60 * 60 * 1000; // 2 hours
  */
 export async function setupWatchlistMonitor(): Promise<void> {
   if (!isOpenClawAvailable()) return;
+  // cron.upsert is operator-only — skip if not paired yet
+  if (!useOpenClawStore.getState().paired) return;
 
   try {
     await sendRequest('cron.upsert', {

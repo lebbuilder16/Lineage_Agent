@@ -162,8 +162,9 @@ async function doConnect(host: string, token: string) {
       const challengePayload = (frame as OpenClawEvent).payload as { nonce: string; ts: number };
       console.log('[openclaw] received connect.challenge, signing device identity...');
 
-      // Use operator role when already paired, node role for initial pairing
-      const isPaired = useOpenClawStore.getState().paired;
+      // Use operator role when already paired (has deviceToken), node role for initial pairing
+      const store = useOpenClawStore.getState();
+      const isPaired = !!(store.paired || store.deviceToken || store.roleToken);
       const connectRole = isPaired ? 'operator' : 'node';
       const connectMode = isPaired ? 'ui' : 'node';
 
