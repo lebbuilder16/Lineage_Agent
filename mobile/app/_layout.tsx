@@ -4,7 +4,7 @@ import { useFonts } from 'expo-font';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClientProvider } from '@tanstack/react-query';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { StyleSheet, View, AppState } from 'react-native';
 import * as Linking from 'expo-linking';
@@ -14,20 +14,14 @@ import { connectOpenClaw, disconnectOpenClaw } from '../src/lib/openclaw';
 import { useOpenClawStore } from '../src/store/openclaw';
 import { registerDeviceNode, startNodeCommandListener } from '../src/lib/openclaw-node';
 import { startRugResponseListener } from '../src/lib/openclaw-rug-response';
+import { setupWatchlistMonitor, startWatchlistMonitorListener } from '../src/lib/openclaw-monitor';
 import { tokens } from '../src/theme/tokens';
 import { ErrorBoundary } from '../src/components/ui/ErrorBoundary';
 import { useAuthStore } from '../src/store/auth';
 
 SplashScreen.preventAutoHideAsync();
 
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      retry: 2,
-      staleTime: 30_000,
-    },
-  },
-});
+import { queryClient } from '../src/lib/query-client';
 
 export default function RootLayout() {
   const [fontsLoaded, fontError] = useFonts({
@@ -93,15 +87,19 @@ export default function RootLayout() {
     connectOpenClaw(ocHost, ocToken ?? '');
     let unsubNode: (() => void) | undefined;
     let unsubRug: (() => void) | undefined;
+    let unsubMonitor: (() => void) | undefined;
     const t = setTimeout(() => {
       registerDeviceNode();
       unsubNode = startNodeCommandListener();
       unsubRug = startRugResponseListener();
+      unsubMonitor = startWatchlistMonitorListener();
+      setupWatchlistMonitor();
     }, 1_500);
     return () => {
       clearTimeout(t);
       unsubNode?.();
       unsubRug?.();
+      unsubMonitor?.();
     };
   }, [ocHost]);
 

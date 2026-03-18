@@ -6,6 +6,7 @@ import { isOpenClawAvailable, sendRequest, subscribe } from './openclaw';
 import { useAuthStore } from '../store/auth';
 import { useAlertsStore } from '../store/alerts';
 import { getLineage } from './api';
+import { apiClient } from './api-client';
 import type { AlertItem } from '../types/api';
 import type { DeviceNodeCommand, DeviceNodeResult } from '../types/openclaw';
 import * as Notifications from 'expo-notifications';
@@ -19,6 +20,7 @@ export async function registerDeviceNode(): Promise<void> {
     await sendRequest('node.register', {
       capabilities: [
         'lineage.scan',
+        'lineage.analyze',
         'lineage.watchlist',
         'lineage.alert',
         'lineage.navigate',
@@ -70,9 +72,16 @@ async function dispatchCommand(
     case 'lineage.scan': {
       const mint = params.mint as string;
       if (!mint) throw new Error('mint param required');
-      const apiKey = useAuthStore.getState().apiKey;
-      if (!apiKey) throw new Error('No API key configured');
       return await getLineage(mint);
+    }
+
+    case 'lineage.analyze': {
+      const mint = params.mint as string;
+      if (!mint) throw new Error('mint param required');
+      const { data } = await apiClient.GET('/analyze/{mint}', {
+        params: { path: { mint } },
+      });
+      return data;
     }
 
     case 'lineage.watchlist': {
