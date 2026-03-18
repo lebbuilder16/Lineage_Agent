@@ -249,9 +249,9 @@ function handleFrame(
         if (hello?.deviceToken) {
           store.setDeviceToken(hello.deviceToken);
         }
-        // If the hello response did NOT include a device token, the device is
-        // not yet paired. Explicitly request pairing so the admin can approve.
-        if (!hello?.deviceToken && ws && ws.readyState === WebSocket.OPEN) {
+        // If the hello response did NOT include a device token AND we don't
+        // already have one stored, the device is not yet paired.
+        if (!hello?.deviceToken && !store.deviceToken && ws && ws.readyState === WebSocket.OPEN) {
           const pairFrame: OpenClawRequest = {
             type: 'req',
             id: 'pair-0',
