@@ -99,26 +99,11 @@ function bytesToHex(bytes: Uint8Array): string {
 
 // ─── SHA-256 (pure JS via @noble/hashes) ────────────────────────────────────
 
-let sha256Fn: ((data: Uint8Array) => Uint8Array) | null = null;
-
-function getSha256(): (data: Uint8Array) => Uint8Array {
-  if (sha256Fn) return sha256Fn;
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const mod = require('@noble/hashes/sha2');
-    sha256Fn = mod.sha256;
-    return sha256Fn!;
-  } catch {
-    // fallback: try sha256 directly
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const mod = require('@noble/hashes/sha256');
-    sha256Fn = mod.sha256;
-    return sha256Fn!;
-  }
-}
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { sha256 } = require('@noble/hashes/sha2') as { sha256: (data: Uint8Array) => Uint8Array };
 
 function sha256Hex(bytes: Uint8Array): string {
-  return bytesToHex(getSha256()(bytes));
+  return bytesToHex(sha256(bytes));
 }
 
 // ─── Constants ───────────────────────────────────────────────────────────────
