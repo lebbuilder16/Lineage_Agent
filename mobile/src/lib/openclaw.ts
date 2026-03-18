@@ -162,22 +162,27 @@ async function doConnect(host: string, token: string) {
       const challengePayload = (frame as OpenClawEvent).payload as { nonce: string; ts: number };
       console.log('[openclaw] received connect.challenge, signing device identity...');
 
+      // Use operator role when already paired, node role for initial pairing
+      const isPaired = useOpenClawStore.getState().paired;
+      const connectRole = isPaired ? 'operator' : 'node';
+      const connectMode = isPaired ? 'ui' : 'node';
+
       // Handle async signing in a .then/.catch chain (not async handler)
       signDeviceIdentity({
         nonce: challengePayload.nonce,
         clientId,
-        clientMode: 'node',
-        role: 'node',
+        clientMode: connectMode,
+        role: connectRole,
         scopes: SCOPES,
         token,
       })
         .then((device) => {
-          console.log('[openclaw] device identity signed, sending connect frame...');
+          console.log(`[openclaw] device identity signed (role=${connectRole}), sending connect frame...`);
           const params: ConnectParams = {
             minProtocol: PROTOCOL_VERSION,
             maxProtocol: PROTOCOL_VERSION,
-            client: { id: clientId, version: '1.0.0', platform: Platform.OS, mode: 'node', deviceFamily: 'mobile' },
-            role: 'node',
+            client: { id: clientId, version: '1.0.0', platform: Platform.OS, mode: connectMode, deviceFamily: 'mobile' },
+            role: connectRole,
             auth: {
               token,
               ...(useOpenClawStore.getState().roleToken
@@ -185,7 +190,7 @@ async function doConnect(host: string, token: string) {
                 : {}),
             },
             scopes: SCOPES,
-            caps: ['lineage.scan', 'lineage.watchlist', 'lineage.alert', 'notifications.send'],
+            caps: ['lineage.scan', 'lineage.analyze', 'lineage.watchlist', 'lineage.alert', 'notifications.send'],
             device,
           };
           const connectFrame: OpenClawRequest = {
