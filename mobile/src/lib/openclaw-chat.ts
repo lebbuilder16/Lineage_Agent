@@ -63,7 +63,10 @@ async function fetchFreshLineage(mint: string): Promise<LineageResult | null> {
 function buildTokenContext(mint: string, lineage: LineageResult | null): string {
   if (!lineage) return `[Analyzing Solana token ${mint}. No scan data available.]`;
 
-  const root = lineage.root ?? undefined;
+  // Use query_token (the actual scanned token) when available — root is the
+  // oldest ancestor in the lineage tree and may have different market data.
+  const qt = (lineage as Record<string, unknown>).query_token as Record<string, unknown> | undefined;
+  const root = qt ?? (lineage.root as Record<string, unknown> | undefined);
   if (!root) return `[Analyzing Solana token ${mint}. Scan data incomplete.]`;
   const dc = lineage.death_clock ?? undefined;
   const bundle = lineage.bundle_report ?? undefined;
@@ -72,18 +75,28 @@ function buildTokenContext(mint: string, lineage: LineageResult | null): string 
 
   const parts: string[] = [];
 
+  const mcap = root.market_cap_usd as number | null | undefined;
+  const liq = root.liquidity_usd as number | null | undefined;
+
   parts.push(`DATA FETCHED AT: ${new Date().toISOString()} (live)`);
   parts.push(`TOKEN: ${root.name} (${root.symbol}) — mint: ${mint}`);
   parts.push(`Deployer: ${root.deployer}`);
   if (root.created_at) parts.push(`Created: ${root.created_at}`);
-  if (root.market_cap_usd) parts.push(`Market cap: $${formatNum(root.market_cap_usd)}`);
-  if (root.liquidity_usd) parts.push(`Liquidity: $${formatNum(root.liquidity_usd)}`);
+  if (mcap) parts.push(`Market cap: $${formatNum(mcap)}`);
+  if (liq) parts.push(`Liquidity: $${formatNum(liq)}`);
   if (root.lifecycle_stage) parts.push(`Lifecycle: ${root.lifecycle_stage}`);
   if (root.market_surface) parts.push(`Market surface: ${root.market_surface}`);
 
+  // If the scanned token is NOT the root, mention the lineage relationship
+  const rootMint = lineage.root?.mint;
+  const isDerivative = rootMint && rootMint !== mint;
   const derivCount = lineage.derivatives?.length ?? 0;
+  if (isDerivative) {
+    parts.push(`\nLINEAGE: This token is a derivative/clone of ${lineage.root?.name} (${rootMint})`);
+    parts.push(`  Root market cap: $${formatNum((lineage.root?.market_cap_usd as number) || 0)}`);
+  }
   if (derivCount > 0) {
-    parts.push(`\nLINEAGE: ${derivCount} derivative(s) (confidence: ${(lineage.confidence * 100).toFixed(0)}%)`);
+    parts.push(`  ${derivCount} total derivative(s) in family (confidence: ${(lineage.confidence * 100).toFixed(0)}%)`);
   }
 
   if (dc) {
