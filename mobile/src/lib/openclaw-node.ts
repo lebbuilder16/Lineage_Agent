@@ -3,6 +3,7 @@
 // The mobile app exposes commands that OpenClaw skills/cron jobs can call back.
 // ─────────────────────────────────────────────────────────────────────────────
 import { isOpenClawAvailable, sendRequest, subscribe } from './openclaw';
+import { useOpenClawStore } from '../store/openclaw';
 import { useAuthStore } from '../store/auth';
 import { useAlertsStore } from '../store/alerts';
 import { getLineage } from './api';
@@ -15,6 +16,8 @@ import * as Notifications from 'expo-notifications';
 
 export async function registerDeviceNode(): Promise<void> {
   if (!isOpenClawAvailable()) return;
+  // node.register is a node-role method — skip when paired (operator role)
+  if (useOpenClawStore.getState().paired) return;
 
   try {
     await sendRequest('node.register', {
