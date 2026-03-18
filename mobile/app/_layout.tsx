@@ -1,3 +1,4 @@
+import 'react-native-get-random-values'; // Polyfill crypto.getRandomValues for tweetnacl — MUST be first
 import { useEffect } from 'react';
 import { useFonts } from 'expo-font';
 import { Stack } from 'expo-router';
