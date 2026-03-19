@@ -29,7 +29,7 @@ export async function searchTokens(q = '', offset = 0, limit = 20): Promise<Toke
 }
 
 // lineage
-export async function getLineage(mint: string, forceRefresh = true): Promise<LineageResult> {
+export async function getLineage(mint: string, forceRefresh = false): Promise<LineageResult> {
   const { data } = await apiClient.GET('/lineage', {
     params: { query: { mint, force_refresh: forceRefresh } },
   });
