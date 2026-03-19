@@ -10,7 +10,7 @@ import { StyleSheet, View, AppState } from 'react-native';
 import * as Linking from 'expo-linking';
 import * as Notifications from 'expo-notifications';
 import { checkWatchedTokenAlerts } from '../src/lib/notifications';
-import { connectOpenClaw, disconnectOpenClaw } from '../src/lib/openclaw';
+import { connectOpenClaw, disconnectOpenClaw, isOpenClawAvailable } from '../src/lib/openclaw';
 import { useOpenClawStore } from '../src/store/openclaw';
 import { registerDeviceNode, startNodeCommandListener } from '../src/lib/openclaw-node';
 import { startRugResponseListener } from '../src/lib/openclaw-rug-response';
@@ -83,16 +83,14 @@ export default function RootLayout() {
     };
   }, []);
 
-  // Connect OpenClaw when host becomes available (after AsyncStorage hydration)
-  useEffect(() => {
-    if (!ocHost) return;
-    connectOpenClaw(ocHost, ocToken ?? '');
-  }, [ocHost]);
+  // OpenClaw is optional (power users only) — don't auto-connect.
+  // All features work via backend direct API.
+  // Only connect if user has explicitly enabled it via deep link or settings.
 
-  // Initialize listeners + crons once OpenClaw is connected (no race condition)
+  // Initialize listeners + crons once OpenClaw is connected
   const ocConnected = useOpenClawStore((s) => s.connected);
   useEffect(() => {
-    if (!ocConnected) return;
+    if (!ocConnected || !isOpenClawAvailable()) return;
     registerDeviceNode();
     const unsubNode = startNodeCommandListener();
     const unsubRug = startRugResponseListener();

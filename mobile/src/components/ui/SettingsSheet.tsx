@@ -254,12 +254,15 @@ export function SettingsSheet({ visible, onClose }: SettingsSheetProps) {
             <Text style={styles.hintLink}>lineage-agent.fly.dev/dashboard</Text>
           </Text>
 
-          {/* ── OpenClaw Section ── */}
+          {/* ── Advanced: OpenClaw (Optional) ── */}
           <View style={styles.divider} />
+          <Text style={styles.advancedHint}>
+            Advanced — All features work without OpenClaw. This is for power users who self-host their own gateway.
+          </Text>
           <View style={styles.titleRow}>
             <View style={styles.titleLeft}>
               <Zap size={18} color={tokens.secondary} />
-              <Text style={styles.title}>OpenClaw</Text>
+              <Text style={styles.title}>OpenClaw (Optional)</Text>
             </View>
             <View style={styles.statusRow}>
               <View style={[
@@ -441,6 +444,14 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: tokens.borderSubtle,
     marginVertical: 4,
+  },
+  advancedHint: {
+    fontFamily: 'Lexend-Regular',
+    fontSize: tokens.font.tiny,
+    color: tokens.white35,
+    textAlign: 'center',
+    marginTop: 4,
+    marginBottom: -4,
   },
   statusRow: {
     flexDirection: 'row',

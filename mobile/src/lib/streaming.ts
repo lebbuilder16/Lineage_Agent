@@ -3,9 +3,6 @@
 import { WS_BASE } from './api-client';
 import type { AnalysisStep, AlertItem, LineageResult } from '../types/api';
 import * as Notifications from 'expo-notifications';
-import { isOpenClawAvailable } from './openclaw';
-import { routeAlertToChannels, enrichAlert } from './openclaw-alerts';
-import { useAlertPrefsStore } from '../store/alert-prefs';
 import { useAlertsStore } from '../store/alerts';
 
 const BASE_URL = (
@@ -296,17 +293,7 @@ export function connectAlertsWS(
         if (isDuplicate(data)) return;
         onAlert(data);
 
-        // OpenClaw: multi-channel routing + AI enrichment (best-effort, async)
-        if (isOpenClawAvailable()) {
-          routeAlertToChannels(data);
-          if (useAlertPrefsStore.getState().enrichmentEnabled) {
-            enrichAlert(data).then((enriched) => {
-              if (enriched) {
-                useAlertsStore.getState().updateEnrichment(data.id, enriched);
-              }
-            }).catch(() => {});
-          }
-        }
+        // Alert routing + enrichment now handled server-side
 
         Notifications.scheduleNotificationAsync({
           content: {
