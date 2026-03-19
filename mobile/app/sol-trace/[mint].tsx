@@ -14,6 +14,7 @@ import Svg, { Line, Rect, Text as SvgText, G, Path } from 'react-native-svg';
 import { useLocalSearchParams, router, Stack } from 'expo-router';
 import { ChevronLeft, ArrowRight, GitMerge, Wallet, ExternalLink } from 'lucide-react-native';
 import { AuroraBackground } from '../../src/components/ui/AuroraBackground';
+import { FeatureGate } from '../../src/components/ui/FeatureGate';
 import { GlassCard } from '../../src/components/ui/GlassCard';
 import { SkeletonBlock } from '../../src/components/ui/SkeletonLoader';
 import { useSolTrace } from '../../src/lib/query';
@@ -213,6 +214,7 @@ export default function SolTraceScreen() {
           <View style={{ width: 24 }} />
         </View>
 
+        <FeatureGate feature="SOL Flow Trace" requiredPlan="pro">
         {isLoading && (
           <View style={styles.padded}>
             <GlassCard><SkeletonBlock lines={3} /></GlassCard>
@@ -336,6 +338,7 @@ export default function SolTraceScreen() {
             }
           />
         )}
+        </FeatureGate>
       </View>
     </View>
   );

@@ -20,6 +20,7 @@ import {
   Shield,
 } from 'lucide-react-native';
 import { AuroraBackground } from '../../src/components/ui/AuroraBackground';
+import { FeatureGate } from '../../src/components/ui/FeatureGate';
 import { GlassCard } from '../../src/components/ui/GlassCard';
 import { GaugeRing } from '../../src/components/ui/GaugeRing';
 import { RiskBadge } from '../../src/components/ui/RiskBadge';
@@ -83,6 +84,7 @@ export default function OperatorScreen() {
             <RefreshControl refreshing={isLoading} onRefresh={refetch} tintColor={tokens.primary} />
           }
         >
+          <FeatureGate feature="Operator Fingerprint" requiredPlan="pro_plus">
           {isLoading && (
             <GlassCard>
               <SkeletonBlock lines={5} />
@@ -251,6 +253,7 @@ export default function OperatorScreen() {
               )}
             </Animated.View>
           )}
+          </FeatureGate>
         </ScrollView>
       </View>
     </View>

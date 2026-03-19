@@ -95,6 +95,12 @@ export const useAuthStore = create<AuthState>((set) => ({
         }
       }
       set({ apiKey: key ?? null, hydrated: true, recentSearches });
+
+      // Sync subscription state from backend (fire-and-forget)
+      if (key) {
+        const { useSubscriptionStore } = await import('./subscription');
+        useSubscriptionStore.getState().fetchStatus(key);
+      }
     } catch (e) {
       console.error('[auth] SecureStore.getItem failed during hydration', e);
       set({ hydrated: true });

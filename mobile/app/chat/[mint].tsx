@@ -14,7 +14,10 @@ import { useLocalSearchParams, router, Stack } from 'expo-router';
 import { ChevronLeft, Send, Bot } from 'lucide-react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AuroraBackground } from '../../src/components/ui/AuroraBackground';
+import { FeatureGate } from '../../src/components/ui/FeatureGate';
 import { smartChatStream, isChatOpenClawMode } from '../../src/lib/openclaw-chat';
+import { useSubscriptionStore } from '../../src/store/subscription';
+import { useRemainingQuota } from '../../src/store/subscription';
 import { tokens } from '../../src/theme/tokens';
 
 const CHAT_KEY = (mint: string) => `chat:${mint}`;
@@ -43,6 +46,8 @@ export default function ChatScreen() {
   const flatListRef = useRef<FlatList<Message>>(null);
   const cancelRef = useRef<(() => void) | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const plan = useSubscriptionStore((s) => s.plan);
+  const remaining = useRemainingQuota('ai_chat');
 
   // Load persisted chat on mount
   useEffect(() => {
@@ -211,52 +216,58 @@ export default function ChatScreen() {
           <View style={{ width: 24 }} />
         </View>
 
-        <KeyboardAvoidingView
-          style={styles.kav}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          keyboardVerticalOffset={0}
-        >
-          {/* Message list */}
-          <FlatList
-            ref={flatListRef}
-            data={messages}
-            keyExtractor={(item) => item.id}
-            renderItem={renderItem}
-            contentContainerStyle={styles.listContent}
-            showsVerticalScrollIndicator={false}
-            onContentSizeChange={() =>
-              flatListRef.current?.scrollToEnd({ animated: true })
-            }
-          />
+        <FeatureGate feature="AI Chat" requiredPlan="pro">
+          {plan === 'pro' && remaining >= 0 && (
+            <Text style={styles.quotaCounter}>{remaining}/20 messages today</Text>
+          )}
 
-          {/* Input row */}
-          <View style={styles.inputRow}>
-            <TextInput
-              style={styles.input}
-              placeholder="Ask about this token…"
-              placeholderTextColor={tokens.white35}
-              value={input}
-              onChangeText={setInput}
-              onSubmitEditing={sendMessage}
-              returnKeyType="send"
-              multiline
-              maxLength={600}
-              editable={!busy}
+          <KeyboardAvoidingView
+            style={styles.kav}
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            keyboardVerticalOffset={0}
+          >
+            {/* Message list */}
+            <FlatList
+              ref={flatListRef}
+              data={messages}
+              keyExtractor={(item) => item.id}
+              renderItem={renderItem}
+              contentContainerStyle={styles.listContent}
+              showsVerticalScrollIndicator={false}
+              onContentSizeChange={() =>
+                flatListRef.current?.scrollToEnd({ animated: true })
+              }
             />
-            <TouchableOpacity
-              onPress={sendMessage}
-              disabled={!input.trim() || busy}
-              style={[
-                styles.sendBtn,
-                (!input.trim() || busy) && styles.sendBtnDisabled,
-              ]}
-              accessibilityRole="button"
-              accessibilityLabel="Send message"
-            >
-              <Send size={18} color={tokens.bgMain} />
-            </TouchableOpacity>
-          </View>
-        </KeyboardAvoidingView>
+
+            {/* Input row */}
+            <View style={styles.inputRow}>
+              <TextInput
+                style={styles.input}
+                placeholder="Ask about this token…"
+                placeholderTextColor={tokens.white35}
+                value={input}
+                onChangeText={setInput}
+                onSubmitEditing={sendMessage}
+                returnKeyType="send"
+                multiline
+                maxLength={600}
+                editable={!busy}
+              />
+              <TouchableOpacity
+                onPress={sendMessage}
+                disabled={!input.trim() || busy}
+                style={[
+                  styles.sendBtn,
+                  (!input.trim() || busy) && styles.sendBtnDisabled,
+                ]}
+                accessibilityRole="button"
+                accessibilityLabel="Send message"
+              >
+                <Send size={18} color={tokens.bgMain} />
+              </TouchableOpacity>
+            </View>
+          </KeyboardAvoidingView>
+        </FeatureGate>
       </View>
     </View>
   );
@@ -386,5 +397,13 @@ const styles = StyleSheet.create({
   },
   sendBtnDisabled: {
     backgroundColor: tokens.white20,
+  },
+  quotaCounter: {
+    fontFamily: 'Lexend-Regular',
+    fontSize: tokens.font.tiny,
+    color: tokens.white35,
+    textAlign: 'center',
+    paddingVertical: 4,
+    letterSpacing: 0.3,
   },
 });

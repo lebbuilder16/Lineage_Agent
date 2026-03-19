@@ -11,6 +11,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router, Stack } from 'expo-router';
 import { ChevronLeft, ChevronRight, Activity, ActivitySquare } from 'lucide-react-native';
 import { AuroraBackground } from '../../src/components/ui/AuroraBackground';
+import { FeatureGate } from '../../src/components/ui/FeatureGate';
 import { GlassCard } from '../../src/components/ui/GlassCard';
 import { SkeletonBlock } from '../../src/components/ui/SkeletonLoader';
 import { HapticButton } from '../../src/components/ui/HapticButton';
@@ -89,6 +90,7 @@ export default function CartelScreen() {
           showsVerticalScrollIndicator={false}
           refreshControl={<RefreshControl refreshing={isLoading} onRefresh={refetch} tintColor={tokens.primary} />}
         >
+          <FeatureGate feature="Cartel Detection" requiredPlan="pro_plus">
           {isLoading && <GlassCard><SkeletonBlock lines={4} /></GlassCard>}
 
           {!isLoading && error && (
@@ -151,6 +153,7 @@ export default function CartelScreen() {
               )}
             </Animated.View>
           )}
+          </FeatureGate>
         </ScrollView>
       </View>
     </View>

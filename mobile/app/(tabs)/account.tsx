@@ -9,14 +9,16 @@ import {
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeInDown } from 'react-native-reanimated';
-import { User, Shield, Key, Zap, LogOut, ChevronRight, Activity } from 'lucide-react-native';
+import { User, Shield, Key, Zap, LogOut, ChevronRight, Activity, Crown } from 'lucide-react-native';
 import { AuroraBackground } from '../../src/components/ui/AuroraBackground';
 import { GlassCard } from '../../src/components/ui/GlassCard';
 import { HapticButton } from '../../src/components/ui/HapticButton';
 import { ScreenHeader } from '../../src/components/ui/ScreenHeader';
 import { useAuthStore } from '../../src/store/auth';
+import { useSubscriptionStore } from '../../src/store/subscription';
 import { useOpenClawStore } from '../../src/store/openclaw';
 import { isOpenClawAvailable } from '../../src/lib/openclaw';
+import { tierLabel, tierColor } from '../../src/lib/tier-limits';
 import { tokens } from '../../src/theme/tokens';
 
 function InfoRow({ label, value, icon }: { label: string; value: string; icon: React.ReactNode }) {
@@ -41,6 +43,8 @@ export default function AccountScreen() {
   const setUser = useAuthStore((s) => s.setUser);
   const ocConnected = useOpenClawStore((s) => s.connected);
   const ocHost = useOpenClawStore((s) => s.host);
+  const subPlan = useSubscriptionStore((s) => s.plan);
+  const expiresAt = useSubscriptionStore((s) => s.expiresAt);
 
   const handleLogout = () => {
     Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
@@ -87,6 +91,34 @@ export default function AccountScreen() {
                   </View>
                   <Text style={styles.profileName}>{displayName}</Text>
                   <Text style={styles.profileSince}>Member since {memberSince}</Text>
+                </GlassCard>
+              </Animated.View>
+
+              {/* Plan */}
+              <Animated.View entering={FadeInDown.delay(50).duration(400)}>
+                <GlassCard style={styles.planCard}>
+                  <View style={styles.planRow}>
+                    <Crown size={18} color={tierColor(subPlan)} />
+                    <View style={[styles.planBadge, { backgroundColor: `${tierColor(subPlan)}20`, borderColor: `${tierColor(subPlan)}40` }]}>
+                      <Text style={[styles.planBadgeText, { color: tierColor(subPlan) }]}>
+                        {tierLabel(subPlan)}
+                      </Text>
+                    </View>
+                    <View style={{ flex: 1 }} />
+                    <HapticButton
+                      variant="ghost"
+                      size="sm"
+                      onPress={() => router.push('/paywall' as any)}
+                    >
+                      <Text style={styles.managePlanText}>Manage Plan</Text>
+                      <ChevronRight size={14} color={tokens.secondary} />
+                    </HapticButton>
+                  </View>
+                  {expiresAt && subPlan !== 'free' && (
+                    <Text style={styles.planExpiry}>
+                      Expires {new Date(expiresAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                    </Text>
+                  )}
                 </GlassCard>
               </Animated.View>
 
@@ -199,6 +231,32 @@ const styles = StyleSheet.create({
     fontFamily: 'Lexend-Regular',
     fontSize: tokens.font.small,
     color: tokens.white35,
+  },
+
+  // Plan
+  planCard: { paddingVertical: 14 },
+  planRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  planBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: tokens.radius.pill,
+    borderWidth: 1,
+  },
+  planBadgeText: {
+    fontFamily: 'Lexend-Bold',
+    fontSize: tokens.font.small,
+    letterSpacing: 0.5,
+  },
+  managePlanText: {
+    fontFamily: 'Lexend-SemiBold',
+    fontSize: tokens.font.small,
+    color: tokens.secondary,
+  },
+  planExpiry: {
+    fontFamily: 'Lexend-Regular',
+    fontSize: tokens.font.tiny,
+    color: tokens.white35,
+    marginTop: 8,
   },
 
   // Stats
