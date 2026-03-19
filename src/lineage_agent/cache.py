@@ -591,6 +591,42 @@ class SQLiteCache:
             """
         )
 
+        # ---------------------------------------------------------------
+        # Phase 3 — briefings
+        # ---------------------------------------------------------------
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS briefings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                content TEXT NOT NULL,
+                created_at REAL NOT NULL
+            )
+            """
+        )
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_briefings_user ON briefings(user_id, created_at)"
+        )
+
+        # ---------------------------------------------------------------
+        # Phase 4 — watch snapshots (watchlist monitor)
+        # ---------------------------------------------------------------
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS watch_snapshots (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                watch_id INTEGER NOT NULL,
+                mint TEXT NOT NULL,
+                risk_level TEXT,
+                risk_score REAL DEFAULT 0,
+                scanned_at REAL NOT NULL
+            )
+            """
+        )
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_ws_watch ON watch_snapshots(watch_id, scanned_at)"
+        )
+
         # Safe column migrations
         for col_sql in [
             "ALTER TABLE users ADD COLUMN rc_customer_id TEXT",

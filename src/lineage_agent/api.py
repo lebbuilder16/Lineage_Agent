@@ -269,6 +269,17 @@ async def lifespan(application: FastAPI):
     else:
         logger.info("WALLET_LABELS_CSV_URL not set — using static labels only")
 
+    # ── Phase 3+4: briefing sweep & watchlist monitor ────────────────────
+    from .briefing_service import schedule_briefing_sweep  # noqa: PLC0415
+    from .watchlist_monitor_service import schedule_watchlist_sweep  # noqa: PLC0415
+    from .data_sources._clients import cache as _startup_cache  # noqa: PLC0415
+    _briefing_sweep_task = asyncio.create_task(
+        schedule_briefing_sweep(_startup_cache), name="briefing_sweep"
+    )
+    _watchlist_sweep_task = asyncio.create_task(
+        schedule_watchlist_sweep(_startup_cache), name="watchlist_sweep"
+    )
+
     # -----------------------------------------------------------------------
     # Telegram bot — start inline with FastAPI (no separate process needed)
     # -----------------------------------------------------------------------
@@ -285,6 +296,10 @@ async def lifespan(application: FastAPI):
     _cancel_cartel_sweep()
     cancel_db_maintenance()
     _cancel_wallet_label_refresh()
+    if _briefing_sweep_task:
+        _briefing_sweep_task.cancel()
+    if _watchlist_sweep_task:
+        _watchlist_sweep_task.cancel()
     await close_clients()
 
 
@@ -1815,6 +1830,56 @@ async def auth_remove_watch(watch_id: int, request: Request):
     if not deleted:
         raise HTTPException(status_code=404, detail="Watch not found")
     return {"deleted": True}
+
+
+# ---------------------------------------------------------------------------
+# Phase 3 — Briefing endpoints
+# ---------------------------------------------------------------------------
+
+
+@app.get("/auth/briefing", tags=["auth"])
+async def get_briefing(request: Request):
+    """Get the latest daily briefing for the authenticated user."""
+    user = await _get_current_user(request)
+    from .briefing_service import get_latest_briefing  # noqa: PLC0415
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+    result = await get_latest_briefing(_cache, user["id"])
+    if not result:
+        return {"content": None, "message": "No briefing available yet"}
+    return result
+
+
+@app.get("/auth/briefings", tags=["auth"])
+async def get_briefings(request: Request, limit: int = 7):
+    """Get briefing history for the authenticated user."""
+    user = await _get_current_user(request)
+    from .briefing_service import get_briefing_history  # noqa: PLC0415
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+    return await get_briefing_history(_cache, user["id"], limit)
+
+
+# ---------------------------------------------------------------------------
+# Phase 4 — Watchlist monitor endpoints
+# ---------------------------------------------------------------------------
+
+
+@app.post("/auth/watches/{watch_id}/rescan", tags=["auth"])
+async def rescan_watch(watch_id: int, request: Request):
+    """Trigger an on-demand rescan of a watched token."""
+    user = await _get_current_user(request)
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+    # Verify the watch belongs to this user
+    db = await _cache._get_conn()
+    cursor = await db.execute(
+        "SELECT id FROM user_watches WHERE id = ? AND user_id = ?", (watch_id, user["id"])
+    )
+    if not await cursor.fetchone():
+        raise HTTPException(404, "Watch not found")
+    from .watchlist_monitor_service import run_single_rescan  # noqa: PLC0415
+    result = await run_single_rescan(watch_id, _cache)
+    if not result:
+        raise HTTPException(500, "Rescan failed")
+    return result
 
 
 # ---------------------------------------------------------------------------
