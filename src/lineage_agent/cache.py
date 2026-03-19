@@ -522,6 +522,71 @@ class SQLiteCache:
             "CREATE INDEX IF NOT EXISTS idx_uw_user ON user_watches(user_id)"
         )
 
+        # ---------------------------------------------------------------
+        # Phase 0D / Phase 1 — subscriptions, usage counters, webhooks
+        # ---------------------------------------------------------------
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS subscriptions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+                rc_customer_id TEXT,
+                plan TEXT NOT NULL DEFAULT 'free',
+                product_id TEXT,
+                expires_at REAL,
+                is_active INTEGER NOT NULL DEFAULT 1,
+                store TEXT,
+                payment_method TEXT,
+                tx_signature TEXT,
+                updated_at REAL NOT NULL
+            )
+            """
+        )
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_sub_rc ON subscriptions(rc_customer_id)"
+        )
+
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS usage_counters (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                counter_key TEXT NOT NULL,
+                date_key TEXT NOT NULL,
+                count INTEGER NOT NULL DEFAULT 0,
+                updated_at REAL NOT NULL,
+                UNIQUE(user_id, counter_key, date_key)
+            )
+            """
+        )
+
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS user_webhooks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                url TEXT NOT NULL,
+                events_filter TEXT,
+                secret TEXT,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                created_at REAL NOT NULL
+            )
+            """
+        )
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_uwh_user ON user_webhooks(user_id)"
+        )
+
+        # Safe column migrations
+        for col_sql in [
+            "ALTER TABLE users ADD COLUMN rc_customer_id TEXT",
+            "ALTER TABLE users ADD COLUMN discord_webhook_url TEXT",
+        ]:
+            try:
+                await db.execute(col_sql)
+            except Exception:
+                pass  # column already exists
+
         await db.commit()
         self._initialised = True
 

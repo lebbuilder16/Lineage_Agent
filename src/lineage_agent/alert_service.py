@@ -56,12 +56,12 @@ async def all_subscriptions() -> list[dict]:
             return []
         db = await _sc._get_conn()
         cursor = await db.execute(
-            "SELECT uw.sub_type, uw.value, u.telegram_chat_id AS chat_id "
+            "SELECT uw.sub_type, uw.value, u.telegram_chat_id AS chat_id, u.id AS user_id "
             "FROM user_watches uw JOIN users u ON u.id = uw.user_id "
-            "WHERE u.telegram_chat_id IS NOT NULL"
+            "WHERE u.telegram_chat_id IS NOT NULL OR u.discord_webhook_url IS NOT NULL"
         )
         rows = await cursor.fetchall()
-        return [{"sub_type": r[0], "value": r[1], "chat_id": r[2]} for r in rows]
+        return [{"sub_type": r[0], "value": r[1], "chat_id": r[2], "user_id": r[3]} for r in rows]
     except Exception:
         return []
 
@@ -99,6 +99,42 @@ async def _send_alert(chat_id: int, text: str) -> None:
         )
     except Exception as exc:
         logger.debug("[Telegram] send_message error: %s", exc)
+
+async def _send_discord_webhook(webhook_url: str, title: str, body: str, color: int = 0xFF3366) -> None:
+    """Send an embed to a Discord webhook URL. Silently swallows errors."""
+    if not webhook_url:
+        return
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            await client.post(
+                webhook_url,
+                json={
+                    "embeds": [{
+                        "title": title[:256],
+                        "description": body[:4096],
+                        "color": color,
+                        "footer": {"text": "Lineage Agent"},
+                    }],
+                },
+            )
+    except Exception as exc:
+        logger.debug("[Discord] webhook error: %s", exc)
+
+
+async def _send_discord_for_user(user_id: int, title: str, body: str) -> None:
+    """Look up user's discord_webhook_url and send the alert."""
+    try:
+        from .data_sources._clients import cache as _sc
+        db = await _sc._get_conn()
+        cursor = await db.execute(
+            "SELECT discord_webhook_url FROM users WHERE id = ?", (user_id,)
+        )
+        row = await cursor.fetchone()
+        if row and row[0]:
+            await _send_discord_webhook(row[0], title, body)
+    except Exception:
+        pass  # best-effort
+
 
 _sweep_task: Optional[asyncio.Task] = None
 # Web WebSocket clients (browser dashboard)
@@ -330,7 +366,14 @@ async def _run_alert_sweep() -> int:
                     f"{_esc(name)}{_esc(mcap_str)}\n"
                     f"`{_esc(row.get('mint', ''))}`"
                 )
-                await _send_alert(chat_id=int(chat_id), text=text)
+                if chat_id:
+                    await _send_alert(chat_id=int(chat_id), text=text)
+                # Discord delivery (parallel, best-effort)
+                user_id = sub.get("user_id")
+                if user_id:
+                    await _send_discord_for_user(
+                        user_id, f"{sub_type.upper()} ALERT", f"{name}{mcap_str}"
+                    )
                 await _broadcast_web_alert({
                     "event": "alert",
                     "type": sub_type,

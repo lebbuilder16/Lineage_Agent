@@ -99,6 +99,19 @@ async def create_or_get_user(
         raise
 
 
+async def regenerate_api_key(cache, user_id: int) -> str | None:
+    """Generate a new API key for the user, invalidating the old one. Returns the new key."""
+    new_key = generate_api_key()
+    try:
+        db = await cache._get_conn()
+        await db.execute("UPDATE users SET api_key = ? WHERE id = ?", (new_key, user_id))
+        await db.commit()
+        return new_key
+    except Exception:
+        logger.warning("regenerate_api_key failed for user_id=%s", user_id, exc_info=True)
+        return None
+
+
 async def verify_api_key(cache, api_key: str) -> dict | None:
     """
     Look up a user by API key. Returns the user dict or None if invalid.
@@ -160,7 +173,7 @@ async def upgrade_user_plan(cache, user_id: int, plan: str) -> bool:
     Called by the RevenueCat webhook and the manual restore flow.
     Returns True on success.
     """
-    if plan not in ("free", "pro"):
+    if plan not in ("free", "pro", "pro_plus", "whale"):
         logger.warning("upgrade_user_plan: invalid plan %r for user_id=%s", plan, user_id)
         return False
     try:
