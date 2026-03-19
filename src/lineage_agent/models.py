@@ -894,6 +894,17 @@ class InsiderSellReport(BaseModel):
         ),
     )
 
+    # ── On-chain activity fallback (when DexScreener txns unavailable) ───
+    onchain_tx_count_1h: Optional[int] = Field(
+        None, description="On-chain tx count for mint in last 1 h (RPC fallback)"
+    )
+    onchain_tx_count_6h: Optional[int] = Field(
+        None, description="On-chain tx count for mint in last 6 h (RPC fallback)"
+    )
+    onchain_tx_count_24h: Optional[int] = Field(
+        None, description="On-chain tx count for mint in last 24 h (RPC fallback)"
+    )
+
     # ── On-chain confirmation (1 RPC call per wallet) ────────────────────
     deployer_exited: Optional[bool] = Field(
         None,

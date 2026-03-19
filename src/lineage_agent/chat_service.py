@@ -65,6 +65,13 @@ INSIDER SELL:
 - Pression vendeuse: X% en 1h, Y% en 6h
 - Variation prix: X% en 1h, Y% en 24h
 
+[Si on-chain activity fallback présent]:
+ON-CHAIN ACTIVITY:
+- Transactions dernière heure: X
+- Transactions dernières 6h: X
+- Transactions dernières 24h: X
+- (Note: données RPC brutes, pas de distinction buy/sell — mais permet d'évaluer l'activité réelle du token)
+
 [Si sol_flow présent]:
 SOL FLOW:
 - Extraction totale: X SOL
@@ -260,6 +267,20 @@ def build_rich_context(lineage_result) -> str:
         pc24 = _g(insider, "price_change_24h")
         if pc24 is not None:
             parts.append(f"  Price change 24h: {pc24}%")
+
+    # On-chain activity fallback (when DexScreener txns unavailable)
+    if insider:
+        otx_1h = _g(insider, "onchain_tx_count_1h")
+        otx_6h = _g(insider, "onchain_tx_count_6h")
+        otx_24h = _g(insider, "onchain_tx_count_24h")
+        if otx_1h is not None or otx_6h is not None or otx_24h is not None:
+            parts.append("\nON-CHAIN ACTIVITY (RPC fallback — DexScreener txns unavailable):")
+            if otx_1h is not None:
+                parts.append(f"  Transactions last 1h: {otx_1h}")
+            if otx_6h is not None:
+                parts.append(f"  Transactions last 6h: {otx_6h}")
+            if otx_24h is not None:
+                parts.append(f"  Transactions last 24h: {otx_24h}")
 
     if not insider:
         parts.append("\nINSIDER SELL: no data available")

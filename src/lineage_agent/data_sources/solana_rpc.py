@@ -155,6 +155,23 @@ class SolanaRpcClient:
     # Public API
     # ------------------------------------------------------------------
 
+    async def get_recent_signatures(
+        self, address: str, *, limit: int = 200,
+    ) -> list[dict[str, Any]]:
+        """Return the *limit* most-recent confirmed signatures for *address*.
+
+        Each dict contains at least ``signature``, ``slot``, ``blockTime``.
+        Returns an empty list on RPC failure.
+        """
+        params: list[Any] = [
+            address,
+            {"limit": min(limit, 1000), "commitment": "finalized"},
+        ]
+        result = await self._call("getSignaturesForAddress", params)
+        if not result or not isinstance(result, list):
+            return []
+        return result
+
     async def get_oldest_signature(
         self, address: str, *, circuit_protect: bool = True,
     ) -> Optional[dict[str, Any]]:

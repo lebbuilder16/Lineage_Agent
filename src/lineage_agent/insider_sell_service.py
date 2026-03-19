@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from typing import Any, Literal, Optional
 
 from .constants import BONDING_CURVE_LAUNCHPAD_PLATFORMS
@@ -110,6 +111,15 @@ async def analyze_insider_sell(
         market_surface=inferred_market_surface,
         infer_from_pairs=allow_pair_inference,
     )
+
+    # ── Step 1b: On-chain activity fallback when DexScreener has no txns ─
+    _has_market_signals = (
+        report.sell_pressure_1h is not None
+        or report.sell_pressure_6h is not None
+        or report.sell_pressure_24h is not None
+    )
+    if not _has_market_signals and report.applicability != DataApplicability.NOT_APPLICABLE:
+        await _fill_onchain_activity(report, mint, rpc)
 
     # ── Step 2: On-chain balance snapshots ───────────────────────────────
     # Check deployer + up to 3 linked wallets; fire in parallel.
@@ -258,6 +268,52 @@ async def _fetch_balance(
     except Exception as exc:
         logger.debug("get_wallet_token_balance failed for %s: %s", wallet[:8], exc)
         return None
+
+
+async def _fill_onchain_activity(
+    report: InsiderSellReport,
+    mint: str,
+    rpc: SolanaRpcClient,
+) -> None:
+    """Fallback: count recent on-chain txs when DexScreener txns are unavailable.
+
+    Uses ``getSignaturesForAddress`` on the mint to measure activity in
+    1 h / 6 h / 24 h windows.  This is NOT buy/sell classification — it's a
+    raw activity count — but it's far more useful than "non disponible".
+    """
+    try:
+        sigs = await asyncio.wait_for(
+            rpc.get_recent_signatures(mint, limit=200),
+            timeout=5.0,
+        )
+        if not sigs:
+            return
+
+        now = time.time()
+        count_1h = count_6h = count_24h = 0
+        for sig in sigs:
+            block_time = sig.get("blockTime")
+            if not block_time:
+                continue
+            age_s = now - block_time
+            if age_s <= 3600:
+                count_1h += 1
+            if age_s <= 21600:
+                count_6h += 1
+            if age_s <= 86400:
+                count_24h += 1
+
+        report.onchain_tx_count_1h = count_1h
+        report.onchain_tx_count_6h = count_6h
+        report.onchain_tx_count_24h = count_24h
+        if "onchain_activity_fallback" not in report.reason_codes:
+            report.reason_codes.append("onchain_activity_fallback")
+        logger.info(
+            "[insider_sell] on-chain fallback for %s: 1h=%d 6h=%d 24h=%d",
+            mint[:8], count_1h, count_6h, count_24h,
+        )
+    except Exception:
+        logger.debug("on-chain activity probe failed for %s", mint[:8], exc_info=True)
 
 
 def _apply_flags(report: InsiderSellReport) -> None:

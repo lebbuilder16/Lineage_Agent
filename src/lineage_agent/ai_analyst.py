@@ -1440,8 +1440,80 @@ def _rule_based_fallback(
             findings.append("[IDENTITY] Zombie relaunch — original token already died.")
             weighted.append((75.0, 0.15))
 
+    # ── Token-level metrics fallback (always available from DexScreener) ──
+    # When no bundle/sol_flow/lineage signals exist, use token-level data
+    # so we NEVER return None for a scanned token.
+    _qt = _get_query_token(lineage)
+    if _qt is not None:
+        mcap = getattr(_qt, "market_cap_usd", None) or 0
+        liq = getattr(_qt, "liquidity_usd", None) or 0
+        created_at = getattr(_qt, "created_at", None)
+
+        # Liquidity / MC ratio
+        if mcap > 0 and liq > 0:
+            liq_ratio = liq / mcap
+            if liq_ratio < 0.05:
+                weighted.append((72.0, 0.30))
+                findings.append(f"[FINANCIAL] Extremely low liquidity ratio ({liq_ratio:.1%} of market cap) — exit would be near-impossible.")
+            elif liq_ratio < 0.15:
+                weighted.append((55.0, 0.30))
+                findings.append(f"[FINANCIAL] Low liquidity ratio ({liq_ratio:.1%} of market cap) — thin exit liquidity.")
+            elif liq_ratio < 0.30:
+                weighted.append((35.0, 0.25))
+                findings.append(f"[FINANCIAL] Moderate liquidity ratio ({liq_ratio:.1%} of market cap) — normal for early-stage meme tokens but limits exit capacity.")
+            else:
+                weighted.append((20.0, 0.20))
+                findings.append(f"[FINANCIAL] Liquidity ratio ({liq_ratio:.1%} of market cap) is within acceptable range.")
+
+        # Token age — very young tokens are higher risk
+        if created_at:
+            try:
+                _now = datetime.now(tz=timezone.utc)
+                _age_h = (_now - created_at).total_seconds() / 3600
+                if _age_h < 1:
+                    weighted.append((60.0, 0.15))
+                    findings.append(f"[TIMING] Token is less than 1 hour old — extremely early, limited data.")
+                elif _age_h < 6:
+                    weighted.append((48.0, 0.10))
+                    findings.append(f"[TIMING] Token is {_age_h:.0f}h old — very early stage.")
+                elif _age_h < 24:
+                    weighted.append((35.0, 0.08))
+                    findings.append(f"[TIMING] Token is {_age_h:.0f}h old — still in early phase, forensic data accumulating.")
+            except Exception:
+                pass
+
+        # Deployer exit status from insider_sell
+        _ins = getattr(lineage, "insider_sell", None) if lineage else None
+        if _ins is not None:
+            _de = getattr(_ins, "deployer_exited", None)
+            if _de is True:
+                weighted.append((78.0, 0.25))
+                findings.append("[EXIT] Deployer wallet has fully exited the token — zero balance remaining.")
+            elif _de is False:
+                weighted.append((15.0, 0.10))
+                findings.append("[DEPLOYMENT] Deployer wallet still holds tokens — no exit detected yet.")
+
     if not weighted:
-        return None
+        # Absolute last resort: we have a mint but literally zero data.
+        return {
+            "mint":         mint,
+            "model":        "rule_based_fallback",
+            "analyzed_at":  datetime.now(tz=timezone.utc).isoformat(),
+            "risk_score":   30,
+            "confidence":   "low",
+            "rug_pattern":  "unknown",
+            "verdict_summary": "Insufficient data for analysis — exercise extreme caution with this token.",
+            "narrative": {
+                "observation": "No forensic signals could be gathered. This may indicate a very new or unlisted token.",
+                "pattern":     None,
+                "risk":        "Without forensic data, risk cannot be assessed. Treat as high-caution by default.",
+            },
+            "key_findings":          ["[CAVEAT] No forensic data available — unable to confirm or deny risk."],
+            "wallet_classifications": {},
+            "conviction_chain":       None,
+            "operator_hypothesis":   None,
+            "is_fallback":           True,
+        }
 
     total_w  = sum(w for _, w in weighted)
     risk_score = round(sum(s * w for s, w in weighted) / total_w)
