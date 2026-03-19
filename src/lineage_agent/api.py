@@ -1890,6 +1890,89 @@ async def auth_remove_watch(watch_id: int, request: Request):
 
 
 # ---------------------------------------------------------------------------
+# Export report endpoint (Pro+ plan required)
+# ---------------------------------------------------------------------------
+
+from fastapi.responses import HTMLResponse  # noqa: E402
+
+
+@app.get("/lineage/{mint}/export", tags=["lineage"], response_class=HTMLResponse)
+async def export_token_report(mint: str, request: Request):
+    """Generate an HTML report for a token. Requires Pro+ plan."""
+    if not _BASE58_RE.match(mint):
+        raise HTTPException(400, "Invalid Solana mint address")
+    user = await _require_plan(request, PlanTier.PRO_PLUS)
+    result = await get_cached_lineage_report(mint)
+    if result is None:
+        try:
+            result = await asyncio.wait_for(detect_lineage(mint), timeout=30.0)
+        except Exception:
+            result = None
+    if not result:
+        raise HTTPException(404, "Token not found")
+    from .export_service import generate_html_report  # noqa: PLC0415
+    result_dict = result.model_dump(mode="json") if hasattr(result, "model_dump") else dict(result)
+    return HTMLResponse(content=generate_html_report(result_dict))
+
+
+# ---------------------------------------------------------------------------
+# Custom Webhook CRUD (Whale plan required)
+# ---------------------------------------------------------------------------
+
+
+@app.get("/auth/webhooks", tags=["auth"])
+async def list_webhooks(request: Request):
+    """List all webhooks for the current user. Requires Whale plan."""
+    user = await _require_plan(request, PlanTier.WHALE)
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+    db = await _cache._get_conn()
+    cursor = await db.execute(
+        "SELECT id, url, events_filter, enabled, created_at FROM user_webhooks WHERE user_id = ?",
+        (user["id"],),
+    )
+    rows = await cursor.fetchall()
+    return [
+        {"id": r[0], "url": r[1], "events_filter": r[2], "enabled": bool(r[3]), "created_at": r[4]}
+        for r in rows
+    ]
+
+
+@app.post("/auth/webhooks", tags=["auth"])
+async def create_webhook(request: Request):
+    """Create a new webhook. Requires Whale plan."""
+    user = await _require_plan(request, PlanTier.WHALE)
+    body = await request.json()
+    url = body.get("url", "").strip()
+    if not url.startswith("http"):
+        raise HTTPException(400, "Invalid webhook URL")
+    import secrets as _secrets  # noqa: PLC0415
+    secret = _secrets.token_hex(16)
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+    db = await _cache._get_conn()
+    await db.execute(
+        "INSERT INTO user_webhooks (user_id, url, events_filter, secret, enabled, created_at) VALUES (?, ?, ?, ?, 1, ?)",
+        (user["id"], url, body.get("events_filter"), secret, time.time()),
+    )
+    await db.commit()
+    return {"url": url, "secret": secret, "enabled": True}
+
+
+@app.delete("/auth/webhooks/{webhook_id}", tags=["auth"])
+async def delete_webhook(webhook_id: int, request: Request):
+    """Delete a webhook by ID. Requires Whale plan."""
+    user = await _require_plan(request, PlanTier.WHALE)
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+    db = await _cache._get_conn()
+    cursor = await db.execute(
+        "DELETE FROM user_webhooks WHERE id = ? AND user_id = ?", (webhook_id, user["id"]),
+    )
+    await db.commit()
+    if cursor.rowcount == 0:
+        raise HTTPException(404, "Webhook not found")
+    return {"deleted": True}
+
+
+# ---------------------------------------------------------------------------
 # Token comparison endpoint
 # ---------------------------------------------------------------------------
 

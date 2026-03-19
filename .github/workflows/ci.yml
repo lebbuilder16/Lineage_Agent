@@ -46,6 +46,9 @@ jobs:
       - name: Run tests with coverage
         timeout-minutes: 10
         run: pytest --cov=lineage_agent --cov-report=term-missing --cov-report=xml --cov-fail-under=70
+        env:
+          REVENUECAT_WEBHOOK_SECRET: test_secret
+          HELIO_WEBHOOK_SECRET: test_secret
 
       - name: Upload coverage artifact
         if: matrix.python-version == '3.12'
