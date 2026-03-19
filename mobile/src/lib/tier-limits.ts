@@ -116,12 +116,21 @@ export const TIER_LIMITS: Record<PlanTier, TierLimits> = {
 
 const TIER_ORDER: PlanTier[] = ['free', 'pro', 'pro_plus', 'whale'];
 
+/**
+ * Feature gates master switch.
+ * Set to true ONLY when RevenueCat/Helio payment is fully configured.
+ * When false, all users have access to all features (no paywall).
+ */
+export const GATES_ENABLED = false;
+
 export function getLimits(plan: PlanTier): TierLimits {
   return TIER_LIMITS[plan] ?? TIER_LIMITS.free;
 }
 
-/** Returns true if userPlan >= requiredPlan in the tier hierarchy. */
+/** Returns true if userPlan >= requiredPlan in the tier hierarchy.
+ *  When GATES_ENABLED is false, always returns true (all features unlocked). */
 export function canAccess(userPlan: PlanTier, requiredPlan: PlanTier): boolean {
+  if (!GATES_ENABLED) return true;
   return TIER_ORDER.indexOf(userPlan) >= TIER_ORDER.indexOf(requiredPlan);
 }
 
