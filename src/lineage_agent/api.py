@@ -101,6 +101,8 @@ from .auth_service import (
     add_user_watch,
     remove_user_watch,
 )
+from .subscription_tiers import PlanTier, get_limits, TIER_ORDER
+from .usage_service import increment_usage, check_limit, get_usage
 
 # Initialise structured logging early
 setup_logging()
@@ -1728,6 +1730,69 @@ async def _get_current_user(request: Request):
     return user
 
 
+async def _require_plan(request: Request, minimum: PlanTier) -> dict:
+    """Dependency: verify user has at minimum the given plan tier."""
+    user = await _get_current_user(request)
+    user_tier = PlanTier(user.get("plan", "free"))
+    if TIER_ORDER.index(user_tier) < TIER_ORDER.index(minimum):
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "message": f"This feature requires {minimum.value} plan or higher.",
+                "current_plan": user_tier.value,
+                "required_plan": minimum.value,
+            },
+        )
+    return user
+
+
+async def _check_and_increment_scan(request: Request) -> dict:
+    """Check scan limit for the user, increment counter if under limit."""
+    user = await _get_current_user(request)
+    limits = get_limits(user.get("plan", "free"))
+    scan_limit = limits.scans_per_day
+    if scan_limit != float('inf'):
+        from .data_sources._clients import cache as _cache  # noqa: PLC0415
+        ok = await check_limit(_cache, user["id"], "scans", int(scan_limit))
+        if not ok:
+            raise HTTPException(
+                status_code=429,
+                detail={
+                    "message": f"Daily scan limit reached ({int(scan_limit)}/day). Upgrade for unlimited scans.",
+                    "current_plan": user.get("plan", "free"),
+                    "limit": int(scan_limit),
+                },
+            )
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+    await increment_usage(_cache, user["id"], "scans")
+    return user
+
+
+def _filter_response_for_plan(result: dict, plan: str) -> dict:
+    """Strip gated fields from lineage response based on user plan."""
+    limits = get_limits(plan)
+    if not limits.death_clock_full and "death_clock" in result and result["death_clock"]:
+        result["death_clock"] = {
+            "risk_level": result["death_clock"].get("risk_level"),
+            "gated": True,
+        }
+    if not limits.has_sol_flow and "sol_flow" in result and result["sol_flow"]:
+        result["sol_flow"] = {
+            "total_extracted_sol": result["sol_flow"].get("total_extracted_sol"),
+            "hop_count": result["sol_flow"].get("hop_count"),
+            "gated": True,
+        }
+    if not limits.has_bundle_tracker:
+        result.pop("bundle_report", None)
+    if not limits.has_insider_sell:
+        result.pop("insider_sell", None)
+    if not limits.has_operator_impact:
+        result.pop("operator_impact", None)
+    if not limits.has_cartel_detection:
+        result.pop("cartel_report", None)
+    return result
+
+
 @app.post("/auth/login", tags=["auth"])
 async def auth_login(body: _LoginRequest, request: Request):
     """
@@ -1762,13 +1827,35 @@ async def auth_login(body: _LoginRequest, request: Request):
 async def auth_me(request: Request):
     """Return current user info. Requires X-API-Key header."""
     user = await _get_current_user(request)
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+    user_limits = get_limits(user.get("plan", "free"))
+    usage_scans = await get_usage(_cache, user["id"], "scans")
+    usage_chat = await get_usage(_cache, user["id"], "ai_chat")
     return {
-        "id": user["id"],
-        "privy_id": user["privy_id"],
-        "wallet_address": user["wallet_address"],
-        "email": user["email"],
-        "plan": user["plan"],
+        **user,
+        "limits": {
+            "scans_per_day": user_limits.scans_per_day if user_limits.scans_per_day != float('inf') else -1,
+            "ai_chat_daily_limit": user_limits.ai_chat_daily_limit if user_limits.ai_chat_daily_limit != float('inf') else -1,
+            "max_watchlist": user_limits.max_watchlist,
+            "death_clock_full": user_limits.death_clock_full,
+        },
+        "usage": {
+            "scans": usage_scans,
+            "ai_chat": usage_chat,
+        },
     }
+
+
+@app.post("/auth/regenerate-key", tags=["auth"])
+async def regenerate_key(request: Request):
+    """Regenerate the API key for the current user. Requires X-API-Key header."""
+    user = await _get_current_user(request)
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+    from .auth_service import regenerate_api_key
+    new_key = await regenerate_api_key(_cache, user["id"])
+    if not new_key:
+        raise HTTPException(500, "Failed to regenerate key")
+    return {"api_key": new_key}
 
 
 @app.get("/auth/watches", tags=["auth"])
