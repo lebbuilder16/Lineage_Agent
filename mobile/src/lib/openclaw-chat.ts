@@ -21,7 +21,8 @@ interface ChatMessage {
 }
 
 /**
- * Dual-mode chat: OpenClaw agent session when available, direct API otherwise.
+ * Chat via backend API — rich context is now built server-side.
+ * OpenClaw is no longer used for chat (backend has the same enriched context).
  * Returns a cancel function.
  */
 export async function smartChatStream(
@@ -32,19 +33,12 @@ export async function smartChatStream(
   onDone: () => void,
   onError?: (err: Error) => void,
 ): Promise<() => void> {
-  if (isOpenClawAvailable()) {
-    try {
-      return await openClawChatStream(mint, message, onChunk, onDone, onError);
-    } catch (err) {
-      console.warn('[openclaw-chat] OpenClaw failed, falling back to direct API:', err);
-    }
-  }
   return chatStream(mint, message, history, onChunk, onDone, onError);
 }
 
-/** Whether the current chat session is using OpenClaw */
+/** Chat always uses backend direct mode now */
 export function isChatOpenClawMode(): boolean {
-  return isOpenClawAvailable();
+  return false;
 }
 
 // ─── Build rich context from cached scan data ────────────────────────────────

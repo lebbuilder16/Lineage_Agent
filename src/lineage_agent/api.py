@@ -1573,106 +1573,34 @@ async def forensic_chat(
         def _evt(event: str, data: dict) -> dict:
             return {"event": event, "data": _json.dumps(data)}
 
-        # ── Build forensic context from cache (with in-process TTL cache) ─
+        # ── Build rich forensic context (ported from mobile buildTokenContext) ─
+        from .chat_service import build_rich_context, get_system_prompt  # noqa: PLC0415
+
         now = _time.monotonic()
         cached_ctx = _chat_context_cache.get(mint)
         if cached_ctx and (now - cached_ctx[0]) < _CHAT_CONTEXT_TTL:
             forensic_context = cached_ctx[1]
         else:
-            context_parts: list[str] = []
             try:
-                from .data_sources._clients import cache as _cache  # noqa: PLC0415
-                from .ai_analyst import build_ai_cache_key  # noqa: PLC0415
-                # Try cached AI analysis first
-                _ai_key = build_ai_cache_key(mint)
-                _ai_cached = _cache.get(_ai_key)
-                if hasattr(_ai_cached, "__await__"):
-                    _ai_cached = await _ai_cached
-                if isinstance(_ai_cached, dict):
-                    context_parts.append(f"RISK SCORE: {_ai_cached.get('risk_score', 'N/A')}/100")
-                    context_parts.append(f"CONFIDENCE: {_ai_cached.get('confidence', 'N/A')}")
-                    _verdict = _ai_cached.get("verdict_summary") or ""
-                    if _verdict:
-                        context_parts.append(f"VERDICT: {_verdict}")
-                    _narrative = _ai_cached.get("narrative") or ""
-                    if _narrative:
-                        context_parts.append(f"NARRATIVE:\n{_narrative}")
-                    _findings = _ai_cached.get("key_findings") or []
-                    if _findings:
-                        context_parts.append("KEY FINDINGS:\n" + "\n".join(f"- {f}" for f in _findings))
-                    _chain = _ai_cached.get("conviction_chain") or []
-                    if _chain:
-                        context_parts.append("CONVICTION CHAIN:\n" + "\n".join(f"- {c}" for c in _chain))
-
-                # Always expose the mint address so the AI can reference it directly
-                context_parts.append(f"MINT ADDRESS: {mint}")
-
-                # Try cached lineage for token metadata
                 _lin_cached = await get_cached_lineage_report(mint)
-                # If no cache, trigger a live detect_lineage fetch (with timeout)
                 if _lin_cached is None:
                     try:
                         logger.info("[chat] no lineage cache for %s — triggering detect_lineage", mint[:12])
-                        _lin_cached = await asyncio.wait_for(
-                            detect_lineage(mint),
-                            timeout=30.0,
-                        )
+                        _lin_cached = await asyncio.wait_for(detect_lineage(mint), timeout=30.0)
                     except Exception as _ld_exc:
                         logger.warning("[chat] live detect_lineage failed for %s: %s", mint[:12], _ld_exc)
-                        _lin_cached = None
 
-                # Prefer query_token (most recently enriched) then fall back to root
-                _token_node = None
                 if _lin_cached is not None:
-                    _token_node = (
-                        getattr(_lin_cached, "query_token", None)
-                        or getattr(_lin_cached, "root", None)
-                    )
-                if _token_node:
-                    _deployer_addr = getattr(_token_node, "deployer", None) or "N/A"
-                    context_parts.append(
-                        f"TOKEN: {getattr(_token_node, 'name', '?')} ({getattr(_token_node, 'symbol', '?')}) | "
-                        f"DEPLOYER: {_deployer_addr} | "
-                        f"MCap: ${getattr(_token_node, 'market_cap_usd', None) or 'N/A'}"
-                    )
-                    _platform = getattr(_token_node, "launch_platform", None)
-                    _stage = getattr(_token_node, "lifecycle_stage", None)
-                    _created = getattr(_token_node, "created_at", None)
-                    if _platform:
-                        context_parts.append(f"LAUNCH PLATFORM: {_platform}")
-                    if _stage:
-                        context_parts.append(f"LIFECYCLE STAGE: {getattr(_stage, 'value', _stage)}")
-                    if _created:
-                        context_parts.append(f"CREATED AT: {_created}")
-                    if getattr(_lin_cached, "derivatives", None):
-                        context_parts.append(f"FAMILY SIZE: {_lin_cached.family_size} tokens")
-                    _deployer_profile = getattr(_lin_cached, "deployer_profile", None)
-                    if _deployer_profile:
-                        context_parts.append(
-                            f"DEPLOYER PROFILE: {getattr(_deployer_profile, 'total_tokens_launched', '?')} tokens launched | "
-                            f"Rug rate: {getattr(_deployer_profile, 'rug_rate_pct', 'N/A')}% | "
-                            f"Confirmed rugs: {getattr(_deployer_profile, 'confirmed_rug_count', 'N/A')}"
-                        )
+                    forensic_context = build_rich_context(_lin_cached)
+                    _chat_context_cache[mint] = (now, forensic_context)
+                else:
+                    forensic_context = f"MINT ADDRESS: {mint}\n\nNo on-chain data loaded yet."
             except Exception as _ctx_exc:
                 logger.warning("[chat] context fetch failed: %s", _ctx_exc)
+                forensic_context = f"MINT ADDRESS: {mint}\n\nContext fetch failed."
 
-            # Build the final context string
-            # "More than just MINT ADDRESS" = we have real on-chain data
-            _has_real_data = len(context_parts) > 1
-            if _has_real_data:
-                forensic_context = "\n\n".join(context_parts)
-            else:
-                forensic_context = (
-                    f"MINT ADDRESS: {mint}\n\n"
-                    "No on-chain data loaded yet. "
-                    "The token may be very new or the on-chain fetch timed out."
-                )
-            # Only cache when we actually have data — no-data results should be retried
-            if _has_real_data:
-                _chat_context_cache[mint] = (_time.monotonic(), forensic_context)
-            # Intentionally NOT caching no-data results so next message retries freely
-
-        system_with_ctx = f"{_CHAT_SYSTEM}\n\n---\nFORENSIC CONTEXT FOR {mint}:\n{forensic_context}\n---"
+        _skill_prompt = get_system_prompt()
+        system_with_ctx = f"{_skill_prompt}\n\n---\nFORENSIC CONTEXT FOR {mint}:\n{forensic_context}\n---"
 
         # ── Build messages list ───────────────────────────────────────────
         messages = [
@@ -1686,7 +1614,7 @@ async def forensic_chat(
             client = _get_ai_client()
             async with client.messages.stream(
                 model=_MODEL,
-                max_tokens=400,
+                max_tokens=1200,
                 temperature=0,
                 system=system_with_ctx,
                 messages=messages,
