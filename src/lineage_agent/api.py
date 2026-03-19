@@ -1583,7 +1583,7 @@ async def forensic_chat(
     async def _generator():
         import json as _json
         import time as _time
-        from .ai_analyst import _get_client as _get_ai_client, _MODEL
+        from .ai_analyst import _get_client as _get_ai_client, _MODEL, _MODEL_SONNET
 
         def _evt(event: str, data: dict) -> dict:
             return {"event": event, "data": _json.dumps(data)}
@@ -1627,8 +1627,10 @@ async def forensic_chat(
         # ── Stream Claude response (Haiku for low latency) ────────────────
         try:
             client = _get_ai_client()
+            # Use Sonnet for chat — produces structured, detailed analyses
+            # matching OpenClaw quality (Haiku is too terse for forensic reports)
             async with client.messages.stream(
-                model=_MODEL,
+                model=_MODEL_SONNET,
                 max_tokens=1200,
                 temperature=0,
                 system=system_with_ctx,
