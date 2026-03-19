@@ -1883,6 +1883,66 @@ async def rescan_watch(watch_id: int, request: Request):
 
 
 # ---------------------------------------------------------------------------
+# Phase 5+6 Option B — Cartel monitoring endpoints
+# ---------------------------------------------------------------------------
+
+
+@app.post("/auth/cartel-monitors", tags=["auth"])
+async def start_cartel_monitor(request: Request):
+    """Start monitoring a cartel network. Stores as a watch with sub_type='cartel'."""
+    user = await _get_current_user(request)
+    body = await request.json()
+    cartel_id = body.get("cartel_id", "").strip()
+    if not cartel_id:
+        raise HTTPException(400, "cartel_id required")
+    from .data_sources._clients import cache as _cache
+    db = await _cache._get_conn()
+    # Check if already monitoring
+    cursor = await db.execute(
+        "SELECT id FROM user_watches WHERE user_id = ? AND sub_type = 'cartel' AND value = ?",
+        (user["id"], cartel_id)
+    )
+    if await cursor.fetchone():
+        return {"status": "already_monitoring", "cartel_id": cartel_id}
+    await db.execute(
+        "INSERT INTO user_watches (user_id, sub_type, value) VALUES (?, 'cartel', ?)",
+        (user["id"], cartel_id)
+    )
+    await db.commit()
+    return {"status": "monitoring_started", "cartel_id": cartel_id}
+
+
+@app.delete("/auth/cartel-monitors/{cartel_id}", tags=["auth"])
+async def stop_cartel_monitor(cartel_id: str, request: Request):
+    """Stop monitoring a cartel network."""
+    user = await _get_current_user(request)
+    from .data_sources._clients import cache as _cache
+    db = await _cache._get_conn()
+    cursor = await db.execute(
+        "DELETE FROM user_watches WHERE user_id = ? AND sub_type = 'cartel' AND value = ?",
+        (user["id"], cartel_id)
+    )
+    await db.commit()
+    if cursor.rowcount == 0:
+        raise HTTPException(404, "Cartel monitor not found")
+    return {"status": "monitoring_stopped", "cartel_id": cartel_id}
+
+
+@app.get("/auth/cartel-monitors", tags=["auth"])
+async def list_cartel_monitors(request: Request):
+    """List all cartel networks being monitored by the user."""
+    user = await _get_current_user(request)
+    from .data_sources._clients import cache as _cache
+    db = await _cache._get_conn()
+    cursor = await db.execute(
+        "SELECT id, value FROM user_watches WHERE user_id = ? AND sub_type = 'cartel'",
+        (user["id"],)
+    )
+    rows = await cursor.fetchall()
+    return [{"id": r[0], "cartel_id": r[1]} for r in rows]
+
+
+# ---------------------------------------------------------------------------
 # Phase 2 Option B — Alert routing & enrichment endpoints
 # ---------------------------------------------------------------------------
 
