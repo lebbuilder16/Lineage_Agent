@@ -14,6 +14,7 @@ import type {
   User,
   Watch,
   TopToken,
+  OperatorImpactReport,
 } from '../types/api';
 
 // Re-export streaming for callers that imported from this module
@@ -54,6 +55,14 @@ export async function getSolTrace(mint: string): Promise<SolFlowReport> {
 export async function getDeployer(address: string): Promise<DeployerProfile> {
   const { data } = await apiClient.GET('/deployer/{address}', {
     params: { path: { address } },
+  });
+  return data!;
+}
+
+// operator
+export async function getOperatorImpact(fingerprint: string): Promise<OperatorImpactReport> {
+  const { data } = await apiClient.GET('/operator/{fingerprint}', {
+    params: { path: { fingerprint } },
   });
   return data!;
 }

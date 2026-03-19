@@ -5,6 +5,7 @@ import {
   getLineageGraph,
   getSolTrace,
   getDeployer,
+  getOperatorImpact,
   getCartelSearch,
   compareTokens,
   getGlobalStats,
@@ -21,6 +22,7 @@ import type {
   LineageGraph,
   SolFlowReport,
   DeployerProfile,
+  OperatorImpactReport,
   CartelReport,
   TokenCompareResult,
   GlobalStats,
@@ -37,6 +39,7 @@ export const QK = {
   lineageGraph: (mint: string) => ['lineageGraph', mint] as const,
   solTrace: (mint: string) => ['solTrace', mint] as const,
   deployer: (address: string) => ['deployer', address] as const,
+  operatorImpact: (fp: string) => ['operatorImpact', fp] as const,
   cartel: (deployer: string) => ['cartel', deployer] as const,
   compare: (a: string, b: string) => ['compare', a, b] as const,
   globalStats: () => ['globalStats'] as const,
@@ -87,6 +90,15 @@ export function useDeployer(address: string, enabled = true) {
     queryKey: QK.deployer(address),
     queryFn: () => getDeployer(address),
     enabled: enabled && address.length > 10,
+    staleTime: 120_000,
+  });
+}
+
+export function useOperatorImpact(fingerprint: string, enabled = true) {
+  return useQuery<OperatorImpactReport>({
+    queryKey: QK.operatorImpact(fingerprint),
+    queryFn: () => getOperatorImpact(fingerprint),
+    enabled: enabled && fingerprint.length > 10,
     staleTime: 120_000,
   });
 }
