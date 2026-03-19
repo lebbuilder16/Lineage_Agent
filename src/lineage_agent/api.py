@@ -1818,6 +1818,72 @@ async def auth_remove_watch(watch_id: int, request: Request):
 
 
 # ---------------------------------------------------------------------------
+# Phase 2 Option B — Alert routing & enrichment endpoints
+# ---------------------------------------------------------------------------
+
+
+@app.post("/alerts/route", tags=["alerts"])
+async def route_alert(request: Request):
+    """Route an alert to the user's configured channels."""
+    user = await _get_current_user(request)
+    body = await request.json()
+    from .alert_service import route_alert_to_channels  # noqa: PLC0415
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+    result = await route_alert_to_channels(_cache, body, user["id"])
+    return result
+
+
+@app.post("/alerts/enrich", tags=["alerts"])
+async def enrich_alert_endpoint(request: Request):
+    """Enrich an alert with AI analysis."""
+    user = await _get_current_user(request)
+    body = await request.json()
+    from .alert_service import enrich_alert  # noqa: PLC0415
+    result = await enrich_alert(body)
+    return result
+
+
+@app.get("/auth/alert-prefs", tags=["auth"])
+async def get_alert_prefs(request: Request):
+    """Get user's alert channel preferences."""
+    user = await _get_current_user(request)
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+    db = await _cache._get_conn()
+    cursor = await db.execute(
+        "SELECT id, channel, enabled, config_json FROM alert_prefs WHERE user_id = ?",
+        (user["id"],)
+    )
+    rows = await cursor.fetchall()
+    import json
+    return [
+        {"id": r[0], "channel": r[1], "enabled": bool(r[2]), "config": json.loads(r[3]) if r[3] else {}}
+        for r in rows
+    ]
+
+
+@app.post("/auth/alert-prefs", tags=["auth"])
+async def set_alert_pref(request: Request):
+    """Create or update an alert channel preference."""
+    user = await _get_current_user(request)
+    body = await request.json()
+    channel = body.get("channel", "").strip()
+    if channel not in ("telegram", "discord", "push", "whatsapp"):
+        raise HTTPException(400, "Invalid channel")
+    import json
+    config_json = json.dumps(body.get("config", {}))
+    enabled = 1 if body.get("enabled", True) else 0
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+    db = await _cache._get_conn()
+    await db.execute(
+        "INSERT INTO alert_prefs (user_id, channel, enabled, config_json) VALUES (?, ?, ?, ?) "
+        "ON CONFLICT(user_id, channel) DO UPDATE SET enabled = excluded.enabled, config_json = excluded.config_json",
+        (user["id"], channel, enabled, config_json)
+    )
+    await db.commit()
+    return {"channel": channel, "enabled": bool(enabled)}
+
+
+# ---------------------------------------------------------------------------
 # Export report endpoint (Pro+ plan required)
 # ---------------------------------------------------------------------------
 

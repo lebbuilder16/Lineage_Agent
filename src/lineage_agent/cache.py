@@ -577,6 +577,20 @@ class SQLiteCache:
             "CREATE INDEX IF NOT EXISTS idx_uwh_user ON user_webhooks(user_id)"
         )
 
+        # alert_prefs: per-user alert channel routing preferences
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS alert_prefs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                channel TEXT NOT NULL,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                config_json TEXT,
+                UNIQUE(user_id, channel)
+            )
+            """
+        )
+
         # Safe column migrations
         for col_sql in [
             "ALTER TABLE users ADD COLUMN rc_customer_id TEXT",

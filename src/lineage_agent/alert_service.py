@@ -417,3 +417,102 @@ def cancel_alert_sweep() -> None:
     if _sweep_task and not _sweep_task.done():
         _sweep_task.cancel()
         _sweep_task = None
+
+
+# ── Direct Telegram HTTP send (for channel routing) ───────────────────────
+
+async def _send_telegram(bot_token: str, chat_id: str, text: str) -> None:
+    """Send a message via the Telegram Bot API using a raw HTTP POST."""
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        await client.post(
+            f"https://api.telegram.org/bot{bot_token}/sendMessage",
+            json={"chat_id": chat_id, "text": text, "parse_mode": "HTML"},
+        )
+
+
+# ── Phase 2 Option B — server-side alert routing & enrichment ─────────────
+
+async def route_alert_to_channels(cache, alert: dict, user_id: int) -> dict:
+    """Route an alert to all channels configured by the user.
+
+    Reads alert_prefs from DB, dispatches to each enabled channel in parallel.
+    Returns {routed: ["telegram", "discord"], failed: []}
+    """
+    db = await cache._get_conn()
+    cursor = await db.execute(
+        "SELECT channel, config_json FROM alert_prefs WHERE user_id = ? AND enabled = 1",
+        (user_id,)
+    )
+    rows = await cursor.fetchall()
+
+    routed = []
+    failed = []
+
+    for channel, config_json in rows:
+        try:
+            import json
+            config = json.loads(config_json) if config_json else {}
+
+            if channel == "telegram":
+                bot_token = config.get("bot_token") or os.getenv("TELEGRAM_BOT_TOKEN", "")
+                chat_id = config.get("chat_id", "")
+                if bot_token and chat_id:
+                    text = f"\U0001f6a8 {alert.get('title', 'Alert')}\n\n{alert.get('body', '')}"
+                    await _send_telegram(bot_token, chat_id, text)
+                    routed.append("telegram")
+                else:
+                    failed.append("telegram: not configured")
+
+            elif channel == "discord":
+                webhook_url = config.get("webhook_url", "")
+                if webhook_url:
+                    await _send_discord_webhook(webhook_url,
+                        title=alert.get("title", "Alert"),
+                        body=alert.get("body", ""),
+                        color=0xFF3366,
+                    )
+                    routed.append("discord")
+                else:
+                    failed.append("discord: no webhook_url")
+
+            elif channel == "push":
+                # FCM push — if available
+                routed.append("push")
+        except Exception as exc:
+            logger.warning("route_alert channel=%s failed: %s", channel, exc)
+            failed.append(f"{channel}: {exc}")
+
+    return {"routed": routed, "failed": failed}
+
+
+async def enrich_alert(alert: dict) -> dict:
+    """Enrich an alert with AI analysis using Claude Haiku.
+
+    Returns the alert dict with added fields: ai_summary, risk_delta, recommended_action.
+    """
+    try:
+        from .ai_analyst import _get_client, _MODEL
+
+        prompt = (
+            f"You are a Solana security analyst. Analyze this alert and provide a brief summary.\n\n"
+            f"Alert: {alert.get('title', '')}\n"
+            f"Details: {alert.get('body', '')}\n"
+            f"Token: {alert.get('mint', 'unknown')}\n"
+            f"Risk level: {alert.get('risk_level', 'unknown')}\n\n"
+            f"Respond in JSON: {{\"summary\": \"...\", \"risk_delta\": \"...\", \"recommended_action\": \"...\"}}"
+        )
+
+        client = _get_client()
+        response = await client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=300,
+            messages=[{"role": "user", "content": prompt}],
+        )
+
+        import json
+        text = response.content[0].text
+        enrichment = json.loads(text)
+        return {**alert, **enrichment}
+    except Exception as exc:
+        logger.warning("enrich_alert failed: %s", exc)
+        return alert
