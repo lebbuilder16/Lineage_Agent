@@ -118,6 +118,14 @@ CACHE_TTL_DEPLOYER_SECONDS: int = _parse_int(
 CACHE_TTL_AI_SECONDS: int = _parse_int(
     "CACHE_TTL_AI_SECONDS", "300", minimum=30
 )
+# Stale-while-revalidate: serve stale data immediately while refreshing in background.
+# Data older than stale TTL but younger than hard TTL is served with a background refresh.
+CACHE_STALE_TTL_LINEAGE_SECONDS: int = _parse_int(
+    "CACHE_STALE_TTL_LINEAGE_SECONDS", "600", minimum=60
+)
+CACHE_STALE_TTL_AI_SECONDS: int = _parse_int(
+    "CACHE_STALE_TTL_AI_SECONDS", "900", minimum=60
+)
 # Shared extraction rate used by operator_impact_service and cartel_service.
 # Represents the estimated fraction of rugged mcap extracted by the operator.
 EXTRACTION_RATE_MCAP: float = float(os.getenv("EXTRACTION_RATE_MCAP", "0.15"))

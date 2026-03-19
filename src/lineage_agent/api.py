@@ -1588,9 +1588,10 @@ async def forensic_chat(
         def _evt(event: str, data: dict) -> dict:
             return {"event": event, "data": _json.dumps(data)}
 
-        # ── Build rich forensic context (ported from mobile buildTokenContext) ─
+        # ── Build rich forensic context with stale-while-revalidate ─────────
         from .chat_service import build_rich_context, build_ai_analysis_context, get_system_prompt  # noqa: PLC0415
         from .ai_analyst import build_ai_cache_key  # noqa: PLC0415
+        from .data_sources._clients import cache_get_swr as _swr_get  # noqa: PLC0415
 
         now = _time.monotonic()
         cached_ctx = _chat_context_cache.get(mint)
@@ -1598,7 +1599,21 @@ async def forensic_chat(
             forensic_context = cached_ctx[1]
         else:
             try:
-                _lin_cached = await get_cached_lineage_report(mint)
+                # ── Lineage: SWR read ──────────────────────────────────────
+                from .lineage_detector import _lineage_cache_key  # noqa: PLC0415
+                _lin_swr = await _swr_get(_lineage_cache_key(mint))
+                _lin_cached = None
+                _lineage_stale = False
+
+                if _lin_swr and _lin_swr.value is not None:
+                    # Got data (fresh or stale)
+                    from .models import LineageResult as _LR  # noqa: PLC0415
+                    _raw = _lin_swr.value
+                    _lin_cached = _raw if isinstance(_raw, _LR) else _LR(**_raw) if isinstance(_raw, dict) else None
+                    _lineage_stale = not _lin_swr.fresh
+                    if _lineage_stale:
+                        logger.info("[chat] serving stale lineage for %s — refreshing in background", mint[:12])
+
                 if _lin_cached is None:
                     try:
                         logger.info("[chat] no lineage cache for %s — triggering detect_lineage", mint[:12])
@@ -1611,17 +1626,62 @@ async def forensic_chat(
                 else:
                     forensic_context = f"MINT ADDRESS: {mint}\n\nNo on-chain data loaded yet."
 
-                # ── Inject cached AI analysis if available ─────────────────
+                # ── AI analysis: SWR read ──────────────────────────────────
+                _ai_stale = False
                 try:
-                    from .data_sources._clients import cache as _chat_cache  # noqa: PLC0415
-                    import inspect as _inspect
                     _ai_key = build_ai_cache_key(mint)
-                    _ai_get = _chat_cache.get(_ai_key)
-                    _ai_cached = (await _ai_get) if _inspect.isawaitable(_ai_get) else _ai_get
-                    if _ai_cached and isinstance(_ai_cached, dict):
-                        forensic_context += "\n" + build_ai_analysis_context(_ai_cached)
+                    _ai_swr = await _swr_get(_ai_key)
+                    if _ai_swr and _ai_swr.value is not None and isinstance(_ai_swr.value, dict):
+                        forensic_context += "\n" + build_ai_analysis_context(_ai_swr.value)
+                        _ai_stale = not _ai_swr.fresh
+                    else:
+                        # No AI cache at all — note for context
+                        forensic_context += "\n\nAI FORENSIC ANALYSIS: not yet available (analysis in progress)"
                 except Exception as _ai_exc:
                     logger.debug("[chat] AI cache lookup failed: %s", _ai_exc)
+
+                # ── Background refresh for stale data ──────────────────────
+                if _lineage_stale or _ai_stale or (_lin_swr is None and _lin_cached is not None):
+                    async def _background_refresh():
+                        try:
+                            _fresh = await asyncio.wait_for(detect_lineage(mint), timeout=55.0)
+                            logger.info("[chat] background refresh complete for %s", mint[:12])
+                            # write-through in detect_lineage will also refresh AI cache
+                        except Exception as _ref_exc:
+                            logger.debug("[chat] background refresh failed: %s", _ref_exc)
+
+                    _ref_task = asyncio.create_task(_background_refresh())
+                    _ref_task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
+
+                # ── Fire-and-forget AI analysis if completely missing ──────
+                if _lin_cached is not None:
+                    try:
+                        _ai_key_check = build_ai_cache_key(mint)
+                        _ai_exists = await _swr_get(_ai_key_check)
+                        if _ai_exists is None:
+                            from .ai_analyst import analyze_token as _chat_analyze  # noqa: PLC0415
+                            from .data_sources._clients import cache as _ff_cache  # noqa: PLC0415
+
+                            async def _fire_and_forget_ai():
+                                try:
+                                    await asyncio.wait_for(
+                                        _chat_analyze(
+                                            mint,
+                                            lineage_result=_lin_cached,
+                                            bundle_report=getattr(_lin_cached, "bundle_report", None),
+                                            sol_flow_report=getattr(_lin_cached, "sol_flow", None),
+                                            cache=_ff_cache,
+                                        ),
+                                        timeout=60.0,
+                                    )
+                                    logger.info("[chat] fire-and-forget AI done for %s", mint[:12])
+                                except Exception:
+                                    pass
+
+                            _ff_task = asyncio.create_task(_fire_and_forget_ai())
+                            _ff_task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
+                    except Exception:
+                        pass
 
                 _chat_context_cache[mint] = (now, forensic_context)
             except Exception as _ctx_exc:

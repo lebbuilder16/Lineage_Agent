@@ -32,43 +32,86 @@ def _legacy_ai_cache_key(mint: str) -> str:
     return f"ai:v3:{mint}"
 
 
+class CacheResult:
+    """Wrapper returned by stale-aware cache reads."""
+
+    __slots__ = ("value", "fresh")
+
+    def __init__(self, value: Any, fresh: bool = True):
+        self.value = value
+        self.fresh = fresh
+
+    def __bool__(self) -> bool:
+        return self.value is not None
+
+
 class TTLCache:
     """Thread-safe-ish TTL cache backed by a plain ``dict``.
+
+    Supports stale-while-revalidate: entries between ``expires_at`` and
+    ``hard_expires_at`` are returned with ``fresh=False``.
 
     Not designed for multi-process environments – suitable for a single
     FastAPI / Uvicorn worker.
     """
 
     def __init__(self, default_ttl: int = 300, max_entries: int = 10_000) -> None:
-        self._store: dict[str, tuple[float, Any]] = {}
+        # store: key → (expires_at, hard_expires_at, value)
+        self._store: dict[str, tuple[float, float, Any]] = {}
         self._default_ttl = default_ttl
         self._max_entries = max_entries
 
     def get(self, key: str) -> Optional[Any]:
-        """Return the cached value or ``None`` if missing / expired."""
+        """Return the cached value or ``None`` if hard-expired / missing.
+
+        Compatible with existing callers — returns the raw value.
+        Use ``get_swr`` for stale-while-revalidate semantics.
+        """
         entry = self._store.get(key)
         if entry is None:
             return None
-        expires_at, value = entry
-        if time.monotonic() > expires_at:
+        _expires_at, hard_expires_at, value = entry
+        if time.monotonic() > hard_expires_at:
             del self._store[key]
             return None
         return value
 
-    def set(self, key: str, value: Any, ttl: Optional[int] = None) -> None:
-        """Store *value* under *key* with the given TTL in seconds."""
+    def get_swr(self, key: str) -> Optional[CacheResult]:
+        """Return a CacheResult with ``fresh`` flag, or None if hard-expired.
+
+        - ``fresh=True``  → within soft TTL, no refresh needed.
+        - ``fresh=False`` → stale but usable, caller should refresh in background.
+        - ``None``        → hard-expired or missing, must recompute.
+        """
+        entry = self._store.get(key)
+        if entry is None:
+            return None
+        expires_at, hard_expires_at, value = entry
+        now = time.monotonic()
+        if now > hard_expires_at:
+            del self._store[key]
+            return None
+        return CacheResult(value, fresh=(now <= expires_at))
+
+    def set(self, key: str, value: Any, ttl: Optional[int] = None, stale_ttl: Optional[int] = None) -> None:
+        """Store *value* under *key* with soft and hard TTLs.
+
+        *ttl*: seconds until the entry is considered stale (soft TTL).
+        *stale_ttl*: seconds until the entry is hard-deleted.
+                     Defaults to ``ttl`` (no stale window) for backward compat.
+        """
         actual_ttl = ttl if ttl is not None else self._default_ttl
-        self._store[key] = (time.monotonic() + actual_ttl, value)
+        actual_stale = stale_ttl if stale_ttl is not None else actual_ttl
+        now = time.monotonic()
+        self._store[key] = (now + actual_ttl, now + actual_stale, value)
         # Enforce max entries
         if len(self._store) > self._max_entries:
-            # Evict expired first
-            now = time.monotonic()
-            expired = [k for k, (exp, _) in self._store.items() if now > exp]
+            cur = time.monotonic()
+            expired = [k for k, (_, he, _v) in self._store.items() if cur > he]
             for k in expired:
                 del self._store[k]
-            # If still over, evict oldest
             if len(self._store) > self._max_entries:
-                sorted_keys = sorted(self._store, key=lambda k: self._store[k][0])
+                sorted_keys = sorted(self._store, key=lambda k: self._store[k][1])
                 for k in sorted_keys[: len(self._store) - self._max_entries]:
                     del self._store[k]
 
@@ -91,9 +134,8 @@ class TTLCache:
         return self.get(key) is not None
 
     def __len__(self) -> int:
-        # Purge expired entries first
         now = time.monotonic()
-        expired = [k for k, (exp, _) in self._store.items() if now > exp]
+        expired = [k for k, (_, he, _v) in self._store.items() if now > he]
         for k in expired:
             del self._store[k]
         return len(self._store)
@@ -263,6 +305,11 @@ class SQLiteCache:
         await db.execute(
             "CREATE INDEX IF NOT EXISTS idx_cache_expires ON cache(expires_at)"
         )
+        # SWR migration: add stale_at column (soft TTL boundary)
+        try:
+            await db.execute("ALTER TABLE cache ADD COLUMN stale_at REAL")
+        except Exception:
+            pass  # column already exists
         # Intelligence events — persistent forensic observations, never expire
         await db.execute(
             """
@@ -641,6 +688,7 @@ class SQLiteCache:
         self._initialised = True
 
     async def get(self, key: str) -> Optional[Any]:
+        """Return cached value or None. Serves stale data (within hard TTL)."""
         try:
             db = await self._get_conn()
             cursor = await db.execute(
@@ -658,11 +706,47 @@ class SQLiteCache:
             logger.warning("SQLite cache get failed for %s", key, exc_info=True)
             return None
 
-    async def set(self, key: str, value: Any, ttl: Optional[int] = None) -> None:
+    async def get_swr(self, key: str) -> Optional[CacheResult]:
+        """Stale-while-revalidate read.
+
+        Returns CacheResult(value, fresh=True/False) or None if hard-expired.
+        - fresh=True:  within soft TTL (stale_at), no refresh needed.
+        - fresh=False: between stale_at and expires_at (hard TTL), usable but needs refresh.
+        - None:        past hard TTL or missing.
+        """
+        try:
+            db = await self._get_conn()
+            cursor = await db.execute(
+                "SELECT value, stale_at, expires_at FROM cache WHERE key = ?", (key,)
+            )
+            row = await cursor.fetchone()
+            if row is None:
+                return None
+            value_json, stale_at, expires_at = row
+            now = time.time()
+            if now > expires_at:
+                await self.invalidate(key)
+                return None
+            fresh = stale_at is None or now <= stale_at
+            return CacheResult(json.loads(value_json), fresh=fresh)
+        except Exception:
+            logger.warning("SQLite cache get_swr failed for %s", key, exc_info=True)
+            return None
+
+    async def set(self, key: str, value: Any, ttl: Optional[int] = None, stale_ttl: Optional[int] = None) -> None:
+        """Store value with soft TTL (stale_at) and hard TTL (expires_at).
+
+        *ttl*: seconds until the entry is considered stale.
+        *stale_ttl*: seconds until the entry is hard-deleted.
+                     Defaults to ``ttl`` for backward compatibility.
+        """
         try:
             db = await self._get_conn()
             actual_ttl = ttl if ttl is not None else self._default_ttl
-            expires_at = time.time() + actual_ttl
+            actual_stale = stale_ttl if stale_ttl is not None else actual_ttl
+            now = time.time()
+            stale_at = now + actual_ttl
+            expires_at = now + actual_stale
             # Serialize Pydantic models properly via model_dump()
             if hasattr(value, "model_dump"):
                 serializable = value.model_dump(mode="json")
@@ -672,8 +756,8 @@ class SQLiteCache:
                 serializable = value
             value_json = json.dumps(serializable, default=str)
             await db.execute(
-                "INSERT OR REPLACE INTO cache (key, value, expires_at) VALUES (?, ?, ?)",
-                (key, value_json, expires_at),
+                "INSERT OR REPLACE INTO cache (key, value, stale_at, expires_at) VALUES (?, ?, ?, ?)",
+                (key, value_json, stale_at, expires_at),
             )
             await db.commit()
             # Enforce max entries (evict oldest expired first, then oldest)
@@ -681,7 +765,6 @@ class SQLiteCache:
             (count,) = await cursor.fetchone()
             if count > self._max_entries:
                 await self.purge_expired()
-                # If still over limit, evict oldest entries
                 cursor2 = await db.execute("SELECT COUNT(*) FROM cache")
                 (count2,) = await cursor2.fetchone()
                 if count2 > self._max_entries:

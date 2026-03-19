@@ -459,9 +459,14 @@ async def analyze_token(
         # ── P0-A: sanity-check the score against hard evidence ────────────────
         result = _sanity_check(result, lineage_result, bundle_report, sol_flow_report)
 
-        # ── P0-B: persist to cache ────────────────────────────────────────────
+        # ── P0-B: persist to cache (with stale-while-revalidate window) ──────
         if cache:
-            _cset = cache.set(cache_key, result, ttl=CACHE_TTL_AI_SECONDS)
+            from config import CACHE_STALE_TTL_AI_SECONDS  # noqa: PLC0415
+            _cset = cache.set(
+                cache_key, result,
+                ttl=CACHE_TTL_AI_SECONDS,
+                stale_ttl=CACHE_STALE_TTL_AI_SECONDS,
+            )
             if inspect.isawaitable(_cset):
                 await _cset
 

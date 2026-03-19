@@ -151,11 +151,28 @@ async def cache_get(key: str) -> Any:
     return result
 
 
-async def cache_set(key: str, value: Any, *, ttl: int | None = None) -> None:
+async def cache_get_swr(key: str):
+    """Stale-while-revalidate read. Returns CacheResult or None."""
+    if not hasattr(cache, "get_swr"):
+        # Fallback for caches without SWR support
+        val = await cache_get(key)
+        if val is None:
+            return None
+        from ..cache import CacheResult
+        return CacheResult(val, fresh=True)
+    result = cache.get_swr(key)
+    if asyncio.iscoroutine(result):
+        return await result
+    return result
+
+
+async def cache_set(key: str, value: Any, *, ttl: int | None = None, stale_ttl: int | None = None) -> None:
+    kwargs: dict = {}
     if ttl is not None:
-        result = cache.set(key, value, ttl=ttl)
-    else:
-        result = cache.set(key, value)
+        kwargs["ttl"] = ttl
+    if stale_ttl is not None:
+        kwargs["stale_ttl"] = stale_ttl
+    result = cache.set(key, value, **kwargs)
     if asyncio.iscoroutine(result):
         await result
 

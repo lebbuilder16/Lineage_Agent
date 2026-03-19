@@ -1354,7 +1354,43 @@ async def _detect_lineage_impl(
 
     await _progress("Analysis complete", 100)
     result.scanned_at = datetime.now(timezone.utc)
-    await _cache_set(_lineage_cache_key(mint_address), result, ttl=CACHE_TTL_LINEAGE_SECONDS)
+
+    from config import CACHE_STALE_TTL_LINEAGE_SECONDS  # noqa: PLC0415
+    await _cache_set(
+        _lineage_cache_key(mint_address), result,
+        ttl=CACHE_TTL_LINEAGE_SECONDS,
+        stale_ttl=CACHE_STALE_TTL_LINEAGE_SECONDS,
+    )
+
+    # ── Write-through: pre-warm AI cache for /chat ────────────────────────
+    try:
+        _wt_bundle = getattr(result, "bundle_report", None)
+        _wt_sol_flow = getattr(result, "sol_flow", None)
+        if result or _wt_bundle or _wt_sol_flow:
+            from .ai_analyst import analyze_token as _analyze_token  # noqa: PLC0415
+            from .data_sources._clients import cache as _wt_cache  # noqa: PLC0415
+
+            async def _write_through_ai():
+                try:
+                    await asyncio.wait_for(
+                        _analyze_token(
+                            mint_address,
+                            lineage_result=result,
+                            bundle_report=_wt_bundle,
+                            sol_flow_report=_wt_sol_flow,
+                            cache=_wt_cache,
+                        ),
+                        timeout=60.0,
+                    )
+                    logger.info("[write-through] AI analysis cached for %s", mint_address[:12])
+                except Exception as _wt_exc:
+                    logger.debug("[write-through] AI analysis failed for %s: %s", mint_address[:12], _wt_exc)
+
+            _wt_task = asyncio.create_task(_write_through_ai())
+            _wt_task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
+    except Exception:
+        pass  # write-through is best-effort
+
     return result
 
 
