@@ -159,6 +159,34 @@ async def analyze_insider_sell(
     report.risk_score = _compute_risk_score(report)
     report.verdict = _compute_verdict(report)
 
+    # ── Step 5: Explicit data coverage — never silent about what's missing
+    _has_dex_signals = (
+        report.sell_pressure_1h is not None
+        or report.sell_pressure_6h is not None
+        or report.sell_pressure_24h is not None
+    )
+    _has_onchain = (
+        report.onchain_tx_count_1h is not None
+        or report.deployer_exited is not None
+    )
+    if _has_dex_signals and _has_onchain:
+        report.data_coverage = "full"
+    elif _has_dex_signals:
+        report.data_coverage = "partial"
+        report.data_coverage_note = "DexScreener market data available but on-chain balance check failed"
+    elif _has_onchain:
+        report.data_coverage = "onchain_only"
+        report.data_coverage_note = (
+            "DexScreener txn data not yet available (token may be too young). "
+            "Deployer balance checked on-chain."
+        )
+    else:
+        report.data_coverage = "none"
+        if report.applicability == DataApplicability.NOT_APPLICABLE:
+            report.data_coverage_note = "Token not on DEX — insider sell analysis not applicable"
+        else:
+            report.data_coverage_note = "No market or on-chain data could be retrieved"
+
     return report
 
 

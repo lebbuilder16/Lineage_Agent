@@ -240,8 +240,13 @@ DONNÉES MANQUANTES:
 
     **Rules:**
     - If `/analyze` risk_score >= 70 AND has concrete evidence (SOL flow extraction, factory wallets, coordinated dumps) → "HIGH RISK" or "CRITICAL" is allowed regardless of death clock confidence.
-    - If death_clock confidence = low AND /analyze is unavailable or risk_score < 50 → max verdict = "CAUTION — données limitées"
+    - If death_clock confidence = low AND /analyze unavailable or risk_score < 50:
+      - If token < 24h AND no negative signals → "CAUTION — token récent, surveillance recommandée" + list what WAS checked clean (bundle, deployer balance, liquidity ratio)
+      - If token < 24h AND structural risk signals present (liquidity/MC < 10%, deployer exited) → "CAUTION — signaux structurels à surveiller" + cite specific signals
+      - If token >= 24h → "CAUTION — données limitées" (original rule)
+      - **NEVER say just "données limitées" without listing what was checked.** Transform "non disponible" into "vérifié: aucun signal" or "non vérifiable: [raison]".
     - If death_clock confidence = low AND /analyze risk_score 50-69 → "HIGH RISK" allowed but MUST say "death clock insuffisant, verdict basé sur l'analyse comportementale"
+    - If at least 1 hard signal (bundle confirmed, insider_dump, sol_flow extraction) → escalate normally regardless of token age
     - If death_clock confidence = medium/high → follow death clock + /analyze combined
     - **Always cite WHICH source drives the verdict**: "Verdict basé sur [death clock historique / analyse comportementale AI / signaux convergents]"
 

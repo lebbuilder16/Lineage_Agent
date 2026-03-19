@@ -174,6 +174,47 @@ async def compute_death_clock(
 
     # ── Step 3: return insufficient_data when no samples at all ─────────────
     if len(all_durations) < _MIN_SAMPLES:
+        # Build deployer profile summary so "insufficient" is explicit, not silent
+        _profile_summary: str | None = None
+        try:
+            _created_rows = await event_query(
+                where="deployer = ? AND event_type = 'token_created'",
+                params=(deployer,),
+                columns="mint, created_at",
+            )
+            _total_launched = len(_created_rows)
+            _first_seen = None
+            if _created_rows:
+                _dates = sorted(
+                    _parse_dt(r["created_at"])
+                    for r in _created_rows
+                    if r.get("created_at") and _parse_dt(r["created_at"])
+                )
+                if _dates:
+                    _first_seen = _dates[0]
+
+            if _total_launched == 0:
+                _profile_summary = (
+                    f"First-time deployer — no prior tokens recorded. "
+                    f"No rug history. Wallet age unknown."
+                )
+            else:
+                _age_str = ""
+                if _first_seen:
+                    _age_h = (datetime.now(timezone.utc) - _first_seen).total_seconds() / 3600
+                    if _age_h < 24:
+                        _age_str = f", wallet active since {_age_h:.0f}h"
+                    else:
+                        _age_str = f", wallet active since {_age_h / 24:.0f}d"
+                _profile_summary = (
+                    f"{_total_launched} token(s) launched, "
+                    f"{total_negative_outcomes} rug(s) recorded"
+                    f"{_age_str}. "
+                    f"No confirmed rug timing data available for prediction."
+                )
+        except Exception:
+            _profile_summary = "Deployer history query failed — no profile available."
+
         return DeathClockForecast(
             deployer=deployer,
             historical_rug_count=0,
@@ -189,6 +230,7 @@ async def compute_death_clock(
             is_factory=is_factory,
             prediction_basis="insufficient",  # type: ignore[arg-type]
             operator_sample_count=operator_sample_count,
+            deployer_profile_summary=_profile_summary,
         )
 
     # ── Step 4: compute timing statistics ───────────────────────────────────

@@ -586,6 +586,13 @@ class DeathClockForecast(BaseModel):
             "statistical confidence and live market signals. Null when no prediction is possible."
         ),
     )
+    deployer_profile_summary: Optional[str] = Field(
+        None,
+        description=(
+            "Human-readable deployer context when timing prediction is unavailable. "
+            "E.g. 'First-time deployer, 1 token launched, 0 rugs, wallet age 2h'."
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -930,6 +937,21 @@ class InsiderSellReport(BaseModel):
     verdict: Literal["clean", "suspicious", "insider_dump"] = Field(
         "clean",
         description="clean | suspicious | insider_dump",
+    )
+
+    # ── Data coverage ─────────────────────────────────────────────────────
+    data_coverage: Literal["full", "partial", "onchain_only", "none"] = Field(
+        "none",
+        description=(
+            "'full' = DexScreener txns + on-chain balance available; "
+            "'partial' = some DexScreener data but incomplete txns; "
+            "'onchain_only' = only RPC balance/activity, no market signals; "
+            "'none' = no data could be retrieved"
+        ),
+    )
+    data_coverage_note: Optional[str] = Field(
+        None,
+        description="Human-readable explanation of why data is limited (e.g. 'Token < 12h, DexScreener has no txn history yet')",
     )
 
     # ── Platform context ──────────────────────────────────────────────────

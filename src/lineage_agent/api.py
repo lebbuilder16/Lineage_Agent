@@ -1589,7 +1589,8 @@ async def forensic_chat(
             return {"event": event, "data": _json.dumps(data)}
 
         # ── Build rich forensic context (ported from mobile buildTokenContext) ─
-        from .chat_service import build_rich_context, get_system_prompt  # noqa: PLC0415
+        from .chat_service import build_rich_context, build_ai_analysis_context, get_system_prompt  # noqa: PLC0415
+        from .ai_analyst import build_ai_cache_key  # noqa: PLC0415
 
         now = _time.monotonic()
         cached_ctx = _chat_context_cache.get(mint)
@@ -1607,9 +1608,22 @@ async def forensic_chat(
 
                 if _lin_cached is not None:
                     forensic_context = build_rich_context(_lin_cached)
-                    _chat_context_cache[mint] = (now, forensic_context)
                 else:
                     forensic_context = f"MINT ADDRESS: {mint}\n\nNo on-chain data loaded yet."
+
+                # ── Inject cached AI analysis if available ─────────────────
+                try:
+                    from .data_sources._clients import cache as _chat_cache  # noqa: PLC0415
+                    import inspect as _inspect
+                    _ai_key = build_ai_cache_key(mint)
+                    _ai_get = _chat_cache.get(_ai_key)
+                    _ai_cached = (await _ai_get) if _inspect.isawaitable(_ai_get) else _ai_get
+                    if _ai_cached and isinstance(_ai_cached, dict):
+                        forensic_context += "\n" + build_ai_analysis_context(_ai_cached)
+                except Exception as _ai_exc:
+                    logger.debug("[chat] AI cache lookup failed: %s", _ai_exc)
+
+                _chat_context_cache[mint] = (now, forensic_context)
             except Exception as _ctx_exc:
                 logger.warning("[chat] context fetch failed: %s", _ctx_exc)
                 forensic_context = f"MINT ADDRESS: {mint}\n\nContext fetch failed."
