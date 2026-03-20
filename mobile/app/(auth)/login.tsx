@@ -8,8 +8,8 @@ import {
   Platform,
   ScrollView,
   Alert,
-  Linking,
   Pressable,
+  ActivityIndicator,
 } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -17,42 +17,65 @@ import Animated, { FadeInDown, FadeIn } from 'react-native-reanimated';
 import {
   ShieldCheck,
   Mail,
-  Lock,
-  Wallet,
   ChevronRight,
   ArrowLeft,
-  Eye,
-  EyeOff,
+  Smartphone,
 } from 'lucide-react-native';
+import { useLoginWithEmail, useLoginWithSiws } from '@privy-io/expo';
+import type { User } from '@privy-io/api-types';
 import { AuroraBackground } from '../../src/components/ui/AuroraBackground';
 import { HapticButton } from '../../src/components/ui/HapticButton';
 import { tokens } from '../../src/theme/tokens';
-import { useAuthStore } from '../../src/store/auth';
-import { authLogin, getMe } from '../../src/lib/api';
-import type { WalletProvider } from '../../src/types/api';
+import { syncPrivyUser } from '../../src/lib/privy-auth';
 
-// ── Wallet provider configs ──────────────────────────────────────────────────
+// ── Helpers ──────────────────────────────────────────────────────────────────
 
-const BASE_URL = (process.env.EXPO_PUBLIC_API_URL ?? 'https://lineage-agent.fly.dev').replace(/\/$/, '');
+function extractFromLinkedAccounts(user: User) {
+  let walletAddress: string | undefined;
+  let emailAddress: string | undefined;
 
-interface WalletOption {
-  id: WalletProvider;
+  for (const acct of user.linked_accounts) {
+    if (!emailAddress && acct.type === 'email' && 'address' in acct) {
+      emailAddress = acct.address;
+    }
+    if (!walletAddress && acct.type === 'wallet' && 'chain_type' in acct && acct.chain_type === 'solana') {
+      walletAddress = acct.address;
+    }
+  }
+
+  return { walletAddress, emailAddress };
+}
+
+async function handlePrivyLoginSuccess(user: User) {
+  const { walletAddress, emailAddress } = extractFromLinkedAccounts(user);
+  const ok = await syncPrivyUser({
+    id: user.id,
+    wallet: walletAddress ? { address: walletAddress } : null,
+    email: emailAddress ? { address: emailAddress } : null,
+  });
+  if (ok) {
+    router.replace('/(tabs)/radar');
+  } else {
+    Alert.alert('Error', 'Could not sync your account. Please try again.');
+  }
+}
+
+// ── Wallet brand configs ─────────────────────────────────────────────────────
+
+interface WalletBrand {
+  id: string;
   name: string;
   color: string;
   bgColor: string;
-  deeplink: string;
-  installUrl: string;
   letter: string;
 }
 
-const WALLETS: WalletOption[] = [
+const WALLET_BRANDS: WalletBrand[] = [
   {
     id: 'phantom',
     name: 'Phantom',
     color: '#AB9FF2',
     bgColor: 'rgba(171, 159, 242, 0.12)',
-    deeplink: `https://phantom.app/ul/browse/${BASE_URL}/auth/phantom`,
-    installUrl: 'https://phantom.app/download',
     letter: 'P',
   },
   {
@@ -60,8 +83,6 @@ const WALLETS: WalletOption[] = [
     name: 'Solflare',
     color: '#FC7227',
     bgColor: 'rgba(252, 114, 39, 0.12)',
-    deeplink: `https://solflare.com/ul/browse/${BASE_URL}/auth/solflare`,
-    installUrl: 'https://solflare.com/download',
     letter: 'S',
   },
   {
@@ -69,79 +90,89 @@ const WALLETS: WalletOption[] = [
     name: 'Backpack',
     color: '#E33E3F',
     bgColor: 'rgba(227, 62, 63, 0.12)',
-    deeplink: `https://backpack.app/ul/browse/${BASE_URL}/auth/backpack`,
-    installUrl: 'https://backpack.app/download',
     letter: 'B',
   },
 ];
 
+// ── Login Screen ─────────────────────────────────────────────────────────────
+
 export default function LoginScreen() {
   const insets = useSafeAreaInsets();
-  const setApiKey = useAuthStore((s) => s.setApiKey);
-  const setUser = useAuthStore((s) => s.setUser);
+  // Email OTP login
+  const { sendCode, loginWithCode, state: emailState } = useLoginWithEmail({
+    onLoginSuccess: (user) => { handlePrivyLoginSuccess(user); },
+    onError: (err) => {
+      Alert.alert('Login failed', err?.message ?? 'Something went wrong.');
+    },
+  });
+
+  // SIWS (Sign In With Solana) — available for wallet deep link callback completion
+  const siwsHook = useLoginWithSiws();
 
   const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [connectingWallet, setConnectingWallet] = useState<WalletProvider | null>(null);
+  const [otpCode, setOtpCode] = useState('');
+  const [otpSent, setOtpSent] = useState(false);
+  const [connectingWallet, setConnectingWallet] = useState<string | null>(null);
 
-  // ── Wallet connect ──────────────────────────────────────────────────────────
+  // ── Email OTP flow ──────────────────────────────────────────────────────────
 
-  const handleWalletConnect = useCallback(async (wallet: WalletOption) => {
-    setConnectingWallet(wallet.id);
+  const handleSendOtp = useCallback(async () => {
+    const trimmed = email.trim();
+    if (!trimmed || !trimmed.includes('@')) {
+      Alert.alert('Invalid email', 'Please enter a valid email address.');
+      return;
+    }
     try {
-      const canOpen = await Linking.canOpenURL(wallet.deeplink);
-      if (canOpen) {
-        await Linking.openURL(wallet.deeplink);
-      } else {
-        Alert.alert(
-          wallet.name,
-          `${wallet.name} wallet is not installed. Install it to connect.`,
-          [
-            { text: 'Cancel', style: 'cancel' },
-            { text: 'Install', onPress: () => Linking.openURL(wallet.installUrl) },
-          ],
-        );
-      }
+      await sendCode({ email: trimmed });
+      setOtpSent(true);
     } catch {
-      Alert.alert('Error', `Could not connect to ${wallet.name} wallet.`);
+      Alert.alert('Error', 'Could not send verification code.');
+    }
+  }, [email, sendCode]);
+
+  const handleVerifyOtp = useCallback(async () => {
+    const trimmed = otpCode.trim();
+    if (trimmed.length < 4) {
+      Alert.alert('Invalid code', 'Please enter the verification code from your email.');
+      return;
+    }
+    try {
+      await loginWithCode({ code: trimmed, email: email.trim() });
+    } catch {
+      Alert.alert('Error', 'Invalid verification code.');
+    }
+  }, [otpCode, email, loginWithCode]);
+
+  // ── Wallet connect via Privy SIWS ─────────────────────────────────────────
+
+  const handleWalletConnect = useCallback(async (brand: WalletBrand) => {
+    setConnectingWallet(brand.id);
+    try {
+      const { Linking } = await import('react-native');
+      const schemes: Record<string, string> = {
+        phantom: 'phantom://',
+        solflare: 'solflare://',
+        backpack: 'backpack://',
+      };
+      const scheme = schemes[brand.id];
+      if (!scheme) return;
+
+      const canOpen = await Linking.canOpenURL(scheme);
+      if (!canOpen) {
+        Alert.alert('Not Installed', `${brand.name} wallet is not installed on this device.`);
+        return;
+      }
+
+      // SIWS flow: generate message → wallet signs → login with signature.
+      // Full flow requires wallet address first (returned via deep link callback).
+      // The deep link handler in _layout.tsx completes auth after wallet responds.
+      await Linking.openURL(scheme);
+    } catch {
+      Alert.alert('Error', `Could not connect to ${brand.name}.`);
     } finally {
       setConnectingWallet(null);
     }
-  }, []);
-
-  // ── Email login ─────────────────────────────────────────────────────────────
-
-  const handleEmailLogin = useCallback(async () => {
-    const trimmedEmail = email.trim();
-    const trimmedPw = password.trim();
-
-    if (!trimmedEmail || !trimmedPw) {
-      Alert.alert('Missing fields', 'Please enter both email and password.');
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const result = await authLogin(trimmedEmail, { email: trimmedEmail });
-      if (result.api_key) {
-        setApiKey(result.api_key);
-        try {
-          const me = await getMe(result.api_key);
-          setUser(me);
-        } catch { /* profile fetch is optional */ }
-        router.replace('/(tabs)/radar');
-      } else {
-        Alert.alert('Login failed', 'Invalid credentials. Please try again.');
-      }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Login failed';
-      Alert.alert('Login failed', msg);
-    } finally {
-      setLoading(false);
-    }
-  }, [email, password, setApiKey, setUser]);
+  }, [siwsHook]);
 
   // ── Skip ────────────────────────────────────────────────────────────────────
 
@@ -187,20 +218,20 @@ export default function LoginScreen() {
             </View>
             <Text style={styles.headerTitle}>Connect Wallet</Text>
             <Text style={styles.headerSubtitle}>
-              Link your Solana wallet to sync your intel node and unlock full features.
+              Link your Solana wallet or sign in with email to access full features.
             </Text>
           </Animated.View>
 
           {/* Wallet options */}
           <Animated.View entering={FadeInDown.delay(300).duration(500)} style={styles.walletGrid}>
-            {WALLETS.map((wallet, i) => (
+            {WALLET_BRANDS.map((wallet, i) => (
               <Animated.View
                 key={wallet.id}
                 entering={FadeInDown.delay(350 + i * 60).duration(400)}
               >
                 <Pressable
                   onPress={() => handleWalletConnect(wallet)}
-                  disabled={connectingWallet !== null}
+                  disabled={!!connectingWallet}
                   style={({ pressed }) => [
                     styles.walletCard,
                     pressed && styles.walletCardPressed,
@@ -218,7 +249,11 @@ export default function LoginScreen() {
                       {connectingWallet === wallet.id ? 'Connecting...' : 'Tap to connect'}
                     </Text>
                   </View>
-                  <ChevronRight size={16} color={tokens.white20} strokeWidth={2} />
+                  {connectingWallet === wallet.id ? (
+                    <ActivityIndicator size="small" color={wallet.color} />
+                  ) : (
+                    <ChevronRight size={16} color={tokens.white20} strokeWidth={2} />
+                  )}
                 </Pressable>
               </Animated.View>
             ))}
@@ -231,58 +266,88 @@ export default function LoginScreen() {
             <View style={styles.dividerLine} />
           </Animated.View>
 
-          {/* Email section */}
+          {/* Email OTP section */}
           <Animated.View entering={FadeInDown.delay(600).duration(400)} style={styles.emailSection}>
-            <Text style={styles.emailSectionTitle}>Email Login</Text>
-
-            {/* Email field */}
-            <View style={styles.inputRow}>
-              <Mail size={16} color={tokens.white35} strokeWidth={1.5} />
-              <TextInput
-                style={styles.input}
-                value={email}
-                onChangeText={setEmail}
-                placeholder="agent@solana.com"
-                placeholderTextColor={tokens.white20}
-                autoCapitalize="none"
-                autoCorrect={false}
-                keyboardType="email-address"
-                returnKeyType="next"
-              />
+            <View style={styles.emailTitleRow}>
+              <Mail size={14} color={tokens.secondary} strokeWidth={2} />
+              <Text style={styles.emailSectionTitle}>Email Sign In</Text>
             </View>
 
-            {/* Password field */}
-            <View style={styles.inputRow}>
-              <Lock size={16} color={tokens.white35} strokeWidth={1.5} />
-              <TextInput
-                style={styles.input}
-                value={password}
-                onChangeText={setPassword}
-                placeholder="Password"
-                placeholderTextColor={tokens.white20}
-                secureTextEntry={!showPassword}
-                returnKeyType="done"
-                onSubmitEditing={handleEmailLogin}
-              />
-              <Pressable onPress={() => setShowPassword((p) => !p)} hitSlop={8}>
-                {showPassword
-                  ? <EyeOff size={16} color={tokens.white35} strokeWidth={1.5} />
-                  : <Eye size={16} color={tokens.white35} strokeWidth={1.5} />
-                }
-              </Pressable>
-            </View>
+            {!otpSent ? (
+              <>
+                {/* Email input */}
+                <View style={styles.inputRow}>
+                  <Mail size={16} color={tokens.white35} strokeWidth={1.5} />
+                  <TextInput
+                    style={styles.input}
+                    value={email}
+                    onChangeText={setEmail}
+                    placeholder="you@email.com"
+                    placeholderTextColor={tokens.white20}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    keyboardType="email-address"
+                    returnKeyType="done"
+                    onSubmitEditing={handleSendOtp}
+                  />
+                </View>
 
-            {/* Sign In button */}
-            <HapticButton
-              variant="ghost"
-              size="lg"
-              fullWidth
-              loading={loading}
-              onPress={handleEmailLogin}
-            >
-              <Text style={styles.signInText}>Sign In</Text>
-              <ChevronRight size={16} color={tokens.white80} strokeWidth={2} />
-            </HapticButton>
+                <HapticButton
+                  variant="ghost"
+                  size="lg"
+                  fullWidth
+                  loading={emailState.status === 'sending-code'}
+                  onPress={handleSendOtp}
+                >
+                  <Text style={styles.signInText}>Send Verification Code</Text>
+                  <ChevronRight size={16} color={tokens.white80} strokeWidth={2} />
+                </HapticButton>
+              </>
+            ) : (
+              <>
+                {/* OTP sent confirmation */}
+                <View style={styles.otpSentBanner}>
+                  <Smartphone size={14} color={tokens.success} strokeWidth={2} />
+                  <Text style={styles.otpSentText}>
+                    Code sent to {email.trim()}
+                  </Text>
+                </View>
+
+                {/* OTP code input */}
+                <View style={styles.inputRow}>
+                  <ShieldCheck size={16} color={tokens.white35} strokeWidth={1.5} />
+                  <TextInput
+                    style={[styles.input, styles.otpInput]}
+                    value={otpCode}
+                    onChangeText={setOtpCode}
+                    placeholder="Enter code"
+                    placeholderTextColor={tokens.white20}
+                    keyboardType="number-pad"
+                    maxLength={8}
+                    autoFocus
+                    returnKeyType="done"
+                    onSubmitEditing={handleVerifyOtp}
+                  />
+                </View>
+
+                <HapticButton
+                  variant="primary"
+                  size="lg"
+                  fullWidth
+                  loading={emailState.status === 'submitting-code'}
+                  onPress={handleVerifyOtp}
+                >
+                  <Text style={styles.verifyBtnText}>Verify & Sign In</Text>
+                </HapticButton>
+
+                <Pressable
+                  onPress={() => { setOtpSent(false); setOtpCode(''); }}
+                  style={styles.resendRow}
+                >
+                  <Text style={styles.resendText}>Use a different email</Text>
+                </Pressable>
+              </>
+            )}
           </Animated.View>
 
           {/* Skip */}
@@ -410,12 +475,17 @@ const styles = StyleSheet.create({
 
   // Email section
   emailSection: { gap: 10, marginBottom: 24 },
+  emailTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    marginBottom: 4,
+  },
   emailSectionTitle: {
     fontFamily: 'Lexend-SemiBold',
     fontSize: tokens.font.small,
     color: tokens.white35,
     letterSpacing: 0.5,
-    marginBottom: 2,
   },
   inputRow: {
     flexDirection: 'row',
@@ -435,10 +505,50 @@ const styles = StyleSheet.create({
     color: tokens.white100,
     padding: 0,
   },
+  otpInput: {
+    letterSpacing: 4,
+    fontSize: tokens.font.sectionHeader,
+    fontFamily: 'Lexend-SemiBold',
+  },
   signInText: {
+    fontFamily: 'Lexend-SemiBold',
+    fontSize: tokens.font.body,
+    color: tokens.white100,
+  },
+  verifyBtnText: {
     fontFamily: 'Lexend-SemiBold',
     fontSize: tokens.font.subheading,
     color: tokens.white100,
+  },
+
+  // OTP sent
+  otpSentBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: `${tokens.success}10`,
+    borderWidth: 1,
+    borderColor: `${tokens.success}20`,
+    borderRadius: tokens.radius.sm,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  otpSentText: {
+    fontFamily: 'Lexend-Regular',
+    fontSize: tokens.font.small,
+    color: tokens.success,
+    flex: 1,
+  },
+  resendRow: {
+    alignItems: 'center',
+    paddingVertical: 4,
+  },
+  resendText: {
+    fontFamily: 'Lexend-Regular',
+    fontSize: tokens.font.small,
+    color: tokens.white35,
+    textDecorationLine: 'underline',
+    textDecorationColor: tokens.white10,
   },
 
   // Skip
