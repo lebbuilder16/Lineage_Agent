@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -9,17 +9,71 @@ import {
   ScrollView,
   Alert,
   Linking,
+  Pressable,
 } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { LinearGradient } from 'expo-linear-gradient';
-import Animated, { FadeInDown } from 'react-native-reanimated';
-import { ShieldCheck, Mail, Lock, Wallet } from 'lucide-react-native';
+import Animated, { FadeInDown, FadeIn } from 'react-native-reanimated';
+import {
+  ShieldCheck,
+  Mail,
+  Lock,
+  Wallet,
+  ChevronRight,
+  ArrowLeft,
+  Eye,
+  EyeOff,
+} from 'lucide-react-native';
 import { AuroraBackground } from '../../src/components/ui/AuroraBackground';
 import { HapticButton } from '../../src/components/ui/HapticButton';
 import { tokens } from '../../src/theme/tokens';
 import { useAuthStore } from '../../src/store/auth';
 import { authLogin, getMe } from '../../src/lib/api';
+import type { WalletProvider } from '../../src/types/api';
+
+// ── Wallet provider configs ──────────────────────────────────────────────────
+
+const BASE_URL = (process.env.EXPO_PUBLIC_API_URL ?? 'https://lineage-agent.fly.dev').replace(/\/$/, '');
+
+interface WalletOption {
+  id: WalletProvider;
+  name: string;
+  color: string;
+  bgColor: string;
+  deeplink: string;
+  installUrl: string;
+  letter: string;
+}
+
+const WALLETS: WalletOption[] = [
+  {
+    id: 'phantom',
+    name: 'Phantom',
+    color: '#AB9FF2',
+    bgColor: 'rgba(171, 159, 242, 0.12)',
+    deeplink: `https://phantom.app/ul/browse/${BASE_URL}/auth/phantom`,
+    installUrl: 'https://phantom.app/download',
+    letter: 'P',
+  },
+  {
+    id: 'solflare',
+    name: 'Solflare',
+    color: '#FC7227',
+    bgColor: 'rgba(252, 114, 39, 0.12)',
+    deeplink: `https://solflare.com/ul/browse/${BASE_URL}/auth/solflare`,
+    installUrl: 'https://solflare.com/download',
+    letter: 'S',
+  },
+  {
+    id: 'backpack',
+    name: 'Backpack',
+    color: '#E33E3F',
+    bgColor: 'rgba(227, 62, 63, 0.12)',
+    deeplink: `https://backpack.app/ul/browse/${BASE_URL}/auth/backpack`,
+    installUrl: 'https://backpack.app/download',
+    letter: 'B',
+  },
+];
 
 export default function LoginScreen() {
   const insets = useSafeAreaInsets();
@@ -28,38 +82,38 @@ export default function LoginScreen() {
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [walletLoading, setWalletLoading] = useState(false);
+  const [connectingWallet, setConnectingWallet] = useState<WalletProvider | null>(null);
 
-  // ── Phantom wallet connect ────────────────────────────────────────────────
-  const handlePhantomConnect = async () => {
-    setWalletLoading(true);
+  // ── Wallet connect ──────────────────────────────────────────────────────────
+
+  const handleWalletConnect = useCallback(async (wallet: WalletOption) => {
+    setConnectingWallet(wallet.id);
     try {
-      // Try to open Phantom deeplink for connect
-      const phantomUrl = 'https://phantom.app/ul/browse/https://lineage-agent.fly.dev/auth/phantom';
-      const canOpen = await Linking.canOpenURL(phantomUrl);
+      const canOpen = await Linking.canOpenURL(wallet.deeplink);
       if (canOpen) {
-        await Linking.openURL(phantomUrl);
+        await Linking.openURL(wallet.deeplink);
       } else {
-        // Phantom not installed — redirect to install page
         Alert.alert(
-          'Phantom Wallet',
-          'Phantom wallet is not installed. Install it from the app store to connect.',
+          wallet.name,
+          `${wallet.name} wallet is not installed. Install it to connect.`,
           [
             { text: 'Cancel', style: 'cancel' },
-            { text: 'Install', onPress: () => Linking.openURL('https://phantom.app/download') },
+            { text: 'Install', onPress: () => Linking.openURL(wallet.installUrl) },
           ],
         );
       }
     } catch {
-      Alert.alert('Error', 'Could not connect to Phantom wallet.');
+      Alert.alert('Error', `Could not connect to ${wallet.name} wallet.`);
     } finally {
-      setWalletLoading(false);
+      setConnectingWallet(null);
     }
-  };
+  }, []);
 
-  // ── Email/password login (uses API key as proxy) ──────────────────────────
-  const handleEmailLogin = async () => {
+  // ── Email login ─────────────────────────────────────────────────────────────
+
+  const handleEmailLogin = useCallback(async () => {
     const trimmedEmail = email.trim();
     const trimmedPw = password.trim();
 
@@ -70,15 +124,13 @@ export default function LoginScreen() {
 
     setLoading(true);
     try {
-      // Use the email as privy_id for the backend auth endpoint
-      const result = await authLogin(trimmedEmail);
+      const result = await authLogin(trimmedEmail, { email: trimmedEmail });
       if (result.api_key) {
         setApiKey(result.api_key);
-        // Fetch user profile
         try {
           const me = await getMe(result.api_key);
           setUser(me);
-        } catch { /* user profile fetch is optional */ }
+        } catch { /* profile fetch is optional */ }
         router.replace('/(tabs)/radar');
       } else {
         Alert.alert('Login failed', 'Invalid credentials. Please try again.');
@@ -89,12 +141,13 @@ export default function LoginScreen() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [email, password, setApiKey, setUser]);
 
-  // ── Skip (use without account) ────────────────────────────────────────────
-  const handleSkip = () => {
+  // ── Skip ────────────────────────────────────────────────────────────────────
+
+  const handleSkip = useCallback(() => {
     router.replace('/(tabs)/radar');
-  };
+  }, []);
 
   return (
     <View style={styles.container}>
@@ -106,46 +159,83 @@ export default function LoginScreen() {
         <ScrollView
           contentContainerStyle={[
             styles.content,
-            { paddingTop: Math.max(insets.top + 16, 40), paddingBottom: Math.max(insets.bottom + 24, 40) },
+            {
+              paddingTop: Math.max(insets.top + 12, 36),
+              paddingBottom: Math.max(insets.bottom + 24, 40),
+            },
           ]}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
+          {/* Back button */}
+          <Animated.View entering={FadeIn.delay(100).duration(400)}>
+            <Pressable
+              onPress={() => router.back()}
+              style={styles.backBtn}
+              hitSlop={12}
+            >
+              <ArrowLeft size={20} color={tokens.white60} strokeWidth={2} />
+            </Pressable>
+          </Animated.View>
+
           {/* Header */}
-          <Animated.View entering={FadeInDown.delay(100).duration(500)} style={styles.header}>
-            <View style={styles.headerIcon}>
-              <ShieldCheck size={22} color={tokens.secondary} strokeWidth={2} />
+          <Animated.View entering={FadeInDown.delay(150).duration(500)} style={styles.header}>
+            <View style={styles.headerIconRow}>
+              <View style={styles.headerIcon}>
+                <ShieldCheck size={20} color={tokens.secondary} strokeWidth={2} />
+              </View>
             </View>
-            <Text style={styles.headerTitle}>Secure Access</Text>
+            <Text style={styles.headerTitle}>Connect Wallet</Text>
             <Text style={styles.headerSubtitle}>
-              Connect your wallet or login to synchronize your intel node.
+              Link your Solana wallet to sync your intel node and unlock full features.
             </Text>
           </Animated.View>
 
-          {/* Phantom wallet button */}
-          <Animated.View entering={FadeInDown.delay(250).duration(500)} style={styles.walletSection}>
-            <HapticButton
-              variant="primary"
-              size="lg"
-              fullWidth
-              loading={walletLoading}
-              onPress={handlePhantomConnect}
-            >
-              <Wallet size={18} color={tokens.white100} strokeWidth={2} />
-              <Text style={styles.walletBtnText}>Connect Phantom Wallet</Text>
-            </HapticButton>
+          {/* Wallet options */}
+          <Animated.View entering={FadeInDown.delay(300).duration(500)} style={styles.walletGrid}>
+            {WALLETS.map((wallet, i) => (
+              <Animated.View
+                key={wallet.id}
+                entering={FadeInDown.delay(350 + i * 60).duration(400)}
+              >
+                <Pressable
+                  onPress={() => handleWalletConnect(wallet)}
+                  disabled={connectingWallet !== null}
+                  style={({ pressed }) => [
+                    styles.walletCard,
+                    pressed && styles.walletCardPressed,
+                    connectingWallet === wallet.id && styles.walletCardActive,
+                  ]}
+                >
+                  <View style={[styles.walletIcon, { backgroundColor: wallet.bgColor }]}>
+                    <Text style={[styles.walletLetter, { color: wallet.color }]}>
+                      {wallet.letter}
+                    </Text>
+                  </View>
+                  <View style={styles.walletInfo}>
+                    <Text style={styles.walletName}>{wallet.name}</Text>
+                    <Text style={styles.walletHint}>
+                      {connectingWallet === wallet.id ? 'Connecting...' : 'Tap to connect'}
+                    </Text>
+                  </View>
+                  <ChevronRight size={16} color={tokens.white20} strokeWidth={2} />
+                </Pressable>
+              </Animated.View>
+            ))}
           </Animated.View>
 
           {/* Divider */}
-          <Animated.View entering={FadeInDown.delay(350).duration(500)} style={styles.dividerRow}>
+          <Animated.View entering={FadeInDown.delay(550).duration(400)} style={styles.dividerRow}>
             <View style={styles.dividerLine} />
-            <Text style={styles.dividerText}>OR STANDARD LOGIN</Text>
+            <Text style={styles.dividerText}>OR</Text>
             <View style={styles.dividerLine} />
           </Animated.View>
 
-          {/* Email field */}
-          <Animated.View entering={FadeInDown.delay(450).duration(500)}>
-            <Text style={styles.fieldLabel}>Email Address</Text>
+          {/* Email section */}
+          <Animated.View entering={FadeInDown.delay(600).duration(400)} style={styles.emailSection}>
+            <Text style={styles.emailSectionTitle}>Email Login</Text>
+
+            {/* Email field */}
             <View style={styles.inputRow}>
               <Mail size={16} color={tokens.white35} strokeWidth={1.5} />
               <TextInput
@@ -153,35 +243,36 @@ export default function LoginScreen() {
                 value={email}
                 onChangeText={setEmail}
                 placeholder="agent@solana.com"
-                placeholderTextColor={tokens.white35}
+                placeholderTextColor={tokens.white20}
                 autoCapitalize="none"
                 autoCorrect={false}
                 keyboardType="email-address"
                 returnKeyType="next"
               />
             </View>
-          </Animated.View>
 
-          {/* Password field */}
-          <Animated.View entering={FadeInDown.delay(550).duration(500)}>
-            <Text style={styles.fieldLabel}>Password</Text>
+            {/* Password field */}
             <View style={styles.inputRow}>
               <Lock size={16} color={tokens.white35} strokeWidth={1.5} />
               <TextInput
                 style={styles.input}
                 value={password}
                 onChangeText={setPassword}
-                placeholder="••••••••"
-                placeholderTextColor={tokens.white35}
-                secureTextEntry
+                placeholder="Password"
+                placeholderTextColor={tokens.white20}
+                secureTextEntry={!showPassword}
                 returnKeyType="done"
                 onSubmitEditing={handleEmailLogin}
               />
+              <Pressable onPress={() => setShowPassword((p) => !p)} hitSlop={8}>
+                {showPassword
+                  ? <EyeOff size={16} color={tokens.white35} strokeWidth={1.5} />
+                  : <Eye size={16} color={tokens.white35} strokeWidth={1.5} />
+                }
+              </Pressable>
             </View>
-          </Animated.View>
 
-          {/* Sign In button */}
-          <Animated.View entering={FadeInDown.delay(650).duration(500)} style={styles.signInSection}>
+            {/* Sign In button */}
             <HapticButton
               variant="ghost"
               size="lg"
@@ -190,15 +281,15 @@ export default function LoginScreen() {
               onPress={handleEmailLogin}
             >
               <Text style={styles.signInText}>Sign In</Text>
-              <Text style={styles.signInArrow}>  →</Text>
+              <ChevronRight size={16} color={tokens.white80} strokeWidth={2} />
             </HapticButton>
           </Animated.View>
 
-          {/* Skip link */}
-          <Animated.View entering={FadeInDown.delay(750).duration(500)} style={styles.skipSection}>
-            <HapticButton variant="ghost" size="sm" onPress={handleSkip}>
+          {/* Skip */}
+          <Animated.View entering={FadeInDown.delay(700).duration(400)} style={styles.skipSection}>
+            <Pressable onPress={handleSkip} hitSlop={8}>
               <Text style={styles.skipText}>Continue without account</Text>
-            </HapticButton>
+            </Pressable>
           </Animated.View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -210,50 +301,100 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: tokens.bgMain },
   kav: { flex: 1 },
   content: {
-    paddingHorizontal: tokens.spacing.screenPadding + 8,
-    gap: 16,
+    paddingHorizontal: tokens.spacing.screenPadding + 4,
+    gap: 0,
+  },
+
+  // Back
+  backBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: tokens.bgGlass8,
+    borderWidth: 1,
+    borderColor: tokens.borderSubtle,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 20,
   },
 
   // Header
-  header: { marginBottom: 8 },
+  header: { marginBottom: 24 },
+  headerIconRow: { marginBottom: 14 },
   headerIcon: {
     width: 40,
     height: 40,
     borderRadius: 12,
-    backgroundColor: `${tokens.secondary}15`,
+    backgroundColor: `${tokens.secondary}12`,
     borderWidth: 1,
-    borderColor: `${tokens.secondary}30`,
+    borderColor: `${tokens.secondary}25`,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 16,
   },
   headerTitle: {
     fontFamily: 'Lexend-Bold',
-    fontSize: tokens.font.heading,
+    fontSize: 26,
     color: tokens.white100,
     marginBottom: 8,
+    letterSpacing: -0.3,
   },
   headerSubtitle: {
     fontFamily: 'Lexend-Regular',
     fontSize: tokens.font.body,
-    color: tokens.white60,
-    lineHeight: 22,
+    color: tokens.white35,
+    lineHeight: 21,
   },
 
-  // Wallet
-  walletSection: { marginTop: 8 },
-  walletBtnText: {
+  // Wallet cards
+  walletGrid: { gap: 8, marginBottom: 20 },
+  walletCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    backgroundColor: tokens.bgGlass,
+    borderRadius: tokens.radius.md,
+    borderWidth: 1,
+    borderColor: tokens.borderSubtle,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+  },
+  walletCardPressed: {
+    backgroundColor: tokens.bgGlass8,
+  },
+  walletCardActive: {
+    borderColor: tokens.borderActive,
+    backgroundColor: tokens.bgGlass8,
+  },
+  walletIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  walletLetter: {
+    fontFamily: 'Lexend-Bold',
+    fontSize: 18,
+  },
+  walletInfo: { flex: 1 },
+  walletName: {
     fontFamily: 'Lexend-SemiBold',
-    fontSize: tokens.font.body,
+    fontSize: tokens.font.subheading,
     color: tokens.white100,
+    marginBottom: 2,
+  },
+  walletHint: {
+    fontFamily: 'Lexend-Regular',
+    fontSize: tokens.font.small,
+    color: tokens.white35,
   },
 
   // Divider
   dividerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    marginVertical: 4,
+    gap: 14,
+    marginBottom: 20,
   },
   dividerLine: {
     flex: 1,
@@ -263,22 +404,24 @@ const styles = StyleSheet.create({
   dividerText: {
     fontFamily: 'Lexend-SemiBold',
     fontSize: tokens.font.tiny,
-    color: tokens.white35,
-    letterSpacing: 1,
+    color: tokens.white20,
+    letterSpacing: 2,
   },
 
-  // Fields
-  fieldLabel: {
-    fontFamily: 'Lexend-Regular',
+  // Email section
+  emailSection: { gap: 10, marginBottom: 24 },
+  emailSectionTitle: {
+    fontFamily: 'Lexend-SemiBold',
     fontSize: tokens.font.small,
-    color: tokens.white60,
-    marginBottom: 6,
+    color: tokens.white35,
+    letterSpacing: 0.5,
+    marginBottom: 2,
   },
   inputRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    backgroundColor: tokens.bgGlass8,
+    backgroundColor: tokens.bgGlass,
     borderRadius: tokens.radius.sm,
     borderWidth: 1,
     borderColor: tokens.borderSubtle,
@@ -292,25 +435,19 @@ const styles = StyleSheet.create({
     color: tokens.white100,
     padding: 0,
   },
-
-  // Sign In
-  signInSection: { marginTop: 8 },
   signInText: {
-    fontFamily: 'Lexend-Bold',
+    fontFamily: 'Lexend-SemiBold',
     fontSize: tokens.font.subheading,
     color: tokens.white100,
   },
-  signInArrow: {
-    fontFamily: 'Lexend-Regular',
-    fontSize: tokens.font.subheading,
-    color: tokens.white60,
-  },
 
   // Skip
-  skipSection: { alignItems: 'center', marginTop: 4 },
+  skipSection: { alignItems: 'center' },
   skipText: {
     fontFamily: 'Lexend-Regular',
     fontSize: tokens.font.small,
-    color: tokens.white35,
+    color: tokens.white20,
+    textDecorationLine: 'underline',
+    textDecorationColor: tokens.white10,
   },
 });

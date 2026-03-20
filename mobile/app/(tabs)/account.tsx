@@ -9,7 +9,7 @@ import {
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeInDown } from 'react-native-reanimated';
-import { User, Shield, Key, Zap, LogOut, ChevronRight, Activity, Crown } from 'lucide-react-native';
+import { User, Shield, Key, Zap, LogOut, ChevronRight, Activity, Crown, Wallet } from 'lucide-react-native';
 import { AuroraBackground } from '../../src/components/ui/AuroraBackground';
 import { GlassCard } from '../../src/components/ui/GlassCard';
 import { HapticButton } from '../../src/components/ui/HapticButton';
@@ -62,7 +62,8 @@ export default function AccountScreen() {
   };
 
   const isAuthenticated = !!apiKey;
-  const displayName = user?.username ?? user?.privy_id ?? 'Agent';
+  const displayName = user?.username ?? user?.email ?? user?.privy_id ?? 'Agent';
+  const walletAddr = user?.wallet_address;
   const memberSince = user?.created_at
     ? new Date(user.created_at).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
     : 'Unknown';
@@ -141,6 +142,16 @@ export default function AccountScreen() {
               {/* Info rows */}
               <Animated.View entering={FadeInDown.delay(200).duration(400)}>
                 <GlassCard>
+                  {walletAddr && (
+                    <>
+                      <InfoRow
+                        label="Wallet"
+                        value={`${walletAddr.slice(0, 6)}...${walletAddr.slice(-4)}`}
+                        icon={<Wallet size={16} color={tokens.secondary} />}
+                      />
+                      <View style={styles.divider} />
+                    </>
+                  )}
                   <InfoRow
                     label="API Key"
                     value={apiKey ? `${apiKey.slice(0, 8)}••••${apiKey.slice(-4)}` : 'Not set'}
