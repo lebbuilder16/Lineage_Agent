@@ -69,8 +69,8 @@ export default function SolTracePage() {
       )}
 
       <div className="ff-section">
-        <Link to={`/lineage/${mint}`} className="ff-link">
-          Back to token analysis <svg className="ff-arrow" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+        <Link to="/search" className="ff-link">
+          New search <svg className="ff-arrow" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
         </Link>
       </div>
     </div>

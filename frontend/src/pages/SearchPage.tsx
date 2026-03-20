@@ -8,7 +8,7 @@ const ff = { font: '"Instrument Sans", ui-sans-serif, system-ui, sans-serif', gr
 function TokenRow({ token }: { token: TokenSearchResult }) {
   const navigate = useNavigate();
   return (
-    <button onClick={() => navigate(`/lineage/${token.mint}`)} className="ff-row" style={{ width: '100%', textAlign: 'left', cursor: 'pointer', background: 'none', fontFamily: ff.font }}>
+    <button onClick={() => navigate(`/sol-trace/${token.mint}`)} className="ff-row" style={{ width: '100%', textAlign: 'left', cursor: 'pointer', background: 'none', fontFamily: ff.font }}>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 16, fontWeight: 600, letterSpacing: '-0.48px', color: '#000' }}>
           {token.name || token.mint.slice(0, 12)}
@@ -41,7 +41,7 @@ export default function SearchPage() {
     e.preventDefault();
     const q = query.trim();
     if (!q) return;
-    if (q.length >= 32 && /^[1-9A-HJ-NP-Za-km-z]+$/.test(q)) navigate(`/lineage/${q}`);
+    if (q.length >= 32 && /^[1-9A-HJ-NP-Za-km-z]+$/.test(q)) navigate(`/sol-trace/${q}`);
     else navigate(`/search?q=${encodeURIComponent(q)}`);
   };
 

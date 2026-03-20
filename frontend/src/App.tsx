@@ -4,19 +4,10 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { CookieConsent } from './components/CookieConsent';
 import { CommandPalette } from './components/CommandPalette';
-import { useAuthStore } from './store/auth';
 
 /* ── Lazy pages ─────────────────────────────────────── */
 const LandingPage = lazy(() => import('./components/LandingScreen').then(m => ({ default: m.LandingScreen })));
-const AuthPage = lazy(() => import('./pages/AuthPage'));
 const SearchPage = lazy(() => import('./pages/SearchPage'));
-const LineagePage = lazy(() => import('./pages/LineagePage'));
-const ComparePage = lazy(() => import('./pages/ComparePage'));
-const DashboardPage = lazy(() => import('./pages/DashboardPage'));
-const DeployerPage = lazy(() => import('./pages/DeployerPage'));
-const CartelPage = lazy(() => import('./pages/CartelPage'));
-const OperatorPage = lazy(() => import('./pages/OperatorPage'));
-const AccountPage = lazy(() => import('./pages/AccountPage'));
 const SolTracePage = lazy(() => import('./pages/SolTracePage'));
 const PrivacyPolicy = lazy(() => import('./components/PrivacyPolicy').then(m => ({ default: m.PrivacyPolicy })));
 
@@ -50,12 +41,11 @@ function ArrowRight({ size = 16 }: { size?: number }) {
   );
 }
 
-/* ── Nav (hidden on landing & auth — they have their own) ── */
+/* ── Nav (hidden on landing — it has its own) ── */
 function Nav() {
   const navigate = useNavigate();
   const location = useLocation();
   const [menuOpen, setMenuOpen] = useState(false);
-  const { apiKey } = useAuthStore();
 
   useEffect(() => { setMenuOpen(false); }, [location.pathname]);
   useEffect(() => {
@@ -65,8 +55,8 @@ function Nav() {
     return () => document.removeEventListener('click', close);
   }, [menuOpen]);
 
-  // Landing and auth pages have their own nav
-  if (location.pathname === '/' || location.pathname === '/auth') return null;
+  // Landing page has its own nav
+  if (location.pathname === '/') return null;
 
   const linkStyle = {
     fontSize: 20, color: ff.black, textDecoration: 'none', letterSpacing: '-1px',
@@ -89,22 +79,9 @@ function Nav() {
 
         {/* Desktop links */}
         <div className="ff-hide-mobile" style={{ display: 'flex', gap: 32, alignItems: 'center' }}>
-          <Link to="/dashboard" style={linkStyle}>Dashboard</Link>
-          <Link to="/compare" style={linkStyle}>Compare</Link>
           <button onClick={() => navigate('/search')} style={{ ...linkStyle, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            Analyse <ArrowRight size={18} />
+            Sol Trace <ArrowRight size={18} />
           </button>
-          {apiKey ? (
-            <Link to="/account" style={linkStyle}>Account</Link>
-          ) : (
-            <Link to="/auth" style={{
-              fontSize: 14, fontWeight: 500, color: ff.white, background: ff.black,
-              padding: '8px 16px', borderRadius: 6, textDecoration: 'none',
-              fontFamily: ff.font, letterSpacing: '-0.3px',
-            }}>
-              Connect
-            </Link>
-          )}
         </div>
 
         {/* Mobile burger */}
@@ -127,17 +104,9 @@ function Nav() {
           padding: '20px 15px', display: 'flex', flexDirection: 'column', gap: 20,
           fontFamily: ff.font,
         }}>
-          <Link to="/dashboard" style={linkStyle} onClick={() => setMenuOpen(false)}>Dashboard</Link>
-          <Link to="/compare" style={linkStyle} onClick={() => setMenuOpen(false)}>Compare</Link>
-          <Link to="/account" style={linkStyle} onClick={() => setMenuOpen(false)}>Account</Link>
           <button onClick={() => { navigate('/search'); setMenuOpen(false); }} style={{ ...linkStyle, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            Analyse <ArrowRight size={18} />
+            Sol Trace <ArrowRight size={18} />
           </button>
-          {!apiKey && (
-            <Link to="/auth" style={{ ...linkStyle, fontWeight: 500 }} onClick={() => setMenuOpen(false)}>
-              Connect
-            </Link>
-          )}
         </div>
       )}
     </header>
@@ -147,7 +116,7 @@ function Nav() {
 /* ── App Shell (location-aware layout) ─────────────── */
 function AppShell() {
   const location = useLocation();
-  const isFullscreen = location.pathname === '/' || location.pathname === '/auth';
+  const isFullscreen = location.pathname === '/';
 
   return (
     <>
@@ -162,15 +131,7 @@ function AppShell() {
       }}>
         <Routes>
           <Route path="/" element={<ErrorBoundary><Suspense fallback={<Loader />}><LandingPage /></Suspense></ErrorBoundary>} />
-          <Route path="/auth" element={<ErrorBoundary><Suspense fallback={<Loader />}><AuthPage /></Suspense></ErrorBoundary>} />
           <Route path="/search" element={<ErrorBoundary><Suspense fallback={<Loader />}><SearchPage /></Suspense></ErrorBoundary>} />
-          <Route path="/lineage/:mint" element={<ErrorBoundary><Suspense fallback={<Loader />}><LineagePage /></Suspense></ErrorBoundary>} />
-          <Route path="/compare" element={<ErrorBoundary><Suspense fallback={<Loader />}><ComparePage /></Suspense></ErrorBoundary>} />
-          <Route path="/dashboard" element={<ErrorBoundary><Suspense fallback={<Loader />}><DashboardPage /></Suspense></ErrorBoundary>} />
-          <Route path="/deployer/:address" element={<ErrorBoundary><Suspense fallback={<Loader />}><DeployerPage /></Suspense></ErrorBoundary>} />
-          <Route path="/cartel/:id" element={<ErrorBoundary><Suspense fallback={<Loader />}><CartelPage /></Suspense></ErrorBoundary>} />
-          <Route path="/operator/:fingerprint" element={<ErrorBoundary><Suspense fallback={<Loader />}><OperatorPage /></Suspense></ErrorBoundary>} />
-          <Route path="/account" element={<ErrorBoundary><Suspense fallback={<Loader />}><AccountPage /></Suspense></ErrorBoundary>} />
           <Route path="/sol-trace/:mint" element={<ErrorBoundary><Suspense fallback={<Loader />}><SolTracePage /></Suspense></ErrorBoundary>} />
           <Route path="/privacy" element={<ErrorBoundary><Suspense fallback={<Loader />}><PrivacyPolicy /></Suspense></ErrorBoundary>} />
         </Routes>
