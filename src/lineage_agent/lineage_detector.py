@@ -774,6 +774,29 @@ async def _detect_lineage_impl(
 
     await _progress(f"Scoring {len(pre_filtered)} candidates", 60)
 
+    # ── Pre-fetch all candidate DAS assets in a single batch RPC call ──────
+    # Previously each _enrich() called _get_asset_cached() individually (N round-
+    # trips).  Batching into one getAssetBatch call saves ~(N-1) × 0.5s.
+    _candidate_mints = [c.mint for c, _, _ in pre_filtered]
+    _batch_assets: dict[str, dict] = {}
+    if _candidate_mints:
+        try:
+            _batch_results = await asyncio.wait_for(
+                rpc.get_assets_batch(_candidate_mints), timeout=5.0
+            )
+            from config import CACHE_TTL_RPC_ASSET_SECONDS, CACHE_STALE_TTL_RPC_ASSET_SECONDS  # noqa: PLC0415
+            for _bm, _ba in zip(_candidate_mints, _batch_results):
+                if _ba:
+                    _batch_assets[_bm] = _ba
+                    # Warm the per-mint cache so later lookups are instant
+                    await _cache_set(
+                        f"rpc:asset:{_bm}", _ba,
+                        ttl=CACHE_TTL_RPC_ASSET_SECONDS,
+                        stale_ttl=CACHE_STALE_TTL_RPC_ASSET_SECONDS,
+                    )
+        except Exception as _batch_err:
+            logger.warning("getAssetBatch failed, falling back to individual: %s", _batch_err)
+
     # Enrich all pre-filtered candidates concurrently (bounded)
     # Use the configured concurrency limit to respect public RPC rate limits.
     # Previously overrode config with max(..., 15), causing 20+ 429s per scan.
@@ -784,18 +807,17 @@ async def _detect_lineage_impl(
         candidate: TokenSearchResult, name_sim: float, sym_sim: float
     ) -> Optional[_ScoredCandidate]:
         async with sem:
-            # Hard cap per-candidate: RPC sig-walk can hang up to 12 s each.
-            # 5 s is sufficient — cached mints return instantly, new ones abort fast.
+            # DAS-only deployer for candidates: skip the 3-10s sig-walk.
+            # Candidates use pairCreatedAt for temporal scoring (good enough).
             try:
                 c_deployer, c_created = await asyncio.wait_for(
-                    _get_deployer_cached(rpc, candidate.mint), timeout=5.0
+                    _get_deployer_cached(rpc, candidate.mint, skip_sig_walk=True),
+                    timeout=3.0,
                 )
             except asyncio.TimeoutError:
                 c_deployer, c_created = "", candidate.pair_created_at
-        # DAS getAsset is a fast Helius call (~0.5 s) with no 429 risk — no need
-        # to hold the RPC semaphore.  Releasing the slot before this call lets
-        # the next candidate start its sig-walk ~1 s sooner.
-        c_asset = await _get_asset_cached(rpc, candidate.mint)
+        # Use pre-fetched batch asset if available, else fall back to individual.
+        c_asset = _batch_assets.get(candidate.mint) or await _get_asset_cached(rpc, candidate.mint)
 
         # Anchor to on-market date for root-selection accuracy.
         # A token may have been pre-minted (mint account created) well before
@@ -819,11 +841,13 @@ async def _detect_lineage_impl(
             ((c_asset.get("content") or {}).get("links") or {}).get("image") or ""
         )
 
-        # Image similarity — skip download when name is near-identical (obvious clone)
-        # or when either image URL is missing (avoids pointless HTTP round-trips).
+        # Image similarity — skip download when name is sufficiently similar
+        # (>= 0.7 = strong textual match) or when either URL is missing.
+        # Lowered from 0.95 to 0.7 to avoid 1-4s image download per candidate
+        # when the name already provides high confidence.
         async with img_sem:
-            if name_sim >= 0.95 or not query_meta.image_uri or not c_image_uri:
-                img_sim = 1.0 if name_sim >= 0.95 else -1.0  # -1 = missing sentinel
+            if name_sim >= 0.70 or not query_meta.image_uri or not c_image_uri:
+                img_sim = 1.0 if name_sim >= 0.70 else -1.0  # -1 = missing sentinel
             else:
                 try:
                     img_sim = await asyncio.wait_for(
@@ -892,11 +916,40 @@ async def _detect_lineage_impl(
             composite=composite,
         )
 
-    tasks = [
-        asyncio.wait_for(_enrich(c, ns, ss), timeout=8.0)
-        for c, ns, ss in pre_filtered
-    ]
-    results = await asyncio.gather(*tasks, return_exceptions=True)
+    # ── Early-termination enrichment ─────────────────────────────────────
+    # Process candidates in batches.  After each batch, check if we already
+    # have enough high-confidence matches to stop early — avoids enriching
+    # 30+ candidates when the first 8 already confirm a serial deployer.
+    _EARLY_STOP_COUNT = 5
+    _EARLY_STOP_THRESHOLD = 0.65
+    _BATCH_SIZE = max(MAX_CONCURRENT_RPC, 8)
+    _all_results: list = []
+    _stop_early = False
+
+    for _batch_start in range(0, len(pre_filtered), _BATCH_SIZE):
+        if _stop_early:
+            break
+        _batch = pre_filtered[_batch_start:_batch_start + _BATCH_SIZE]
+        _batch_tasks = [
+            asyncio.wait_for(_enrich(c, ns, ss), timeout=6.0)
+            for c, ns, ss in _batch
+        ]
+        _batch_results = await asyncio.gather(*_batch_tasks, return_exceptions=True)
+        _all_results.extend(_batch_results)
+
+        # Check early-stop condition
+        _high_conf = sum(
+            1 for r in _all_results
+            if isinstance(r, _ScoredCandidate) and r.composite >= _EARLY_STOP_THRESHOLD
+        )
+        if _high_conf >= _EARLY_STOP_COUNT:
+            logger.info(
+                "[lineage] early stop: %d high-confidence matches after %d/%d candidates",
+                _high_conf, _batch_start + len(_batch), len(pre_filtered),
+            )
+            _stop_early = True
+
+    results = _all_results
 
     for r in results:
         if isinstance(r, _ScoredCandidate):
@@ -1075,7 +1128,7 @@ async def _detect_lineage_impl(
         logger.debug("uri_tuples history expansion failed: %s", _fp_err)
 
     # Phases 2, 3, 5, 6, 7, 8, 9 — async enrichers in parallel
-    async def _safe(coro, *, name: str = "enricher", timeout: float = 7.0):
+    async def _safe(coro, *, name: str = "enricher", timeout: float = 5.0):
         try:
             return await asyncio.wait_for(coro, timeout=timeout)
         except asyncio.TimeoutError:
@@ -1130,7 +1183,7 @@ async def _detect_lineage_impl(
         if flow is None and _scan_deployer:
             try:
                 flow = await asyncio.wait_for(
-                    trace_sol_flow(_scan_mint, _scan_deployer), timeout=8.0
+                    trace_sol_flow(_scan_mint, _scan_deployer), timeout=5.0
                 )
             except asyncio.TimeoutError:
                 logger.warning("[sol_flow] timed out — continuing in background")
@@ -1163,7 +1216,7 @@ async def _detect_lineage_impl(
         if _scan_deployer:
             try:
                 await asyncio.wait_for(
-                    build_cartel_edges_for_deployer(_scan_deployer), timeout=8.0
+                    build_cartel_edges_for_deployer(_scan_deployer), timeout=5.0
                 )
             except Exception:
                 pass
@@ -1186,7 +1239,7 @@ async def _detect_lineage_impl(
                     reason_codes=list(getattr(query_meta, "reason_codes", []) or []),
                     evidence_level=getattr(query_meta, "evidence_level", EvidenceLevel.WEAK),
                 ),
-                timeout=10.0,
+                timeout=5.0,
             )
         except asyncio.TimeoutError:
             logger.warning("[insider_sell] timed out for %s", _scan_mint[:8])
@@ -1204,13 +1257,13 @@ async def _detect_lineage_impl(
                 _price = _p
         except Exception:
             pass
-        # Inline cap = 8 s (down from 12 s).  The bundle tracker's own internal
-        # timeout (120 s) handles the full analysis in the background; results are
+        # Inline cap = 5 s (down from 8 s).  The bundle tracker's own internal
+        # timeout handles the full analysis in the background; results are
         # persisted to DB and the next scan reads them instantly.
         try:
             return await asyncio.wait_for(
                 analyze_bundle(_scan_mint, _scan_deployer, _price, force_refresh=force_refresh),
-                timeout=8.0,
+                timeout=5.0,
             )
         except asyncio.TimeoutError:
             logger.warning(
@@ -1270,7 +1323,7 @@ async def _detect_lineage_impl(
                     result.operator_fingerprint.fingerprint,
                     result.operator_fingerprint.linked_wallets,
                 ),
-                timeout=10.0,
+                timeout=5.0,
             )
         )
 
@@ -1645,7 +1698,7 @@ _NON_DEPLOYER_AUTHORITIES: frozenset[str] = frozenset({
 
 
 async def _get_deployer_cached(
-    rpc: SolanaRpcClient, mint: str
+    rpc: SolanaRpcClient, mint: str, *, skip_sig_walk: bool = False,
 ) -> tuple[str, Any]:
     """Fetch deployer + timestamp with per-mint caching (never changes).
 
@@ -1660,6 +1713,11 @@ async def _get_deployer_cached(
            source of the on-chain creation timestamp — DAS ``token_info.
            created_at`` reflects Helius's *last-indexing* time, not the
            actual mint-init block time, and must NOT be used here.
+
+    When *skip_sig_walk* is True (candidate enrichment path), skip the
+    expensive signature-walk (3-10 s) and rely on DAS deployer + the
+    caller-provided pairCreatedAt for the timestamp.  This trades a
+    small accuracy loss on creation_at for a massive latency win.
     """
     # v6: cache bust — v5 could persist the mint address itself as deployer
     # (InitializeMint signs with the mint account; must exclude mint from candidates).
@@ -1744,19 +1802,17 @@ async def _get_deployer_cached(
                 ua,
             )
 
-    # --- Signature-walk — always run for timestamp; also resolves deployer ---
-    # The signature-walk is the ONLY reliable source of the on-chain creation
-    # timestamp (blockTime of the oldest tx for the mint account).
-    # DAS token_info.created_at is the Helius indexing time, NOT mint creation.
-    # DexScreener pairCreatedAt is when the pool was listed (≠ mint creation for
-    # graduated PumpFun tokens).  Only the first-ever tx's blockTime is correct.
-    try:
-        _sw_deployer, _sw_ts = await asyncio.wait_for(
-            rpc.get_deployer_and_timestamp(mint), timeout=10.0
-        )
-    except (asyncio.TimeoutError, Exception) as _sw_exc:
-        logger.warning("Signature-walk failed/timed out for %s: %s", mint, _sw_exc)
-        _sw_deployer, _sw_ts = "", None
+    # --- Signature-walk — run for timestamp; also resolves deployer ---
+    # When skip_sig_walk=True (candidate path), skip this expensive step
+    # (3-10s per candidate) and rely on DAS deployer + pairCreatedAt.
+    _sw_deployer, _sw_ts = "", None
+    if not skip_sig_walk:
+        try:
+            _sw_deployer, _sw_ts = await asyncio.wait_for(
+                rpc.get_deployer_and_timestamp(mint), timeout=10.0
+            )
+        except (asyncio.TimeoutError, Exception) as _sw_exc:
+            logger.warning("Signature-walk failed/timed out for %s: %s", mint, _sw_exc)
 
     # Use on-chain timestamp if available
     if _sw_ts:
@@ -1764,6 +1820,11 @@ async def _get_deployer_cached(
 
     # If creators[] didn't yield a deployer, use signature-walk explicitly
     if not deployer:
+        if not _sw_deployer and not skip_sig_walk:
+            pass  # sig-walk already ran, no deployer found
+        elif not _sw_deployer and skip_sig_walk:
+            # DAS had no creator and we skipped sig-walk — log but don't block
+            logger.debug("No deployer from DAS for candidate %s (sig-walk skipped)", mint[:12])
         deployer = _sw_deployer or ""
         if deployer:
             logger.warning(
