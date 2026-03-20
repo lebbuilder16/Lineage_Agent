@@ -178,6 +178,7 @@ export function investigateStream(
 ): () => void {
   const url = `${BASE_URL}/investigate/${encodeURIComponent(mint)}`;
   let stopped = false;
+  const startedAt = Date.now();
 
   const xhr = new XMLHttpRequest();
   xhr.open('POST', url);
@@ -189,6 +190,9 @@ export function investigateStream(
   const parser = createSSEParser({
     onEvent(eventType, data) {
       if (stopped) return true;
+
+      // Server-side keepalive — ignore silently, do not propagate
+      if (eventType === 'ping') return false;
 
       if (eventType === 'done') {
         stopped = true;
@@ -250,18 +254,25 @@ export function investigateStream(
   xhr.onerror = () => {
     if (!stopped) {
       stopped = true;
-      callbacks.onError(new Error('Network error — check your connection'));
+      // React Native routes ontimeout to onerror on some platforms —
+      // check elapsed time to distinguish network drop from client timeout.
+      const elapsed = Date.now() - startedAt;
+      const msg = elapsed >= 295_000
+        ? 'Investigation timed out — try again'
+        : 'Network error — check your connection';
+      callbacks.onError(new Error(msg));
     }
   };
 
   xhr.ontimeout = () => {
     if (!stopped) {
       stopped = true;
-      callbacks.onError(new Error('Request timed out'));
+      callbacks.onError(new Error('Investigation timed out — try again'));
     }
   };
 
-  xhr.timeout = 120_000;
+  // 5 min — agent multi-turn (up to 5 turns × ~45s) + verdict extraction (~30s)
+  xhr.timeout = 300_000;
   xhr.send(JSON.stringify({}));
 
   return () => {

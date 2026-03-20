@@ -33,7 +33,7 @@ from .ai_analyst import (
 
 logger = logging.getLogger(__name__)
 
-_AGENT_TIMEOUT = 120.0  # wall-clock budget — scan is pre-injected so agent only reasons
+_AGENT_TIMEOUT = 240.0  # wall-clock budget — scan is pre-injected so agent only reasons
 _MAX_TURNS = 8
 _TOOL_TIMEOUT_DEFAULT = 15.0
 _TOOL_TIMEOUT_SCAN = 45.0
@@ -628,32 +628,65 @@ async def run_agent(
             yield {"event": "text", "data": {"turn": turn, "text": "Investigation time limit reached. Delivering verdict with current evidence."}}
             break
 
-        # Call Claude
+        # ── Call Claude — stream tokens in real-time to keep SSE alive ───
+        text_parts: list[str] = []
+        tool_uses: list[dict] = []
+        call_timeout = min(remaining - 2.0, 90.0)
+        if call_timeout < 5.0:
+            call_timeout = 5.0
+
         try:
-            message = await _call_claude_with_retry(
-                client,
+            async with client.messages.stream(
                 model=_MODEL_SONNET,
+                max_tokens=4096,
+                temperature=0,
                 system=system_prompt,
                 tools=AGENT_TOOLS,
                 messages=messages,
-                remaining_time=remaining,
-            )
+                timeout=call_timeout,
+            ) as stream:
+                async for event in stream:
+                    etype = getattr(event, "type", None)
+                    if etype == "content_block_delta":
+                        delta = getattr(event, "delta", None)
+                        if getattr(delta, "type", None) == "text_delta":
+                            chunk = delta.text
+                            if chunk:
+                                text_parts.append(chunk)
+                                # Stream tokens immediately — keeps SSE connection alive
+                                yield {"event": "text_delta", "data": {"turn": turn, "text": chunk}}
+                    elif etype == "content_block_start":
+                        block = getattr(event, "content_block", None)
+                        if getattr(block, "type", None) == "tool_use":
+                            tool_uses.append({
+                                "id": block.id,
+                                "name": block.name,
+                                "input": {},
+                                "_input_chunks": [],
+                            })
+                    elif etype == "content_block_delta":
+                        delta = getattr(event, "delta", None)
+                        if getattr(delta, "type", None) == "input_json_delta" and tool_uses:
+                            tool_uses[-1]["_input_chunks"].append(delta.partial_json)
+
+                # Resolve final message for usage + tool input parsing
+                message = await stream.get_final_message()
+
         except Exception as exc:
-            logger.exception("[agent] Claude call failed at turn %d for %s", turn, mint[:12])
+            logger.exception("[agent] Claude stream failed at turn %d for %s", turn, mint[:12])
             yield {"event": "error", "data": {"detail": f"AI error: {type(exc).__name__}: {exc}", "recoverable": False}}
             return
 
         total_input_tokens += message.usage.input_tokens
         total_output_tokens += message.usage.output_tokens
 
-        # ── Parse response ───────────────────────────────────────────────
-        text_parts: list[str] = []
-        tool_uses: list[dict] = []
-
+        # ── Reconcile tool inputs from final message (authoritative) ────
+        tool_uses = []
         for block in message.content:
             btype = getattr(block, "type", None)
             if btype == "text" and getattr(block, "text", ""):
-                text_parts.append(block.text)
+                if block.text not in "".join(text_parts):
+                    text_parts.append(block.text)
             elif btype == "tool_use":
                 tool_uses.append({
                     "id": block.id,
@@ -661,9 +694,9 @@ async def run_agent(
                     "input": block.input,
                 })
 
-        # Emit thinking (text before tool calls)
+        # Emit thinking marker (text emitted token-by-token above, but signal tool context)
         if text_parts and tool_uses:
-            yield {"event": "thinking", "data": {"turn": turn, "text": " ".join(text_parts)}}
+            yield {"event": "thinking", "data": {"turn": turn, "text": ""}}
 
         # ── Tool execution (OPT-2: parallel) ─────────────────────────────
         if tool_uses:
@@ -676,12 +709,28 @@ async def run_agent(
                     "call_id": tu["id"],
                 }}
 
-            # Execute all tools in parallel
+            # Execute all tools in parallel — yield keepalive pings every 5s
+            # to prevent SSE connection drop during slow tool calls.
+            # asyncio.shield prevents cancellation of the gather while we
+            # wait_for with a short timeout to interleave ping yields.
             t0 = time.monotonic()
-            results = await asyncio.gather(*[
+            gather_task = asyncio.ensure_future(asyncio.gather(*[
                 _execute_tool(tu["name"], {**tu["input"], "_mint": mint}, cache=cache)
                 for tu in tool_uses
-            ])
+            ]))
+            while not gather_task.done():
+                try:
+                    await asyncio.wait_for(asyncio.shield(gather_task), timeout=5.0)
+                except asyncio.TimeoutError:
+                    yield {"event": "ping", "data": {"ts": time.monotonic()}}
+                except Exception:
+                    break  # Non-timeout exception — exit ping loop, re-raise below
+            try:
+                results = gather_task.result()
+            except Exception as exc:
+                logger.exception("[agent] tool gather failed at turn %d for %s", turn, mint[:12])
+                yield {"event": "error", "data": {"detail": f"Tool execution error: {type(exc).__name__}: {exc}", "recoverable": False}}
+                return
 
             # Yield tool_result events and build response messages
             tool_result_contents: list[dict] = []
@@ -798,9 +847,12 @@ async def _extract_verdict(
     system: str,
     mint: str,
 ) -> Optional[dict]:
-    """Final forced tool_use call to get structured verdict from the conversation."""
+    """Final forced tool_use call to get structured verdict from the conversation.
+
+    Uses messages.stream() so sse-starlette's background ping task keeps the
+    TCP connection alive during Claude's 20-30s reasoning time.
+    """
     try:
-        # Add instruction for extraction
         extraction_messages = messages + [
             {
                 "role": "user",
@@ -808,7 +860,9 @@ async def _extract_verdict(
             },
         ]
 
-        message = await client.messages.create(
+        # Use streaming so httpx yields control to the event loop every token,
+        # allowing sse-starlette's ping task to fire and keep the connection alive.
+        async with client.messages.stream(
             model=_MODEL_SONNET,
             max_tokens=2500,
             temperature=0,
@@ -816,8 +870,9 @@ async def _extract_verdict(
             tools=[_FORENSIC_TOOL],
             tool_choice={"type": "tool", "name": "forensic_report"},
             messages=extraction_messages,
-            timeout=30.0,
-        )
+            timeout=45.0,
+        ) as stream:
+            message = await stream.get_final_message()
 
         for block in message.content:
             if getattr(block, "type", None) == "tool_use" and getattr(block, "name", None) == "forensic_report":
