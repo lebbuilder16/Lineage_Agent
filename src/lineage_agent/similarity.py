@@ -125,6 +125,12 @@ async def compute_image_similarity(
     return similarity
 
 
+def _compute_phash_sync(image_bytes: bytes):
+    """Compute perceptual hash — runs in thread pool to avoid blocking event loop."""
+    img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+    return imagehash.phash(img)
+
+
 async def _phash_from_url(url: str, timeout: int = 5, client: httpx.AsyncClient | None = None):
     """Download an image and compute its perceptual hash.
 
@@ -143,8 +149,7 @@ async def _phash_from_url(url: str, timeout: int = 5, client: httpx.AsyncClient 
             async with httpx.AsyncClient(timeout=timeout) as _client:
                 resp = await _client.get(url)
                 resp.raise_for_status()
-        img = Image.open(io.BytesIO(resp.content)).convert("RGB")
-        result = imagehash.phash(img)
+        result = await asyncio.to_thread(_compute_phash_sync, resp.content)
     except Exception as exc:  # noqa: BLE001
         logger.debug("Could not compute phash for %s: %s", url, exc)
 

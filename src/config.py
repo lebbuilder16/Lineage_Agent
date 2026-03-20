@@ -110,22 +110,35 @@ if abs(_weight_sum - 1.0) > 0.01:
 # ---------------------------------------------------------------------------
 CACHE_TTL_SECONDS: int = _parse_int("CACHE_TTL_SECONDS", "300", minimum=1)
 CACHE_TTL_LINEAGE_SECONDS: int = _parse_int(
-    "CACHE_TTL_LINEAGE_SECONDS", "180", minimum=1
-)
+    "CACHE_TTL_LINEAGE_SECONDS", "600", minimum=1
+)  # 10 min (was 3 min — too aggressive)
 CACHE_TTL_DEPLOYER_SECONDS: int = _parse_int(
-    "CACHE_TTL_DEPLOYER_SECONDS", "600", minimum=1
-)
+    "CACHE_TTL_DEPLOYER_SECONDS", "86400", minimum=1
+)  # 24 hours (deployer is immutable)
 CACHE_TTL_AI_SECONDS: int = _parse_int(
     "CACHE_TTL_AI_SECONDS", "300", minimum=30
 )
 # Stale-while-revalidate: serve stale data immediately while refreshing in background.
 # Data older than stale TTL but younger than hard TTL is served with a background refresh.
 CACHE_STALE_TTL_LINEAGE_SECONDS: int = _parse_int(
-    "CACHE_STALE_TTL_LINEAGE_SECONDS", "600", minimum=60
-)
+    "CACHE_STALE_TTL_LINEAGE_SECONDS", "3600", minimum=60
+)  # 1 hour (was 10 min)
 CACHE_STALE_TTL_AI_SECONDS: int = _parse_int(
     "CACHE_STALE_TTL_AI_SECONDS", "900", minimum=60
 )
+# RPC caches — deployer address is immutable, timestamp doesn't change
+CACHE_TTL_RPC_DEPLOYER_SECONDS: int = _parse_int(
+    "CACHE_TTL_RPC_DEPLOYER_SECONDS", "86400", minimum=60
+)  # 24h — deployer never changes
+CACHE_STALE_TTL_RPC_DEPLOYER_SECONDS: int = _parse_int(
+    "CACHE_STALE_TTL_RPC_DEPLOYER_SECONDS", "604800", minimum=3600
+)  # 7 days SWR
+CACHE_TTL_RPC_ASSET_SECONDS: int = _parse_int(
+    "CACHE_TTL_RPC_ASSET_SECONDS", "3600", minimum=60
+)  # 1h — metadata rarely changes
+CACHE_STALE_TTL_RPC_ASSET_SECONDS: int = _parse_int(
+    "CACHE_STALE_TTL_RPC_ASSET_SECONDS", "86400", minimum=3600
+)  # 24h SWR
 # Shared extraction rate used by operator_impact_service and cartel_service.
 # Represents the estimated fraction of rugged mcap extracted by the operator.
 EXTRACTION_RATE_MCAP: float = float(os.getenv("EXTRACTION_RATE_MCAP", "0.15"))

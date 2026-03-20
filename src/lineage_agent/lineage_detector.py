@@ -748,21 +748,26 @@ async def _detect_lineage_impl(
     # Pre-filter by name/symbol similarity (cheap, sync)
     # Candidates that came from the deployer search always pass — they share
     # the deployer by definition even if names differ.
-    pre_filtered = []
     _candidate_cap = min(MAX_DERIVATIVES * 2, 20)   # 20 max — each needs a full RPC sig-walk
-    for candidate in candidates[:_candidate_cap]:
-        name_sim = compute_name_similarity(query_meta.name, candidate.name)
-        sym_sim = compute_symbol_similarity(
-            query_meta.symbol, candidate.symbol
-        )
-        # Accept if name/symbol matches OR if found via deployer search
-        if (
-            name_sim < NAME_SIMILARITY_THRESHOLD
-            and sym_sim < SYMBOL_SIMILARITY_THRESHOLD
-            and candidate.mint not in deployer_mints
-        ):
-            continue
-        pre_filtered.append((candidate, name_sim, sym_sim))
+
+    def _pre_filter_sync(query_meta, candidates, candidate_cap, deployer_mints):
+        """Pre-filter candidates by name/symbol similarity — CPU-bound."""
+        pre_filtered = []
+        for candidate in candidates[:candidate_cap]:
+            name_sim = compute_name_similarity(query_meta.name, candidate.name)
+            sym_sim = compute_symbol_similarity(query_meta.symbol, candidate.symbol)
+            if (
+                name_sim < NAME_SIMILARITY_THRESHOLD
+                and sym_sim < SYMBOL_SIMILARITY_THRESHOLD
+                and candidate.mint not in deployer_mints
+            ):
+                continue
+            pre_filtered.append((candidate, name_sim, sym_sim))
+        return pre_filtered
+
+    pre_filtered = await asyncio.to_thread(
+        _pre_filter_sync, query_meta, candidates, _candidate_cap, deployer_mints
+    )
 
     await _progress(f"Scoring {len(pre_filtered)} candidates", 60)
 
@@ -1672,10 +1677,11 @@ async def _get_deployer_cached(
     if asset:
         # Populate the rpc:asset cache so _get_asset_cached() is a cache hit
         # for the same mint — avoids a redundant second DAS call in _enrich.
+        from config import CACHE_TTL_RPC_ASSET_SECONDS, CACHE_STALE_TTL_RPC_ASSET_SECONDS  # noqa: PLC0415
         _asset_cache_key = f"rpc:asset:{mint}"
         _asset_cached = await _cache_get(_asset_cache_key)
         if not isinstance(_asset_cached, dict):
-            await _cache_set(_asset_cache_key, asset, ttl=86400)
+            await _cache_set(_asset_cache_key, asset, ttl=CACHE_TTL_RPC_ASSET_SECONDS, stale_ttl=CACHE_STALE_TTL_RPC_ASSET_SECONDS)
 
         # NOTE: We intentionally do NOT read DAS ``token_info.created_at`` here.
         # That field reflects when Helius last re-indexed the token, not when
@@ -1769,7 +1775,8 @@ async def _get_deployer_cached(
 
     result = (deployer, created_at)
     # Long TTL: deployer/timestamp are immutable on-chain
-    await _cache_set(cache_key, result, ttl=86400)
+    from config import CACHE_TTL_RPC_DEPLOYER_SECONDS, CACHE_STALE_TTL_RPC_DEPLOYER_SECONDS  # noqa: PLC0415
+    await _cache_set(cache_key, result, ttl=CACHE_TTL_RPC_DEPLOYER_SECONDS, stale_ttl=CACHE_STALE_TTL_RPC_DEPLOYER_SECONDS)
     return result
 
 
@@ -1789,7 +1796,8 @@ async def _get_asset_cached(rpc: SolanaRpcClient, mint: str) -> dict:
 
     result = await rpc.get_asset(mint)
     if result:
-        await _cache_set(cache_key, result, ttl=86400)
+        from config import CACHE_TTL_RPC_ASSET_SECONDS, CACHE_STALE_TTL_RPC_ASSET_SECONDS  # noqa: PLC0415
+        await _cache_set(cache_key, result, ttl=CACHE_TTL_RPC_ASSET_SECONDS, stale_ttl=CACHE_STALE_TTL_RPC_ASSET_SECONDS)
     return result or {}
 
 

@@ -28,4 +28,4 @@ USER appuser
 
 EXPOSE 8080
 
-CMD ["python", "-m", "uvicorn", "lineage_agent.api:app", "--host", "0.0.0.0", "--port", "8080", "--app-dir", "src"]
+CMD ["sh", "-c", "uvicorn lineage_agent.api:app --host 0.0.0.0 --port 8080 --workers ${UVICORN_WORKERS:-1}"]

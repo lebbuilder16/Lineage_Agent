@@ -108,7 +108,7 @@ def get_img_client() -> httpx.AsyncClient:
     """Return a long-lived httpx client for image downloads."""
     global _img_client
     if _img_client is None or _img_client.is_closed:
-        _img_client = httpx.AsyncClient(timeout=REQUEST_TIMEOUT)
+        _img_client = httpx.AsyncClient(timeout=REQUEST_TIMEOUT, http2=True)
     return _img_client
 
 

@@ -497,7 +497,7 @@ async def _execute_tool(name: str, args: dict, *, cache: Any) -> dict:
 # ── Agent system prompt ──────────────────────────────────────────────────────
 
 
-def _build_agent_system_prompt(heuristic: int) -> str:
+def _build_agent_system_prompt(heuristic: int, *, scan_summary: dict | None = None) -> str:
     """Build the system prompt for the agent, reusing scoring guide from ai_analyst."""
     # Extract the scoring guide portion from _SYSTEM_PROMPT
     scoring_section = ""
@@ -507,14 +507,31 @@ def _build_agent_system_prompt(heuristic: int) -> str:
             if "Pre-DEX bonding-curve" in line:
                 break
 
+    pre_scan_section = ""
+    if scan_summary:
+        import json as _json
+        pre_scan_section = f"""
+## Pre-collected Forensic Data
+The scan pipeline has already collected the following data for this token.
+Use this data directly — do NOT call scan_token again for this mint.
+
+```json
+{_json.dumps(scan_summary, default=str, indent=2)[:6000]}
+```
+
+Based on this data, focus on:
+- INTERPRETING the evidence and cross-referencing signals
+- Calling tools ONLY for different addresses or deeper investigation
+- Delivering your verdict if the evidence is sufficient
+"""
+
     return f"""\
 You are a blockchain forensics detective investigating a Solana token.
 
+{pre_scan_section}
 Your investigation loop:
-1. Call scan_token FIRST — it returns death clock, bundle report, insider sell, \
-deployer profile, operator fingerprint, SOL flow, cartel report, liquidity, \
-and factory rhythm ALL IN ONE CALL.
-2. Based on what scan_token reveals, decide if you need deeper investigation:
+1. {'Analyze the pre-collected scan data above.' if scan_summary else 'Call scan_token FIRST — it returns death clock, bundle report, insider sell, deployer profile, operator fingerprint, SOL flow, cartel report, liquidity, and factory rhythm ALL IN ONE CALL.'}
+2. Based on {'the data above' if scan_summary else 'what scan_token reveals'}, decide if you need deeper investigation:
    - Different deployer → get_deployer_profile
    - Different token's bundles → get_bundle_report
    - Different token's flows → trace_sol_flow
@@ -526,8 +543,8 @@ and factory rhythm ALL IN ONE CALL.
 
 {scoring_section}
 CRITICAL RULES:
-- Call scan_token FIRST. It provides the baseline for everything.
-- Do NOT call individual tools for data that scan_token already returned.
+- {'The scan data is already provided above. Do NOT call scan_token for this mint.' if scan_summary else 'Call scan_token FIRST. It provides the baseline for everything.'}
+- Do NOT call individual tools for data that {'is already provided above' if scan_summary else 'scan_token already returned'}.
 - If a tool returns an error, explain the error in your reasoning — do NOT silently ignore it.
 - Your final message MUST include: risk score (0-100), confidence (low/medium/high), \
 pattern classification, verdict summary, key findings, and conviction chain.
@@ -543,6 +560,7 @@ async def run_agent(
     mint: str,
     *,
     cache: Any,
+    pre_scan: dict | None = None,  # NEW: pre-collected scan data from pipeline
     max_turns: int = _MAX_TURNS,
     timeout: float = _AGENT_TIMEOUT,
 ) -> AsyncGenerator[dict, None]:
@@ -552,26 +570,47 @@ async def run_agent(
     """
     deadline = time.monotonic() + timeout
 
-    # ── Heuristic pre-score ──────────────────────────────────────────────
-    # Try to get cached lineage for heuristic; if none, score is 0
+    # ── Heuristic pre-score + pre-scan data ──────────────────────────
     hscore = 0
-    try:
-        from .lineage_detector import get_cached_lineage_report  # noqa: PLC0415
+    scan_summary: dict | None = None
 
-        cached_lineage = await get_cached_lineage_report(mint)
-        if cached_lineage:
-            hscore = _heuristic_score(cached_lineage, None, None)
-    except Exception:
-        pass
+    if pre_scan:
+        # Pre-collected scan data from forensic pipeline — skip scan_token
+        hscore = pre_scan.get("heuristic_score", 0)
+        scan_summary = pre_scan
+    else:
+        try:
+            from .lineage_detector import get_cached_lineage_report  # noqa: PLC0415
+            cached_lineage = await get_cached_lineage_report(mint)
+            if cached_lineage:
+                hscore = _heuristic_score(cached_lineage, None, None)
+                scan_summary = _summarize_scan_for_agent(cached_lineage)
+        except Exception:
+            pass
 
-    # ── Build system prompt + conversation ───────────────────────────────
-    system_prompt = _build_agent_system_prompt(hscore)
-    messages: list[dict[str, Any]] = [
-        {
-            "role": "user",
-            "content": f"Investigate Solana token {mint}. Start by scanning it, then follow the evidence.",
-        },
-    ]
+    # ── Build system prompt + conversation ───────────────────────────
+    system_prompt = _build_agent_system_prompt(hscore, scan_summary=scan_summary)
+
+    if scan_summary:
+        # Agent starts with pre-collected data — ask to interpret, not scan
+        messages: list[dict[str, Any]] = [
+            {
+                "role": "user",
+                "content": (
+                    f"Investigate Solana token {mint}. The forensic scan has already been "
+                    f"completed and the data is in your system prompt. Analyze the evidence, "
+                    f"call additional tools only if needed for deeper investigation, "
+                    f"then deliver your verdict."
+                ),
+            },
+        ]
+    else:
+        messages = [
+            {
+                "role": "user",
+                "content": f"Investigate Solana token {mint}. Start by scanning it, then follow the evidence.",
+            },
+        ]
 
     client = _get_client()
     turn = 0

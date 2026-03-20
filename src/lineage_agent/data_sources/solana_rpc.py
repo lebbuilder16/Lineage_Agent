@@ -8,6 +8,7 @@ Uses ``httpx`` for async HTTP with retry + exponential backoff.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 from datetime import datetime, timezone
@@ -144,6 +145,7 @@ class SolanaRpcClient:
             self._client = httpx.AsyncClient(
                 timeout=self._timeout,
                 headers={"Content-Type": "application/json"},
+                http2=True,
             )
         return self._client
 
@@ -257,43 +259,48 @@ class SolanaRpcClient:
 
         Returns ``{signature, slot, blockTime, feePayer}`` or ``None``.
         """
-        # ── 1. Binary search ─────────────────────────────────────────────────
+        # ── 1. Binary search (batched) ────────────────────────────────────────
         current_slot = await self._call("getSlot", [{"commitment": "finalized"}])
         if not current_slot:
             return None
+
+        # Phase 1: Coarse binary search with batched getBlockTime
+        # Sample 8 evenly-spaced slots per round to narrow the range quickly
         low: int = current_slot - 50_000_000
         high: int = current_slot
-        for _ in range(28):
-            if high - low <= 100:
+
+        for _ in range(3):  # 3 rounds of batched binary search
+            if high - low <= 500:
                 break
-            mid = (low + high) // 2
-            bt = await self._call("getBlockTime", [mid])
-            if bt is None:
-                # Skipped slot — advance until we find a valid one
-                for d in range(1, 50):
-                    bt = await self._call("getBlockTime", [mid + d])
-                    if bt:
-                        mid += d
-                        break
-            if bt is None:
-                high = mid - 50
-                continue
-            if bt > pair_ts:
-                high = mid
-            else:
-                low = mid
+            # Sample 8 points in the range
+            step = (high - low) // 9
+            sample_slots = [low + step * i for i in range(1, 9)]
+
+            batch_calls = [("getBlockTime", [s]) for s in sample_slots]
+            times = await self._call_batch(batch_calls)
+
+            # Find the narrowest bracket containing pair_ts
+            for i, bt in enumerate(times):
+                if bt is not None and bt <= pair_ts:
+                    low = sample_slots[i]
+                elif bt is not None and bt > pair_ts:
+                    high = sample_slots[i]
+                    break
+
         target_slot = (low + high) // 2
         logger.debug(
             "[pair_pivot] binary search done: target_slot=%d for %s",
             target_slot, mint[:16],
         )
 
-        # ── 2. Scan blocks for migration TX ──────────────────────────────────
+        # ── 2. Scan blocks for migration TX (batched) ─────────────────────────
         migration_sig: Optional[str] = None
-        for delta in range(-5, 65):
-            blk = await self._call(
-                "getBlock",
-                [
+
+        # Scan in batches of 10 blocks
+        for batch_start in range(-5, 65, 10):
+            batch_end = min(batch_start + 10, 65)
+            batch_calls = [
+                ("getBlock", [
                     target_slot + delta,
                     {
                         "encoding": "jsonParsed",
@@ -301,22 +308,24 @@ class SolanaRpcClient:
                         "rewards": False,
                         "maxSupportedTransactionVersion": 0,
                     },
-                ],
-            )
-            if not blk or not isinstance(blk, dict):
-                continue
-            for tx in blk.get("transactions") or []:
-                keys = tx.get("transaction", {}).get("accountKeys", [])
-                if any(
-                    (k.get("pubkey", "") if isinstance(k, dict) else k) == pair_address
-                    for k in keys
-                ):
-                    sigs = tx.get("transaction", {}).get("signatures", [])
-                    migration_sig = sigs[0] if sigs else None
-                    logger.debug(
-                        "[pair_pivot] migration TX at slot+%d for %s",
-                        delta, mint[:16],
-                    )
+                ])
+                for delta in range(batch_start, batch_end)
+            ]
+            blocks = await self._call_batch(batch_calls)
+
+            for blk in blocks:
+                if not blk or not isinstance(blk, dict):
+                    continue
+                for tx in blk.get("transactions") or []:
+                    keys = tx.get("transaction", {}).get("accountKeys", [])
+                    if any(
+                        (k.get("pubkey", "") if isinstance(k, dict) else k) == pair_address
+                        for k in keys
+                    ):
+                        sigs = tx.get("transaction", {}).get("signatures", [])
+                        migration_sig = sigs[0] if sigs else None
+                        break
+                if migration_sig:
                     break
             if migration_sig:
                 break
@@ -524,6 +533,18 @@ class SolanaRpcClient:
             return result
         return {}
 
+    async def get_assets_batch(self, mints: list[str]) -> list[dict]:
+        """Fetch DAS asset data for multiple mints in a single batch.
+
+        Returns a list of asset dicts in the same order as *mints*.
+        Missing/failed assets return {}.
+        """
+        if not mints:
+            return []
+        calls = [("getAsset", {"id": m}) for m in mints]
+        results = await self._call_batch(calls, circuit_protect=False)
+        return [r if isinstance(r, dict) else {} for r in results]
+
     async def get_wallet_token_balance(self, wallet: str, mint: str) -> float:
         """Return the current UI token balance for *wallet* holding *mint*.
 
@@ -668,3 +689,84 @@ class SolanaRpcClient:
             return await _do()
         except Exception:
             return None
+
+    async def _call_batch(
+        self,
+        calls: list[tuple[str, list | dict]],
+        *,
+        circuit_protect: bool = True,
+    ) -> list[Any]:
+        """Execute multiple JSON-RPC calls in a single HTTP request (batch mode).
+
+        Parameters
+        ----------
+        calls:
+            List of (method, params) tuples to execute in one batch.
+        circuit_protect:
+            When False, bypass the circuit breaker.
+
+        Returns
+        -------
+        List of results in the same order as *calls*. Failed items are None.
+        """
+        if not calls:
+            return []
+
+        # Build batch payload
+        payloads = []
+        for method, params in calls:
+            self._id_counter += 1
+            payloads.append({
+                "jsonrpc": "2.0",
+                "id": self._id_counter,
+                "method": method,
+                "params": params,
+            })
+
+        # Map id -> index for reordering
+        id_to_idx = {p["id"]: i for i, p in enumerate(payloads)}
+
+        client = await self._get_client()
+
+        async def _do() -> list[Any]:
+            resp = await client.post(
+                self._endpoint,
+                json=payloads,
+                timeout=max(self._timeout, len(calls) * 0.5),
+            )
+            if resp.status_code == 429:
+                # Rate limited — wait and retry once
+                wait = float(resp.headers.get("retry-after", "2"))
+                await asyncio.sleep(min(wait, 5.0))
+                resp = await client.post(
+                    self._endpoint, json=payloads, timeout=self._timeout
+                )
+            resp.raise_for_status()
+            body = resp.json()
+
+            # body is a list of {jsonrpc, id, result?, error?}
+            results: list[Any] = [None] * len(calls)
+            if isinstance(body, list):
+                for item in body:
+                    idx = id_to_idx.get(item.get("id"))
+                    if idx is not None:
+                        if "error" in item:
+                            logger.debug(
+                                "Batch RPC error id=%s: %s",
+                                item.get("id"),
+                                item["error"],
+                            )
+                        else:
+                            results[idx] = item.get("result")
+            return results
+
+        if self._cb is not None and circuit_protect:
+            try:
+                return await self._cb.call(_do)
+            except Exception:
+                return [None] * len(calls)
+        try:
+            return await _do()
+        except Exception as exc:
+            logger.warning("Batch RPC failed (%d calls): %s", len(calls), exc)
+            return [None] * len(calls)

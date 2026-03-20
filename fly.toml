@@ -18,6 +18,7 @@ primary_region = 'ams'
   LOG_FORMAT = "json"
   CACHE_BACKEND = "sqlite"
   CACHE_SQLITE_PATH = "/data/cache.db"
+  UVICORN_WORKERS = "3"
 
 [processes]
   app = "python -m uvicorn lineage_agent.api:app --host 0.0.0.0 --port 8080 --app-dir src"
@@ -32,21 +33,19 @@ primary_region = 'ams'
 
   [http_service.concurrency]
     type = "connections"
-    hard_limit = 100
-    soft_limit = 80
+    hard_limit = 250
+    soft_limit = 200
 
 [[http_service.checks]]
   grace_period = "30s"
   interval = "30s"
   method = "GET"
   path = "/health"
-  timeout = "10s"
+  timeout = "25s"
 
 [[vm]]
-  memory = '1gb'
-  cpu_kind = 'shared'
-  cpus = 1
-  memory_mb = 1024
+  size = "performance-2x"
+  memory = "2gb"
 
 [mounts]
   source = "lineage_cache"

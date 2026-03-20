@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, patch, MagicMock
 
 import pytest
 
@@ -24,6 +24,10 @@ def _make_lineage():
             mint="7dmpjtmtkRNumctHAGbTrP4MQPHjX59M54aZAbvzpump",
             deployer="DeployerAddr1234567890123456789012345",
             market_cap_usd=100_000,
+            liquidity_usd=50_000,
+            created_at=None,
+            lifecycle_stage=SimpleNamespace(value="dex_listed"),
+            launch_platform="pumpfun",
         ),
         root=None,
         deployer_profile=SimpleNamespace(
@@ -35,9 +39,37 @@ def _make_lineage():
         bundle_report=None,
         sol_flow=None,
         death_clock=None,
+        insider_sell=None,
+        operator_fingerprint=None,
+        liquidity_arch=None,
+        factory_rhythm=None,
         derivatives=[],
         family_size=1,
+        query_is_root=True,
+        is_bonding_curve=False,
+        platform=None,
+        confidence=0.9,
     )
+
+
+def _make_forensic_report(lineage=None):
+    """Build a fake ForensicReport that mimics the pipeline output."""
+    from lineage_agent.forensic_pipeline import ForensicReport
+    from types import SimpleNamespace as NS
+
+    identity = NS(
+        mint="7dmpjtmtkRNumctHAGbTrP4MQPHjX59M54aZAbvzpump",
+        name="TestToken",
+        symbol="TEST",
+        deployer="DeployerAddr1234567890123456789012345",
+        created_at=None,
+        pairs=[],
+    )
+    report = ForensicReport(identity=identity)
+    report.family_tree = lineage
+    report.bundle_report = None
+    report.sol_flow = None
+    return report
 
 
 def _make_ai_result():
@@ -68,6 +100,16 @@ def _event_types(events: list[dict]) -> list[str]:
     return [e["event"] for e in events]
 
 
+def _fake_pipeline_gen(report):
+    """Create a fake run_forensic_pipeline async generator."""
+    async def _fake_pipeline(mint, **kw):
+        yield _evt("phase", {"phase": "scan", "status": "started"})
+        yield _evt("step", {"step": "identity", "status": "done", "ms": 100})
+        yield _evt("phase", {"phase": "scan", "status": "done"})
+        yield {"event": "_report", "data": report}
+    return _fake_pipeline
+
+
 # ── Test: evt helper ─────────────────────────────────────────────────────────
 
 
@@ -83,18 +125,12 @@ class TestEvtHelper:
 
 class TestFreeTier:
     @pytest.mark.asyncio
-    @patch("lineage_agent.investigate_service._run_scan_pipeline")
+    @patch("lineage_agent.forensic_pipeline.run_forensic_pipeline")
     async def test_free_gets_heuristic_only(self, mock_pipeline):
         """Free tier: scan steps + heuristic_complete, NO AI."""
         lineage = _make_lineage()
-
-        async def _fake_pipeline(mint, **kw):
-            yield _evt("phase", {"phase": "scan", "status": "started"})
-            yield _evt("step", {"step": "lineage", "status": "done", "ms": 100})
-            yield _evt("phase", {"phase": "scan", "status": "done"})
-            yield {"event": "_artefacts", "data": {"lineage": lineage, "bundle": None, "sol_flow": None, "deployer": ""}}
-
-        mock_pipeline.side_effect = _fake_pipeline
+        report = _make_forensic_report(lineage)
+        mock_pipeline.side_effect = _fake_pipeline_gen(report)
 
         tier = get_limits(PlanTier.FREE.value)
         events = await _collect_events(run_investigation(MINT, tier=tier, cache=None))
@@ -108,15 +144,11 @@ class TestFreeTier:
         assert len(done_events) == 1
 
     @pytest.mark.asyncio
-    @patch("lineage_agent.investigate_service._run_scan_pipeline")
+    @patch("lineage_agent.forensic_pipeline.run_forensic_pipeline")
     async def test_free_done_has_chat_false(self, mock_pipeline):
         """Free tier done event must have chat_available=False."""
-        async def _fake_pipeline(mint, **kw):
-            yield _evt("phase", {"phase": "scan", "status": "started"})
-            yield _evt("phase", {"phase": "scan", "status": "done"})
-            yield {"event": "_artefacts", "data": {"lineage": None, "bundle": None, "sol_flow": None, "deployer": ""}}
-
-        mock_pipeline.side_effect = _fake_pipeline
+        report = _make_forensic_report(None)
+        mock_pipeline.side_effect = _fake_pipeline_gen(report)
 
         tier = get_limits(PlanTier.FREE.value)
         events = await _collect_events(run_investigation(MINT, tier=tier, cache=None))
@@ -132,18 +164,13 @@ class TestFreeTier:
 
 class TestProTier:
     @pytest.mark.asyncio
-    @patch("lineage_agent.investigate_service._run_scan_pipeline")
+    @patch("lineage_agent.forensic_pipeline.run_forensic_pipeline")
     async def test_pro_gets_ai_verdict(self, mock_pipeline):
         """Pro tier: scan + AI verdict (single-shot), no agent reasoning."""
         lineage = _make_lineage()
+        report = _make_forensic_report(lineage)
         ai_result = _make_ai_result()
-
-        async def _fake_pipeline(mint, **kw):
-            yield _evt("phase", {"phase": "scan", "status": "started"})
-            yield _evt("phase", {"phase": "scan", "status": "done"})
-            yield {"event": "_artefacts", "data": {"lineage": lineage, "bundle": None, "sol_flow": None, "deployer": ""}}
-
-        mock_pipeline.side_effect = _fake_pipeline
+        mock_pipeline.side_effect = _fake_pipeline_gen(report)
 
         tier = get_limits(PlanTier.PRO.value)
         with patch("lineage_agent.investigate_service.asyncio.wait_for", new_callable=AsyncMock, return_value=ai_result):
@@ -155,17 +182,12 @@ class TestProTier:
         assert "tool_call" not in types
 
     @pytest.mark.asyncio
-    @patch("lineage_agent.investigate_service._run_scan_pipeline")
+    @patch("lineage_agent.forensic_pipeline.run_forensic_pipeline")
     async def test_pro_done_has_chat_true(self, mock_pipeline):
         """Pro tier done event must have chat_available=True."""
         ai_result = _make_ai_result()
-
-        async def _fake_pipeline(mint, **kw):
-            yield _evt("phase", {"phase": "scan", "status": "started"})
-            yield _evt("phase", {"phase": "scan", "status": "done"})
-            yield {"event": "_artefacts", "data": {"lineage": None, "bundle": None, "sol_flow": None, "deployer": ""}}
-
-        mock_pipeline.side_effect = _fake_pipeline
+        report = _make_forensic_report(None)
+        mock_pipeline.side_effect = _fake_pipeline_gen(report)
 
         tier = get_limits(PlanTier.PRO.value)
         with patch("lineage_agent.investigate_service.asyncio.wait_for", new_callable=AsyncMock, return_value=ai_result):
@@ -182,27 +204,20 @@ class TestProTier:
 
 class TestProPlusTier:
     @pytest.mark.asyncio
-    @patch("lineage_agent.investigate_service._run_scan_pipeline")
+    @patch("lineage_agent.forensic_pipeline.run_forensic_pipeline")
     async def test_pro_plus_uses_agent(self, mock_pipeline):
         """Pro+ tier: scan + full agent reasoning + verdict."""
         lineage = _make_lineage()
-
-        async def _fake_pipeline(mint, **kw):
-            yield _evt("phase", {"phase": "scan", "status": "started"})
-            yield _evt("phase", {"phase": "scan", "status": "done"})
-            yield {"event": "_artefacts", "data": {"lineage": lineage, "bundle": None, "sol_flow": None, "deployer": ""}}
-
-        mock_pipeline.side_effect = _fake_pipeline
+        report = _make_forensic_report(lineage)
+        mock_pipeline.side_effect = _fake_pipeline_gen(report)
 
         verdict = _make_ai_result()
 
-        async def _fake_agent(mint, cache):
+        async def _fake_agent(mint, cache, pre_scan=None):
             yield {"event": "thinking", "data": {"turn": 1, "text": "Scanning..."}}
             yield {"event": "tool_call", "data": {"turn": 1, "tool": "scan_token", "input": {"mint": mint}, "call_id": "c1"}}
             yield {"event": "tool_result", "data": {"turn": 1, "tool": "scan_token", "call_id": "c1", "result": {}, "error": None, "duration_ms": 500}}
             yield {"event": "done", "data": {"verdict": verdict, "turns_used": 2, "tokens_used": 5000}}
-
-        mock_pipeline.side_effect = _fake_pipeline
 
         tier = get_limits(PlanTier.PRO_PLUS.value)
         with patch("lineage_agent.agent_service.run_agent", side_effect=_fake_agent):
@@ -226,17 +241,13 @@ class TestProPlusTier:
 
 class TestErrorSurfacing:
     @pytest.mark.asyncio
-    @patch("lineage_agent.investigate_service._run_scan_pipeline")
+    @patch("lineage_agent.forensic_pipeline.run_forensic_pipeline")
     async def test_ai_timeout_surfaces_error(self, mock_pipeline):
         """AI timeout must surface an error event, not fail silently."""
         import asyncio
 
-        async def _fake_pipeline(mint, **kw):
-            yield _evt("phase", {"phase": "scan", "status": "started"})
-            yield _evt("phase", {"phase": "scan", "status": "done"})
-            yield {"event": "_artefacts", "data": {"lineage": None, "bundle": None, "sol_flow": None, "deployer": ""}}
-
-        mock_pipeline.side_effect = _fake_pipeline
+        report = _make_forensic_report(None)
+        mock_pipeline.side_effect = _fake_pipeline_gen(report)
 
         tier = get_limits(PlanTier.PRO.value)
         with patch("lineage_agent.investigate_service.asyncio.wait_for", new_callable=AsyncMock, side_effect=asyncio.TimeoutError):
@@ -250,19 +261,14 @@ class TestErrorSurfacing:
         assert "timed out" in error_data["detail"].lower()
 
     @pytest.mark.asyncio
-    @patch("lineage_agent.investigate_service._run_scan_pipeline")
+    @patch("lineage_agent.forensic_pipeline.run_forensic_pipeline")
     async def test_agent_exception_surfaces_error(self, mock_pipeline):
         """Agent exception must surface, not swallow."""
         lineage = _make_lineage()
+        report = _make_forensic_report(lineage)
+        mock_pipeline.side_effect = _fake_pipeline_gen(report)
 
-        async def _fake_pipeline(mint, **kw):
-            yield _evt("phase", {"phase": "scan", "status": "started"})
-            yield _evt("phase", {"phase": "scan", "status": "done"})
-            yield {"event": "_artefacts", "data": {"lineage": lineage, "bundle": None, "sol_flow": None, "deployer": ""}}
-
-        mock_pipeline.side_effect = _fake_pipeline
-
-        async def _failing_agent(mint, cache):
+        async def _failing_agent(mint, cache, pre_scan=None):
             raise RuntimeError("Claude API down")
             yield  # make it a generator  # noqa: E501
 
