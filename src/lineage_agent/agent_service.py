@@ -675,8 +675,8 @@ async def run_agent(
         except Exception as exc:
             logger.exception("[agent] Claude stream failed at turn %d for %s", turn, mint[:12])
             detail = str(exc)
-            if "credit balance is too low" in detail or "529" in detail:
-                user_msg = "AI service temporarily unavailable — the analysis service is out of credits. Please try again later."
+            if "credit balance is too low" in detail:
+                user_msg = "AI investigation requires a Pro plan. Upgrade to unlock full forensic analysis with multi-turn AI reasoning."
             elif "overloaded" in detail.lower() or "529" in detail:
                 user_msg = "AI service is overloaded — please retry in a few moments."
             elif "401" in detail or "authentication" in detail.lower():

@@ -128,7 +128,7 @@ async def run_investigation(
             logger.exception("[investigate] agent error for %s", mint[:12])
             detail = str(exc)
             if "credit balance is too low" in detail:
-                user_msg = "AI service temporarily unavailable — the analysis service is out of credits. Please try again later."
+                user_msg = "AI investigation requires a Pro plan. Upgrade to unlock full forensic analysis with multi-turn AI reasoning."
             elif "overloaded" in detail.lower():
                 user_msg = "AI service is overloaded — please retry in a few moments."
             else:
