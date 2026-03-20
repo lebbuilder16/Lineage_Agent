@@ -51,51 +51,6 @@ function fmtStat(n?: number): string {
 
 const EXAMPLE_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 
-const features = [
-  {
-    title: 'Token Radar',
-    category: 'Market Intelligence',
-    description: 'Real-time radar surfaces emerging tokens before they trend, analyzing volume patterns and deployer history.',
-    route: '/search',
-    color: '#3B82F6',
-  },
-  {
-    title: 'Lineage Scan',
-    category: 'Clone Detection',
-    description: 'Deep scan any token to uncover its full lineage tree, identifying forks, clones, and imposters.',
-    route: `/lineage/${EXAMPLE_MINT}`,
-    color: '#10B981',
-  },
-  {
-    title: 'Death Clock',
-    category: 'Rug Probability',
-    description: 'Advanced risk scoring using deployer DNA, factory detection, and behavioral pattern analysis.',
-    route: `/lineage/${EXAMPLE_MINT}`,
-    color: '#EF4444',
-  },
-  {
-    title: 'Family Tree',
-    category: 'Lineage Visualization',
-    description: 'Interactive graph mapping the complete family tree, exposing hidden relationships and derivative chains.',
-    route: `/lineage/${EXAMPLE_MINT}`,
-    color: '#8B5CF6',
-  },
-  {
-    title: 'Cartel Detection',
-    category: 'Deployer Networks',
-    description: 'Identify clusters of wallets operating as coordinated bad actors deploying scam tokens.',
-    route: '/compare',
-    color: '#F59E0B',
-  },
-  {
-    title: 'Sol Trace',
-    category: 'Transaction Forensics',
-    description: "Trace any token's complete on-chain footprint from genesis through current activity.",
-    route: `/lineage/${EXAMPLE_MINT}`,
-    color: '#06B6D4',
-  },
-];
-
 const socialLinks = [
   { label: 'Twitter',  href: 'https://twitter.com/lineageagent' },
   { label: 'Telegram', href: 'https://t.me/lineageagent' },
@@ -678,13 +633,12 @@ export function LandingScreen() {
       <nav className="l-nav">
         <a href="/" className="l-nav-logo">Lineage</a>
         <div className="l-nav-center">
-          <a href="#features" className="l-nav-link">Features</a>
           <a href="#stats" className="l-nav-link">Stats</a>
           <a href="#about" className="l-nav-link">About</a>
         </div>
         <div className="l-nav-right">
-          <Link to="/auth" className="l-nav-connect">
-            Connect
+          <Link to="/search" className="l-nav-connect">
+            Sol Trace
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" /></svg>
           </Link>
           <button className="l-nav-burger" aria-label="Open menu" aria-expanded={menuOpen} onClick={(e) => { e.stopPropagation(); setMenuOpen((o) => !o); }}>
@@ -695,28 +649,27 @@ export function LandingScreen() {
 
       {/* Mobile menu */}
       <div className={`l-mobile-menu${menuOpen ? ' open' : ''}`} role="navigation" aria-label="Mobile navigation">
-        <a href="#features" className="l-nav-link" onClick={() => setMenuOpen(false)}>Features</a>
         <a href="#stats" className="l-nav-link" onClick={() => setMenuOpen(false)}>Stats</a>
         <a href="#about" className="l-nav-link" onClick={() => setMenuOpen(false)}>About</a>
-        <Link to="/auth" className="l-nav-connect" style={{ textAlign: 'center', justifyContent: 'center' }} onClick={() => setMenuOpen(false)}>Connect</Link>
+        <Link to="/search" className="l-nav-connect" style={{ textAlign: 'center', justifyContent: 'center' }} onClick={() => setMenuOpen(false)}>Sol Trace</Link>
       </div>
 
       {/* ── Hero ── */}
       <section className="l-hero">
         <h1 className="l-hero-headline">
-          On-chain intelligence<br />for Solana tokens
+          SOL Flow Trace<br />for Solana tokens
         </h1>
         <p className="l-hero-sub">
-          Track token lineage, detect rug pulls, and map deployer cartels across the entire Solana ecosystem in real time.
+          Trace SOL extraction paths, detect CEX exits, and follow the money across the Solana ecosystem in real time.
         </p>
         <form
           className="l-search-form"
           role="search"
-          aria-label="Analyze a token"
+          aria-label="Trace a token"
           onSubmit={(e) => {
             e.preventDefault();
             const q = heroQuery.trim();
-            if (q) navigate(`/lineage/${q}`);
+            if (q) navigate(`/sol-trace/${q}`);
           }}
         >
           <input
@@ -724,10 +677,10 @@ export function LandingScreen() {
             className="l-search-input"
             value={heroQuery}
             onChange={(e) => setHeroQuery(e.target.value)}
-            placeholder="Paste a token address to analyze..."
+            placeholder="Paste a token address to trace..."
             aria-label="Token address"
           />
-          <button type="submit" className="l-search-btn">Analyze</button>
+          <button type="submit" className="l-search-btn">Trace</button>
         </form>
         <p className="l-hero-hint">
           Try: <code>{EXAMPLE_MINT}</code>
@@ -750,31 +703,28 @@ export function LandingScreen() {
         </div>
       </section>
 
-      {/* ── Features ── */}
+      {/* ── Feature ── */}
       <section id="features" className="l-features">
-        <p className="l-features-label l-reveal">Intelligence Suite</p>
-        <h2 className="l-features-title l-reveal">Everything you need to stay safe on Solana</h2>
-        <div className="l-features-grid">
-          {features.map((f, i) => (
-            <article
-              key={i}
-              className="l-feature-card l-reveal"
-              onClick={() => navigate(f.route)}
-              role="button"
-              tabIndex={0}
-              onKeyDown={(e) => { if (e.key === 'Enter') navigate(f.route); }}
-            >
-              <div className="l-feature-dot" style={{ background: `${f.color}15` }}>
-                <div className="l-feature-dot-inner" style={{ background: f.color }} />
-              </div>
-              <p className="l-feature-cat">{f.category}</p>
-              <h3 className="l-feature-name">{f.title}</h3>
-              <p className="l-feature-desc">{f.description}</p>
-              <span className="l-feature-arrow">
-                Explore <span>\u2192</span>
-              </span>
-            </article>
-          ))}
+        <p className="l-features-label l-reveal">Transaction Forensics</p>
+        <h2 className="l-features-title l-reveal">Follow the money on Solana</h2>
+        <div className="l-features-grid" style={{ maxWidth: 720, margin: '0 auto' }}>
+          <article
+            className="l-feature-card l-reveal"
+            onClick={() => navigate('/search')}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => { if (e.key === 'Enter') navigate('/search'); }}
+          >
+            <div className="l-feature-dot" style={{ background: '#06B6D415' }}>
+              <div className="l-feature-dot-inner" style={{ background: '#06B6D4' }} />
+            </div>
+            <p className="l-feature-cat">SOL Flow Analysis</p>
+            <h3 className="l-feature-name">Sol Trace</h3>
+            <p className="l-feature-desc">Track SOL extraction and transaction flows, detect CEX interactions, identify cross-chain exits, and map the complete money trail from any token.</p>
+            <span className="l-feature-arrow">
+              Start tracing <span>{'\u2192'}</span>
+            </span>
+          </article>
         </div>
       </section>
 
@@ -821,9 +771,7 @@ export function LandingScreen() {
           </div>
           <div>
             <p className="l-footer-heading">Product</p>
-            <Link to="/dashboard" className="l-footer-link">Dashboard</Link>
-            <Link to="/search" className="l-footer-link">Analyze</Link>
-            <Link to="/compare" className="l-footer-link">Compare</Link>
+            <Link to="/search" className="l-footer-link">Sol Trace</Link>
           </div>
           <div>
             <p className="l-footer-heading">Social</p>

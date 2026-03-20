@@ -35,7 +35,7 @@ export function CommandPalette() {
     const q = value.trim();
     if (!q) return;
     setOpen(false); setValue('');
-    if (isBase58(q)) { addToHistory(q); navigate(`/lineage/${q}`); }
+    if (isBase58(q)) { addToHistory(q); navigate(`/sol-trace/${q}`); }
     else navigate(`/search?q=${encodeURIComponent(q)}`);
   }, [value, navigate]);
 
@@ -60,7 +60,7 @@ export function CommandPalette() {
                 <div style={{ padding: '8px 16px', fontSize: 13, color: ff.gray, fontWeight: 600 }}>Recent</div>
                 {history.map(mint => (
                   <Command.Item key={mint} value={mint}
-                    onSelect={() => { addToHistory(mint); setOpen(false); navigate(`/lineage/${mint}`); }}
+                    onSelect={() => { addToHistory(mint); setOpen(false); navigate(`/sol-trace/${mint}`); }}
                     style={{ padding: '10px 16px', cursor: 'pointer', fontSize: 13, fontFamily: 'monospace', color: ff.gray, borderBottom: '1px solid #f0f0f0' }}
                   >
                     {mint.slice(0, 8)}…{mint.slice(-6)}
