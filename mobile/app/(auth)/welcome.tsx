@@ -1,18 +1,36 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, Dimensions } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
-import Animated, { FadeInDown, FadeIn } from 'react-native-reanimated';
-import { Shield, Radar, GitBranch, Zap } from 'lucide-react-native';
+import Animated, { FadeInDown, FadeIn, FadeInUp } from 'react-native-reanimated';
+import { Shield, Radar, GitBranch, Zap, ChevronRight, Fingerprint } from 'lucide-react-native';
 import { AuroraBackground } from '../../src/components/ui/AuroraBackground';
 import { HapticButton } from '../../src/components/ui/HapticButton';
+import { GlassCard } from '../../src/components/ui/GlassCard';
 import { tokens } from '../../src/theme/tokens';
 
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+
 const FEATURES = [
-  { icon: Radar, label: 'Neural Detection' },
-  { icon: GitBranch, label: 'Lineage Mapping' },
-  { icon: Zap, label: 'Real-time Alerts' },
+  {
+    icon: Radar,
+    label: 'Neural Detection',
+    desc: 'AI-powered rug pull detection',
+    color: tokens.secondary,
+  },
+  {
+    icon: GitBranch,
+    label: 'Lineage Mapping',
+    desc: 'On-chain deployer tracing',
+    color: tokens.success,
+  },
+  {
+    icon: Zap,
+    label: 'Real-time Alerts',
+    desc: 'Instant threat notifications',
+    color: tokens.accent,
+  },
 ] as const;
 
 export default function WelcomeScreen() {
@@ -21,62 +39,94 @@ export default function WelcomeScreen() {
   return (
     <View style={styles.container}>
       <AuroraBackground />
-      <View style={[styles.content, { paddingTop: Math.max(insets.top + 40, 80), paddingBottom: Math.max(insets.bottom + 24, 40) }]}>
-
-        {/* Shield icon with glow */}
-        <Animated.View entering={FadeIn.delay(200).duration(800)} style={styles.iconSection}>
-          <View style={styles.shieldGlow}>
-            <LinearGradient
-              colors={['rgba(9, 26, 122, 0.6)', 'rgba(173, 200, 255, 0.15)', 'transparent']}
-              style={styles.shieldGlowGradient}
-              start={{ x: 0.5, y: 0 }}
-              end={{ x: 0.5, y: 1 }}
-            />
-          </View>
-          <View style={styles.shieldOuter}>
-            <View style={styles.shieldInner}>
-              <Shield size={40} color={tokens.secondary} strokeWidth={1.5} />
+      <View
+        style={[
+          styles.content,
+          {
+            paddingTop: Math.max(insets.top + 24, 64),
+            paddingBottom: Math.max(insets.bottom + 16, 32),
+          },
+        ]}
+      >
+        {/* Hero section */}
+        <View style={styles.heroSection}>
+          {/* Animated shield orb */}
+          <Animated.View entering={FadeIn.delay(200).duration(1000)} style={styles.orbContainer}>
+            <View style={styles.orbGlowOuter}>
+              <LinearGradient
+                colors={['rgba(173, 200, 255, 0.12)', 'rgba(9, 26, 122, 0.25)', 'transparent']}
+                style={styles.orbGradient}
+                start={{ x: 0.5, y: 0 }}
+                end={{ x: 0.5, y: 1 }}
+              />
             </View>
-          </View>
-        </Animated.View>
+            <View style={styles.orbRing}>
+              <LinearGradient
+                colors={[`${tokens.primary}90`, `${tokens.secondary}30`]}
+                style={styles.orbRingGradient}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+              />
+              <View style={styles.orbCore}>
+                <Shield size={36} color={tokens.secondary} strokeWidth={1.5} />
+              </View>
+            </View>
+          </Animated.View>
 
-        {/* Title */}
-        <Animated.View entering={FadeInDown.delay(400).duration(600)} style={styles.titleSection}>
-          <Text style={styles.title}>
-            <Text style={styles.titleBold}>LINEAGE </Text>
-            <Text style={styles.titleAccent}>AGENT</Text>
-          </Text>
-          <Text style={styles.subtitle}>
-            Advanced On-Chain Intelligence{'\n'}for Solana Traders
-          </Text>
-        </Animated.View>
+          {/* Title */}
+          <Animated.View entering={FadeInDown.delay(400).duration(600)} style={styles.titleBlock}>
+            <Text style={styles.titleLine1}>LINEAGE</Text>
+            <Text style={styles.titleLine2}>AGENT</Text>
+          </Animated.View>
 
-        {/* Feature pills */}
-        <Animated.View entering={FadeInDown.delay(600).duration(600)} style={styles.features}>
-          {FEATURES.map(({ icon: Icon, label }, i) => (
-            <Animated.View key={label} entering={FadeInDown.delay(700 + i * 100).duration(400)}>
-              <View style={styles.featurePill}>
-                <Icon size={14} color={tokens.secondary} strokeWidth={2} />
-                <Text style={styles.featureText}>{label}</Text>
+          <Animated.View entering={FadeInDown.delay(550).duration(500)}>
+            <Text style={styles.tagline}>
+              On-Chain Intelligence for Solana
+            </Text>
+          </Animated.View>
+        </View>
+
+        {/* Feature cards */}
+        <Animated.View entering={FadeInDown.delay(700).duration(500)} style={styles.featureGrid}>
+          {FEATURES.map(({ icon: Icon, label, desc, color }, i) => (
+            <Animated.View
+              key={label}
+              entering={FadeInDown.delay(750 + i * 80).duration(400)}
+            >
+              <View style={styles.featureCard}>
+                <View style={[styles.featureIconWrap, { backgroundColor: `${color}12` }]}>
+                  <Icon size={16} color={color} strokeWidth={2} />
+                </View>
+                <View style={styles.featureTextBlock}>
+                  <Text style={styles.featureLabel}>{label}</Text>
+                  <Text style={styles.featureDesc}>{desc}</Text>
+                </View>
               </View>
             </Animated.View>
           ))}
         </Animated.View>
 
         {/* Spacer */}
-        <View style={{ flex: 1 }} />
+        <View style={{ flex: 1, minHeight: 24 }} />
 
-        {/* CTA */}
-        <Animated.View entering={FadeInDown.delay(1000).duration(600)} style={styles.ctaSection}>
+        {/* Bottom CTA */}
+        <Animated.View entering={FadeInUp.delay(1000).duration(600)} style={styles.ctaBlock}>
+          <View style={styles.trustRow}>
+            <Fingerprint size={12} color={tokens.white35} strokeWidth={1.5} />
+            <Text style={styles.trustText}>Encrypted & non-custodial</Text>
+          </View>
+
           <HapticButton
             variant="primary"
             size="lg"
             fullWidth
             onPress={() => router.push('/(auth)/login')}
           >
-            <Text style={styles.ctaText}>INITIALIZE NODE</Text>
-            <Text style={styles.ctaArrow}>  →</Text>
+            <Text style={styles.ctaBtnText}>Get Started</Text>
+            <ChevronRight size={18} color={tokens.white100} strokeWidth={2.5} />
           </HapticButton>
+
+          <Text style={styles.versionText}>v1.0 — Solana Mainnet</Text>
         </Animated.View>
       </View>
     </View>
@@ -87,111 +137,139 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: tokens.bgMain },
   content: {
     flex: 1,
-    alignItems: 'center',
-    paddingHorizontal: tokens.spacing.screenPadding + 8,
+    paddingHorizontal: tokens.spacing.screenPadding + 4,
   },
 
-  // Shield icon
-  iconSection: {
+  // Hero
+  heroSection: {
+    alignItems: 'center',
+    marginTop: 16,
+  },
+  orbContainer: {
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 32,
-    marginTop: 40,
+    marginBottom: 28,
   },
-  shieldGlow: {
+  orbGlowOuter: {
     position: 'absolute',
-    width: 160,
-    height: 160,
-    borderRadius: 80,
+    width: 200,
+    height: 200,
+    borderRadius: 100,
     overflow: 'hidden',
   },
-  shieldGlowGradient: {
-    width: '100%',
-    height: '100%',
-  },
-  shieldOuter: {
-    width: 88,
-    height: 88,
-    borderRadius: 28,
+  orbGradient: { width: '100%', height: '100%' },
+  orbRing: {
+    width: 96,
+    height: 96,
+    borderRadius: 32,
     borderWidth: 1,
-    borderColor: `${tokens.secondary}30`,
-    backgroundColor: `${tokens.primary}60`,
+    borderColor: `${tokens.secondary}25`,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
   },
-  shieldInner: {
-    width: 60,
-    height: 60,
-    borderRadius: 20,
+  orbRingGradient: {
+    ...StyleSheet.absoluteFillObject,
+    opacity: 0.5,
+  },
+  orbCore: {
+    width: 64,
+    height: 64,
+    borderRadius: 22,
+    backgroundColor: `${tokens.primary}AA`,
     borderWidth: 1,
-    borderColor: `${tokens.secondary}50`,
-    backgroundColor: `${tokens.primary}90`,
+    borderColor: `${tokens.secondary}40`,
     alignItems: 'center',
     justifyContent: 'center',
   },
 
   // Title
-  titleSection: {
-    alignItems: 'center',
-    marginBottom: 24,
-  },
-  title: {
-    fontSize: 32,
-    letterSpacing: 2,
-    textAlign: 'center',
-    marginBottom: 12,
-  },
-  titleBold: {
+  titleBlock: { alignItems: 'center', marginBottom: 10 },
+  titleLine1: {
     fontFamily: 'Lexend-Bold',
+    fontSize: 42,
     color: tokens.white100,
+    letterSpacing: 6,
+    lineHeight: 48,
   },
-  titleAccent: {
-    fontFamily: 'Lexend-Bold',
+  titleLine2: {
+    fontFamily: 'Lexend-Light',
+    fontSize: 42,
     color: tokens.secondary,
+    letterSpacing: 10,
+    lineHeight: 48,
   },
-  subtitle: {
+  tagline: {
     fontFamily: 'Lexend-Regular',
     fontSize: tokens.font.body,
-    color: tokens.white60,
+    color: tokens.white35,
     textAlign: 'center',
-    lineHeight: 22,
+    letterSpacing: 0.5,
+    marginTop: 4,
   },
 
-  // Feature pills
-  features: {
-    alignItems: 'center',
+  // Features
+  featureGrid: {
+    marginTop: 32,
     gap: 10,
   },
-  featurePill: {
+  featureCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    backgroundColor: tokens.bgGlass8,
-    borderRadius: tokens.radius.pill,
+    gap: 14,
+    backgroundColor: tokens.bgGlass,
+    borderRadius: tokens.radius.md,
     borderWidth: 1,
     borderColor: tokens.borderSubtle,
     paddingHorizontal: 16,
-    paddingVertical: 8,
+    paddingVertical: 14,
   },
-  featureText: {
+  featureIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  featureTextBlock: { flex: 1 },
+  featureLabel: {
+    fontFamily: 'Lexend-SemiBold',
+    fontSize: tokens.font.body,
+    color: tokens.white100,
+    marginBottom: 2,
+  },
+  featureDesc: {
     fontFamily: 'Lexend-Regular',
     fontSize: tokens.font.small,
-    color: tokens.white80,
+    color: tokens.white35,
   },
 
   // CTA
-  ctaSection: {
-    width: '100%',
+  ctaBlock: {
+    gap: 12,
+    alignItems: 'center',
   },
-  ctaText: {
-    fontFamily: 'Lexend-Bold',
-    fontSize: tokens.font.body,
-    color: tokens.white100,
-    letterSpacing: 1.5,
+  trustRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
-  ctaArrow: {
+  trustText: {
     fontFamily: 'Lexend-Regular',
-    fontSize: tokens.font.body,
+    fontSize: tokens.font.tiny,
+    color: tokens.white35,
+    letterSpacing: 0.3,
+  },
+  ctaBtnText: {
+    fontFamily: 'Lexend-SemiBold',
+    fontSize: tokens.font.subheading,
     color: tokens.white100,
+    letterSpacing: 0.5,
+  },
+  versionText: {
+    fontFamily: 'Lexend-Regular',
+    fontSize: tokens.font.tiny,
+    color: tokens.white20,
+    marginTop: 4,
   },
 });

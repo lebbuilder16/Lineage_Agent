@@ -41,7 +41,7 @@ export default function RootLayout() {
   const ocHost = useOpenClawStore((s) => s.host);
   const ocToken = useOpenClawStore((s) => s.deviceToken);
 
-  // Handle deep links: lineage://activate?key=XXX | lineage://openclaw?host=X&token=Y
+  // Handle deep links: lineage://activate?key=XXX&wallet=phantom | lineage://openclaw?host=X&token=Y
   const url = Linking.useURL();
   useEffect(() => {
     if (!url) return;
@@ -49,6 +49,15 @@ export default function RootLayout() {
       const parsed = Linking.parse(url);
       if (parsed.hostname === 'activate' && typeof parsed.queryParams?.key === 'string' && parsed.queryParams.key) {
         setApiKey(parsed.queryParams.key);
+        // After wallet activation, fetch user profile
+        const fetchProfile = async () => {
+          try {
+            const { getMe } = await import('../src/lib/api');
+            const user = await getMe(parsed.queryParams!.key as string);
+            useAuthStore.getState().setUser(user);
+          } catch { /* profile fetch is best-effort */ }
+        };
+        fetchProfile();
       } else if (parsed.hostname === 'openclaw' && typeof parsed.queryParams?.host === 'string') {
         const store = useOpenClawStore.getState();
         store.setHost(parsed.queryParams.host);

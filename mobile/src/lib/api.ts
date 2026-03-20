@@ -105,11 +105,14 @@ export async function getHealth(): Promise<HealthStatus> {
 }
 
 // auth (schema returns `unknown` for auth endpoints -- cast manually)
-export async function authLogin(privyId: string): Promise<{ api_key: string }> {
+export async function authLogin(
+  privyId: string,
+  opts?: { wallet_address?: string; email?: string },
+): Promise<{ api_key: string; wallet_address?: string; email?: string; plan?: string }> {
   const { data } = await apiClient.POST('/auth/login', {
-    body: { privy_id: privyId },
+    body: { privy_id: privyId, wallet_address: opts?.wallet_address, email: opts?.email },
   });
-  return data as unknown as { api_key: string };
+  return data as unknown as { api_key: string; wallet_address?: string; email?: string; plan?: string };
 }
 
 export async function getMe(apiKey: string): Promise<User> {

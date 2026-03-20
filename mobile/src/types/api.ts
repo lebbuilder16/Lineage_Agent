@@ -44,8 +44,13 @@ export interface User {
   id: string;
   privy_id: string;
   username?: string;
+  wallet_address?: string;
+  email?: string;
+  plan?: string;
   created_at?: string;
 }
+
+export type WalletProvider = 'phantom' | 'solflare' | 'backpack';
 
 export interface Watch {
   id: string;

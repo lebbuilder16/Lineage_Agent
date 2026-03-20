@@ -28,7 +28,7 @@ from typing import Optional
 import sentry_sdk
 from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -1338,7 +1338,6 @@ async def get_ai_analysis(
     "/analyze/{mint}/stream",
     tags=["lineage"],
     summary="AI forensic analysis with SSE progress events",
-    deprecated=True,
 )
 @limiter.limit("6/minute")
 async def stream_ai_analysis(
@@ -1347,8 +1346,6 @@ async def stream_ai_analysis(
     force_refresh: bool = Query(False, description="Re-run AI analysis even if cached"),
 ) -> EventSourceResponse:
     """Same as /analyze/{mint} but streams progress via Server-Sent Events.
-
-    .. deprecated:: Use ``POST /investigate/{mint}`` instead.
 
     Events:
       step  {"step":"lineage"|"deployer"|"cartel"|"bundle"|"sol_flow"|"ai", "status":"running"|"done", "ms":<int>}
@@ -1379,29 +1376,25 @@ async def stream_ai_analysis(
             lineage_res = None
         yield _evt("step", {"step": "lineage", "status": "done", "ms": int((_time.monotonic() - _t0) * 1000)})
 
-        # 2. Deployer profile — prefer data already computed by detect_lineage
+        # 2. Deployer profile
         _deployer_addr = _analysis_deployer_from_lineage(lineage_res)
         yield _evt("step", {"step": "deployer", "status": "running"})
         _td = _time.monotonic()
-        _has_deployer = lineage_res and getattr(lineage_res, "deployer_profile", None) is not None
-        if not _has_deployer and _deployer_addr:
-            logger.warning("[stream] deployer_profile missing from lineage for %s — falling back to direct fetch", mint[:12])
-            try:
+        try:
+            if _deployer_addr:
                 await asyncio.wait_for(compute_deployer_profile(_deployer_addr), timeout=15.0)
-            except Exception as _dep_exc:
-                logger.warning("[stream] deployer fallback failed for %s: %s", mint[:12], _dep_exc)
+        except Exception as _dep_exc:
+            logger.warning("[stream] deployer failed for %s: %s", mint[:12], _dep_exc)
         yield _evt("step", {"step": "deployer", "status": "done", "ms": int((_time.monotonic() - _td) * 1000)})
 
-        # 3. Cartel detection — prefer data already computed by detect_lineage
+        # 3. Cartel detection
         yield _evt("step", {"step": "cartel", "status": "running"})
         _tc = _time.monotonic()
-        _has_cartel = lineage_res and getattr(lineage_res, "cartel_report", None) is not None
-        if not _has_cartel and _deployer_addr:
-            logger.warning("[stream] cartel_report missing from lineage for %s — falling back to direct fetch", mint[:12])
-            try:
+        try:
+            if _deployer_addr:
                 await asyncio.wait_for(compute_cartel_report(mint, _deployer_addr), timeout=15.0)
-            except Exception as _cartel_exc:
-                logger.warning("[stream] cartel fallback failed for %s: %s", mint[:12], _cartel_exc)
+        except Exception as _cartel_exc:
+            logger.warning("[stream] cartel failed for %s: %s", mint[:12], _cartel_exc)
         yield _evt("step", {"step": "cartel", "status": "done", "ms": int((_time.monotonic() - _tc) * 1000)})
 
         # 4-5. Bundle + SOL flow
@@ -1501,7 +1494,6 @@ _CHAT_CONTEXT_TTL = 120.0  # seconds
     "/chat/{mint}",
     tags=["chat"],
     summary="Conversational forensic chat for a specific token (SSE streaming)",
-    deprecated=True,
 )
 @limiter.limit("20/minute")
 async def forensic_chat(
@@ -1730,230 +1722,6 @@ RULES:
 
 
 # ---------------------------------------------------------------------------
-# Agentic Forensic Investigation (SSE streaming, multi-turn tool use)
-# ---------------------------------------------------------------------------
-
-
-@app.post(
-    "/agent/{mint}",
-    tags=["agent"],
-    summary="Agentic forensic investigation (SSE streaming, multi-turn tool use)",
-    deprecated=True,
-)
-@limiter.limit("3/minute")
-async def agent_investigate(
-    request: Request,
-    mint: str,
-) -> EventSourceResponse:
-    """Launch an autonomous forensic investigation on a token.
-
-    The agent selects which tools to call, reasons about results, iterates,
-    and delivers a structured verdict. Progress is streamed via SSE.
-
-    Events:
-      thinking    {"turn": int, "text": str}
-      tool_call   {"turn": int, "tool": str, "input": dict, "call_id": str}
-      tool_result {"turn": int, "tool": str, "call_id": str, "result": dict|null, "error": str|null, "duration_ms": int}
-      text        {"turn": int, "text": str}
-      done        {"verdict": {...}, "turns_used": int, "tokens_used": int}
-      error       {"detail": str, "recoverable": bool}
-    """
-    if not _BASE58_RE.match(mint):
-        raise HTTPException(status_code=400, detail="Invalid Solana mint address")
-
-    from .data_sources._clients import cache as _cache  # noqa: PLC0415
-
-    # Auth + tier gate
-    # When no payment system is configured (no HELIO_API_KEY / REVENUECAT),
-    # tier enforcement is skipped — all features are open (matches mobile GATES_ENABLED=false).
-    import os as _os  # noqa: PLC0415
-    _payment_active = bool(_os.getenv("HELIO_API_KEY") or _os.getenv("REVENUECAT_WEBHOOK_SECRET"))
-
-    api_key = request.headers.get("X-API-Key", "")
-    if api_key and _payment_active:
-        user = await _get_current_user(request)
-        user_plan = user.get("plan", "free")
-
-        from .subscription_tiers import get_limits as _get_tier_limits  # noqa: PLC0415
-
-        tier = _get_tier_limits(user_plan)
-        if not tier.has_agent:
-            raise HTTPException(status_code=403, detail="Agent investigation requires Pro+ or Whale plan")
-
-        from .usage_service import check_limit, increment_usage  # noqa: PLC0415
-
-        under_limit = await check_limit(_cache, user["id"], "agent", int(tier.agent_daily_limit))
-        if not under_limit:
-            raise HTTPException(status_code=429, detail="Daily agent investigation limit reached")
-
-        await increment_usage(_cache, user["id"], "agent")
-    elif api_key and not _payment_active:
-        # Validate key exists but don't enforce tiers (no payment system active)
-        try:
-            await _get_current_user(request)
-        except HTTPException:
-            pass  # Key invalid — proceed anyway, no payment gates active
-
-    async def _generator():
-        import json as _json  # noqa: PLC0415
-        from .agent_service import run_agent  # noqa: PLC0415
-
-        try:
-            async for event in run_agent(mint, cache=_cache):
-                yield {"event": event["event"], "data": _json.dumps(event["data"], default=str)}
-        except Exception as _exc:
-            logger.exception("[agent] unhandled error for %s", mint[:12])
-            yield {"event": "error", "data": _json.dumps({"detail": f"Agent error: {type(_exc).__name__}", "recoverable": False})}
-
-    return EventSourceResponse(_generator())
-
-
-# ---------------------------------------------------------------------------
-# Unified Investigation — tier-adaptive (replaces analyze/chat/agent)
-# ---------------------------------------------------------------------------
-
-@app.post(
-    "/investigate/{mint}",
-    tags=["investigate"],
-    summary="Unified tier-adaptive forensic investigation (SSE streaming)",
-)
-@limiter.limit("6/minute")
-async def investigate_token(
-    request: Request,
-    mint: str,
-) -> EventSourceResponse:
-    """Launch a tier-adaptive forensic investigation on a token.
-
-    Behavior adapts to the caller's subscription tier:
-    - Free:    Scan pipeline → heuristic score (no AI)
-    - Pro:     Scan → single-shot AI verdict (Haiku) → chat available
-    - Pro+:    Scan → agent investigation (Sonnet multi-turn) → chat available
-    - Whale:   Same as Pro+ (unlimited)
-
-    Events (superset):
-      phase              {phase, status}
-      step               {step, status, ms?}
-      heuristic_complete {heuristic_score, tier}
-      thinking           {turn, text}
-      tool_call          {turn, tool, input, call_id}
-      tool_result        {turn, tool, call_id, result?, error?, duration_ms}
-      text               {turn, text}
-      verdict            {risk_score, confidence, ...}
-      done               {tier, turns_used, tokens_used, chat_available}
-      error              {detail, recoverable?}
-    """
-    if not _BASE58_RE.match(mint):
-        raise HTTPException(status_code=400, detail="Invalid Solana mint address")
-
-    from .data_sources._clients import cache as _cache  # noqa: PLC0415
-    from .subscription_tiers import get_limits as _get_tier_limits, PlanTier  # noqa: PLC0415
-    from .investigate_service import run_investigation  # noqa: PLC0415
-
-    # ── Resolve tier ────────────────────────────────────────────────────
-    import os as _os  # noqa: PLC0415
-    _payment_active = bool(_os.getenv("HELIO_API_KEY") or _os.getenv("REVENUECAT_WEBHOOK_SECRET"))
-
-    api_key = request.headers.get("X-API-Key", "")
-    user_id: Optional[int] = None
-
-    if api_key and _payment_active:
-        user = await _get_current_user(request)
-        user_plan = user.get("plan", "free")
-        tier = _get_tier_limits(user_plan)
-        user_id = user.get("id")
-
-        from .usage_service import check_limit, increment_usage  # noqa: PLC0415
-
-        # Agent-level check for Pro+ (agent is the expensive part)
-        if tier.has_agent:
-            under_limit = await check_limit(_cache, user_id, "agent", int(tier.agent_daily_limit))
-            if not under_limit:
-                raise HTTPException(status_code=429, detail="Daily investigation limit reached")
-            await increment_usage(_cache, user_id, "agent")
-
-        # General investigate limit
-        under_limit = await check_limit(_cache, user_id, "investigate", int(tier.investigate_daily_limit))
-        if not under_limit:
-            raise HTTPException(status_code=429, detail="Daily investigation limit reached")
-        await increment_usage(_cache, user_id, "investigate")
-    elif api_key and not _payment_active:
-        # No payment system → all features open, but validate key
-        try:
-            user = await _get_current_user(request)
-            user_id = user.get("id")
-        except HTTPException:
-            pass
-        tier = _get_tier_limits(PlanTier.WHALE.value)  # full access
-    else:
-        # No API key → free tier
-        tier = _get_tier_limits(PlanTier.FREE.value)
-
-    async def _generator():
-        import json as _json  # noqa: PLC0415
-        try:
-            async for event in run_investigation(mint, tier=tier, cache=_cache, user_id=user_id):
-                yield {"event": event["event"], "data": event["data"] if isinstance(event["data"], str) else _json.dumps(event["data"], default=str)}
-        except Exception as _exc:
-            logger.exception("[investigate] unhandled error for %s", mint[:12])
-            yield {"event": "error", "data": _json.dumps({"detail": f"Investigation error: {type(_exc).__name__}", "recoverable": False})}
-
-    return EventSourceResponse(_generator())
-
-
-@app.post(
-    "/investigate/{mint}/chat",
-    tags=["investigate"],
-    summary="Follow-up chat within an investigation context (SSE streaming)",
-)
-@limiter.limit("20/minute")
-async def investigate_chat(
-    request: Request,
-    mint: str,
-    body: ChatRequest,
-) -> EventSourceResponse:
-    """Chat about a token within the investigation context.
-
-    Inherits forensic context from the most recent investigation verdict
-    (cached) plus on-chain data. Same SSE protocol as /chat/{mint}.
-
-    Events:
-      token  {"text": "<chunk>"}
-      done   {}
-      error  {"detail": "..."}
-    """
-    if not _BASE58_RE.match(mint):
-        raise HTTPException(status_code=400, detail="Invalid Solana mint address")
-
-    if not body.message or len(body.message) > 2000:
-        raise HTTPException(status_code=400, detail="Message required (max 2000 chars)")
-
-    # ── Tier gate ───────────────────────────────────────────────────────
-    import os as _os  # noqa: PLC0415
-    from .subscription_tiers import get_limits as _get_tier_limits, PlanTier  # noqa: PLC0415
-    _payment_active = bool(_os.getenv("HELIO_API_KEY") or _os.getenv("REVENUECAT_WEBHOOK_SECRET"))
-
-    api_key = request.headers.get("X-API-Key", "")
-    if api_key and _payment_active:
-        user = await _get_current_user(request)
-        user_plan = user.get("plan", "free")
-        tier = _get_tier_limits(user_plan)
-        if not tier.has_ai_chat:
-            raise HTTPException(status_code=403, detail="Investigation chat requires Pro or higher plan")
-
-        from .data_sources._clients import cache as _cache_gate  # noqa: PLC0415
-        from .usage_service import check_limit, increment_usage  # noqa: PLC0415
-
-        under_limit = await check_limit(_cache_gate, user["id"], "investigate_chat", int(tier.investigate_chat_daily_limit))
-        if not under_limit:
-            raise HTTPException(status_code=429, detail="Daily chat limit reached")
-        await increment_usage(_cache_gate, user["id"], "investigate_chat")
-
-    # Reuse the exact same generator logic as /chat/{mint}
-    # (forensic context builder + Claude stream)
-    return await forensic_chat(request, mint, body)
-
-
-# ---------------------------------------------------------------------------
 # Auth — Phase 1 (Privy-based API keys)
 # ---------------------------------------------------------------------------
 
@@ -2052,6 +1820,148 @@ async def auth_remove_watch(watch_id: int, request: Request):
     if not deleted:
         raise HTTPException(status_code=404, detail="Watch not found")
     return {"deleted": True}
+
+
+# ---------------------------------------------------------------------------
+# Wallet connect pages — served to in-app browsers (Phantom, Solflare, Backpack)
+# ---------------------------------------------------------------------------
+
+_WALLET_CONNECT_HTML = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Lineage Agent — Connect {wallet_name}</title>
+<style>
+  *{{margin:0;padding:0;box-sizing:border-box}}
+  body{{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+    background:#020617;color:#fff;display:flex;align-items:center;justify-content:center;
+    min-height:100vh;padding:24px}}
+  .card{{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);
+    border-radius:24px;padding:40px 28px;max-width:380px;width:100%;text-align:center}}
+  .icon{{width:64px;height:64px;border-radius:18px;background:{wallet_bg};
+    display:flex;align-items:center;justify-content:center;margin:0 auto 20px;
+    font-size:28px;font-weight:700;color:{wallet_color}}}
+  h1{{font-size:22px;font-weight:600;margin-bottom:8px}}
+  p{{font-size:14px;color:rgba(255,255,255,.5);line-height:1.6;margin-bottom:28px}}
+  .btn{{display:block;width:100%;padding:16px;border-radius:999px;border:none;
+    background:linear-gradient(135deg,#091A7A,#4F8EFF);color:#fff;font-size:16px;
+    font-weight:600;cursor:pointer;letter-spacing:.3px}}
+  .btn:disabled{{opacity:.5;cursor:not-allowed}}
+  .status{{margin-top:16px;font-size:13px;color:rgba(255,255,255,.4)}}
+  .error{{color:#FF3366}}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="icon">{wallet_letter}</div>
+  <h1>Connect {wallet_name}</h1>
+  <p>Authorize Lineage Agent to view your public wallet address. No funds access required.</p>
+  <button class="btn" id="connectBtn" onclick="connectWallet()">Connect Wallet</button>
+  <div class="status" id="status"></div>
+</div>
+<script>
+const WALLET = '{wallet_id}';
+const API_BASE = window.location.origin;
+
+async function connectWallet() {{
+  const btn = document.getElementById('connectBtn');
+  const status = document.getElementById('status');
+  btn.disabled = true;
+  status.textContent = 'Connecting...';
+  status.className = 'status';
+
+  try {{
+    let provider;
+    if (WALLET === 'phantom' && window.phantom?.solana) {{
+      provider = window.phantom.solana;
+    }} else if (WALLET === 'solflare' && window.solflare) {{
+      provider = window.solflare;
+    }} else if (WALLET === 'backpack' && window.backpack) {{
+      provider = window.backpack;
+    }} else if (window.solana) {{
+      provider = window.solana;
+    }}
+
+    if (!provider) {{
+      status.textContent = 'Wallet not detected. Please open this page in your wallet browser.';
+      status.className = 'status error';
+      btn.disabled = false;
+      return;
+    }}
+
+    const resp = await provider.connect();
+    const pubkey = resp.publicKey.toString();
+    status.textContent = 'Wallet connected: ' + pubkey.slice(0, 4) + '...' + pubkey.slice(-4);
+
+    // Register with backend
+    const res = await fetch(API_BASE + '/auth/login', {{
+      method: 'POST',
+      headers: {{'Content-Type': 'application/json'}},
+      body: JSON.stringify({{
+        privy_id: 'wallet:' + pubkey,
+        wallet_address: pubkey,
+      }}),
+    }});
+    const data = await res.json();
+
+    if (data.api_key) {{
+      status.textContent = 'Authenticated! Redirecting...';
+      // Redirect back to app via deep link
+      window.location.href = 'lineage://activate?key=' + encodeURIComponent(data.api_key);
+    }} else {{
+      status.textContent = 'Authentication failed. Please try again.';
+      status.className = 'status error';
+      btn.disabled = false;
+    }}
+  }} catch (err) {{
+    status.textContent = err.message || 'Connection failed';
+    status.className = 'status error';
+    btn.disabled = false;
+  }}
+}}
+
+// Auto-connect if wallet injects provider after page load
+setTimeout(connectWallet, 800);
+</script>
+</body>
+</html>"""
+
+
+@app.get("/auth/phantom", tags=["auth"], response_class=HTMLResponse)
+async def auth_phantom_page():
+    """Wallet connect page for Phantom — opened in Phantom's in-app browser."""
+    return HTMLResponse(_WALLET_CONNECT_HTML.format(
+        wallet_name="Phantom",
+        wallet_id="phantom",
+        wallet_letter="P",
+        wallet_color="#AB9FF2",
+        wallet_bg="rgba(171,159,242,.15)",
+    ))
+
+
+@app.get("/auth/solflare", tags=["auth"], response_class=HTMLResponse)
+async def auth_solflare_page():
+    """Wallet connect page for Solflare — opened in Solflare's in-app browser."""
+    return HTMLResponse(_WALLET_CONNECT_HTML.format(
+        wallet_name="Solflare",
+        wallet_id="solflare",
+        wallet_letter="S",
+        wallet_color="#FC7227",
+        wallet_bg="rgba(252,114,39,.15)",
+    ))
+
+
+@app.get("/auth/backpack", tags=["auth"], response_class=HTMLResponse)
+async def auth_backpack_page():
+    """Wallet connect page for Backpack — opened in Backpack's in-app browser."""
+    return HTMLResponse(_WALLET_CONNECT_HTML.format(
+        wallet_name="Backpack",
+        wallet_id="backpack",
+        wallet_letter="B",
+        wallet_color="#E33E3F",
+        wallet_bg="rgba(227,62,63,.15)",
+    ))
 
 
 # ---------------------------------------------------------------------------
