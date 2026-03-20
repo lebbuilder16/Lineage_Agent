@@ -20,14 +20,16 @@
       },
       "ios": { "simulator": true },
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://lineage-agent.fly.dev"
+        "EXPO_PUBLIC_API_URL": "https://lineage-agent.fly.dev",
+        "EXPO_PUBLIC_PRIVY_APP_ID": "cmmh5ec23067i0djpthc30w9l"
       }
     },
     "production": {
       "autoIncrement": true,
       "channel": "production",
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://lineage-agent.fly.dev"
+        "EXPO_PUBLIC_API_URL": "https://lineage-agent.fly.dev",
+        "EXPO_PUBLIC_PRIVY_APP_ID": "cmmh5ec23067i0djpthc30w9l"
       }
     }
   },
