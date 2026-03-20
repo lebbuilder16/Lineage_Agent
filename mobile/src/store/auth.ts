@@ -96,10 +96,24 @@ export const useAuthStore = create<AuthState>((set) => ({
       }
       set({ apiKey: key ?? null, hydrated: true, recentSearches });
 
-      // Sync subscription state from backend (fire-and-forget)
+      // Validate key against backend — clear stale keys immediately
       if (key) {
-        const { useSubscriptionStore } = await import('./subscription');
-        useSubscriptionStore.getState().fetchStatus(key);
+        try {
+          const { getMe } = await import('../lib/api');
+          const user = await getMe(key);
+          set({ user: user ?? null });
+
+          const { useSubscriptionStore } = await import('./subscription');
+          useSubscriptionStore.getState().fetchStatus(key);
+        } catch (authErr: unknown) {
+          const status = (authErr as { status?: number })?.status;
+          if (status === 401) {
+            console.warn('[auth] stored API key is invalid — clearing');
+            await SecureStore.deleteItemAsync(LS_KEY).catch(() => {});
+            set({ apiKey: null, user: null, watches: [] });
+          }
+          // Other errors (network, 500) — keep the key, retry later
+        }
       }
     } catch (e) {
       console.error('[auth] SecureStore.getItem failed during hydration', e);

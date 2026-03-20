@@ -1758,9 +1758,14 @@ async def agent_investigate(
 
     from .data_sources._clients import cache as _cache  # noqa: PLC0415
 
-    # Auth + tier gate (optional — skip when no API key, matching /chat pattern)
+    # Auth + tier gate
+    # When no payment system is configured (no HELIO_API_KEY / REVENUECAT),
+    # tier enforcement is skipped — all features are open (matches mobile GATES_ENABLED=false).
+    import os as _os  # noqa: PLC0415
+    _payment_active = bool(_os.getenv("HELIO_API_KEY") or _os.getenv("REVENUECAT_WEBHOOK_SECRET"))
+
     api_key = request.headers.get("X-API-Key", "")
-    if api_key:
+    if api_key and _payment_active:
         user = await _get_current_user(request)
         user_plan = user.get("plan", "free")
 
@@ -1770,7 +1775,6 @@ async def agent_investigate(
         if not tier.has_agent:
             raise HTTPException(status_code=403, detail="Agent investigation requires Pro+ or Whale plan")
 
-        # Usage check
         from .usage_service import check_limit, increment_usage  # noqa: PLC0415
 
         under_limit = await check_limit(_cache, user["id"], "agent", int(tier.agent_daily_limit))
@@ -1778,6 +1782,12 @@ async def agent_investigate(
             raise HTTPException(status_code=429, detail="Daily agent investigation limit reached")
 
         await increment_usage(_cache, user["id"], "agent")
+    elif api_key and not _payment_active:
+        # Validate key exists but don't enforce tiers (no payment system active)
+        try:
+            await _get_current_user(request)
+        except HTTPException:
+            pass  # Key invalid — proceed anyway, no payment gates active
 
     async def _generator():
         import json as _json  # noqa: PLC0415
