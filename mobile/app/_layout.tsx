@@ -17,6 +17,7 @@ import { startRugResponseListener } from '../src/lib/openclaw-rug-response';
 import { setupWatchlistMonitor, startWatchlistMonitorListener } from '../src/lib/openclaw-monitor';
 import { createBriefingCron } from '../src/lib/openclaw-cron';
 import { startBriefingListener } from '../src/lib/openclaw-briefing';
+import { checkForOTAUpdate } from '../src/lib/updates';
 import { tokens } from '../src/theme/tokens';
 import { ErrorBoundary } from '../src/components/ui/ErrorBoundary';
 import { useAuthStore } from '../src/store/auth';
@@ -62,6 +63,7 @@ export default function RootLayout() {
 
   useEffect(() => {
     hydrate();
+    checkForOTAUpdate();
     Notifications.requestPermissionsAsync().catch(() => {});
     Notifications.setNotificationHandler({
       handleNotification: async () => ({
