@@ -289,9 +289,9 @@ export default function AgentScreen() {
   }, []);
 
   const startInvestigation = useCallback(() => {
-    if (!mint || !apiKey) return;
+    if (!mint) return;
     startSession(mint);
-    cancelRef.current = agentStream(mint, apiKey, handleEvent, handleDone, handleError);
+    cancelRef.current = agentStream(mint, apiKey ?? '', handleEvent, handleDone, handleError);
   }, [mint, apiKey]);
 
   useEffect(() => {

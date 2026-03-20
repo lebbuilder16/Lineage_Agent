@@ -1756,26 +1756,28 @@ async def agent_investigate(
     if not _BASE58_RE.match(mint):
         raise HTTPException(status_code=400, detail="Invalid Solana mint address")
 
-    # Auth check
-    user = await _get_current_user(request)
-    user_plan = user.get("plan", "free")
-
-    # Tier gate: require pro_plus or higher
-    from .subscription_tiers import get_limits as _get_tier_limits  # noqa: PLC0415
-
-    tier = _get_tier_limits(user_plan)
-    if not tier.has_agent:
-        raise HTTPException(status_code=403, detail="Agent investigation requires Pro+ or Whale plan")
-
-    # Usage check
     from .data_sources._clients import cache as _cache  # noqa: PLC0415
-    from .usage_service import check_limit, increment_usage  # noqa: PLC0415
 
-    under_limit = await check_limit(_cache, user["id"], "agent", int(tier.agent_daily_limit))
-    if not under_limit:
-        raise HTTPException(status_code=429, detail="Daily agent investigation limit reached")
+    # Auth + tier gate (optional — skip when no API key, matching /chat pattern)
+    api_key = request.headers.get("X-API-Key", "")
+    if api_key:
+        user = await _get_current_user(request)
+        user_plan = user.get("plan", "free")
 
-    await increment_usage(_cache, user["id"], "agent")
+        from .subscription_tiers import get_limits as _get_tier_limits  # noqa: PLC0415
+
+        tier = _get_tier_limits(user_plan)
+        if not tier.has_agent:
+            raise HTTPException(status_code=403, detail="Agent investigation requires Pro+ or Whale plan")
+
+        # Usage check
+        from .usage_service import check_limit, increment_usage  # noqa: PLC0415
+
+        under_limit = await check_limit(_cache, user["id"], "agent", int(tier.agent_daily_limit))
+        if not under_limit:
+            raise HTTPException(status_code=429, detail="Daily agent investigation limit reached")
+
+        await increment_usage(_cache, user["id"], "agent")
 
     async def _generator():
         import json as _json  # noqa: PLC0415

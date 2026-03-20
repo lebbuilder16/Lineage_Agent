@@ -198,12 +198,25 @@ export function agentStream(
   };
 
   xhr.onload = () => {
+    if (stopped) return;
+
+    // Check HTTP status BEFORE parsing — surface auth/tier/rate errors explicitly
+    if (xhr.status >= 400) {
+      stopped = true;
+      let detail = `HTTP ${xhr.status}`;
+      try {
+        const body = JSON.parse(xhr.responseText) as { detail?: string };
+        if (body.detail) detail = body.detail;
+      } catch { /* use status code */ }
+      onError(new Error(detail));
+      return;
+    }
+
+    // Parse any remaining buffered SSE data
+    parser.feed(xhr.responseText);
     if (!stopped) {
-      parser.feed(xhr.responseText);
-      if (!stopped) {
-        // Stream ended without done event
-        onDone(null);
-      }
+      // Stream ended without done event
+      onDone(null);
     }
   };
 
