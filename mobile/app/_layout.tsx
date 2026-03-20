@@ -160,6 +160,10 @@ export default function RootLayout() {
               name="agent/[mint]"
               options={{ headerShown: false, animation: 'slide_from_right' }}
             />
+            <Stack.Screen
+              name="investigate/[mint]"
+              options={{ headerShown: false, animation: 'slide_from_right' }}
+            />
           </Stack>
         </View>
       </QueryClientProvider>

@@ -78,6 +78,11 @@ class TierLimits:
     has_agent: bool
     agent_daily_limit: float      # math.inf for unlimited, 0 when disabled
 
+    # Unified investigation (tier-adaptive)
+    has_ai_verdict: bool          # True → AI verdict (Pro+), False → heuristic only (Free)
+    investigate_daily_limit: float  # math.inf for unlimited
+    investigate_chat_daily_limit: float  # follow-up chat messages per day
+
 
 # ---------------------------------------------------------------------------
 # Tier definitions
@@ -106,6 +111,9 @@ TIER_LIMITS: Dict[PlanTier, TierLimits] = {
         death_clock_full=False,
         has_agent=False,
         agent_daily_limit=0,
+        has_ai_verdict=False,
+        investigate_daily_limit=5,
+        investigate_chat_daily_limit=0,
     ),
     PlanTier.PRO: TierLimits(
         scans_per_day=math.inf,
@@ -129,6 +137,9 @@ TIER_LIMITS: Dict[PlanTier, TierLimits] = {
         death_clock_full=True,
         has_agent=False,
         agent_daily_limit=0,
+        has_ai_verdict=True,
+        investigate_daily_limit=math.inf,
+        investigate_chat_daily_limit=20,
     ),
     PlanTier.PRO_PLUS: TierLimits(
         scans_per_day=math.inf,
@@ -152,6 +163,9 @@ TIER_LIMITS: Dict[PlanTier, TierLimits] = {
         death_clock_full=True,
         has_agent=True,
         agent_daily_limit=10,
+        has_ai_verdict=True,
+        investigate_daily_limit=math.inf,
+        investigate_chat_daily_limit=math.inf,
     ),
     PlanTier.WHALE: TierLimits(
         scans_per_day=math.inf,
@@ -175,6 +189,9 @@ TIER_LIMITS: Dict[PlanTier, TierLimits] = {
         death_clock_full=True,
         has_agent=True,
         agent_daily_limit=math.inf,
+        has_ai_verdict=True,
+        investigate_daily_limit=math.inf,
+        investigate_chat_daily_limit=math.inf,
     ),
 }
 

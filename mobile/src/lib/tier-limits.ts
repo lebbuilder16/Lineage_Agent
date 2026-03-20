@@ -27,6 +27,9 @@ export interface TierLimits {
   deathClockFull: boolean;
   hasAgent: boolean;
   agentDailyLimit: number; // -1 = unlimited
+  hasAiVerdict: boolean;
+  investigateDailyLimit: number; // -1 = unlimited
+  investigateChatDailyLimit: number; // -1 = unlimited
 }
 
 export const TIER_LIMITS: Record<PlanTier, TierLimits> = {
@@ -52,6 +55,9 @@ export const TIER_LIMITS: Record<PlanTier, TierLimits> = {
     deathClockFull: false,
     hasAgent: false,
     agentDailyLimit: 0,
+    hasAiVerdict: false,
+    investigateDailyLimit: 5,
+    investigateChatDailyLimit: 0,
   },
   pro: {
     scansPerDay: -1,
@@ -75,6 +81,9 @@ export const TIER_LIMITS: Record<PlanTier, TierLimits> = {
     deathClockFull: true,
     hasAgent: false,
     agentDailyLimit: 0,
+    hasAiVerdict: true,
+    investigateDailyLimit: -1,
+    investigateChatDailyLimit: 20,
   },
   pro_plus: {
     scansPerDay: -1,
@@ -98,6 +107,9 @@ export const TIER_LIMITS: Record<PlanTier, TierLimits> = {
     deathClockFull: true,
     hasAgent: true,
     agentDailyLimit: 10,
+    hasAiVerdict: true,
+    investigateDailyLimit: -1,
+    investigateChatDailyLimit: -1,
   },
   whale: {
     scansPerDay: -1,
@@ -121,6 +133,9 @@ export const TIER_LIMITS: Record<PlanTier, TierLimits> = {
     deathClockFull: true,
     hasAgent: true,
     agentDailyLimit: -1,
+    hasAiVerdict: true,
+    investigateDailyLimit: -1,
+    investigateChatDailyLimit: -1,
   },
 };
 

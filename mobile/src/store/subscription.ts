@@ -12,6 +12,8 @@ interface Usage {
   scans: number;
   ai_chat: number;
   agent: number;
+  investigate: number;
+  investigate_chat: number;
 }
 
 interface SubscriptionState {
@@ -28,7 +30,7 @@ interface SubscriptionState {
   reset: () => void;
 }
 
-const INITIAL_USAGE: Usage = { scans: 0, ai_chat: 0, agent: 0 };
+const INITIAL_USAGE: Usage = { scans: 0, ai_chat: 0, agent: 0, investigate: 0, investigate_chat: 0 };
 
 export const useSubscriptionStore = create<SubscriptionState>((set, get) => ({
   plan: 'free',
@@ -55,7 +57,7 @@ export const useSubscriptionStore = create<SubscriptionState>((set, get) => ({
       // If the backend returns usage counters, set them
       const serverUsage = (user as unknown as Record<string, unknown>).usage as Usage | undefined;
       if (serverUsage) {
-        set({ usage: { scans: serverUsage.scans ?? 0, ai_chat: serverUsage.ai_chat ?? 0, agent: serverUsage.agent ?? 0 } });
+        set({ usage: { scans: serverUsage.scans ?? 0, ai_chat: serverUsage.ai_chat ?? 0, agent: serverUsage.agent ?? 0, investigate: serverUsage.investigate ?? 0, investigate_chat: serverUsage.investigate_chat ?? 0 } });
       }
     } catch {
       // best-effort — keep cached state
@@ -83,7 +85,11 @@ export function useRemainingQuota(key: keyof Usage): number {
     ? limits.scansPerDay
     : key === 'agent'
       ? limits.agentDailyLimit
-      : limits.aiChatDailyLimit;
+      : key === 'investigate'
+        ? limits.investigateDailyLimit
+        : key === 'investigate_chat'
+          ? limits.investigateChatDailyLimit
+          : limits.aiChatDailyLimit;
   if (limit === -1) return -1;
   return Math.max(0, limit - used);
 }

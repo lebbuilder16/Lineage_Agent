@@ -1,3 +1,4 @@
+/** @deprecated Use /investigate/[mint] instead. */
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import {
   View,

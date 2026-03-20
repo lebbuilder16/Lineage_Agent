@@ -1338,6 +1338,7 @@ async def get_ai_analysis(
     "/analyze/{mint}/stream",
     tags=["lineage"],
     summary="AI forensic analysis with SSE progress events",
+    deprecated=True,
 )
 @limiter.limit("6/minute")
 async def stream_ai_analysis(
@@ -1346,6 +1347,8 @@ async def stream_ai_analysis(
     force_refresh: bool = Query(False, description="Re-run AI analysis even if cached"),
 ) -> EventSourceResponse:
     """Same as /analyze/{mint} but streams progress via Server-Sent Events.
+
+    .. deprecated:: Use ``POST /investigate/{mint}`` instead.
 
     Events:
       step  {"step":"lineage"|"deployer"|"cartel"|"bundle"|"sol_flow"|"ai", "status":"running"|"done", "ms":<int>}
@@ -1498,6 +1501,7 @@ _CHAT_CONTEXT_TTL = 120.0  # seconds
     "/chat/{mint}",
     tags=["chat"],
     summary="Conversational forensic chat for a specific token (SSE streaming)",
+    deprecated=True,
 )
 @limiter.limit("20/minute")
 async def forensic_chat(
@@ -1734,6 +1738,7 @@ RULES:
     "/agent/{mint}",
     tags=["agent"],
     summary="Agentic forensic investigation (SSE streaming, multi-turn tool use)",
+    deprecated=True,
 )
 @limiter.limit("3/minute")
 async def agent_investigate(
@@ -1801,6 +1806,151 @@ async def agent_investigate(
             yield {"event": "error", "data": _json.dumps({"detail": f"Agent error: {type(_exc).__name__}", "recoverable": False})}
 
     return EventSourceResponse(_generator())
+
+
+# ---------------------------------------------------------------------------
+# Unified Investigation — tier-adaptive (replaces analyze/chat/agent)
+# ---------------------------------------------------------------------------
+
+@app.post(
+    "/investigate/{mint}",
+    tags=["investigate"],
+    summary="Unified tier-adaptive forensic investigation (SSE streaming)",
+)
+@limiter.limit("6/minute")
+async def investigate_token(
+    request: Request,
+    mint: str,
+) -> EventSourceResponse:
+    """Launch a tier-adaptive forensic investigation on a token.
+
+    Behavior adapts to the caller's subscription tier:
+    - Free:    Scan pipeline → heuristic score (no AI)
+    - Pro:     Scan → single-shot AI verdict (Haiku) → chat available
+    - Pro+:    Scan → agent investigation (Sonnet multi-turn) → chat available
+    - Whale:   Same as Pro+ (unlimited)
+
+    Events (superset):
+      phase              {phase, status}
+      step               {step, status, ms?}
+      heuristic_complete {heuristic_score, tier}
+      thinking           {turn, text}
+      tool_call          {turn, tool, input, call_id}
+      tool_result        {turn, tool, call_id, result?, error?, duration_ms}
+      text               {turn, text}
+      verdict            {risk_score, confidence, ...}
+      done               {tier, turns_used, tokens_used, chat_available}
+      error              {detail, recoverable?}
+    """
+    if not _BASE58_RE.match(mint):
+        raise HTTPException(status_code=400, detail="Invalid Solana mint address")
+
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+    from .subscription_tiers import get_limits as _get_tier_limits, PlanTier  # noqa: PLC0415
+    from .investigate_service import run_investigation  # noqa: PLC0415
+
+    # ── Resolve tier ────────────────────────────────────────────────────
+    import os as _os  # noqa: PLC0415
+    _payment_active = bool(_os.getenv("HELIO_API_KEY") or _os.getenv("REVENUECAT_WEBHOOK_SECRET"))
+
+    api_key = request.headers.get("X-API-Key", "")
+    user_id: Optional[int] = None
+
+    if api_key and _payment_active:
+        user = await _get_current_user(request)
+        user_plan = user.get("plan", "free")
+        tier = _get_tier_limits(user_plan)
+        user_id = user.get("id")
+
+        from .usage_service import check_limit, increment_usage  # noqa: PLC0415
+
+        # Agent-level check for Pro+ (agent is the expensive part)
+        if tier.has_agent:
+            under_limit = await check_limit(_cache, user_id, "agent", int(tier.agent_daily_limit))
+            if not under_limit:
+                raise HTTPException(status_code=429, detail="Daily investigation limit reached")
+            await increment_usage(_cache, user_id, "agent")
+
+        # General investigate limit
+        under_limit = await check_limit(_cache, user_id, "investigate", int(tier.investigate_daily_limit))
+        if not under_limit:
+            raise HTTPException(status_code=429, detail="Daily investigation limit reached")
+        await increment_usage(_cache, user_id, "investigate")
+    elif api_key and not _payment_active:
+        # No payment system → all features open, but validate key
+        try:
+            user = await _get_current_user(request)
+            user_id = user.get("id")
+        except HTTPException:
+            pass
+        tier = _get_tier_limits(PlanTier.WHALE.value)  # full access
+    else:
+        # No API key → free tier
+        tier = _get_tier_limits(PlanTier.FREE.value)
+
+    async def _generator():
+        import json as _json  # noqa: PLC0415
+        try:
+            async for event in run_investigation(mint, tier=tier, cache=_cache, user_id=user_id):
+                yield {"event": event["event"], "data": event["data"] if isinstance(event["data"], str) else _json.dumps(event["data"], default=str)}
+        except Exception as _exc:
+            logger.exception("[investigate] unhandled error for %s", mint[:12])
+            yield {"event": "error", "data": _json.dumps({"detail": f"Investigation error: {type(_exc).__name__}", "recoverable": False})}
+
+    return EventSourceResponse(_generator())
+
+
+@app.post(
+    "/investigate/{mint}/chat",
+    tags=["investigate"],
+    summary="Follow-up chat within an investigation context (SSE streaming)",
+)
+@limiter.limit("20/minute")
+async def investigate_chat(
+    request: Request,
+    mint: str,
+    body: ChatRequest,
+) -> EventSourceResponse:
+    """Chat about a token within the investigation context.
+
+    Inherits forensic context from the most recent investigation verdict
+    (cached) plus on-chain data. Same SSE protocol as /chat/{mint}.
+
+    Events:
+      token  {"text": "<chunk>"}
+      done   {}
+      error  {"detail": "..."}
+    """
+    if not _BASE58_RE.match(mint):
+        raise HTTPException(status_code=400, detail="Invalid Solana mint address")
+
+    if not body.message or len(body.message) > 2000:
+        raise HTTPException(status_code=400, detail="Message required (max 2000 chars)")
+
+    # ── Tier gate ───────────────────────────────────────────────────────
+    import os as _os  # noqa: PLC0415
+    from .subscription_tiers import get_limits as _get_tier_limits, PlanTier  # noqa: PLC0415
+    _payment_active = bool(_os.getenv("HELIO_API_KEY") or _os.getenv("REVENUECAT_WEBHOOK_SECRET"))
+
+    api_key = request.headers.get("X-API-Key", "")
+    if api_key and _payment_active:
+        user = await _get_current_user(request)
+        user_plan = user.get("plan", "free")
+        tier = _get_tier_limits(user_plan)
+        if not tier.has_ai_chat:
+            raise HTTPException(status_code=403, detail="Investigation chat requires Pro or higher plan")
+
+        from .data_sources._clients import cache as _cache_gate  # noqa: PLC0415
+        from .usage_service import check_limit, increment_usage  # noqa: PLC0415
+
+        under_limit = await check_limit(_cache_gate, user["id"], "investigate_chat", int(tier.investigate_chat_daily_limit))
+        if not under_limit:
+            raise HTTPException(status_code=429, detail="Daily chat limit reached")
+        await increment_usage(_cache_gate, user["id"], "investigate_chat")
+
+    # Reuse the exact same generator logic as /chat/{mint}
+    # (forensic context builder + Claude stream)
+    return await forensic_chat(request, mint, body)
 
 
 # ---------------------------------------------------------------------------

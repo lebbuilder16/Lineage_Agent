@@ -134,6 +134,7 @@ function parseAgentEvent(eventType: string, data: string): AgentEvent | null {
 /**
  * Start an agent investigation stream for a token.
  *
+ * @deprecated Use {@link investigateStream} from `investigate-streaming.ts` instead.
  * @returns cancel function to abort the stream
  */
 export function agentStream(

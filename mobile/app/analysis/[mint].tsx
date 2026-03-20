@@ -1,3 +1,4 @@
+/** @deprecated Use /investigate/[mint] instead. */
 import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
@@ -7,7 +8,7 @@ import {
   ScrollView,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useLocalSearchParams, router, Stack } from 'expo-router';
+import { useLocalSearchParams, router, Redirect, Stack } from 'expo-router';
 import { X, CheckCircle, Circle } from 'lucide-react-native';
 import Animated, {
   useSharedValue,
