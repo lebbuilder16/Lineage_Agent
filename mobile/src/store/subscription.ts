@@ -11,6 +11,7 @@ import { getMe } from '../lib/api';
 interface Usage {
   scans: number;
   ai_chat: number;
+  agent: number;
 }
 
 interface SubscriptionState {
@@ -27,7 +28,7 @@ interface SubscriptionState {
   reset: () => void;
 }
 
-const INITIAL_USAGE: Usage = { scans: 0, ai_chat: 0 };
+const INITIAL_USAGE: Usage = { scans: 0, ai_chat: 0, agent: 0 };
 
 export const useSubscriptionStore = create<SubscriptionState>((set, get) => ({
   plan: 'free',
@@ -54,7 +55,7 @@ export const useSubscriptionStore = create<SubscriptionState>((set, get) => ({
       // If the backend returns usage counters, set them
       const serverUsage = (user as unknown as Record<string, unknown>).usage as Usage | undefined;
       if (serverUsage) {
-        set({ usage: { scans: serverUsage.scans ?? 0, ai_chat: serverUsage.ai_chat ?? 0 } });
+        set({ usage: { scans: serverUsage.scans ?? 0, ai_chat: serverUsage.ai_chat ?? 0, agent: serverUsage.agent ?? 0 } });
       }
     } catch {
       // best-effort — keep cached state
@@ -78,7 +79,11 @@ export function useRemainingQuota(key: keyof Usage): number {
   const plan = useSubscriptionStore((s) => s.plan);
   const used = useSubscriptionStore((s) => s.usage[key]);
   const limits = getLimits(plan);
-  const limit = key === 'scans' ? limits.scansPerDay : limits.aiChatDailyLimit;
+  const limit = key === 'scans'
+    ? limits.scansPerDay
+    : key === 'agent'
+      ? limits.agentDailyLimit
+      : limits.aiChatDailyLimit;
   if (limit === -1) return -1;
   return Math.max(0, limit - used);
 }

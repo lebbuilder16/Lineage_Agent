@@ -28,7 +28,7 @@ from typing import Optional
 import sentry_sdk
 from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -86,11 +86,9 @@ from .models import (
     LineageResult,
     NarrativeCount,
     OperatorImpactReport,
-    ProblemDetail,
     SolFlowReport,
     TokenCompareResult,
     TokenSearchResult,
-    TopToken,
 )
 from .rug_detector import cancel_rug_sweep, schedule_rug_sweep
 from .db_maintenance import cancel_db_maintenance, schedule_db_maintenance
@@ -101,8 +99,6 @@ from .auth_service import (
     add_user_watch,
     remove_user_watch,
 )
-from .subscription_tiers import PlanTier, get_limits, TIER_ORDER
-from .usage_service import increment_usage, check_limit, get_usage
 
 # Initialise structured logging early
 setup_logging()
@@ -269,22 +265,6 @@ async def lifespan(application: FastAPI):
     else:
         logger.info("WALLET_LABELS_CSV_URL not set — using static labels only")
 
-    # ── Phase 3+4: briefing sweep & watchlist monitor ────────────────────
-    from .briefing_service import schedule_briefing_sweep  # noqa: PLC0415
-    from .watchlist_monitor_service import schedule_watchlist_sweep  # noqa: PLC0415
-    from .data_sources._clients import cache as _startup_cache  # noqa: PLC0415
-    _briefing_sweep_task = asyncio.create_task(
-        schedule_briefing_sweep(_startup_cache), name="briefing_sweep"
-    )
-    _watchlist_sweep_task = asyncio.create_task(
-        schedule_watchlist_sweep(_startup_cache), name="watchlist_sweep"
-    )
-
-    # -----------------------------------------------------------------------
-    # Telegram bot — start inline with FastAPI (no separate process needed)
-    # -----------------------------------------------------------------------
-    _bot_polling_task: asyncio.Task | None = None
-
     yield
 
     # -----------------------------------------------------------------------
@@ -296,10 +276,6 @@ async def lifespan(application: FastAPI):
     _cancel_cartel_sweep()
     cancel_db_maintenance()
     _cancel_wallet_label_refresh()
-    if _briefing_sweep_task:
-        _briefing_sweep_task.cancel()
-    if _watchlist_sweep_task:
-        _watchlist_sweep_task.cancel()
     await close_clients()
 
 
@@ -312,7 +288,7 @@ app = FastAPI(
 
 # Attach rate-limiter state
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # CORS (so the Next.js frontend can call from localhost:3000 and Vercel)
 app.add_middleware(
@@ -351,69 +327,6 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
 
 
 app.add_middleware(RequestIdMiddleware)
-
-
-# ---------------------------------------------------------------------------
-# RFC 9457 – structured error handlers
-# ---------------------------------------------------------------------------
-from fastapi.exceptions import RequestValidationError  # noqa: E402
-from fastapi.responses import JSONResponse  # noqa: E402
-
-
-@app.exception_handler(HTTPException)
-async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
-    """Return RFC 9457 Problem Details for HTTPException."""
-    problem = ProblemDetail(
-        type=f"https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/{exc.status_code}",
-        title=exc.detail if isinstance(exc.detail, str) else "HTTP Error",
-        status=exc.status_code,
-        detail=str(exc.detail),
-        instance=str(request.url),
-    )
-    return JSONResponse(
-        status_code=exc.status_code,
-        content=problem.model_dump(exclude_none=False),
-        headers={"Content-Type": "application/problem+json"},
-    )
-
-
-@app.exception_handler(RequestValidationError)
-async def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
-    """Return RFC 9457 Problem Details for Pydantic/FastAPI validation errors."""
-    errors = [
-        f"{' -> '.join(str(loc) for loc in e['loc'])}: {e['msg']}"
-        for e in exc.errors()
-    ]
-    problem = ProblemDetail(
-        type="https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/422",
-        title="Unprocessable Entity",
-        status=422,
-        detail="; ".join(errors),
-        instance=str(request.url),
-    )
-    return JSONResponse(
-        status_code=422,
-        content=problem.model_dump(exclude_none=False),
-        headers={"Content-Type": "application/problem+json"},
-    )
-
-
-@app.exception_handler(Exception)
-async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
-    """Catch-all for unhandled exceptions — hides internal details from clients."""
-    logger.exception("Unhandled exception on %s %s", request.method, request.url)
-    problem = ProblemDetail(
-        type="https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/500",
-        title="Internal Server Error",
-        status=500,
-        detail="An unexpected error occurred. Please try again later.",
-        instance=str(request.url),
-    )
-    return JSONResponse(
-        status_code=500,
-        content=problem.model_dump(exclude_none=False),
-        headers={"Content-Type": "application/problem+json"},
-    )
 
 
 def _analysis_deployer_from_lineage(lineage_res: Optional[LineageResult]) -> str:
@@ -753,6 +666,8 @@ async def ws_alerts(websocket: WebSocket):
             await websocket.close()
         except Exception:
             pass
+
+
 
 @app.get(
     "/search",
@@ -1342,11 +1257,11 @@ async def get_ai_analysis(
             timeout=55.0,
         )
     except Exception as exc:
-        lineage_res = exc  # type: ignore[assignment]
+        lineage_res = exc
 
     if isinstance(lineage_res, Exception):
         logger.warning("[analyze] lineage cache read failed for %s: %s", mint[:12], lineage_res)
-        lineage_res = None  # type: ignore[assignment]
+        lineage_res = None
 
     try:
         bundle_res, sol_flow_res = await _load_analyze_supporting_reports(
@@ -1433,7 +1348,7 @@ async def stream_ai_analysis(
     """Same as /analyze/{mint} but streams progress via Server-Sent Events.
 
     Events:
-      step  {"step":"lineage"|"bundle"|"sol_flow"|"ai", "status":"running"|"done", "ms":<int>}
+      step  {"step":"lineage"|"deployer"|"cartel"|"bundle"|"sol_flow"|"ai", "status":"running"|"done", "ms":<int>}
       complete  <full AnalyzeResponse JSON>
       error  {"detail":"..."}
     """
@@ -1461,15 +1376,38 @@ async def stream_ai_analysis(
             lineage_res = None
         yield _evt("step", {"step": "lineage", "status": "done", "ms": int((_time.monotonic() - _t0) * 1000)})
 
-        # 2. Bundle + SOL flow
+        # 2. Deployer profile — prefer data already computed by detect_lineage
+        _deployer_addr = _analysis_deployer_from_lineage(lineage_res)
+        yield _evt("step", {"step": "deployer", "status": "running"})
+        _td = _time.monotonic()
+        _has_deployer = lineage_res and getattr(lineage_res, "deployer_profile", None) is not None
+        if not _has_deployer and _deployer_addr:
+            logger.warning("[stream] deployer_profile missing from lineage for %s — falling back to direct fetch", mint[:12])
+            try:
+                await asyncio.wait_for(compute_deployer_profile(_deployer_addr), timeout=15.0)
+            except Exception as _dep_exc:
+                logger.warning("[stream] deployer fallback failed for %s: %s", mint[:12], _dep_exc)
+        yield _evt("step", {"step": "deployer", "status": "done", "ms": int((_time.monotonic() - _td) * 1000)})
+
+        # 3. Cartel detection — prefer data already computed by detect_lineage
+        yield _evt("step", {"step": "cartel", "status": "running"})
+        _tc = _time.monotonic()
+        _has_cartel = lineage_res and getattr(lineage_res, "cartel_report", None) is not None
+        if not _has_cartel and _deployer_addr:
+            logger.warning("[stream] cartel_report missing from lineage for %s — falling back to direct fetch", mint[:12])
+            try:
+                await asyncio.wait_for(compute_cartel_report(mint, _deployer_addr), timeout=15.0)
+            except Exception as _cartel_exc:
+                logger.warning("[stream] cartel fallback failed for %s: %s", mint[:12], _cartel_exc)
+        yield _evt("step", {"step": "cartel", "status": "done", "ms": int((_time.monotonic() - _tc) * 1000)})
+
+        # 4-5. Bundle + SOL flow
         yield _evt("step", {"step": "bundle", "status": "running"})
         yield _evt("step", {"step": "sol_flow", "status": "running"})
         _t1 = _time.monotonic()
         try:
             _bundle_res, _sol_res = await _load_analyze_supporting_reports(
-                mint,
-                lineage_res,
-                force_refresh=force_refresh,
+                mint, lineage_res, force_refresh=force_refresh,
             )
         except Exception as _support_exc:
             logger.warning("[stream] supporting reports failed for %s: %s", mint[:12], _support_exc)
@@ -1483,7 +1421,7 @@ async def stream_ai_analysis(
             yield _evt("error", {"detail": "No on-chain data found. Run /lineage?mint=... first."})
             return
 
-        # 3. AI analysis
+        # 6. AI analysis
         try:
             from .data_sources._clients import cache as _cache  # noqa: PLC0415
         except Exception:
@@ -1501,7 +1439,7 @@ async def stream_ai_analysis(
                     cache=_cache,
                     force_refresh=force_refresh,
                 ),
-                timeout=70.0,
+                timeout=55.0,
             )
         except asyncio.TimeoutError:
             yield _evt("error", {"detail": "AI analysis timed out"})
@@ -1583,113 +1521,111 @@ async def forensic_chat(
     async def _generator():
         import json as _json
         import time as _time
-        from .ai_analyst import _get_client as _get_ai_client, _MODEL, _MODEL_SONNET
+        from .ai_analyst import _get_client as _get_ai_client, _MODEL
 
         def _evt(event: str, data: dict) -> dict:
             return {"event": event, "data": _json.dumps(data)}
 
-        # ── Build rich forensic context with stale-while-revalidate ─────────
-        from .chat_service import build_rich_context, build_ai_analysis_context, get_system_prompt  # noqa: PLC0415
-        from .ai_analyst import build_ai_cache_key  # noqa: PLC0415
-        from .data_sources._clients import cache_get_swr as _swr_get  # noqa: PLC0415
-
+        # ── Build forensic context from cache (with in-process TTL cache) ─
         now = _time.monotonic()
         cached_ctx = _chat_context_cache.get(mint)
         if cached_ctx and (now - cached_ctx[0]) < _CHAT_CONTEXT_TTL:
             forensic_context = cached_ctx[1]
         else:
+            context_parts: list[str] = []
             try:
-                # ── Lineage: SWR read ──────────────────────────────────────
-                from .lineage_detector import _lineage_cache_key  # noqa: PLC0415
-                _lin_swr = await _swr_get(_lineage_cache_key(mint))
-                _lin_cached = None
-                _lineage_stale = False
+                from .data_sources._clients import cache as _cache  # noqa: PLC0415
+                from .ai_analyst import build_ai_cache_key  # noqa: PLC0415
+                # Try cached AI analysis first
+                _ai_key = build_ai_cache_key(mint)
+                _ai_cached = _cache.get(_ai_key)
+                if hasattr(_ai_cached, "__await__"):
+                    _ai_cached = await _ai_cached
+                if isinstance(_ai_cached, dict):
+                    context_parts.append(f"RISK SCORE: {_ai_cached.get('risk_score', 'N/A')}/100")
+                    context_parts.append(f"CONFIDENCE: {_ai_cached.get('confidence', 'N/A')}")
+                    _verdict = _ai_cached.get("verdict_summary") or ""
+                    if _verdict:
+                        context_parts.append(f"VERDICT: {_verdict}")
+                    _narrative = _ai_cached.get("narrative") or ""
+                    if _narrative:
+                        context_parts.append(f"NARRATIVE:\n{_narrative}")
+                    _findings = _ai_cached.get("key_findings") or []
+                    if _findings:
+                        context_parts.append("KEY FINDINGS:\n" + "\n".join(f"- {f}" for f in _findings))
+                    _chain = _ai_cached.get("conviction_chain") or []
+                    if _chain:
+                        context_parts.append("CONVICTION CHAIN:\n" + "\n".join(f"- {c}" for c in _chain))
 
-                if _lin_swr and _lin_swr.value is not None:
-                    # Got data (fresh or stale)
-                    from .models import LineageResult as _LR  # noqa: PLC0415
-                    _raw = _lin_swr.value
-                    _lin_cached = _raw if isinstance(_raw, _LR) else _LR(**_raw) if isinstance(_raw, dict) else None
-                    _lineage_stale = not _lin_swr.fresh
-                    if _lineage_stale:
-                        logger.info("[chat] serving stale lineage for %s — refreshing in background", mint[:12])
+                # Always expose the mint address so the AI can reference it directly
+                context_parts.append(f"MINT ADDRESS: {mint}")
 
+                # Try cached lineage for token metadata
+                _lin_cached = await get_cached_lineage_report(mint)
+                # If no cache, trigger a live detect_lineage fetch (with timeout)
                 if _lin_cached is None:
                     try:
                         logger.info("[chat] no lineage cache for %s — triggering detect_lineage", mint[:12])
-                        _lin_cached = await asyncio.wait_for(detect_lineage(mint), timeout=30.0)
+                        _lin_cached = await asyncio.wait_for(
+                            detect_lineage(mint),
+                            timeout=30.0,
+                        )
                     except Exception as _ld_exc:
                         logger.warning("[chat] live detect_lineage failed for %s: %s", mint[:12], _ld_exc)
+                        _lin_cached = None
 
+                # Prefer query_token (most recently enriched) then fall back to root
+                _token_node = None
                 if _lin_cached is not None:
-                    forensic_context = build_rich_context(_lin_cached)
-                else:
-                    forensic_context = f"MINT ADDRESS: {mint}\n\nNo on-chain data loaded yet."
-
-                # ── AI analysis: SWR read ──────────────────────────────────
-                _ai_stale = False
-                try:
-                    _ai_key = build_ai_cache_key(mint)
-                    _ai_swr = await _swr_get(_ai_key)
-                    if _ai_swr and _ai_swr.value is not None and isinstance(_ai_swr.value, dict):
-                        forensic_context += "\n" + build_ai_analysis_context(_ai_swr.value)
-                        _ai_stale = not _ai_swr.fresh
-                    else:
-                        # No AI cache at all — note for context
-                        forensic_context += "\n\nAI FORENSIC ANALYSIS: not yet available (analysis in progress)"
-                except Exception as _ai_exc:
-                    logger.debug("[chat] AI cache lookup failed: %s", _ai_exc)
-
-                # ── Background refresh for stale data ──────────────────────
-                if _lineage_stale or _ai_stale or (_lin_swr is None and _lin_cached is not None):
-                    async def _background_refresh():
-                        try:
-                            _fresh = await asyncio.wait_for(detect_lineage(mint), timeout=55.0)
-                            logger.info("[chat] background refresh complete for %s", mint[:12])
-                            # write-through in detect_lineage will also refresh AI cache
-                        except Exception as _ref_exc:
-                            logger.debug("[chat] background refresh failed: %s", _ref_exc)
-
-                    _ref_task = asyncio.create_task(_background_refresh())
-                    _ref_task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
-
-                # ── Fire-and-forget AI analysis if completely missing ──────
-                if _lin_cached is not None:
-                    try:
-                        _ai_key_check = build_ai_cache_key(mint)
-                        _ai_exists = await _swr_get(_ai_key_check)
-                        if _ai_exists is None:
-                            from .ai_analyst import analyze_token as _chat_analyze  # noqa: PLC0415
-                            from .data_sources._clients import cache as _ff_cache  # noqa: PLC0415
-
-                            async def _fire_and_forget_ai():
-                                try:
-                                    await asyncio.wait_for(
-                                        _chat_analyze(
-                                            mint,
-                                            lineage_result=_lin_cached,
-                                            bundle_report=getattr(_lin_cached, "bundle_report", None),
-                                            sol_flow_report=getattr(_lin_cached, "sol_flow", None),
-                                            cache=_ff_cache,
-                                        ),
-                                        timeout=60.0,
-                                    )
-                                    logger.info("[chat] fire-and-forget AI done for %s", mint[:12])
-                                except Exception:
-                                    pass
-
-                            _ff_task = asyncio.create_task(_fire_and_forget_ai())
-                            _ff_task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
-                    except Exception:
-                        pass
-
-                _chat_context_cache[mint] = (now, forensic_context)
+                    _token_node = (
+                        getattr(_lin_cached, "query_token", None)
+                        or getattr(_lin_cached, "root", None)
+                    )
+                if _token_node:
+                    _deployer_addr = getattr(_token_node, "deployer", None) or "N/A"
+                    context_parts.append(
+                        f"TOKEN: {getattr(_token_node, 'name', '?')} ({getattr(_token_node, 'symbol', '?')}) | "
+                        f"DEPLOYER: {_deployer_addr} | "
+                        f"MCap: ${getattr(_token_node, 'market_cap_usd', None) or 'N/A'}"
+                    )
+                    _platform = getattr(_token_node, "launch_platform", None)
+                    _stage = getattr(_token_node, "lifecycle_stage", None)
+                    _created = getattr(_token_node, "created_at", None)
+                    if _platform:
+                        context_parts.append(f"LAUNCH PLATFORM: {_platform}")
+                    if _stage:
+                        context_parts.append(f"LIFECYCLE STAGE: {getattr(_stage, 'value', _stage)}")
+                    if _created:
+                        context_parts.append(f"CREATED AT: {_created}")
+                    if getattr(_lin_cached, "derivatives", None):
+                        context_parts.append(f"FAMILY SIZE: {_lin_cached.family_size} tokens")
+                    _deployer_profile = getattr(_lin_cached, "deployer_profile", None)
+                    if _deployer_profile:
+                        context_parts.append(
+                            f"DEPLOYER PROFILE: {getattr(_deployer_profile, 'total_tokens_launched', '?')} tokens launched | "
+                            f"Rug rate: {getattr(_deployer_profile, 'rug_rate_pct', 'N/A')}% | "
+                            f"Confirmed rugs: {getattr(_deployer_profile, 'confirmed_rug_count', 'N/A')}"
+                        )
             except Exception as _ctx_exc:
                 logger.warning("[chat] context fetch failed: %s", _ctx_exc)
-                forensic_context = f"MINT ADDRESS: {mint}\n\nContext fetch failed."
 
-        _skill_prompt = get_system_prompt()
-        system_with_ctx = f"{_skill_prompt}\n\n---\nFORENSIC CONTEXT FOR {mint}:\n{forensic_context}\n---"
+            # Build the final context string
+            # "More than just MINT ADDRESS" = we have real on-chain data
+            _has_real_data = len(context_parts) > 1
+            if _has_real_data:
+                forensic_context = "\n\n".join(context_parts)
+            else:
+                forensic_context = (
+                    f"MINT ADDRESS: {mint}\n\n"
+                    "No on-chain data loaded yet. "
+                    "The token may be very new or the on-chain fetch timed out."
+                )
+            # Only cache when we actually have data — no-data results should be retried
+            if _has_real_data:
+                _chat_context_cache[mint] = (_time.monotonic(), forensic_context)
+            # Intentionally NOT caching no-data results so next message retries freely
+
+        system_with_ctx = f"{_CHAT_SYSTEM}\n\n---\nFORENSIC CONTEXT FOR {mint}:\n{forensic_context}\n---"
 
         # ── Build messages list ───────────────────────────────────────────
         messages = [
@@ -1701,11 +1637,9 @@ async def forensic_chat(
         # ── Stream Claude response (Haiku for low latency) ────────────────
         try:
             client = _get_ai_client()
-            # Use Sonnet for chat — produces structured, detailed analyses
-            # matching OpenClaw quality (Haiku is too terse for forensic reports)
             async with client.messages.stream(
-                model=_MODEL_SONNET,
-                max_tokens=1200,
+                model=_MODEL,
+                max_tokens=400,
                 temperature=0,
                 system=system_with_ctx,
                 messages=messages,
@@ -1718,6 +1652,141 @@ async def forensic_chat(
         except Exception as _exc:
             logger.exception("[chat] stream failed for %s", mint[:12])
             yield _evt("error", {"detail": f"Chat error: {type(_exc).__name__}"})
+
+    return EventSourceResponse(_generator())
+
+
+# ------------------------------------------------------------------
+# AI General Chat — no token context (SSE streaming)
+# ------------------------------------------------------------------
+
+@app.post(
+    "/chat",
+    tags=["chat"],
+    summary="General AI forensics chat — no specific token context (SSE streaming)",
+)
+@limiter.limit("20/minute")
+async def general_chat(
+    request: Request,
+    body: ChatRequest,
+) -> EventSourceResponse:
+    """Stream a Claude reply for general Solana forensics questions.
+
+    Events:
+      token  {"text": "<chunk>"}
+      done   {}
+      error  {"detail": "..."}
+    """
+    if not body.message or len(body.message) > 2000:
+        raise HTTPException(status_code=400, detail="Message required (max 2000 chars)")
+
+    async def _generator():
+        import json as _json
+        from .ai_analyst import _get_client as _get_ai_client, _MODEL
+
+        def _evt(event: str, data: dict) -> dict:
+            return {"event": event, "data": _json.dumps(data)}
+
+        _general_system = """\
+You are a Solana blockchain forensics detective embedded in the Lineage Agent platform.
+No specific token has been selected. Answer general questions about Solana, rug pulls,
+token forensics, deployer patterns, and on-chain analysis.
+
+RULES:
+- Be concise but complete — bullet points are welcome.
+- NEVER fabricate specific on-chain data (addresses, balances, timestamps).
+- If the user asks about a specific token, tell them to select it first via the Scan screen.
+- Keep responses tight: 2–5 sentences or a short bullet list. No padding.
+"""
+        messages = [
+            {"role": msg.role, "content": msg.content}
+            for msg in body.history[-8:]
+        ]
+        messages.append({"role": "user", "content": body.message})
+
+        try:
+            client = _get_ai_client()
+            async with client.messages.stream(
+                model=_MODEL,
+                max_tokens=400,
+                temperature=0,
+                system=_general_system,
+                messages=messages,
+            ) as stream:
+                async for text_chunk in stream.text_stream:
+                    yield _evt("token", {"text": text_chunk})
+
+            yield _evt("done", {})
+
+        except Exception as _exc:
+            logger.exception("[chat/general] stream failed")
+            yield _evt("error", {"detail": f"Chat error: {type(_exc).__name__}"})
+
+    return EventSourceResponse(_generator())
+
+
+# ---------------------------------------------------------------------------
+# Agentic Forensic Investigation (SSE streaming, multi-turn tool use)
+# ---------------------------------------------------------------------------
+
+
+@app.post(
+    "/agent/{mint}",
+    tags=["agent"],
+    summary="Agentic forensic investigation (SSE streaming, multi-turn tool use)",
+)
+@limiter.limit("3/minute")
+async def agent_investigate(
+    request: Request,
+    mint: str,
+) -> EventSourceResponse:
+    """Launch an autonomous forensic investigation on a token.
+
+    The agent selects which tools to call, reasons about results, iterates,
+    and delivers a structured verdict. Progress is streamed via SSE.
+
+    Events:
+      thinking    {"turn": int, "text": str}
+      tool_call   {"turn": int, "tool": str, "input": dict, "call_id": str}
+      tool_result {"turn": int, "tool": str, "call_id": str, "result": dict|null, "error": str|null, "duration_ms": int}
+      text        {"turn": int, "text": str}
+      done        {"verdict": {...}, "turns_used": int, "tokens_used": int}
+      error       {"detail": str, "recoverable": bool}
+    """
+    if not _BASE58_RE.match(mint):
+        raise HTTPException(status_code=400, detail="Invalid Solana mint address")
+
+    # Auth check
+    user = await _get_current_user(request)
+    user_plan = user.get("plan", "free")
+
+    # Tier gate: require pro_plus or higher
+    from .subscription_tiers import get_limits as _get_tier_limits  # noqa: PLC0415
+
+    tier = _get_tier_limits(user_plan)
+    if not tier.has_agent:
+        raise HTTPException(status_code=403, detail="Agent investigation requires Pro+ or Whale plan")
+
+    # Usage check
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+    from .usage_service import check_limit, increment_usage  # noqa: PLC0415
+
+    under_limit = await check_limit(_cache, user["id"], "agent", int(tier.agent_daily_limit))
+    if not under_limit:
+        raise HTTPException(status_code=429, detail="Daily agent investigation limit reached")
+
+    await increment_usage(_cache, user["id"], "agent")
+
+    async def _generator():
+        import json as _json  # noqa: PLC0415
+        from .agent_service import run_agent  # noqa: PLC0415
+
+        try:
+            async for event in run_agent(mint, cache=_cache):
+                yield {"event": event["event"], "data": _json.dumps(event["data"], default=str)}
+        except Exception as _exc:
+            logger.exception("[agent] unhandled error for %s", mint[:12])
+            yield {"event": "error", "data": _json.dumps({"detail": f"Agent error: {type(_exc).__name__}", "recoverable": False})}
 
     return EventSourceResponse(_generator())
 
@@ -1747,69 +1816,6 @@ async def _get_current_user(request: Request):
     if user is None:
         raise HTTPException(status_code=401, detail="Invalid API key")
     return user
-
-
-async def _require_plan(request: Request, minimum: PlanTier) -> dict:
-    """Dependency: verify user has at minimum the given plan tier."""
-    user = await _get_current_user(request)
-    user_tier = PlanTier(user.get("plan", "free"))
-    if TIER_ORDER.index(user_tier) < TIER_ORDER.index(minimum):
-        raise HTTPException(
-            status_code=403,
-            detail={
-                "message": f"This feature requires {minimum.value} plan or higher.",
-                "current_plan": user_tier.value,
-                "required_plan": minimum.value,
-            },
-        )
-    return user
-
-
-async def _check_and_increment_scan(request: Request) -> dict:
-    """Check scan limit for the user, increment counter if under limit."""
-    user = await _get_current_user(request)
-    limits = get_limits(user.get("plan", "free"))
-    scan_limit = limits.scans_per_day
-    if scan_limit != float('inf'):
-        from .data_sources._clients import cache as _cache  # noqa: PLC0415
-        ok = await check_limit(_cache, user["id"], "scans", int(scan_limit))
-        if not ok:
-            raise HTTPException(
-                status_code=429,
-                detail={
-                    "message": f"Daily scan limit reached ({int(scan_limit)}/day). Upgrade for unlimited scans.",
-                    "current_plan": user.get("plan", "free"),
-                    "limit": int(scan_limit),
-                },
-            )
-    from .data_sources._clients import cache as _cache  # noqa: PLC0415
-    await increment_usage(_cache, user["id"], "scans")
-    return user
-
-
-def _filter_response_for_plan(result: dict, plan: str) -> dict:
-    """Strip gated fields from lineage response based on user plan."""
-    limits = get_limits(plan)
-    if not limits.death_clock_full and "death_clock" in result and result["death_clock"]:
-        result["death_clock"] = {
-            "risk_level": result["death_clock"].get("risk_level"),
-            "gated": True,
-        }
-    if not limits.has_sol_flow and "sol_flow" in result and result["sol_flow"]:
-        result["sol_flow"] = {
-            "total_extracted_sol": result["sol_flow"].get("total_extracted_sol"),
-            "hop_count": result["sol_flow"].get("hop_count"),
-            "gated": True,
-        }
-    if not limits.has_bundle_tracker:
-        result.pop("bundle_report", None)
-    if not limits.has_insider_sell:
-        result.pop("insider_sell", None)
-    if not limits.has_operator_impact:
-        result.pop("operator_impact", None)
-    if not limits.has_cartel_detection:
-        result.pop("cartel_report", None)
-    return result
 
 
 @app.post("/auth/login", tags=["auth"])
@@ -1846,35 +1852,13 @@ async def auth_login(body: _LoginRequest, request: Request):
 async def auth_me(request: Request):
     """Return current user info. Requires X-API-Key header."""
     user = await _get_current_user(request)
-    from .data_sources._clients import cache as _cache  # noqa: PLC0415
-    user_limits = get_limits(user.get("plan", "free"))
-    usage_scans = await get_usage(_cache, user["id"], "scans")
-    usage_chat = await get_usage(_cache, user["id"], "ai_chat")
     return {
-        **user,
-        "limits": {
-            "scans_per_day": user_limits.scans_per_day if user_limits.scans_per_day != float('inf') else -1,
-            "ai_chat_daily_limit": user_limits.ai_chat_daily_limit if user_limits.ai_chat_daily_limit != float('inf') else -1,
-            "max_watchlist": user_limits.max_watchlist,
-            "death_clock_full": user_limits.death_clock_full,
-        },
-        "usage": {
-            "scans": usage_scans,
-            "ai_chat": usage_chat,
-        },
+        "id": user["id"],
+        "privy_id": user["privy_id"],
+        "wallet_address": user["wallet_address"],
+        "email": user["email"],
+        "plan": user["plan"],
     }
-
-
-@app.post("/auth/regenerate-key", tags=["auth"])
-async def regenerate_key(request: Request):
-    """Regenerate the API key for the current user. Requires X-API-Key header."""
-    user = await _get_current_user(request)
-    from .data_sources._clients import cache as _cache  # noqa: PLC0415
-    from .auth_service import regenerate_api_key
-    new_key = await regenerate_api_key(_cache, user["id"])
-    if not new_key:
-        raise HTTPException(500, "Failed to regenerate key")
-    return {"api_key": new_key}
 
 
 @app.get("/auth/watches", tags=["auth"])
@@ -1905,265 +1889,6 @@ async def auth_remove_watch(watch_id: int, request: Request):
     deleted = await remove_user_watch(_cache, user["id"], watch_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Watch not found")
-    return {"deleted": True}
-
-
-# ---------------------------------------------------------------------------
-# Phase 3 — Briefing endpoints
-# ---------------------------------------------------------------------------
-
-
-@app.get("/auth/briefing", tags=["auth"])
-async def get_briefing(request: Request):
-    """Get the latest daily briefing for the authenticated user."""
-    user = await _get_current_user(request)
-    from .briefing_service import get_latest_briefing  # noqa: PLC0415
-    from .data_sources._clients import cache as _cache  # noqa: PLC0415
-    result = await get_latest_briefing(_cache, user["id"])
-    if not result:
-        return {"content": None, "message": "No briefing available yet"}
-    return result
-
-
-@app.get("/auth/briefings", tags=["auth"])
-async def get_briefings(request: Request, limit: int = 7):
-    """Get briefing history for the authenticated user."""
-    user = await _get_current_user(request)
-    from .briefing_service import get_briefing_history  # noqa: PLC0415
-    from .data_sources._clients import cache as _cache  # noqa: PLC0415
-    return await get_briefing_history(_cache, user["id"], limit)
-
-
-# ---------------------------------------------------------------------------
-# Phase 4 — Watchlist monitor endpoints
-# ---------------------------------------------------------------------------
-
-
-@app.post("/auth/watches/{watch_id}/rescan", tags=["auth"])
-async def rescan_watch(watch_id: int, request: Request):
-    """Trigger an on-demand rescan of a watched token."""
-    user = await _get_current_user(request)
-    from .data_sources._clients import cache as _cache  # noqa: PLC0415
-    # Verify the watch belongs to this user
-    db = await _cache._get_conn()
-    cursor = await db.execute(
-        "SELECT id FROM user_watches WHERE id = ? AND user_id = ?", (watch_id, user["id"])
-    )
-    if not await cursor.fetchone():
-        raise HTTPException(404, "Watch not found")
-    from .watchlist_monitor_service import run_single_rescan  # noqa: PLC0415
-    result = await run_single_rescan(watch_id, _cache)
-    if not result:
-        raise HTTPException(500, "Rescan failed")
-    return result
-
-
-# ---------------------------------------------------------------------------
-# Phase 5+6 Option B — Cartel monitoring endpoints
-# ---------------------------------------------------------------------------
-
-
-@app.post("/auth/cartel-monitors", tags=["auth"])
-async def start_cartel_monitor(request: Request):
-    """Start monitoring a cartel network. Stores as a watch with sub_type='cartel'."""
-    user = await _get_current_user(request)
-    body = await request.json()
-    cartel_id = body.get("cartel_id", "").strip()
-    if not cartel_id:
-        raise HTTPException(400, "cartel_id required")
-    from .data_sources._clients import cache as _cache
-    db = await _cache._get_conn()
-    # Check if already monitoring
-    cursor = await db.execute(
-        "SELECT id FROM user_watches WHERE user_id = ? AND sub_type = 'cartel' AND value = ?",
-        (user["id"], cartel_id)
-    )
-    if await cursor.fetchone():
-        return {"status": "already_monitoring", "cartel_id": cartel_id}
-    await db.execute(
-        "INSERT INTO user_watches (user_id, sub_type, value) VALUES (?, 'cartel', ?)",
-        (user["id"], cartel_id)
-    )
-    await db.commit()
-    return {"status": "monitoring_started", "cartel_id": cartel_id}
-
-
-@app.delete("/auth/cartel-monitors/{cartel_id}", tags=["auth"])
-async def stop_cartel_monitor(cartel_id: str, request: Request):
-    """Stop monitoring a cartel network."""
-    user = await _get_current_user(request)
-    from .data_sources._clients import cache as _cache
-    db = await _cache._get_conn()
-    cursor = await db.execute(
-        "DELETE FROM user_watches WHERE user_id = ? AND sub_type = 'cartel' AND value = ?",
-        (user["id"], cartel_id)
-    )
-    await db.commit()
-    if cursor.rowcount == 0:
-        raise HTTPException(404, "Cartel monitor not found")
-    return {"status": "monitoring_stopped", "cartel_id": cartel_id}
-
-
-@app.get("/auth/cartel-monitors", tags=["auth"])
-async def list_cartel_monitors(request: Request):
-    """List all cartel networks being monitored by the user."""
-    user = await _get_current_user(request)
-    from .data_sources._clients import cache as _cache
-    db = await _cache._get_conn()
-    cursor = await db.execute(
-        "SELECT id, value FROM user_watches WHERE user_id = ? AND sub_type = 'cartel'",
-        (user["id"],)
-    )
-    rows = await cursor.fetchall()
-    return [{"id": r[0], "cartel_id": r[1]} for r in rows]
-
-
-# ---------------------------------------------------------------------------
-# Phase 2 Option B — Alert routing & enrichment endpoints
-# ---------------------------------------------------------------------------
-
-
-@app.post("/alerts/route", tags=["alerts"])
-async def route_alert(request: Request):
-    """Route an alert to the user's configured channels."""
-    user = await _get_current_user(request)
-    body = await request.json()
-    from .alert_service import route_alert_to_channels  # noqa: PLC0415
-    from .data_sources._clients import cache as _cache  # noqa: PLC0415
-    result = await route_alert_to_channels(_cache, body, user["id"])
-    return result
-
-
-@app.post("/alerts/enrich", tags=["alerts"])
-async def enrich_alert_endpoint(request: Request):
-    """Enrich an alert with AI analysis."""
-    user = await _get_current_user(request)
-    body = await request.json()
-    from .alert_service import enrich_alert  # noqa: PLC0415
-    result = await enrich_alert(body)
-    return result
-
-
-@app.get("/auth/alert-prefs", tags=["auth"])
-async def get_alert_prefs(request: Request):
-    """Get user's alert channel preferences."""
-    user = await _get_current_user(request)
-    from .data_sources._clients import cache as _cache  # noqa: PLC0415
-    db = await _cache._get_conn()
-    cursor = await db.execute(
-        "SELECT id, channel, enabled, config_json FROM alert_prefs WHERE user_id = ?",
-        (user["id"],)
-    )
-    rows = await cursor.fetchall()
-    import json
-    return [
-        {"id": r[0], "channel": r[1], "enabled": bool(r[2]), "config": json.loads(r[3]) if r[3] else {}}
-        for r in rows
-    ]
-
-
-@app.post("/auth/alert-prefs", tags=["auth"])
-async def set_alert_pref(request: Request):
-    """Create or update an alert channel preference."""
-    user = await _get_current_user(request)
-    body = await request.json()
-    channel = body.get("channel", "").strip()
-    if channel not in ("telegram", "discord", "push", "whatsapp"):
-        raise HTTPException(400, "Invalid channel")
-    import json
-    config_json = json.dumps(body.get("config", {}))
-    enabled = 1 if body.get("enabled", True) else 0
-    from .data_sources._clients import cache as _cache  # noqa: PLC0415
-    db = await _cache._get_conn()
-    await db.execute(
-        "INSERT INTO alert_prefs (user_id, channel, enabled, config_json) VALUES (?, ?, ?, ?) "
-        "ON CONFLICT(user_id, channel) DO UPDATE SET enabled = excluded.enabled, config_json = excluded.config_json",
-        (user["id"], channel, enabled, config_json)
-    )
-    await db.commit()
-    return {"channel": channel, "enabled": bool(enabled)}
-
-
-# ---------------------------------------------------------------------------
-# Export report endpoint (Pro+ plan required)
-# ---------------------------------------------------------------------------
-
-from fastapi.responses import HTMLResponse  # noqa: E402
-
-
-@app.get("/lineage/{mint}/export", tags=["lineage"], response_class=HTMLResponse)
-async def export_token_report(mint: str, request: Request):
-    """Generate an HTML report for a token. Requires Pro+ plan."""
-    if not _BASE58_RE.match(mint):
-        raise HTTPException(400, "Invalid Solana mint address")
-    user = await _require_plan(request, PlanTier.PRO_PLUS)
-    result = await get_cached_lineage_report(mint)
-    if result is None:
-        try:
-            result = await asyncio.wait_for(detect_lineage(mint), timeout=30.0)
-        except Exception:
-            result = None
-    if not result:
-        raise HTTPException(404, "Token not found")
-    from .export_service import generate_html_report  # noqa: PLC0415
-    result_dict = result.model_dump(mode="json") if hasattr(result, "model_dump") else dict(result)
-    return HTMLResponse(content=generate_html_report(result_dict))
-
-
-# ---------------------------------------------------------------------------
-# Custom Webhook CRUD (Whale plan required)
-# ---------------------------------------------------------------------------
-
-
-@app.get("/auth/webhooks", tags=["auth"])
-async def list_webhooks(request: Request):
-    """List all webhooks for the current user. Requires Whale plan."""
-    user = await _require_plan(request, PlanTier.WHALE)
-    from .data_sources._clients import cache as _cache  # noqa: PLC0415
-    db = await _cache._get_conn()
-    cursor = await db.execute(
-        "SELECT id, url, events_filter, enabled, created_at FROM user_webhooks WHERE user_id = ?",
-        (user["id"],),
-    )
-    rows = await cursor.fetchall()
-    return [
-        {"id": r[0], "url": r[1], "events_filter": r[2], "enabled": bool(r[3]), "created_at": r[4]}
-        for r in rows
-    ]
-
-
-@app.post("/auth/webhooks", tags=["auth"])
-async def create_webhook(request: Request):
-    """Create a new webhook. Requires Whale plan."""
-    user = await _require_plan(request, PlanTier.WHALE)
-    body = await request.json()
-    url = body.get("url", "").strip()
-    if not url.startswith("http"):
-        raise HTTPException(400, "Invalid webhook URL")
-    import secrets as _secrets  # noqa: PLC0415
-    secret = _secrets.token_hex(16)
-    from .data_sources._clients import cache as _cache  # noqa: PLC0415
-    db = await _cache._get_conn()
-    await db.execute(
-        "INSERT INTO user_webhooks (user_id, url, events_filter, secret, enabled, created_at) VALUES (?, ?, ?, ?, 1, ?)",
-        (user["id"], url, body.get("events_filter"), secret, time.time()),
-    )
-    await db.commit()
-    return {"url": url, "secret": secret, "enabled": True}
-
-
-@app.delete("/auth/webhooks/{webhook_id}", tags=["auth"])
-async def delete_webhook(webhook_id: int, request: Request):
-    """Delete a webhook by ID. Requires Whale plan."""
-    user = await _require_plan(request, PlanTier.WHALE)
-    from .data_sources._clients import cache as _cache  # noqa: PLC0415
-    db = await _cache._get_conn()
-    cursor = await db.execute(
-        "DELETE FROM user_webhooks WHERE id = ? AND user_id = ?", (webhook_id, user["id"]),
-    )
-    await db.commit()
-    if cursor.rowcount == 0:
-        raise HTTPException(404, "Webhook not found")
     return {"deleted": True}
 
 
@@ -2412,7 +2137,7 @@ def _is_confirmed_rug_stats_row(row: dict) -> bool:
     evidence_level = str(row.get("evidence_level") or "").strip().lower()
     if not mechanism:
         return True
-    if mechanism not in {"dex_liquidity_rug", "pre_dex_extraction_rug"}:
+    if mechanism not in {"dex_liquidity_rug", "pre_dex_extraction_rug", "liquidity_drain_rug"}:
         return False
     if not evidence_level:
         return True
@@ -2539,85 +2264,6 @@ async def get_stats_brief(request: Request) -> dict:
     )
 
     return {"text": text, "generated_at": datetime.now(tz=timezone.utc).isoformat()}
-
-
-# ---------------------------------------------------------------------------
-# /stats/top-tokens  — most active tokens in last 24 h
-# ---------------------------------------------------------------------------
-
-_top_tokens_cache: Optional[tuple[float, list[TopToken]]] = None
-_TOP_TOKENS_CACHE_TTL = 300.0  # 5-minute cache
-
-
-@app.get(
-    "/stats/top-tokens",
-    response_model=list[TopToken],
-    tags=["intelligence"],
-    summary="Tokens with most intelligence-event activity in the last 24 hours",
-)
-@limiter.limit("30/minute")
-async def get_top_tokens(
-    request: Request,
-    limit: int = Query(10, ge=1, le=50, description="Max tokens to return"),
-) -> list[TopToken]:
-    """Return tokens with the most recorded intelligence events in the last 24 h.
-
-    More events = the token has attracted more analytical attention (detections,
-    rug events, narrative updates, etc.). Results are cached for 5 minutes.
-    """
-    global _top_tokens_cache
-    now_mono = time.monotonic()
-    if _top_tokens_cache and (now_mono - _top_tokens_cache[0]) < _TOP_TOKENS_CACHE_TTL:
-        return _top_tokens_cache[1][:limit]
-
-    try:
-        from .data_sources._clients import cache as _cache  # noqa: PLC0415
-
-        cutoff_ts = time.time() - 86400.0
-        db = await _cache._get_conn()
-        cursor = await db.execute(
-            """
-            SELECT
-                mint,
-                MAX(name)       AS name,
-                MAX(symbol)     AS symbol,
-                MAX(narrative)  AS narrative,
-                MAX(mcap_usd)   AS mcap_usd,
-                MIN(created_at) AS created_at,
-                COUNT(*)        AS event_count
-            FROM intelligence_events
-            WHERE recorded_at >= ?
-              AND mint IS NOT NULL AND mint != ''
-            GROUP BY mint
-            ORDER BY event_count DESC, recorded_at DESC
-            LIMIT 50
-            """,
-            (cutoff_ts,),
-        )
-        rows = await cursor.fetchall()
-        col_names = [d[0] for d in cursor.description]
-
-        def _col(row: tuple, name: str):  # type: ignore[type-arg]
-            return row[col_names.index(name)]
-
-        result = [
-            TopToken(
-                mint=_col(row, "mint"),
-                name=_col(row, "name") or "",
-                symbol=_col(row, "symbol") or "",
-                narrative=_col(row, "narrative") or None,
-                mcap_usd=_col(row, "mcap_usd"),
-                created_at=_col(row, "created_at"),
-                event_count=_col(row, "event_count"),
-            )
-            for row in rows
-        ]
-        _top_tokens_cache = (now_mono, result)
-        return result[:limit]
-
-    except Exception as exc:
-        logger.exception("get_top_tokens failed")
-        raise HTTPException(status_code=500, detail="Internal server error") from exc
 
 
 if __name__ == "__main__":

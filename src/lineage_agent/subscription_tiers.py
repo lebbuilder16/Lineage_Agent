@@ -74,6 +74,10 @@ class TierLimits:
     # Death-clock
     death_clock_full: bool
 
+    # Agent investigation
+    has_agent: bool
+    agent_daily_limit: float      # math.inf for unlimited, 0 when disabled
+
 
 # ---------------------------------------------------------------------------
 # Tier definitions
@@ -100,6 +104,8 @@ TIER_LIMITS: Dict[PlanTier, TierLimits] = {
         batch_scan_max=0,
         has_api_access=False,
         death_clock_full=False,
+        has_agent=False,
+        agent_daily_limit=0,
     ),
     PlanTier.PRO: TierLimits(
         scans_per_day=math.inf,
@@ -121,6 +127,8 @@ TIER_LIMITS: Dict[PlanTier, TierLimits] = {
         batch_scan_max=0,
         has_api_access=False,
         death_clock_full=True,
+        has_agent=False,
+        agent_daily_limit=0,
     ),
     PlanTier.PRO_PLUS: TierLimits(
         scans_per_day=math.inf,
@@ -142,6 +150,8 @@ TIER_LIMITS: Dict[PlanTier, TierLimits] = {
         batch_scan_max=0,
         has_api_access=False,
         death_clock_full=True,
+        has_agent=True,
+        agent_daily_limit=10,
     ),
     PlanTier.WHALE: TierLimits(
         scans_per_day=math.inf,
@@ -163,6 +173,8 @@ TIER_LIMITS: Dict[PlanTier, TierLimits] = {
         batch_scan_max=50,
         has_api_access=True,
         death_clock_full=True,
+        has_agent=True,
+        agent_daily_limit=math.inf,
     ),
 }
 

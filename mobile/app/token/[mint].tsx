@@ -30,6 +30,7 @@ import {
   ShieldAlert,
   ShieldCheck,
   Shield,
+  SearchCheck,
 } from 'lucide-react-native';
 import { AuroraBackground } from '../../src/components/ui/AuroraBackground';
 import { GlassCard } from '../../src/components/ui/GlassCard';
@@ -477,6 +478,17 @@ export default function TokenScreen() {
               >
                 <MessageCircle size={16} color={tokens.secondary} />
                 <Text style={styles.actionBtnText}>AI Chat</Text>
+              </TouchableOpacity>
+              <View style={styles.actionDivider} />
+              <TouchableOpacity
+                style={styles.actionBtn}
+                onPress={() => router.push(`/agent/${mint}` as any)}
+                activeOpacity={0.75}
+                accessibilityRole="button"
+                accessibilityLabel="Launch agent investigation"
+              >
+                <SearchCheck size={16} color={tokens.secondary} />
+                <Text style={styles.actionBtnText}>Investigate</Text>
               </TouchableOpacity>
             </View>
 

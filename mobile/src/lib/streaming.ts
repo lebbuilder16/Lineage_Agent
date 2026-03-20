@@ -3,6 +3,9 @@
 import { WS_BASE } from './api-client';
 import type { AnalysisStep, AlertItem, LineageResult } from '../types/api';
 import * as Notifications from 'expo-notifications';
+import { isOpenClawAvailable } from './openclaw';
+import { routeAlertToChannels, enrichAlert } from './openclaw-alerts';
+import { useAlertPrefsStore } from '../store/alert-prefs';
 import { useAlertsStore } from '../store/alerts';
 
 const BASE_URL = (
@@ -20,7 +23,7 @@ interface SSECallbacks {
  * Call `feed(responseText)` each time onprogress fires — it tracks its own
  * read cursor so only new bytes are parsed.
  */
-function createSSEParser(cb: SSECallbacks) {
+export function createSSEParser(cb: SSECallbacks) {
   let cursor = 0;
   let buffer = '';
   let pendingEvent = '';
@@ -293,7 +296,17 @@ export function connectAlertsWS(
         if (isDuplicate(data)) return;
         onAlert(data);
 
-        // Alert routing + enrichment now handled server-side
+        // OpenClaw: multi-channel routing + AI enrichment (best-effort, async)
+        if (isOpenClawAvailable()) {
+          routeAlertToChannels(data);
+          if (useAlertPrefsStore.getState().enrichmentEnabled) {
+            enrichAlert(data).then((enriched) => {
+              if (enriched) {
+                useAlertsStore.getState().updateEnrichment(data.id, enriched);
+              }
+            }).catch(() => {});
+          }
+        }
 
         Notifications.scheduleNotificationAsync({
           content: {

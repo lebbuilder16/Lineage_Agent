@@ -25,6 +25,8 @@ export interface TierLimits {
   batchScanMax: number;
   hasApiAccess: boolean;
   deathClockFull: boolean;
+  hasAgent: boolean;
+  agentDailyLimit: number; // -1 = unlimited
 }
 
 export const TIER_LIMITS: Record<PlanTier, TierLimits> = {
@@ -48,6 +50,8 @@ export const TIER_LIMITS: Record<PlanTier, TierLimits> = {
     batchScanMax: 0,
     hasApiAccess: false,
     deathClockFull: false,
+    hasAgent: false,
+    agentDailyLimit: 0,
   },
   pro: {
     scansPerDay: -1,
@@ -69,6 +73,8 @@ export const TIER_LIMITS: Record<PlanTier, TierLimits> = {
     batchScanMax: 0,
     hasApiAccess: false,
     deathClockFull: true,
+    hasAgent: false,
+    agentDailyLimit: 0,
   },
   pro_plus: {
     scansPerDay: -1,
@@ -90,6 +96,8 @@ export const TIER_LIMITS: Record<PlanTier, TierLimits> = {
     batchScanMax: 0,
     hasApiAccess: false,
     deathClockFull: true,
+    hasAgent: true,
+    agentDailyLimit: 10,
   },
   whale: {
     scansPerDay: -1,
@@ -111,6 +119,8 @@ export const TIER_LIMITS: Record<PlanTier, TierLimits> = {
     batchScanMax: 50,
     hasApiAccess: true,
     deathClockFull: true,
+    hasAgent: true,
+    agentDailyLimit: -1,
   },
 };
 
