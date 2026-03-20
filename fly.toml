@@ -46,7 +46,7 @@ primary_region = 'ams'
 
 [[vm]]
   size = "performance-2x"
-  memory = "2gb"
+  memory = "4gb"
 
 [mounts]
   source = "lineage_cache"
