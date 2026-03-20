@@ -9,6 +9,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { StyleSheet, View, AppState } from 'react-native';
 import * as Linking from 'expo-linking';
 import * as Notifications from 'expo-notifications';
+import { PrivyProvider } from '@privy-io/expo';
 import { checkWatchedTokenAlerts } from '../src/lib/notifications';
 import { connectOpenClaw, disconnectOpenClaw, isOpenClawAvailable } from '../src/lib/openclaw';
 import { useOpenClawStore } from '../src/store/openclaw';
@@ -20,6 +21,8 @@ import { startBriefingListener } from '../src/lib/openclaw-briefing';
 import { tokens } from '../src/theme/tokens';
 import { ErrorBoundary } from '../src/components/ui/ErrorBoundary';
 import { useAuthStore } from '../src/store/auth';
+
+const PRIVY_APP_ID = process.env.EXPO_PUBLIC_PRIVY_APP_ID || '';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -125,6 +128,7 @@ export default function RootLayout() {
 
   return (
     <ErrorBoundary>
+      <PrivyProvider appId={PRIVY_APP_ID}>
       <GestureHandlerRootView style={styles.root}>
       <QueryClientProvider client={queryClient}>
         <View style={styles.root}>
@@ -177,6 +181,7 @@ export default function RootLayout() {
         </View>
       </QueryClientProvider>
     </GestureHandlerRootView>
+    </PrivyProvider>
     </ErrorBoundary>
   );
 }
