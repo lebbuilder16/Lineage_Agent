@@ -6,10 +6,12 @@ const LS_KEY = 'lineage_api_key';
 interface AuthState {
   apiKey: string | null;
   user: User | null;
+  walletAddress: string | null;
   watches: Watch[];
   scanCount: number;
   setApiKey: (key: string | null) => void;
   setUser: (user: User | null) => void;
+  setWalletAddress: (addr: string | null) => void;
   setWatches: (watches: Watch[]) => void;
   addWatch: (watch: Watch) => void;
   removeWatch: (id: string) => void;
@@ -19,6 +21,7 @@ interface AuthState {
 export const useAuthStore = create<AuthState>((set) => ({
   apiKey: typeof window !== 'undefined' ? localStorage.getItem(LS_KEY) : null,
   user: null,
+  walletAddress: null,
   watches: [],
   scanCount: 0,
 
@@ -32,6 +35,8 @@ export const useAuthStore = create<AuthState>((set) => ({
   },
 
   setUser: (user) => set({ user }),
+
+  setWalletAddress: (addr) => set({ walletAddress: addr }),
 
   setWatches: (watches) => set({ watches }),
 

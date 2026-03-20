@@ -15,6 +15,7 @@ import type {
   AlertItem,
   User,
   Watch,
+  TopToken,
 } from '../types/api';
 
 const BASE_URL = 'https://lineage-agent.fly.dev';
@@ -83,6 +84,10 @@ export function getGlobalStats(): Promise<GlobalStats> {
 
 export function getHealth(): Promise<HealthStatus> {
   return apiFetch<HealthStatus>('/health');
+}
+
+export function getTopTokens(limit = 10): Promise<TopToken[]> {
+  return apiFetch<TopToken[]>(`/radar/top?limit=${limit}`);
 }
 
 // ─── streaming: analyze (SSE) ─────────────────────────────────────────────────
@@ -306,10 +311,14 @@ export function connectLineageWS(
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
 
-export async function authLogin(privyId: string): Promise<{ api_key: string }> {
+export async function authLogin(
+  privyId: string,
+  walletAddress?: string,
+  email?: string,
+): Promise<{ api_key: string }> {
   return apiFetch<{ api_key: string }>('/auth/login', {
     method: 'POST',
-    body: JSON.stringify({ privy_id: privyId }),
+    body: JSON.stringify({ privy_id: privyId, wallet_address: walletAddress, email }),
   });
 }
 

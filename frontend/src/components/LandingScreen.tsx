@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { animate } from 'motion';
 import { getGlobalStats } from '../lib/api';
 import type { GlobalStats } from '../types/api';
@@ -54,39 +54,45 @@ const EXAMPLE_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 const features = [
   {
     title: 'Token Radar',
-    category: 'Market Intelligence & Discovery',
-    description: 'Our real-time radar surfaces emerging tokens before they trend, analyzing volume patterns and deployer history across Solana.',
-    route: '/radar',
+    category: 'Market Intelligence',
+    description: 'Real-time radar surfaces emerging tokens before they trend, analyzing volume patterns and deployer history.',
+    route: '/search',
+    color: '#3B82F6',
   },
   {
     title: 'Lineage Scan',
-    category: 'Clone Detection & Family Mapping',
-    description: 'Deep scan any token to uncover its full lineage tree, identifying forks, clones, and imposters across the Solana ecosystem.',
-    route: `/token/${EXAMPLE_MINT}`,
+    category: 'Clone Detection',
+    description: 'Deep scan any token to uncover its full lineage tree, identifying forks, clones, and imposters.',
+    route: `/lineage/${EXAMPLE_MINT}`,
+    color: '#10B981',
   },
   {
     title: 'Death Clock',
-    category: 'Rug Probability & Soft Rug Detection',
-    description: 'Advanced risk scoring using deployer DNA, factory detection, and behavioral pattern analysis to flag threats before they materialize.',
-    route: `/token/${EXAMPLE_MINT}`,
+    category: 'Rug Probability',
+    description: 'Advanced risk scoring using deployer DNA, factory detection, and behavioral pattern analysis.',
+    route: `/lineage/${EXAMPLE_MINT}`,
+    color: '#EF4444',
   },
   {
     title: 'Family Tree',
-    category: 'Visual Lineage Visualization',
-    description: 'Interactive graph mapping the complete family tree of any token, exposing hidden relationships and derivative chains at a glance.',
-    route: `/token/${EXAMPLE_MINT}`,
+    category: 'Lineage Visualization',
+    description: 'Interactive graph mapping the complete family tree, exposing hidden relationships and derivative chains.',
+    route: `/lineage/${EXAMPLE_MINT}`,
+    color: '#8B5CF6',
   },
   {
     title: 'Cartel Detection',
-    category: 'Coordinated Deployer Networks',
-    description: 'Identify clusters of wallets operating as coordinated bad actors, deploying waves of scam tokens across the Solana ecosystem.',
+    category: 'Deployer Networks',
+    description: 'Identify clusters of wallets operating as coordinated bad actors deploying scam tokens.',
     route: '/compare',
+    color: '#F59E0B',
   },
   {
     title: 'Sol Trace',
-    category: 'On-Chain Transaction Forensics',
-    description: "Trace any token's complete on-chain footprint from genesis block through current activity with full transparency and precision.",
-    route: `/token/${EXAMPLE_MINT}`,
+    category: 'Transaction Forensics',
+    description: "Trace any token's complete on-chain footprint from genesis through current activity.",
+    route: `/lineage/${EXAMPLE_MINT}`,
+    color: '#06B6D4',
   },
 ];
 
@@ -101,299 +107,537 @@ const socialLinks = [
 ───────────────────────────────────────────── */
 
 const css = `
-  /* ── Load: nav ── */
-  .la-nav {
-    animation: la-fadeIn 0.4s ease forwards;
+  /* ── Root ── */
+  .l-root {
+    font-family: "Instrument Sans", ui-sans-serif, system-ui, sans-serif;
+    background: #09090B;
+    color: #FAFAFA;
+    min-height: 100vh;
+    overflow-x: hidden;
+    -webkit-font-smoothing: antialiased;
   }
 
-  /* ── Load: hero headline ── */
-  .la-hero-headline {
-    animation: la-fadeInUp 0.8s ease forwards;
-  }
-  .la-hero-cta {
-    animation: la-fadeInUp 0.8s ease 0.15s both;
+  /* ── Background pattern ── */
+  .l-bg-grid {
+    background-image: radial-gradient(rgba(255,255,255,0.025) 1px, transparent 1px);
+    background-size: 24px 24px;
   }
 
-  @keyframes la-fadeIn {
-    from { opacity: 0; }
-    to   { opacity: 1; }
+  /* ── Nav ── */
+  .l-nav {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 64px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 24px;
+    z-index: 100;
+    background: rgba(9, 9, 11, 0.85);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border-bottom: 1px solid rgba(255,255,255,0.06);
   }
-
-  @keyframes la-fadeInUp {
-    from { opacity: 0; transform: translateY(20px); }
-    to   { opacity: 1; transform: translateY(0); }
+  .l-nav-logo {
+    font-weight: 600;
+    font-size: 18px;
+    color: #FAFAFA;
+    text-decoration: none;
+    letter-spacing: -0.48px;
   }
-
-  /* ── Skeleton pulse ── */
-  @keyframes la-pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.4; }
-  }
-  .la-stat-skeleton {
-    width: 120px;
-    height: 80px;
-    background: #f0f0f0;
-    border-radius: 4px;
-    animation: la-pulse 1.5s ease infinite;
-  }
-
-  /* ── Scroll reveal ── */
-  .la-reveal {
-    opacity: 0;
-    transform: translateY(24px);
-    transition: opacity 0.6s ease, transform 0.6s ease;
-  }
-  .la-reveal.is-visible {
-    opacity: 1;
-    transform: translateY(0);
-  }
-
-  /* ── Reduced motion ── */
-  @media (prefers-reduced-motion: reduce) {
-    .la-nav, .la-hero-headline, .la-hero-cta { animation: none; }
-    .la-reveal { opacity: 1; transform: none; transition: none; }
-    .la-stat-skeleton { animation: none; }
-  }
-
-  /* ── Nav links ── */
-  .la-nav-links {
+  .l-nav-center {
     display: flex;
     gap: 32px;
     align-items: center;
   }
-  .la-nav-link {
-    font-size: 20px;
-    color: #000;
+  .l-nav-link {
+    font-size: 14px;
+    color: #71717A;
     text-decoration: none;
-    letter-spacing: -1px;
-    font-family: "Instrument Sans", ui-sans-serif, system-ui, sans-serif;
-    background: none;
-    border: none;
-    cursor: pointer;
-    padding: 0;
+    transition: color 0.2s;
+    letter-spacing: -0.2px;
   }
-  .la-nav-link:hover { text-decoration: underline; }
-
-  /* ── Mobile nav ── */
-  .la-nav-menu-btn {
-    display: none;
-    background: none;
-    border: none;
-    cursor: pointer;
-    font-size: 22px;
-    padding: 4px;
-    line-height: 1;
-    color: #000;
-  }
-  .la-mobile-menu {
-    display: none;
-    position: fixed;
-    top: 53px;
-    left: 0;
-    right: 0;
-    background: #fff;
-    border-bottom: 1px solid #000;
-    padding: 20px 15px;
-    flex-direction: column;
-    gap: 20px;
-    z-index: 9998;
-  }
-  .la-mobile-menu.open { display: flex; }
-
-  @media (max-width: 640px) {
-    .la-nav-links { display: none; }
-    .la-nav-menu-btn { display: flex; align-items: center; }
-  }
-
-  /* ── Hero CTA button ── */
-  .la-hero-cta-btn {
+  .l-nav-link:hover { color: #FAFAFA; }
+  .l-nav-connect {
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    font-size: 20px;
-    color: #000;
-    background: none;
-    border: none;
+    padding: 8px 18px;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 9px;
+    color: #FAFAFA;
+    font-size: 14px;
+    font-weight: 500;
     cursor: pointer;
-    padding: 0;
-    letter-spacing: -1px;
-    font-family: "Instrument Sans", ui-sans-serif, system-ui, sans-serif;
+    transition: all 0.2s;
+    font-family: inherit;
     text-decoration: none;
-    line-height: 1;
+    letter-spacing: -0.2px;
   }
-  .la-hero-cta-btn .la-arrow {
-    transition: transform 0.2s ease;
+  .l-nav-connect:hover {
+    background: rgba(255,255,255,0.1);
+    border-color: rgba(255,255,255,0.18);
   }
-  .la-hero-cta-btn:hover .la-arrow {
-    transform: translateX(5px);
-  }
-
-  /* ── "See Feature" — underlined by default ── */
-  .la-see-btn {
-    display: inline-flex;
+  .l-nav-right {
+    display: flex;
     align-items: center;
-    gap: 3px;
+    gap: 24px;
+  }
+  .l-nav-burger {
+    display: none;
+    background: none;
+    border: none;
+    color: #A1A1AA;
     font-size: 20px;
-    color: #000;
-    background: none;
-    border: none;
     cursor: pointer;
-    padding: 0;
-    letter-spacing: -1px;
-    font-family: "Instrument Sans", ui-sans-serif, system-ui, sans-serif;
+    padding: 4px;
+    line-height: 1;
+  }
+  .l-mobile-menu {
+    display: none;
+    position: fixed;
+    top: 64px;
+    left: 0;
+    right: 0;
+    background: rgba(9,9,11,0.97);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    padding: 20px 24px;
+    flex-direction: column;
+    gap: 16px;
+    z-index: 99;
+  }
+  .l-mobile-menu.open { display: flex; }
+  @media (max-width: 768px) {
+    .l-nav-center { display: none; }
+    .l-nav-right .l-nav-connect { display: none; }
+    .l-nav-burger { display: flex; align-items: center; }
+  }
+
+  /* ── Hero ── */
+  .l-hero {
+    position: relative;
+    padding: 180px 24px 120px;
+    max-width: 780px;
+    margin: 0 auto;
+    text-align: center;
+  }
+  .l-hero::before {
+    content: '';
+    position: absolute;
+    top: 40px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 600px;
+    height: 400px;
+    background: radial-gradient(ellipse, rgba(59,130,246,0.08) 0%, transparent 70%);
+    pointer-events: none;
+  }
+  .l-hero-headline {
+    position: relative;
+    font-size: clamp(38px, 5.5vw, 64px);
+    font-weight: 600;
+    letter-spacing: -2.5px;
+    line-height: 1.05;
+    margin: 0 0 24px;
+    background: linear-gradient(180deg, #FAFAFA 20%, #52525B 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    animation: l-fadeInUp 0.8s ease both;
+  }
+  .l-hero-sub {
+    position: relative;
+    font-size: clamp(15px, 1.8vw, 17px);
+    color: #71717A;
+    line-height: 1.65;
+    margin: 0 auto 44px;
+    max-width: 480px;
+    animation: l-fadeInUp 0.8s ease 0.1s both;
+  }
+
+  /* ── Hero search ── */
+  .l-search-form {
+    position: relative;
+    display: flex;
+    gap: 0;
+    max-width: 520px;
+    margin: 0 auto 16px;
+    animation: l-fadeInUp 0.8s ease 0.2s both;
+  }
+  .l-search-input {
+    flex: 1;
+    height: 50px;
+    padding: 0 18px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-right: none;
+    border-radius: 12px 0 0 12px;
+    color: #FAFAFA;
+    font-size: 15px;
+    outline: none;
+    font-family: inherit;
+    letter-spacing: -0.3px;
+    transition: border-color 0.2s;
+  }
+  .l-search-input::placeholder { color: #3F3F46; }
+  .l-search-input:focus { border-color: rgba(59,130,246,0.5); }
+  .l-search-btn {
+    height: 50px;
+    padding: 0 24px;
+    background: linear-gradient(135deg, #3B82F6, #6366F1);
+    border: none;
+    border-radius: 0 12px 12px 0;
+    color: #fff;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: inherit;
+    letter-spacing: -0.3px;
     white-space: nowrap;
-    text-decoration: underline;
-    text-underline-position: from-font;
-    line-height: 1;
+    transition: opacity 0.2s;
   }
-  .la-see-btn .la-arrow {
-    transition: transform 0.2s ease;
+  .l-search-btn:hover { opacity: 0.9; }
+  .l-hero-hint {
+    position: relative;
+    font-size: 13px;
+    color: #3F3F46;
+    margin: 0;
+    animation: l-fadeInUp 0.8s ease 0.3s both;
   }
-  .la-see-btn:hover .la-arrow {
-    transform: translateX(5px);
+  .l-hero-hint code {
+    color: #52525B;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 12px;
   }
 
-  /* ── CTA large arrow ── */
-  .la-cta-arrow {
-    transition: transform 0.2s ease;
+  /* ── Stat pills ── */
+  .l-stat-pills {
+    position: relative;
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+    margin-top: 56px;
+    flex-wrap: wrap;
+    animation: l-fadeInUp 0.8s ease 0.4s both;
+  }
+  .l-stat-pill {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    background: rgba(255,255,255,0.025);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 100px;
+    font-size: 13px;
+    color: #71717A;
+    letter-spacing: -0.2px;
+  }
+  .l-stat-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  /* ── Features ── */
+  .l-features {
+    padding: 100px 24px 80px;
+    max-width: 1120px;
+    margin: 0 auto;
+  }
+  .l-features-label {
+    font-size: 13px;
+    color: #3B82F6;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    font-weight: 600;
+    text-align: center;
+    margin: 0 0 12px;
+  }
+  .l-features-title {
+    font-size: clamp(24px, 3vw, 32px);
+    font-weight: 600;
+    letter-spacing: -1px;
+    margin: 0 0 56px;
+    text-align: center;
+  }
+  .l-features-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 14px;
+  }
+  @media (max-width: 900px) {
+    .l-features-grid { grid-template-columns: repeat(2, 1fr); }
+  }
+  @media (max-width: 560px) {
+    .l-features-grid { grid-template-columns: 1fr; }
+  }
+  .l-feature-card {
+    background: rgba(255,255,255,0.02);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 16px;
+    padding: 28px 24px;
+    transition: all 0.3s ease;
     cursor: pointer;
-    display: block;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
   }
-  .la-cta-arrow:hover {
-    transform: translate(4px, -4px);
+  .l-feature-card:hover {
+    background: rgba(255,255,255,0.04);
+    border-color: rgba(255,255,255,0.12);
+    transform: translateY(-2px);
   }
-
-  /* ── Footer links ── */
-  .la-footer-link {
-    font-size: 16px;
-    color: #000;
-    text-decoration: none;
-    letter-spacing: -0.48px;
-    background: none;
-    border: none;
-    cursor: pointer;
-    padding: 0;
-    font-family: "Instrument Sans", ui-sans-serif, system-ui, sans-serif;
-    line-height: 1;
+  .l-feature-dot {
+    width: 40px;
+    height: 40px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
-  .la-footer-link:hover { text-decoration: underline; }
-
-  .la-footer-nav-link {
+  .l-feature-dot-inner {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+  }
+  .l-feature-cat {
+    font-size: 12px;
+    color: #52525B;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin: 0;
+    font-weight: 500;
+  }
+  .l-feature-name {
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: -0.5px;
+    margin: 0;
+    color: #FAFAFA;
+  }
+  .l-feature-desc {
+    font-size: 14px;
+    color: #52525B;
+    line-height: 1.6;
+    margin: 0;
+  }
+  .l-feature-arrow {
     display: inline-flex;
     align-items: center;
     gap: 4px;
-    font-size: 16px;
-    color: #000;
-    text-decoration: none;
-    letter-spacing: -0.48px;
-    font-family: "Instrument Sans", ui-sans-serif, system-ui, sans-serif;
-  }
-  .la-footer-nav-link:hover { text-decoration: underline; }
-  .la-footer-nav-link .la-arrow {
-    transition: transform 0.2s ease;
-  }
-  .la-footer-nav-link:hover .la-arrow {
-    transform: translateX(3px);
-  }
-
-  /* ── Skip link ── */
-  .la-skip-link {
-    position: absolute;
-    top: -40px;
-    left: 0;
-    padding: 8px 16px;
-    background: #000;
-    color: #fff;
-    z-index: 10000;
-    text-decoration: none;
-    font-family: "Instrument Sans", ui-sans-serif, system-ui, sans-serif;
     font-size: 14px;
-    transition: top 0.2s;
+    color: #3B82F6;
+    margin-top: auto;
+    padding-top: 4px;
+    transition: gap 0.2s;
+    font-weight: 500;
+    letter-spacing: -0.2px;
   }
-  .la-skip-link:focus { top: 0; }
+  .l-feature-card:hover .l-feature-arrow { gap: 8px; }
 
-  /* ── Hero search ── */
-  .la-hero-search-input {
-    flex: 1;
-    height: 44px;
-    padding: 0 16px;
-    border: 1px solid #000;
-    background: #fff;
-    font-family: "Instrument Sans", ui-sans-serif, system-ui, sans-serif;
+  /* ── Stats ── */
+  .l-stats {
+    padding: 80px 24px 100px;
+    max-width: 1000px;
+    margin: 0 auto;
+    border-top: 1px solid rgba(255,255,255,0.06);
+  }
+  .l-stats-heading {
+    font-size: clamp(18px, 2.2vw, 24px);
+    font-weight: 400;
+    letter-spacing: -0.5px;
+    line-height: 1.5;
+    color: #71717A;
+    margin: 0 0 64px;
+    max-width: 520px;
+  }
+  .l-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 48px;
+  }
+  @media (max-width: 600px) {
+    .l-stats-grid { grid-template-columns: 1fr; gap: 40px; }
+  }
+  .l-stat-value {
+    font-size: clamp(48px, 7vw, 72px);
+    font-weight: 600;
+    letter-spacing: -3px;
+    margin: 0 0 8px;
+    line-height: 1;
+    background: linear-gradient(135deg, #FAFAFA 0%, #71717A 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .l-stat-label {
+    font-size: 14px;
+    color: #3F3F46;
+    line-height: 1.5;
+    margin: 0;
+    letter-spacing: -0.2px;
+  }
+
+  /* ── CTA ── */
+  .l-cta {
+    padding: 100px 24px;
+    text-align: center;
+    border-top: 1px solid rgba(255,255,255,0.06);
+    position: relative;
+  }
+  .l-cta::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 500px;
+    height: 300px;
+    background: radial-gradient(ellipse, rgba(99,102,241,0.06) 0%, transparent 70%);
+    pointer-events: none;
+  }
+  .l-cta-headline {
+    position: relative;
+    font-size: clamp(26px, 3.5vw, 40px);
+    font-weight: 600;
+    letter-spacing: -1.5px;
+    margin: 0 0 14px;
+  }
+  .l-cta-sub {
+    position: relative;
     font-size: 16px;
-    letter-spacing: -0.48px;
-    outline: none;
-    color: #000;
+    color: #52525B;
+    margin: 0 0 36px;
+    letter-spacing: -0.2px;
   }
-  .la-hero-search-input:focus {
-    outline: 2px solid #000;
-    outline-offset: -1px;
-  }
-  .la-hero-search-btn {
-    height: 44px;
-    padding: 0 20px;
-    border: 1px solid #000;
-    background: #000;
+  .l-cta-btn {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 14px 32px;
+    background: linear-gradient(135deg, #3B82F6, #6366F1);
+    border: none;
+    border-radius: 12px;
     color: #fff;
-    font-family: "Instrument Sans", ui-sans-serif, system-ui, sans-serif;
     font-size: 16px;
+    font-weight: 600;
     cursor: pointer;
-    letter-spacing: -0.48px;
-    white-space: nowrap;
+    font-family: inherit;
+    letter-spacing: -0.3px;
+    transition: opacity 0.2s, transform 0.2s;
+    text-decoration: none;
   }
-  .la-hero-search-btn:hover { background: #333; }
+  .l-cta-btn:hover { opacity: 0.9; transform: translateY(-1px); }
+  .l-cta-btn:active { transform: scale(0.99); }
+
+  /* ── Footer ── */
+  .l-footer {
+    padding: 56px 24px 36px;
+    border-top: 1px solid rgba(255,255,255,0.06);
+    max-width: 1120px;
+    margin: 0 auto;
+  }
+  .l-footer-grid {
+    display: grid;
+    grid-template-columns: 2fr 1fr 1fr 1fr;
+    gap: 48px;
+    margin-bottom: 48px;
+  }
+  @media (max-width: 768px) {
+    .l-footer-grid { grid-template-columns: 1fr 1fr; gap: 32px; }
+  }
+  @media (max-width: 480px) {
+    .l-footer-grid { grid-template-columns: 1fr; gap: 24px; }
+  }
+  .l-footer-brand {
+    font-size: 18px;
+    font-weight: 600;
+    color: #FAFAFA;
+    letter-spacing: -0.48px;
+    margin-bottom: 10px;
+  }
+  .l-footer-tagline {
+    font-size: 14px;
+    color: #3F3F46;
+    line-height: 1.6;
+    margin: 0;
+    max-width: 260px;
+  }
+  .l-footer-heading {
+    font-size: 12px;
+    font-weight: 600;
+    color: #52525B;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    margin: 0 0 16px;
+  }
+  .l-footer-link {
+    display: block;
+    font-size: 14px;
+    color: #52525B;
+    text-decoration: none;
+    padding: 5px 0;
+    transition: color 0.2s;
+    letter-spacing: -0.2px;
+  }
+  .l-footer-link:hover { color: #FAFAFA; }
+  .l-footer-bottom {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-top: 24px;
+    border-top: 1px solid rgba(255,255,255,0.06);
+  }
+  .l-footer-copy {
+    font-size: 13px;
+    color: #27272A;
+    margin: 0;
+    letter-spacing: -0.2px;
+  }
+
+  /* ── Scroll reveal ── */
+  .l-reveal {
+    opacity: 0;
+    transform: translateY(20px);
+    transition: opacity 0.6s ease, transform 0.6s ease;
+  }
+  .l-reveal.is-visible {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  /* ── Skeleton ── */
+  .l-skeleton {
+    background: rgba(255,255,255,0.04);
+    border-radius: 8px;
+    animation: l-pulse 1.5s ease infinite;
+  }
+
+  /* ── Animations ── */
+  @keyframes l-fadeInUp {
+    from { opacity: 0; transform: translateY(24px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes l-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .l-hero-headline, .l-hero-sub, .l-search-form, .l-hero-hint, .l-stat-pills {
+      animation: none !important;
+    }
+    .l-reveal { opacity: 1; transform: none; transition: none; }
+    .l-skeleton { animation: none; }
+  }
 `;
-
-/* ─────────────────────────────────────────────
-   ICONS
-───────────────────────────────────────────── */
-
-const ArrowRight = ({ className = '' }: { className?: string }) => (
-  <svg className={className} width="20" height="20" viewBox="0 0 24 24" fill="none"
-    stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
-    aria-hidden="true">
-    <line x1="5" y1="12" x2="19" y2="12" />
-    <polyline points="12 5 19 12 12 19" />
-  </svg>
-);
-
-/* Large arrow for CTA section */
-const ArrowUpRightLarge = () => (
-  <svg width="48" height="48" viewBox="0 0 24 24" fill="none"
-    stroke="#000" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"
-    className="la-cta-arrow" aria-hidden="true">
-    <line x1="7" y1="17" x2="17" y2="7" />
-    <polyline points="7 7 17 7 17 17" />
-  </svg>
-);
-
-/* ─────────────────────────────────────────────
-   LOGO
-───────────────────────────────────────────── */
-
-const Logo = ({ height }: { height: string }) => (
-  <>
-    <img
-      src="/logo.png"
-      alt="Lineage Agent"
-      style={{ height, objectFit: 'contain' }}
-      onError={(e) => {
-        e.currentTarget.style.display = 'none';
-        const sib = e.currentTarget.nextElementSibling as HTMLElement | null;
-        if (sib) sib.style.display = 'inline';
-      }}
-    />
-    <span style={{
-      display: 'none',
-      fontWeight: 600,
-      letterSpacing: '-0.48px',
-      fontSize: height === '16px' ? '20px' : 'clamp(32px, 5vw, 59px)',
-      lineHeight: 1,
-    }}>
-      Lineage
-    </span>
-  </>
-);
 
 /* ─────────────────────────────────────────────
    COMPONENT
@@ -401,360 +645,200 @@ const Logo = ({ height }: { height: string }) => (
 
 export function LandingScreen() {
   const navigate = useNavigate();
-  const [globalStats, setGlobalStats] = useState<GlobalStats | null>(null);
-  const [menuOpen, setMenuOpen] = useState(false);
+  const [stats, setStats] = useState<GlobalStats | null>(null);
   const [heroQuery, setHeroQuery] = useState('');
+  const [menuOpen, setMenuOpen] = useState(false);
 
-  /* Intersection Observer — scroll reveal */
+  /* Scroll reveal */
   useEffect(() => {
     const observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          if (entry.isIntersecting) {
-            entry.target.classList.add('is-visible');
-          }
-        });
-      },
-      { threshold: 0.1 }
+      (entries) => entries.forEach((e) => { if (e.isIntersecting) e.target.classList.add('is-visible'); }),
+      { threshold: 0.1 },
     );
-
-    document.querySelectorAll('.la-reveal').forEach((el) => observer.observe(el));
+    document.querySelectorAll('.l-reveal').forEach((el) => observer.observe(el));
     return () => observer.disconnect();
   }, []);
 
-  /* Fetch global stats */
-  useEffect(() => {
-    getGlobalStats().then(setGlobalStats).catch(() => {});
-  }, []);
+  /* Fetch stats */
+  useEffect(() => { getGlobalStats().then(setStats).catch(() => {}); }, []);
 
-  /* Close mobile menu on outside click */
+  /* Close mobile menu */
   useEffect(() => {
     if (!menuOpen) return;
-    const handler = () => setMenuOpen(false);
-    document.addEventListener('click', handler);
-    return () => document.removeEventListener('click', handler);
+    const close = () => setMenuOpen(false);
+    document.addEventListener('click', close);
+    return () => document.removeEventListener('click', close);
   }, [menuOpen]);
 
-  const statsDisplay = [
-    {
-      value: fmtStat(globalStats?.total_scanned_all_time),
-      label: 'Tokens analyzed across the Solana ecosystem',
-    },
-    {
-      value: fmtStat(globalStats?.active_deployers_24h),
-      label: 'Active deployers tracked in the last 24h',
-    },
-    {
-      value: fmtStat(globalStats?.rug_count_24h),
-      label: 'Rug attempts flagged in the last 24h',
-    },
-  ];
-
   return (
-    <div style={{
-      fontFamily: '"Instrument Sans", ui-sans-serif, system-ui, sans-serif',
-      background: '#ffffff',
-      color: '#000000',
-      minHeight: '100vh',
-      overflowX: 'hidden',
-    }}>
+    <div className="l-root l-bg-grid">
       <style>{css}</style>
 
-      {/* ── Skip link ── */}
-      <a href="#features" className="la-skip-link">
-        Skip to main content
-      </a>
-
-      {/* ── Navigation ── */}
-      <header>
-        <nav className="la-nav" aria-label="Main navigation" style={{
-          position: 'fixed', top: 0, left: 0, right: 0,
-          height: '53px', background: '#ffffff',
-          borderBottom: '1px solid #000000',
-          display: 'flex', alignItems: 'center',
-          justifyContent: 'space-between',
-          padding: '0 15px', zIndex: 9999,
-        }}>
-          <a href="/" aria-label="Lineage Agent — home">
-            <Logo height="16px" />
-          </a>
-          <div className="la-nav-links">
-            <a href="#features" className="la-nav-link">Work</a>
-            <a href="#about"    className="la-nav-link">About</a>
-            <a href="#contact"  className="la-nav-link">Contact</a>
-          </div>
-          <button
-            className="la-nav-menu-btn"
-            aria-label="Open navigation menu"
-            aria-expanded={menuOpen}
-            onClick={(e) => { e.stopPropagation(); setMenuOpen((o) => !o); }}
-          >
-            {menuOpen ? '✕' : '☰'}
-          </button>
-        </nav>
-
-        {/* Mobile menu */}
-        <div className={`la-mobile-menu${menuOpen ? ' open' : ''}`} role="navigation" aria-label="Mobile navigation">
-          <a href="#features" className="la-nav-link" onClick={() => setMenuOpen(false)}>Work</a>
-          <a href="#about"    className="la-nav-link" onClick={() => setMenuOpen(false)}>About</a>
-          <a href="#contact"  className="la-nav-link" onClick={() => setMenuOpen(false)}>Contact</a>
+      {/* ── Nav ── */}
+      <nav className="l-nav">
+        <a href="/" className="l-nav-logo">Lineage</a>
+        <div className="l-nav-center">
+          <a href="#features" className="l-nav-link">Features</a>
+          <a href="#stats" className="l-nav-link">Stats</a>
+          <a href="#about" className="l-nav-link">About</a>
         </div>
-      </header>
+        <div className="l-nav-right">
+          <Link to="/auth" className="l-nav-connect">
+            Connect
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" /></svg>
+          </Link>
+          <button className="l-nav-burger" aria-label="Open menu" aria-expanded={menuOpen} onClick={(e) => { e.stopPropagation(); setMenuOpen((o) => !o); }}>
+            {menuOpen ? '\u2715' : '\u2630'}
+          </button>
+        </div>
+      </nav>
+
+      {/* Mobile menu */}
+      <div className={`l-mobile-menu${menuOpen ? ' open' : ''}`} role="navigation" aria-label="Mobile navigation">
+        <a href="#features" className="l-nav-link" onClick={() => setMenuOpen(false)}>Features</a>
+        <a href="#stats" className="l-nav-link" onClick={() => setMenuOpen(false)}>Stats</a>
+        <a href="#about" className="l-nav-link" onClick={() => setMenuOpen(false)}>About</a>
+        <Link to="/auth" className="l-nav-connect" style={{ textAlign: 'center', justifyContent: 'center' }} onClick={() => setMenuOpen(false)}>Connect</Link>
+      </div>
 
       {/* ── Hero ── */}
-      <section aria-labelledby="hero-heading" style={{
-        paddingTop: 'calc(53px + 80px)',
-        paddingBottom: '150px',
-        paddingLeft: '15px',
-        paddingRight: '15px',
-        borderBottom: '1px solid #000000',
-      }}>
-        <h1 id="hero-heading" className="la-hero-headline" style={{
-          fontSize: 'clamp(44px, 5vw, 64px)',
-          fontWeight: 400,
-          letterSpacing: '-3.2px',
-          lineHeight: 1,
-          margin: '0 0 40px 0',
-          maxWidth: '915px',
-        }}>
-          Lineage Agent specializes in tracking the on-chain lineage of your Solana tokens
+      <section className="l-hero">
+        <h1 className="l-hero-headline">
+          On-chain intelligence<br />for Solana tokens
         </h1>
-        <a href="#features" className="la-hero-cta-btn la-hero-cta">
-          See Work
-          <ArrowRight className="la-arrow" />
-        </a>
-
-        {/* Hero search bar */}
+        <p className="l-hero-sub">
+          Track token lineage, detect rug pulls, and map deployer cartels across the entire Solana ecosystem in real time.
+        </p>
         <form
+          className="l-search-form"
           role="search"
-          aria-label="Search tokens"
-          style={{ marginTop: '32px', display: 'flex', gap: '12px', maxWidth: '540px' }}
+          aria-label="Analyze a token"
           onSubmit={(e) => {
             e.preventDefault();
             const q = heroQuery.trim();
-            if (q) navigate(`/token/${q}`);
+            if (q) navigate(`/lineage/${q}`);
           }}
         >
           <input
             type="search"
-            className="la-hero-search-input"
+            className="l-search-input"
             value={heroQuery}
             onChange={(e) => setHeroQuery(e.target.value)}
-            placeholder="Analyze any Solana token..."
-            aria-label="Token address or name"
+            placeholder="Paste a token address to analyze..."
+            aria-label="Token address"
           />
-          <button type="submit" className="la-hero-search-btn">
-            Search
-          </button>
+          <button type="submit" className="l-search-btn">Analyze</button>
         </form>
-        <p style={{ marginTop: '8px', fontSize: '13px', color: '#6B6B6B', margin: '8px 0 0 0' }}>
-          Try: <code>EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v</code>
+        <p className="l-hero-hint">
+          Try: <code>{EXAMPLE_MINT}</code>
         </p>
+
+        {/* Stat pills */}
+        <div className="l-stat-pills">
+          <div className="l-stat-pill">
+            <div className="l-stat-dot" style={{ background: '#10B981' }} />
+            {stats ? fmtStat(stats.total_scanned_all_time) : '\u2014'} tokens scanned
+          </div>
+          <div className="l-stat-pill">
+            <div className="l-stat-dot" style={{ background: '#3B82F6' }} />
+            {stats ? fmtStat(stats.active_deployers_24h) : '\u2014'} deployers tracked
+          </div>
+          <div className="l-stat-pill">
+            <div className="l-stat-dot" style={{ background: '#EF4444' }} />
+            {stats ? fmtStat(stats.rug_count_24h) : '\u2014'} rugs flagged
+          </div>
+        </div>
       </section>
 
-      {/* ── Features / Work ── */}
-      <main>
-        <section id="features" aria-label="Features" style={{ padding: '0 15px', borderBottom: '1px solid #000000' }}>
-          <h2 style={{
-            position: 'absolute', width: '1px', height: '1px',
-            overflow: 'hidden', clip: 'rect(0,0,0,0)', whiteSpace: 'nowrap',
-          }}>
-            Our Features
-          </h2>
-          {features.map((feature, i) => (
+      {/* ── Features ── */}
+      <section id="features" className="l-features">
+        <p className="l-features-label l-reveal">Intelligence Suite</p>
+        <h2 className="l-features-title l-reveal">Everything you need to stay safe on Solana</h2>
+        <div className="l-features-grid">
+          {features.map((f, i) => (
             <article
               key={i}
-              className="la-reveal"
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '16px',
-                padding: '30px 0',
-                borderBottom: i < features.length - 1 ? '1px solid #000000' : 'none',
-              }}
+              className="l-feature-card l-reveal"
+              onClick={() => navigate(f.route)}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => { if (e.key === 'Enter') navigate(f.route); }}
             >
-              <p style={{
-                fontSize: '16px',
-                color: '#6B6B6B',
-                letterSpacing: '-0.48px',
-                margin: 0,
-                fontWeight: 600,
-              }}>
-                {feature.category}
-              </p>
-              <h3 style={{
-                fontSize: '16px',
-                fontWeight: 600,
-                letterSpacing: '-0.48px',
-                margin: 0,
-                lineHeight: 1,
-                color: '#000',
-              }}>
-                {feature.title}
-              </h3>
-              <p style={{
-                fontSize: '16px',
-                color: '#6B6B6B',
-                letterSpacing: '-0.48px',
-                margin: 0,
-                maxWidth: '600px',
-                lineHeight: 1.4,
-              }}>
-                {feature.description}
-              </p>
-              <button onClick={() => navigate(feature.route)} className="la-see-btn" aria-label={`See ${feature.title} feature`}>
-                See Feature
-                <ArrowRight className="la-arrow" />
-              </button>
+              <div className="l-feature-dot" style={{ background: `${f.color}15` }}>
+                <div className="l-feature-dot-inner" style={{ background: f.color }} />
+              </div>
+              <p className="l-feature-cat">{f.category}</p>
+              <h3 className="l-feature-name">{f.title}</h3>
+              <p className="l-feature-desc">{f.description}</p>
+              <span className="l-feature-arrow">
+                Explore <span>\u2192</span>
+              </span>
             </article>
           ))}
-        </section>
+        </div>
+      </section>
 
-        {/* ── Stats ── */}
-        <section
-          className="la-reveal"
-          aria-label="Platform statistics"
-          aria-live="polite"
-          style={{
-            padding: '50px 15px',
-            borderBottom: '1px solid #000000',
-            maxWidth: '633px',
-          }}
-        >
-          <h2 style={{
-            fontSize: 'clamp(24px, 3vw, 37px)',
-            fontWeight: 400,
-            letterSpacing: '-1.11px',
-            lineHeight: 1,
-            margin: '0 0 73px 0',
-            color: '#000',
-          }}>
-            Lineage Agent delivers the on-chain intelligence that elevates your Solana strategy.
-          </h2>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '73px' }}>
-            {statsDisplay.map((stat, i) => (
-              <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                {globalStats === null ? (
-                  <div className="la-stat-skeleton" aria-hidden="true" />
-                ) : (
-                  <p style={{
-                    fontSize: 'clamp(64px, 8vw, 105px)',
-                    fontWeight: 400,
-                    letterSpacing: '-5.25px',
-                    margin: 0,
-                    lineHeight: 1,
-                  }}>
-                    <AnimatedStat value={
-                      [globalStats.total_scanned_all_time, globalStats.active_deployers_24h, globalStats.rug_count_24h][i] ?? 0
-                    } />
-                  </p>
-                )}
-                <p style={{
-                  fontSize: '20px',
-                  color: '#6B6B6B',
-                  letterSpacing: '-0.48px',
-                  margin: 0,
-                  lineHeight: 1.3,
-                }}>
-                  {stat.label}
+      {/* ── Stats ── */}
+      <section id="stats" className="l-stats l-reveal">
+        <p className="l-stats-heading">
+          Lineage Agent delivers the on-chain intelligence that elevates your Solana strategy.
+        </p>
+        <div className="l-stats-grid">
+          {[
+            { val: stats?.total_scanned_all_time, label: 'Tokens analyzed across the Solana ecosystem' },
+            { val: stats?.active_deployers_24h, label: 'Active deployers tracked in the last 24 hours' },
+            { val: stats?.rug_count_24h, label: 'Rug attempts flagged in the last 24 hours' },
+          ].map((s, i) => (
+            <div key={i}>
+              {stats === null ? (
+                <div className="l-skeleton" style={{ height: 64, width: 140, marginBottom: 8 }} />
+              ) : (
+                <p className="l-stat-value">
+                  <AnimatedStat value={s.val ?? 0} />
                 </p>
-              </div>
-            ))}
-          </div>
-        </section>
+              )}
+              <p className="l-stat-label">{s.label}</p>
+            </div>
+          ))}
+        </div>
+      </section>
 
-        {/* ── CTA ── */}
-        <section id="about" className="la-reveal" aria-label="Contact us" style={{
-          padding: '50px 15px',
-          borderBottom: '1px solid #000000',
-          maxWidth: '625px',
-        }}>
-          <h2 style={{
-            fontSize: 'clamp(24px, 3vw, 37px)',
-            fontWeight: 400,
-            letterSpacing: '-1.11px',
-            lineHeight: 1.1,
-            margin: '0 0 16px 0',
-          }}>
-            Lineage Agent crafts on-chain intelligence strategies that elevate your Solana project.
-          </h2>
-          <p style={{
-            fontSize: '20px',
-            color: '#6B6B6B',
-            letterSpacing: '-0.48px',
-            margin: '0 0 40px 0',
-            lineHeight: 1.3,
-          }}>
-            Connect with us to explore your token's lineage potential.
-          </p>
-          <a href="mailto:hello@lineageagent.com" aria-label="Contact Lineage Agent by email">
-            <ArrowUpRightLarge />
-          </a>
-        </section>
-      </main>
+      {/* ── CTA ── */}
+      <section id="about" className="l-cta l-reveal">
+        <h2 className="l-cta-headline">Ready to protect your investments?</h2>
+        <p className="l-cta-sub">Start scanning tokens for free. No wallet required.</p>
+        <Link to="/search" className="l-cta-btn">
+          Get Started <span>\u2192</span>
+        </Link>
+      </section>
 
       {/* ── Footer ── */}
-      <footer id="contact" role="contentinfo" style={{ padding: '30px 15px 50px 15px', background: '#fff' }}>
-
-        {/* Large logo at top */}
-        <div style={{ marginBottom: '50px' }}>
-          <Logo height="59px" />
-        </div>
-
-        {/* 3 columns: OFFICE / CONTACT / SOCIAL */}
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
-          gap: '62px',
-          marginBottom: '50px',
-        }}>
-          {/* OFFICE */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            <p style={{ fontSize: '16px', color: '#6B6B6B', letterSpacing: '-0.48px', fontWeight: 600, margin: 0 }}>OFFICE</p>
-            <p style={{ fontSize: '16px', color: '#000', letterSpacing: '-0.48px', margin: 0, lineHeight: 1.4 }}>
-              Solana Ecosystem<br />Global
-            </p>
+      <footer className="l-footer">
+        <div className="l-footer-grid">
+          <div>
+            <div className="l-footer-brand">Lineage</div>
+            <p className="l-footer-tagline">On-chain intelligence for the Solana ecosystem. Track, analyze, and protect.</p>
           </div>
-
-          {/* CONTACT */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            <p style={{ fontSize: '16px', color: '#6B6B6B', letterSpacing: '-0.48px', fontWeight: 600, margin: 0 }}>CONTACT</p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              <a href="mailto:hello@lineageagent.com" className="la-footer-link" style={{ textDecoration: 'underline' }}>
-                hello@lineageagent.com
-              </a>
-            </div>
+          <div>
+            <p className="l-footer-heading">Product</p>
+            <Link to="/dashboard" className="l-footer-link">Dashboard</Link>
+            <Link to="/search" className="l-footer-link">Analyze</Link>
+            <Link to="/compare" className="l-footer-link">Compare</Link>
           </div>
-
-          {/* SOCIAL */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            <p style={{ fontSize: '16px', color: '#6B6B6B', letterSpacing: '-0.48px', fontWeight: 600, margin: 0 }}>SOCIAL</p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              {socialLinks.map(({ label, href }) => (
-                <a key={label} href={href} className="la-footer-link" target="_blank" rel="noopener noreferrer">
-                  {label}
-                </a>
-              ))}
-            </div>
+          <div>
+            <p className="l-footer-heading">Social</p>
+            {socialLinks.map((s) => (
+              <a key={s.label} href={s.href} className="l-footer-link" target="_blank" rel="noopener noreferrer">{s.label}</a>
+            ))}
+          </div>
+          <div>
+            <p className="l-footer-heading">Legal</p>
+            <Link to="/privacy" className="l-footer-link">Privacy Policy</Link>
+            <a href="mailto:hello@lineageagent.com" className="l-footer-link">Contact</a>
           </div>
         </div>
-
-        {/* Bottom nav — right-aligned with arrows */}
-        <div style={{
-          display: 'flex',
-          justifyContent: 'flex-end',
-          gap: '50px',
-        }}>
-          <a href="#features" className="la-footer-nav-link">
-            Work <ArrowRight className="la-arrow" />
-          </a>
-          <a href="#about" className="la-footer-nav-link">
-            About <ArrowRight className="la-arrow" />
-          </a>
-          <a href="#contact" className="la-footer-nav-link">
-            Contact <ArrowRight className="la-arrow" />
-          </a>
+        <div className="l-footer-bottom">
+          <p className="l-footer-copy">&copy; {new Date().getFullYear()} Lineage Agent. All rights reserved.</p>
         </div>
       </footer>
     </div>

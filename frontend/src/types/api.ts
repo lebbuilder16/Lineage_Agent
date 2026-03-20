@@ -244,6 +244,9 @@ export interface AlertItem {
 export interface User {
   id: string;
   privy_id: string;
+  wallet_address?: string;
+  email?: string;
+  plan?: string;
   username?: string;
   created_at?: string;
 }
