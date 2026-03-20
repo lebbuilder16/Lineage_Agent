@@ -674,7 +674,16 @@ async def run_agent(
 
         except Exception as exc:
             logger.exception("[agent] Claude stream failed at turn %d for %s", turn, mint[:12])
-            yield {"event": "error", "data": {"detail": f"AI error: {type(exc).__name__}: {exc}", "recoverable": False}}
+            detail = str(exc)
+            if "credit balance is too low" in detail or "529" in detail:
+                user_msg = "AI service temporarily unavailable — the analysis service is out of credits. Please try again later."
+            elif "overloaded" in detail.lower() or "529" in detail:
+                user_msg = "AI service is overloaded — please retry in a few moments."
+            elif "401" in detail or "authentication" in detail.lower():
+                user_msg = "AI service authentication error — please contact support."
+            else:
+                user_msg = "AI analysis failed unexpectedly — please try again."
+            yield {"event": "error", "data": {"detail": user_msg, "recoverable": False}}
             return
 
         total_input_tokens += message.usage.input_tokens

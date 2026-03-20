@@ -126,7 +126,14 @@ async def run_investigation(
                     yield _evt(ev_type, ev_data)
         except Exception as exc:
             logger.exception("[investigate] agent error for %s", mint[:12])
-            yield _evt("error", {"detail": f"Agent error: {type(exc).__name__}", "recoverable": False})
+            detail = str(exc)
+            if "credit balance is too low" in detail:
+                user_msg = "AI service temporarily unavailable — the analysis service is out of credits. Please try again later."
+            elif "overloaded" in detail.lower():
+                user_msg = "AI service is overloaded — please retry in a few moments."
+            else:
+                user_msg = f"Agent error: {type(exc).__name__}"
+            yield _evt("error", {"detail": user_msg, "recoverable": False})
 
         yield _evt("phase", {"phase": "agent", "status": "done"})
         yield _evt("done", {
