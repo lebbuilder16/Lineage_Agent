@@ -15,6 +15,7 @@
     "test:watch": "jest --watch"
   },
   "dependencies": {
+    "@expo-google-fonts/inter": "^0.4.2",
     "@noble/hashes": "^2.0.1",
     "@privy-io/expo": "^0.63.10",
     "@privy-io/expo-native-extensions": "^0.0.7",
@@ -24,6 +25,7 @@
     "@tanstack/react-query": "^5.70.0",
     "aes-js": "^3.1.2",
     "expo": "~54.0.0",
+    "expo-apple-authentication": "~8.0.8",
     "expo-application": "^55.0.10",
     "expo-blur": "~15.0.8",
     "expo-clipboard": "~8.0.8",
@@ -44,10 +46,13 @@
     "lucide-react-native": "^0.477.0",
     "openapi-fetch": "^0.17.0",
     "openapi-react-query": "^0.5.4",
+    "permissionless": "^0.3.4",
     "react": "19.1.0",
     "react-native": "0.81.5",
     "react-native-gesture-handler": "~2.28.0",
     "react-native-get-random-values": "~1.11.0",
+    "react-native-passkeys": "^0.4.0",
+    "react-native-qrcode-styled": "^0.4.0",
     "react-native-reanimated": "~4.1.1",
     "react-native-safe-area-context": "~5.6.0",
     "react-native-screens": "~4.16.0",
@@ -56,6 +61,7 @@
     "react-native-worklets": "0.5.1",
     "tweetnacl": "^1.0.3",
     "tweetnacl-util": "^0.15.1",
+    "viem": "^2.47.5",
     "zustand": "^5.0.3"
   },
   "devDependencies": {
