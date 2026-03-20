@@ -26,6 +26,10 @@ from .token_identity import TokenIdentity, resolve_token_identity
 
 logger = logging.getLogger(__name__)
 
+# SSE keepalive interval (seconds) — prevents Fly proxy idle timeout
+_KEEPALIVE_INTERVAL = 5.0
+_PIPELINE_TIMEOUT = 120.0
+
 
 @dataclass
 class ForensicReport:
@@ -99,28 +103,15 @@ async def run_forensic_pipeline(
     # Branch C: On-chain traces (needs mint + deployer)
 
     async def _branch_a_family() -> Any:
-        """Search for similar tokens + score + select root."""
-        from .lineage_detector import (
-            _detect_lineage_impl,
-            _lineage_cache_key,
-        )
-        from .data_sources._clients import cache_get as _cache_get
-        from .models import LineageResult
+        """Search for similar tokens + score + select root (NO forensic enrichment)."""
+        from .lineage_detector import detect_lineage
 
-        # Check cache first
-        cached = await _cache_get(_lineage_cache_key(mint))
-        if cached is not None:
-            if isinstance(cached, LineageResult):
-                return cached
-            if isinstance(cached, dict):
-                try:
-                    return LineageResult(**cached)
-                except Exception:
-                    pass
-
-        # Run full lineage detection (uses identity internally via cache)
-        return await _detect_lineage_impl(
-            mint, force_refresh=force_refresh
+        # Run lineage detection with skip_forensic_enrichment=True so it only
+        # does identity + candidate search + scoring (~15s), NOT the full 50s
+        # monolith. Forensic enrichments are handled by branches B and C.
+        return await detect_lineage(
+            mint, force_refresh=force_refresh,
+            skip_forensic_enrichment=True,
         )
 
     async def _branch_b_deployer_forensics() -> dict:
@@ -238,19 +229,45 @@ async def run_forensic_pipeline(
         )
         return results
 
-    # Execute all 3 branches in parallel
+    # Execute all 3 branches in parallel with SSE keepalive pings
     t_fork = time.monotonic()
 
     yield _evt("step", {"step": "family_search", "status": "running"})
     yield _evt("step", {"step": "deployer_forensics", "status": "running"})
     yield _evt("step", {"step": "chain_traces", "status": "running"})
 
-    family_result, deployer_results, chain_results = await asyncio.gather(
-        _branch_a_family(),
-        _branch_b_deployer_forensics(),
-        _branch_c_chain_traces(),
-        return_exceptions=True,
-    )
+    # Launch branches as tasks and poll with SSE keepalive pings every 5s
+    # to prevent Fly proxy from killing the idle connection.
+    task_a = asyncio.ensure_future(_branch_a_family())
+    task_b = asyncio.ensure_future(_branch_b_deployer_forensics())
+    task_c = asyncio.ensure_future(_branch_c_chain_traces())
+    all_tasks = [task_a, task_b, task_c]
+
+    deadline = time.monotonic() + _PIPELINE_TIMEOUT
+    while not all(t.done() for t in all_tasks):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            for t in all_tasks:
+                if not t.done():
+                    t.cancel()
+            break
+        # Wait up to _KEEPALIVE_INTERVAL, then yield a ping
+        await asyncio.sleep(min(_KEEPALIVE_INTERVAL, remaining))
+        elapsed = int((time.monotonic() - t_fork) * 1000)
+        yield _evt("ping", {"elapsed_ms": elapsed})
+
+    # Collect results safely
+    def _safe_result(task):
+        if task.cancelled():
+            return TimeoutError("pipeline branch timed out")
+        try:
+            return task.result()
+        except Exception as e:
+            return e
+
+    family_result = _safe_result(task_a)
+    deployer_results = _safe_result(task_b)
+    chain_results = _safe_result(task_c)
 
     fork_ms = int((time.monotonic() - t_fork) * 1000)
 
@@ -315,7 +332,12 @@ async def run_forensic_pipeline(
             except Exception as e:
                 logger.warning("[pipeline] operator_impact failed: %s", e)
 
-        await asyncio.gather(_insider(), _impact(), return_exceptions=True)
+        dep_task = asyncio.ensure_future(
+            asyncio.gather(_insider(), _impact(), return_exceptions=True)
+        )
+        while not dep_task.done():
+            await asyncio.sleep(min(_KEEPALIVE_INTERVAL, 5.0))
+            yield _evt("ping", {"elapsed_ms": int((time.monotonic() - t_fork) * 1000)})
 
         dep_ms = int((time.monotonic() - t_dep) * 1000)
         yield _evt("step", {"step": "dependent_enrichers", "status": "done", "ms": dep_ms})

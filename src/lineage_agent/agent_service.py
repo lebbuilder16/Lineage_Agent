@@ -33,7 +33,7 @@ from .ai_analyst import (
 
 logger = logging.getLogger(__name__)
 
-_AGENT_TIMEOUT = 55.0  # wall-clock budget — under Fly 60s
+_AGENT_TIMEOUT = 120.0  # wall-clock budget — scan is pre-injected so agent only reasons
 _MAX_TURNS = 8
 _TOOL_TIMEOUT_DEFAULT = 15.0
 _TOOL_TIMEOUT_SCAN = 45.0

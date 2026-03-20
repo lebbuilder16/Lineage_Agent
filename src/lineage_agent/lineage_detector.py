@@ -428,6 +428,7 @@ async def detect_lineage(
     *,
     progress_cb: ProgressCallback = None,
     force_refresh: bool = False,
+    skip_forensic_enrichment: bool = False,
 ) -> LineageResult:
     """Public entry point — deduplication guard + delegate to _detect_lineage_impl.
 
@@ -465,7 +466,8 @@ async def detect_lineage(
 
     try:
         return await _detect_lineage_impl(
-            mint_address, progress_cb=progress_cb, force_refresh=force_refresh
+            mint_address, progress_cb=progress_cb, force_refresh=force_refresh,
+            skip_forensic_enrichment=skip_forensic_enrichment,
         )
     finally:
         if _flight_event is not None:
@@ -478,6 +480,7 @@ async def _detect_lineage_impl(
     *,
     progress_cb: ProgressCallback = None,
     force_refresh: bool = False,
+    skip_forensic_enrichment: bool = False,
 ) -> LineageResult:
     """Detect the lineage of a Solana token identified by *mint_address*.
 
@@ -975,6 +978,13 @@ async def _detect_lineage_impl(
     # ------------------------------------------------------------------
     # Forensic enrichment — non-blocking, failures are silent
     # ------------------------------------------------------------------
+    # When called with skip_forensic_enrichment=True (from forensic_pipeline),
+    # return the family tree immediately — enrichments are handled by the DAG.
+    if skip_forensic_enrichment:
+        result.scanned_at = datetime.now(timezone.utc)
+        await _cache_set(_lineage_cache_key(mint_address), result, ttl=CACHE_TTL_LINEAGE_SECONDS)
+        return result
+
     await _progress("Running forensic analysis", 92)
 
     # Record this token in the intelligence_events store (fire-and-forget)
