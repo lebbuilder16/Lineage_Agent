@@ -126,10 +126,8 @@ export default function RootLayout() {
 
   if ((!fontsLoaded && !fontError) || !hydrated) return null;
 
-  return (
-    <ErrorBoundary>
-      <PrivyProvider appId={PRIVY_APP_ID}>
-      <GestureHandlerRootView style={styles.root}>
+  const appContent = (
+    <GestureHandlerRootView style={styles.root}>
       <QueryClientProvider client={queryClient}>
         <View style={styles.root}>
           <StatusBar style="light" />
@@ -181,7 +179,15 @@ export default function RootLayout() {
         </View>
       </QueryClientProvider>
     </GestureHandlerRootView>
-    </PrivyProvider>
+  );
+
+  return (
+    <ErrorBoundary>
+      {PRIVY_APP_ID ? (
+        <PrivyProvider appId={PRIVY_APP_ID}>{appContent}</PrivyProvider>
+      ) : (
+        appContent
+      )}
     </ErrorBoundary>
   );
 }
