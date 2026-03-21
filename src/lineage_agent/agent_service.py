@@ -691,17 +691,34 @@ async def run_agent(
                 message = await stream.get_final_message()
 
         except Exception as exc:
-            logger.exception("[agent] Claude stream failed at turn %d for %s", turn, mint[:12])
             detail = str(exc)
-            if "credit balance is too low" in detail:
-                user_msg = "Upgrade to Pro to unlock AI investigation."
-            elif "overloaded" in detail.lower() or "529" in detail:
-                user_msg = "AI service is overloaded — please retry in a few moments."
-            elif "401" in detail or "authentication" in detail.lower():
+            ename = type(exc).__name__
+            is_overloaded = "overloaded" in detail.lower() or "529" in detail
+            is_rate_limit = "RateLimit" in ename
+            is_retriable = is_overloaded or is_rate_limit
+
+            if is_retriable and turn == 1:
+                # Retry once after 2s on first turn
+                logger.warning("[agent] %s at turn %d for %s — retrying in 2s", ename, turn, mint[:12])
+                await asyncio.sleep(2)
+                turn -= 1  # retry same turn
+                continue
+
+            if is_retriable or "credit balance is too low" in detail:
+                # Fallback to heuristic verdict instead of failing
+                logger.warning("[agent] %s fallback → heuristic verdict for %s", ename, mint[:12])
+                from .investigate_service import _build_heuristic_verdict  # noqa: PLC0415
+                fallback = _build_heuristic_verdict(hscore, mint)
+                yield {"event": "verdict", "data": fallback}
+                verdict = fallback
+                break
+
+            logger.exception("[agent] Claude stream failed at turn %d for %s", turn, mint[:12])
+            if "401" in detail or "authentication" in detail.lower():
                 user_msg = "AI service authentication error — please contact support."
             else:
                 user_msg = "AI analysis failed unexpectedly — please try again."
-            yield {"event": "error", "data": {"detail": user_msg, "recoverable": False}}
+            yield {"event": "error", "data": {"detail": user_msg, "recoverable": True}}
             return
 
         total_input_tokens += message.usage.input_tokens
@@ -826,6 +843,11 @@ async def run_agent(
     # ── Verdict (already extracted inline, or fallback to _extract_verdict) ──
     if not verdict:
         verdict = await _extract_verdict(client, messages, system_prompt, mint)
+    # Last resort: heuristic verdict if AI produced nothing
+    if not verdict:
+        from .investigate_service import _build_heuristic_verdict  # noqa: PLC0415
+        verdict = _build_heuristic_verdict(hscore, mint)
+        logger.warning("[agent] all verdict paths failed — using heuristic for %s", mint[:12])
     if verdict:
         total_output_tokens += verdict.pop("_output_tokens", 0)
         total_input_tokens += verdict.pop("_input_tokens", 0)
@@ -904,14 +926,14 @@ async def _extract_verdict(
         # Use streaming so httpx yields control to the event loop every token,
         # allowing sse-starlette's ping task to fire and keep the connection alive.
         async with client.messages.stream(
-            model=_MODEL_SONNET,
-            max_tokens=2500,
+            model=_MODEL,
+            max_tokens=2000,
             temperature=0,
             system=system,
             tools=[_FORENSIC_TOOL],
             tool_choice={"type": "tool", "name": "forensic_report"},
             messages=extraction_messages,
-            timeout=45.0,
+            timeout=20.0,
         ) as stream:
             message = await stream.get_final_message()
 
@@ -919,7 +941,7 @@ async def _extract_verdict(
             if getattr(block, "type", None) == "tool_use" and getattr(block, "name", None) == "forensic_report":
                 result = block.input
                 result["mint"] = mint
-                result["model"] = _MODEL_SONNET
+                result["model"] = _MODEL
                 result["_output_tokens"] = message.usage.output_tokens
                 result["_input_tokens"] = message.usage.input_tokens
                 return result
