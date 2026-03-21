@@ -1,4 +1,3 @@
-/** @deprecated Use /investigate/[mint] instead. */
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import {
   View,
@@ -10,7 +9,9 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
+  StatusBar,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router, Stack } from 'expo-router';
 import { ChevronLeft, Send, Bot } from 'lucide-react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -40,6 +41,7 @@ const WELCOME: Message = {
 };
 
 export default function ChatScreen() {
+  const insets = useSafeAreaInsets();
   const { mint } = useLocalSearchParams<{ mint: string }>();
   const [messages, setMessages] = useState<Message[]>([WELCOME]);
   const [input, setInput] = useState('');
@@ -198,7 +200,7 @@ export default function ChatScreen() {
       <Stack.Screen options={{ headerShown: false }} />
       <View style={styles.safe}>
         {/* Navbar */}
-        <View style={styles.navbar}>
+        <View style={[styles.navbar, { paddingTop: Math.max(insets.top, Platform.OS === 'android' ? (StatusBar.currentHeight ?? 24) + 8 : 16) }]}>
           <TouchableOpacity
             onPress={() => router.back()}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
@@ -224,8 +226,8 @@ export default function ChatScreen() {
 
           <KeyboardAvoidingView
             style={styles.kav}
-            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-            keyboardVerticalOffset={0}
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            keyboardVerticalOffset={Platform.OS === 'ios' ? 10 : 0}
           >
             {/* Message list */}
             <FlatList
@@ -241,7 +243,7 @@ export default function ChatScreen() {
             />
 
             {/* Input row */}
-            <View style={styles.inputRow}>
+            <View style={[styles.inputRow, { paddingBottom: Math.max(insets.bottom + 8, 20) }]}>
               <TextInput
                 style={styles.input}
                 placeholder="Ask about this token…"
@@ -355,7 +357,7 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
     gap: 10,
     paddingHorizontal: tokens.spacing.screenPadding,
-    paddingVertical: 12,
+    paddingTop: 12,
     paddingBottom: 20,
     backgroundColor: tokens.bgGlass8,
     borderTopWidth: 1,
