@@ -15,6 +15,37 @@ class TestImagePhashThreading:
         # Just verify the function exists and is not async
         assert not asyncio.iscoroutinefunction(_compute_phash_sync)
 
+    def test_factory_phash_sync_is_not_coroutine(self):
+        """_compute_phash_bytes_sync in factory_service must be a plain sync function."""
+        from lineage_agent.factory_service import _compute_phash_bytes_sync
+        assert not asyncio.iscoroutinefunction(_compute_phash_bytes_sync)
+
+    @pytest.mark.asyncio
+    async def test_factory_compute_phash_offloads_to_thread(self):
+        """_compute_phash in factory_service should use asyncio.to_thread."""
+        calls = []
+
+        async def mock_to_thread(fn, *args, **kwargs):
+            calls.append(fn)
+            return "0123456789abcdef"
+
+        with patch("lineage_agent.factory_service.asyncio.to_thread", side_effect=mock_to_thread):
+            import httpx
+            from unittest.mock import AsyncMock
+            mock_client = AsyncMock()
+            mock_resp = MagicMock()
+            mock_resp.status_code = 200
+            mock_resp.content = b"fake-image-bytes"
+            mock_client.get = AsyncMock(return_value=mock_resp)
+
+            with patch("lineage_agent.factory_service.get_img_client", return_value=mock_client):
+                from lineage_agent.factory_service import _compute_phash
+                await _compute_phash("http://example.com/img.png")
+
+        assert len(calls) == 1, "asyncio.to_thread should be called once for pHash computation"
+        from lineage_agent.factory_service import _compute_phash_bytes_sync
+        assert calls[0] is _compute_phash_bytes_sync
+
 
 class TestCacheTTLs:
     """Verify updated cache TTL values."""

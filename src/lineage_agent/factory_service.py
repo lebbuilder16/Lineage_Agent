@@ -14,6 +14,7 @@ Signal is active when:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -75,22 +76,28 @@ async def record_token_creation(token: TokenMetadata) -> None:
         logger.debug("record_token_creation failed for %s", token.mint, exc_info=True)
 
 
+def _compute_phash_bytes_sync(image_bytes: bytes) -> Optional[str]:
+    """Compute pHash hex string from raw image bytes — runs in thread pool."""
+    import io
+    import imagehash
+    from PIL import Image
+    with Image.open(io.BytesIO(image_bytes)) as img:
+        img = img.convert("RGB")
+        ph = imagehash.phash(img)
+    # Convert 8x8 bit array to 64-bit integer hex
+    bits = [v for row in ph.hash for v in row]
+    val = int("".join("1" if b else "0" for b in bits), 2)
+    return format(val, "016x")
+
+
 async def _compute_phash(image_uri: str) -> Optional[str]:
     """Fetch image and compute pHash hex string. Returns None on failure."""
     try:
-        import io
-        import imagehash
-        from PIL import Image
         client = get_img_client()
         resp = await client.get(image_uri, timeout=5.0)
         if resp.status_code != 200:
             return None
-        img = Image.open(io.BytesIO(resp.content)).convert("RGB")
-        ph = imagehash.phash(img)
-        # Convert 8x8 bit array to 64-bit integer hex
-        bits = [v for row in ph.hash for v in row]
-        val = int("".join("1" if b else "0" for b in bits), 2)
-        return format(val, "016x")
+        return await asyncio.to_thread(_compute_phash_bytes_sync, resp.content)
     except Exception:
         return None
 
