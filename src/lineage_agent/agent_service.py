@@ -683,12 +683,17 @@ async def run_agent(
         if call_timeout < 5.0:
             call_timeout = 5.0
 
-        # On the final turn, force structured verdict via forensic_report tool
+        # Decide tool_choice strategy:
+        # - Pre-scan injected → force forensic_report on turn 1 (data is complete)
+        # - Final turn or low time → force forensic_report (deadline)
+        # - Otherwise → auto (agent explores freely)
         is_final_turn = (turn >= max_turns) or (remaining < 15.0)
-        if is_final_turn:
+        has_prescan = scan_summary is not None
+        force_verdict = is_final_turn or (has_prescan and turn == 1)
+
+        if force_verdict:
             tools_for_call = AGENT_TOOLS + [_FORENSIC_TOOL]
             tool_choice_arg: dict[str, Any] = {"type": "tool", "name": "forensic_report"}
-            # Nudge agent to deliver verdict now
             if messages[-1].get("role") != "user" or not any("forensic_report" in str(m) for m in messages[-2:]):
                 messages.append({
                     "role": "user",
