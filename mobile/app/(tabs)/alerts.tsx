@@ -66,10 +66,25 @@ export default function AlertsScreen() {
 
   const CRITICAL_TYPES = new Set(['rug', 'death_clock', 'bundle', 'insider']);
   const filtered = useMemo(() => {
-    if (activeFilter === 'critical') return alerts.filter((a) => CRITICAL_TYPES.has(a.type));
-    if (activeFilter === 'unread') return alerts.filter((a) => !a.read);
-    return alerts;
+    let list = alerts;
+    if (activeFilter === 'critical') list = alerts.filter((a) => CRITICAL_TYPES.has(a.type));
+    else if (activeFilter === 'unread') list = alerts.filter((a) => !a.read);
+    // Smart triage: sort by risk score descending, unread first
+    return [...list].sort((a, b) => {
+      if (!a.read && b.read) return -1;
+      if (a.read && !b.read) return 1;
+      return (b.risk_score ?? 0) - (a.risk_score ?? 0);
+    });
   }, [alerts, activeFilter]);
+
+  // Alert summary for header
+  const alertSummary = useMemo(() => {
+    const critCount = alerts.filter(a => (a.risk_score ?? 0) >= 75).length;
+    const highCount = alerts.filter(a => (a.risk_score ?? 0) >= 50 && (a.risk_score ?? 0) < 75).length;
+    if (critCount > 0) return `${critCount} critical · ${highCount} high risk`;
+    if (highCount > 0) return `${highCount} high risk alerts`;
+    return null;
+  }, [alerts]);
 
   const handlePress = (alert: AlertItem) => {
     markRead(alert.id);
@@ -100,6 +115,14 @@ export default function AlertsScreen() {
             ) : null
           }
         />
+
+        {/* Risk triage summary */}
+        {alertSummary && wsConnected && (
+          <View style={styles.triageBanner}>
+            <AlertTriangle size={12} color={tokens.accent} />
+            <Text style={styles.triageText}>{alertSummary}</Text>
+          </View>
+        )}
 
         {/* Offline banner */}
         {!wsConnected && (
@@ -280,6 +303,21 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: tokens.bgMain },
   safe: { flex: 1, paddingHorizontal: tokens.spacing.screenPadding },
 
+  triageBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: `${tokens.accent}12`,
+    borderRadius: tokens.radius.sm,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    marginBottom: 8,
+  },
+  triageText: {
+    fontFamily: 'Lexend-Medium',
+    fontSize: tokens.font.tiny,
+    color: tokens.accent,
+  },
   offlineBanner: {
     flexDirection: 'row',
     alignItems: 'center',

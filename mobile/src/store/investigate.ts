@@ -14,6 +14,7 @@ import type { ChatMessage } from '../lib/investigate-streaming';
 
 export type InvestigateStatus =
   | 'idle'
+  | 'preview'     // Intent Preview: show plan before starting
   | 'scanning'
   | 'analyzing'   // Pro: single-shot AI verdict
   | 'reasoning'   // Pro+: agent multi-turn
@@ -67,6 +68,7 @@ interface InvestigateState {
 
   // Actions
   startInvestigation: (mint: string, tier: PlanTier) => void;
+  confirmInvestigation: () => void;
   addScanStep: (step: ScanStep) => void;
   setScanningDone: () => void;
   setAnalyzing: () => void;
@@ -109,9 +111,12 @@ export const useInvestigateStore = create<InvestigateState>((set, get) => ({
       sessionId: Date.now().toString(36),
       mint,
       tier,
-      status: 'scanning',
-      startedAt: Date.now(),
+      status: 'preview',
+      startedAt: null,
     }),
+
+  confirmInvestigation: () =>
+    set({ status: 'scanning', startedAt: Date.now() }),
 
   addScanStep: (step) =>
     set((s) => ({ scanSteps: [...s.scanSteps, step] })),
