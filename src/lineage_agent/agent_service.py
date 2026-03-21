@@ -589,8 +589,29 @@ async def run_agent(
         except Exception:
             pass
 
+    # ── Check for past feedback on this token ────────────────────────
+    feedback_note = ""
+    try:
+        from .data_sources._clients import cache as _fb_cache  # noqa: PLC0415
+        _fb_db = await _fb_cache._get_conn()
+        _fb_cursor = await _fb_db.execute(
+            "SELECT rating, note FROM investigation_feedback WHERE mint = ? ORDER BY created_at DESC LIMIT 1",
+            (mint,),
+        )
+        _fb_row = await _fb_cursor.fetchone()
+        if _fb_row:
+            feedback_note = (
+                f"\n\nPREVIOUS USER FEEDBACK: A prior investigation of this token was rated "
+                f"'{_fb_row[0]}' by the user."
+            )
+            if _fb_row[1]:
+                feedback_note += f" User note: \"{_fb_row[1]}\""
+            feedback_note += " Adjust your analysis weight accordingly."
+    except Exception:
+        pass
+
     # ── Build system prompt + conversation ───────────────────────────
-    system_prompt = _build_agent_system_prompt(hscore, scan_summary=scan_summary)
+    system_prompt = _build_agent_system_prompt(hscore, scan_summary=scan_summary) + feedback_note
 
     if scan_summary:
         # Agent starts with pre-collected data — ask to interpret, not scan

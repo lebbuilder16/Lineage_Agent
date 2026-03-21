@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -8,6 +8,7 @@ import {
   TouchableOpacity,
   Platform,
   StatusBar,
+  RefreshControl,
 } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -17,10 +18,8 @@ import {
   Bell,
   Search,
   Clock,
-  ChevronRight,
   Zap,
   AlertTriangle,
-  CheckCircle,
   Eye,
 } from 'lucide-react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
@@ -33,6 +32,8 @@ import { useAlertsStore } from '../../src/store/alerts';
 import { useAuthStore } from '../../src/store/auth';
 import { tokens } from '../../src/theme/tokens';
 
+const BASE_URL = (process.env.EXPO_PUBLIC_API_URL ?? 'https://lineage-agent.fly.dev').replace(/\/$/, '');
+
 function timeAgoShort(ts: number): string {
   const diff = Date.now() - ts;
   const mins = Math.floor(diff / 60000);
@@ -42,17 +43,44 @@ function timeAgoShort(ts: number): string {
   return `${Math.floor(hrs / 24)}d ago`;
 }
 
+interface AgentStatus {
+  watching: number;
+  last_sweep: number | null;
+  investigations_today: number;
+  total_investigations: number;
+}
+
 export default function AgentScreen() {
   const insets = useSafeAreaInsets();
   const prefs = useAgentPrefsStore();
   const investigations = useHistoryStore((s) => s.investigations);
   const alerts = useAlertsStore((s) => s.alerts);
-  const watches = useAuthStore((s) => s.watches);
+  const apiKey = useAuthStore((s) => s.apiKey);
   const wsConnected = useAlertsStore((s) => s.wsConnected);
+  const [serverStatus, setServerStatus] = useState<AgentStatus | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const fetchStatus = async () => {
+    if (!apiKey) return;
+    try {
+      const res = await fetch(`${BASE_URL}/agent/status`, {
+        headers: { 'X-API-Key': apiKey },
+      });
+      if (res.ok) setServerStatus(await res.json());
+    } catch { /* best-effort */ }
+  };
 
   useEffect(() => {
     useAgentPrefsStore.getState().hydrate();
-  }, []);
+    useHistoryStore.getState().hydrate();
+    fetchStatus();
+  }, [apiKey]);
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await fetchStatus();
+    setRefreshing(false);
+  };
 
   // Recent activity: merge recent investigations + alerts, sort by time
   const recentActivity = React.useMemo(() => {
@@ -85,9 +113,12 @@ export default function AgentScreen() {
     return items.sort((a, b) => b.time - a.time).slice(0, 8);
   }, [investigations, alerts]);
 
-  const todayInvestigations = investigations.filter(
+  const watches = useAuthStore((s) => s.watches);
+  const watchCount = serverStatus?.watching ?? watches.length;
+  const todayInvestigations = serverStatus?.investigations_today ?? investigations.filter(
     (i) => Date.now() - i.timestamp < 24 * 3600 * 1000,
   ).length;
+  const totalInvestigations = serverStatus?.total_investigations ?? investigations.length;
 
   return (
     <View style={styles.container}>
@@ -96,6 +127,7 @@ export default function AgentScreen() {
         <ScrollView
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.content}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={tokens.secondary} />}
         >
           <ScreenHeader
             icon={<Bot size={26} color={tokens.secondary} strokeWidth={2.5} />}
@@ -115,7 +147,7 @@ export default function AgentScreen() {
               </View>
               <View style={styles.statsRow}>
                 <View style={styles.statItem}>
-                  <Text style={styles.statValue}>{watches.length}</Text>
+                  <Text style={styles.statValue}>{watchCount}</Text>
                   <Text style={styles.statLabel}>Monitoring</Text>
                 </View>
                 <View style={styles.statDivider} />
@@ -125,7 +157,7 @@ export default function AgentScreen() {
                 </View>
                 <View style={styles.statDivider} />
                 <View style={styles.statItem}>
-                  <Text style={styles.statValue}>{investigations.length}</Text>
+                  <Text style={styles.statValue}>{totalInvestigations}</Text>
                   <Text style={styles.statLabel}>Total</Text>
                 </View>
               </View>
