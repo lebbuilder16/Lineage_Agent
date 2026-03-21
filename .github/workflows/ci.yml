@@ -56,6 +56,7 @@ jobs:
         with:
           name: coverage-report
           path: coverage.xml
+          retention-days: 7
 
   # ── Frontend: lint + build ─────────────────────────────────────
   frontend:
@@ -102,7 +103,7 @@ jobs:
         with:
           name: playwright-report
           path: frontend/playwright-report/
-          retention-days: 14
+          retention-days: 7
 
   # ── Change detection ──────────────────────────────────────────
   detect-changes:
@@ -179,7 +180,7 @@ jobs:
         with:
           name: mobile-coverage
           path: mobile/coverage/
-          retention-days: 14
+          retention-days: 7
 
   # ── OpenAPI schema drift detection ───────────────────────────
   openapi-drift:
@@ -295,8 +296,21 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - name: Free disk space
+        run: |
+          sudo docker system prune -af --volumes
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc
+          df -h
+
       - name: Build backend image
         run: docker build --target backend -t lineage-backend:ci .
 
+      - name: Prune intermediate layers
+        run: docker system prune -f
+
       - name: Build frontend image
         run: docker build --target frontend -t lineage-frontend:ci .
+
+      - name: Clean up images
+        if: always()
+        run: docker system prune -af
