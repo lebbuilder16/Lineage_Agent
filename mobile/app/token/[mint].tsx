@@ -254,7 +254,7 @@ export default function TokenScreen() {
     if ((data.bundle_report.factory_sniper_wallets?.length ?? 0) > 0) {
       bundleDetailRows.push({
         label: 'Sniper wallets',
-        value: `${data.bundle_report.factory_sniper_wallets!.length} detected`,
+        value: `${data.bundle_report.factory_sniper_wallets?.length ?? 0} detected`,
       });
     }
   }
@@ -545,7 +545,7 @@ export default function TokenScreen() {
                   <GlassCard>
                     <Text style={styles.sectionTitle}>SUSPICIOUS FLAGS</Text>
                     <View style={styles.flagsWrap}>
-                      {data.bundle_report!.evidence_chain!.map((flag, i) => (
+                      {(data.bundle_report?.evidence_chain ?? []).map((flag, i) => (
                         <View key={i} style={styles.flag}>
                           <AlertTriangle size={12} color={tokens.accent} />
                           <Text style={styles.flagText}>{flag}</Text>
@@ -558,8 +558,8 @@ export default function TokenScreen() {
                 {/* Deployer */}
                 {data.deployer_profile && (
                   <TouchableOpacity
-                    onPress={() => router.push(`/deployer/${data.deployer_profile!.address}` as any)}
-                    onLongPress={() => handleCopy(data.deployer_profile!.address, 'Deployer address')}
+                    onPress={() => router.push(`/deployer/${data.deployer_profile?.address}` as any)}
+                    onLongPress={() => handleCopy(data.deployer_profile?.address ?? '', 'Deployer address')}
                     delayLongPress={400}
                     activeOpacity={0.75}
                   >
@@ -595,7 +595,7 @@ export default function TokenScreen() {
                     <View style={[styles.verdictBanner, { backgroundColor: `${verdictColor}18`, borderColor: `${verdictColor}35` }]}>
                       <Skull size={13} color={verdictColor} />
                       <Text style={[styles.verdictBannerText, { color: verdictColor }]}>
-                        {data.bundle_report!.overall_verdict.toUpperCase().replace(/_/g, ' ')}
+                        {(data.bundle_report?.overall_verdict ?? '').toUpperCase().replace(/_/g, ' ')}
                       </Text>
                     </View>
                     <Text style={[styles.sectionTitle, { marginTop: 12 }]}>BUNDLE REPORT</Text>
@@ -641,7 +641,7 @@ export default function TokenScreen() {
                 {/* Cartel */}
                 {data.cartel_report?.deployer_community?.community_id && (
                   <TouchableOpacity
-                    onPress={() => router.push(`/cartel/${data.cartel_report!.deployer_community!.community_id}` as any)}
+                    onPress={() => router.push(`/cartel/${data.cartel_report?.deployer_community?.community_id}` as any)}
                     activeOpacity={0.75}
                   >
                     <GlassCard
