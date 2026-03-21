@@ -112,7 +112,7 @@ export default function DeployerScreen() {
                 <GlassCard>
                   <Text style={styles.sectionTitle}>TOKEN HISTORY</Text>
                   <View style={styles.tokenList}>
-                    {data.tokens!.map((t) => (
+                    {(data.tokens ?? []).map((t) => (
                       <TouchableOpacity
                         key={t.mint}
                         onPress={() => router.push(`/token/${t.mint}` as any)}

@@ -123,7 +123,7 @@ export default function CompareScreen() {
                 </Text>
                 {(data.verdict_reasons?.length ?? 0) > 0 && (
                   <View style={styles.reasons}>
-                    {data.verdict_reasons!.map((r, i) => (
+                    {(data.verdict_reasons ?? []).map((r, i) => (
                       <Text key={i} style={styles.reason}>• {r}</Text>
                     ))}
                   </View>
@@ -155,7 +155,7 @@ export default function CompareScreen() {
                 {data.token_a && (
                   <TouchableOpacity
                     style={styles.tokenHalf}
-                    onPress={() => router.push(`/token/${data.token_a!.mint}` as any)}
+                    onPress={() => router.push(`/token/${data.token_a?.mint}` as any)}
                     activeOpacity={0.75}
                     accessibilityRole="button"
                     accessibilityLabel={`View token A: ${data.token_a.name}`}
@@ -172,7 +172,7 @@ export default function CompareScreen() {
                 {data.token_b && (
                   <TouchableOpacity
                     style={styles.tokenHalf}
-                    onPress={() => router.push(`/token/${data.token_b!.mint}` as any)}
+                    onPress={() => router.push(`/token/${data.token_b?.mint}` as any)}
                     activeOpacity={0.75}
                     accessibilityRole="button"
                     accessibilityLabel={`View token B: ${data.token_b.name}`}

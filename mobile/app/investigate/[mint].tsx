@@ -235,10 +235,10 @@ function VerdictCard() {
           <RiskBadge level={level} size="md" />
         </View>
         <Text style={styles.verdictSummary}>{verdict.verdict_summary}</Text>
-        {verdict.key_findings?.length > 0 && (
+        {Array.isArray(verdict.key_findings) && verdict.key_findings.length > 0 && (
           <View style={styles.findingsSection}>
             {verdict.key_findings.map((f, i) => (
-              <Text key={i} style={styles.findingItem}>{f}</Text>
+              <Text key={i} style={styles.findingItem}>{String(f)}</Text>
             ))}
           </View>
         )}

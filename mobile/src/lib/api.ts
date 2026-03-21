@@ -35,7 +35,8 @@ export async function getLineage(mint: string, forceRefresh = false): Promise<Li
   const { data } = await apiClient.GET('/lineage', {
     params: { query: { mint, force_refresh: forceRefresh } },
   });
-  return data!;
+  if (!data) throw new Error('Empty response from /lineage');
+  return data;
 }
 
 export async function getLineageGraph(mint: string): Promise<LineageGraph> {
@@ -50,7 +51,8 @@ export async function getSolTrace(mint: string): Promise<SolFlowReport> {
   const { data } = await apiClient.GET('/lineage/{mint}/sol-trace', {
     params: { path: { mint } },
   });
-  return data!;
+  if (!data) throw new Error('Empty response from /sol-trace');
+  return data;
 }
 
 // intelligence
@@ -58,7 +60,8 @@ export async function getDeployer(address: string): Promise<DeployerProfile> {
   const { data } = await apiClient.GET('/deployer/{address}', {
     params: { path: { address } },
   });
-  return data!;
+  if (!data) throw new Error('Empty response from /deployer');
+  return data;
 }
 
 // operator
@@ -66,7 +69,8 @@ export async function getOperatorImpact(fingerprint: string): Promise<OperatorIm
   const { data } = await apiClient.GET('/operator/{fingerprint}', {
     params: { path: { fingerprint } },
   });
-  return data!;
+  if (!data) throw new Error('Empty response from /operator');
+  return data;
 }
 
 // cartel
@@ -74,14 +78,16 @@ export async function getCartelSearch(deployer: string): Promise<CartelReport> {
   const { data } = await apiClient.GET('/cartel/search', {
     params: { query: { deployer } },
   });
-  return data!;
+  if (!data) throw new Error('Empty response from /cartel/search');
+  return data;
 }
 
 export async function getCartelFinancial(communityId: string): Promise<FinancialGraphSummary> {
   const { data } = await apiClient.GET('/cartel/{deployer}/financial', {
     params: { path: { deployer: communityId } },
   });
-  return data!;
+  if (!data) throw new Error('Empty response from /cartel/financial');
+  return data;
 }
 
 // compare
@@ -89,13 +95,15 @@ export async function compareTokens(mintA: string, mintB: string): Promise<Token
   const { data } = await apiClient.GET('/compare', {
     params: { query: { mint_a: mintA, mint_b: mintB } },
   });
-  return data!;
+  if (!data) throw new Error('Empty response from /compare');
+  return data;
 }
 
 // stats / health
 export async function getGlobalStats(): Promise<GlobalStats> {
   const { data } = await apiClient.GET('/stats/global');
-  return data!;
+  if (!data) throw new Error('Empty response from /stats/global');
+  return data;
 }
 
 export async function getHealth(): Promise<HealthStatus> {
