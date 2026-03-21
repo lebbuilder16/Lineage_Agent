@@ -10,7 +10,7 @@ import { tokens } from '../../src/theme/tokens';
 const ROUTE_MAP: Record<TabName, string> = {
   radar: '/(tabs)/radar',
   scan: '/(tabs)/scan',
-  clock: '/(tabs)/clock',
+  agent: '/(tabs)/agent',
   alerts: '/(tabs)/alerts',
   watchlist: '/(tabs)/watchlist',
 };
@@ -18,7 +18,7 @@ const ROUTE_MAP: Record<TabName, string> = {
 const PATH_TO_TAB: Record<string, TabName> = {
   '/radar': 'radar',
   '/scan': 'scan',
-  '/clock': 'clock',
+  '/agent': 'agent',
   '/alerts': 'alerts',
   '/watchlist': 'watchlist',
 };
@@ -51,7 +51,8 @@ export default function TabLayout() {
         >
           <Tabs.Screen name="radar" />
           <Tabs.Screen name="scan" />
-          <Tabs.Screen name="clock" />
+          <Tabs.Screen name="agent" />
+          <Tabs.Screen name="clock" options={{ href: null }} />
           <Tabs.Screen name="alerts" />
           <Tabs.Screen name="watchlist" />
           <Tabs.Screen name="account" options={{ href: null }} />

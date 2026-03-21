@@ -18,14 +18,14 @@ import * as Haptics from 'expo-haptics';
 import {
   Activity,
   Search,
-  Skull,
+  Bot,
   Bell,
   Bookmark,
   type LucideIcon,
 } from 'lucide-react-native';
 import { tokens } from '../../theme/tokens';
 
-export type TabName = 'radar' | 'scan' | 'clock' | 'alerts' | 'watchlist';
+export type TabName = 'radar' | 'scan' | 'agent' | 'alerts' | 'watchlist';
 
 /**
  * Visual height of the tab bar pill (icon + label when active + vertical padding).
@@ -48,7 +48,7 @@ interface Tab {
 const TABS: Tab[] = [
   { name: 'radar', label: 'Radar', icon: Activity },
   { name: 'scan', label: 'Scan', icon: Search },
-  { name: 'clock', label: 'Clock', icon: Skull },
+  { name: 'agent', label: 'Agent', icon: Bot },
   { name: 'alerts', label: 'Alerts', icon: Bell },
   { name: 'watchlist', label: 'Watch', icon: Bookmark },
 ];
