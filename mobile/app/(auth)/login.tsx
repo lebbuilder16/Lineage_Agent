@@ -53,15 +53,19 @@ function extractFromLinkedAccounts(user: User) {
 
 async function handlePrivyLoginSuccess(user: User) {
   const { walletAddress, emailAddress } = extractFromLinkedAccounts(user);
-  const ok = await syncPrivyUser({
-    id: user.id,
-    wallet: walletAddress ? { address: walletAddress } : null,
-    email: emailAddress ? { address: emailAddress } : null,
-  });
-  if (ok) {
-    router.replace('/(tabs)/radar');
-  } else {
-    Alert.alert('Error', 'Could not sync your account. Please try again.');
+  try {
+    const ok = await syncPrivyUser({
+      id: user.id,
+      wallet: walletAddress ? { address: walletAddress } : null,
+      email: emailAddress ? { address: emailAddress } : null,
+    });
+    if (ok) {
+      router.replace('/(tabs)/radar');
+    } else {
+      Alert.alert('Error', 'Could not sync your account. Please try again.');
+    }
+  } catch (err: any) {
+    Alert.alert('Sync Error', err?.message ?? 'Could not sync your account.');
   }
 }
 
@@ -113,7 +117,7 @@ export default function LoginScreen() {
   });
 
   // ── Embedded wallet — auto-created on email login ─────────────────────────
-  const { user: privyUser } = usePrivy();
+  const { user: privyUser, logout: privyLogout, isReady: privyReady } = usePrivy();
   const embeddedWallet = useEmbeddedSolanaWallet();
   const walletSyncedRef = useRef(false);
 
@@ -132,6 +136,13 @@ export default function LoginScreen() {
   // ── External wallet auth (state machine) ──────────────────────────────────
   const { state: walletState, connect: connectWallet, cancel: cancelWallet } = useExternalWalletAuth();
 
+  // ── Clear stale Privy session on mount ───────────────────────────────────
+  useEffect(() => {
+    if (privyReady && privyUser) {
+      privyLogout().catch(() => {});
+    }
+  }, [privyReady]);
+
   // ── Email OTP state ─────────────────────────────────────────────────────
   const [email, setEmail] = useState('');
   const [otpCode, setOtpCode] = useState('');
@@ -146,12 +157,17 @@ export default function LoginScreen() {
       return;
     }
     try {
+      // Clear any stale Privy session before sending code
+      if (privyUser) {
+        await privyLogout().catch(() => {});
+      }
       await sendCode({ email: trimmed });
       setOtpSent(true);
-    } catch {
-      Alert.alert('Error', 'Could not send verification code.');
+    } catch (err: any) {
+      console.error('[login] sendCode error:', err);
+      Alert.alert('Error', err?.message ?? 'Could not send verification code.');
     }
-  }, [email, sendCode]);
+  }, [email, sendCode, privyUser, privyLogout]);
 
   const handleVerifyOtp = useCallback(async () => {
     const trimmed = otpCode.trim();
@@ -161,8 +177,9 @@ export default function LoginScreen() {
     }
     try {
       await loginWithCode({ code: trimmed, email: email.trim() });
-    } catch {
-      Alert.alert('Error', 'Invalid verification code.');
+    } catch (err: any) {
+      console.error('[login] loginWithCode error:', err);
+      Alert.alert('Error', err?.message ?? 'Invalid verification code.');
     }
   }, [otpCode, email, loginWithCode]);
 
