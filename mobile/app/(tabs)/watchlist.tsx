@@ -26,6 +26,8 @@ import { SettingsSheet } from '../../src/components/ui/SettingsSheet';
 import { useToast } from '../../src/components/ui/Toast';
 import { useWatches, useDeleteWatch, useAddWatch } from '../../src/lib/query';
 import { useAuthStore } from '../../src/store/auth';
+import { useHistoryStore } from '../../src/store/history';
+import { RiskBadge } from '../../src/components/ui/RiskBadge';
 import { syncWatchlistCrons } from '../../src/lib/openclaw-cron';
 import { isOpenClawAvailable } from '../../src/lib/openclaw';
 import { queryClient } from '../../src/lib/query-client';
@@ -346,6 +348,12 @@ export default function WatchlistScreen() {
                           <Text style={styles.monitorText}>Monitored</Text>
                         </View>
                       )}
+                      {(() => {
+                        const prev = useHistoryStore.getState().getByMint(item.value);
+                        if (!prev) return null;
+                        const level = prev.riskScore >= 75 ? 'critical' : prev.riskScore >= 50 ? 'high' : prev.riskScore >= 25 ? 'medium' : 'low';
+                        return <RiskBadge level={level} size="sm" />;
+                      })()}
                     </View>
                   </TouchableOpacity>
                 </GlassCard>
