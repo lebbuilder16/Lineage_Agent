@@ -20,23 +20,18 @@ import {
   ChevronRight,
   ArrowLeft,
   Smartphone,
+  Wallet,
 } from 'lucide-react-native';
-import { useLoginWithEmail, useLoginWithSiws } from '@privy-io/expo';
-import {
-  usePhantomDeeplinkWalletConnector,
-  useBackpackDeeplinkWalletConnector,
-  useDeeplinkWalletConnector,
-} from '@privy-io/expo/connectors';
+import { useLoginWithEmail, usePrivy, useEmbeddedSolanaWallet } from '@privy-io/expo';
 import type { User } from '@privy-io/api-types';
 import { AuroraBackground } from '../../src/components/ui/AuroraBackground';
 import { HapticButton } from '../../src/components/ui/HapticButton';
 import { tokens } from '../../src/theme/tokens';
-import { syncPrivyUser } from '../../src/lib/privy-auth';
-
-// ── Constants ────────────────────────────────────────────────────────────────
-
-const APP_URL = 'https://lineageagent.app';
-const REDIRECT_URI = '/(auth)/login';
+import { syncPrivyUser, updateWalletAddress } from '../../src/lib/privy-auth';
+import {
+  useExternalWalletAuth,
+  type WalletBrandId,
+} from '../../src/hooks/useExternalWalletAuth';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -73,7 +68,7 @@ async function handlePrivyLoginSuccess(user: User) {
 // ── Wallet brand configs ─────────────────────────────────────────────────────
 
 interface WalletBrand {
-  id: 'phantom' | 'solflare' | 'backpack';
+  id: WalletBrandId;
   name: string;
   color: string;
   bgColor: string;
@@ -117,88 +112,32 @@ export default function LoginScreen() {
     },
   });
 
-  // ── SIWS (Sign In With Solana) ────────────────────────────────────────────
-  const { generateMessage, login: siwsLogin } = useLoginWithSiws();
+  // ── Embedded wallet — auto-created on email login ─────────────────────────
+  const { user: privyUser } = usePrivy();
+  const embeddedWallet = useEmbeddedSolanaWallet();
+  const walletSyncedRef = useRef(false);
 
-  // ── Privy deep-link wallet connectors ─────────────────────────────────────
-  const phantom = usePhantomDeeplinkWalletConnector({
-    appUrl: APP_URL,
-    redirectUri: REDIRECT_URI,
-    autoReconnect: false,
-  });
+  useEffect(() => {
+    if (
+      embeddedWallet.status === 'connected' &&
+      embeddedWallet.wallets.length > 0 &&
+      !walletSyncedRef.current &&
+      privyUser
+    ) {
+      walletSyncedRef.current = true;
+      updateWalletAddress(privyUser.id, embeddedWallet.wallets[0].address);
+    }
+  }, [embeddedWallet.status]);
 
-  const backpack = useBackpackDeeplinkWalletConnector({
-    appUrl: APP_URL,
-    redirectUri: REDIRECT_URI,
-    autoReconnect: false,
-  });
+  // ── External wallet auth (state machine) ──────────────────────────────────
+  const { state: walletState, connect: connectWallet, cancel: cancelWallet } = useExternalWalletAuth();
 
-  // Solflare uses the generic connector
-  const solflare = useDeeplinkWalletConnector({
-    appUrl: APP_URL,
-    redirectUri: REDIRECT_URI,
-    baseUrl: 'https://solflare.com',
-    encryptionPublicKeyName: 'solflare_encryption_public_key',
-    autoReconnect: false,
-  });
-
-  const connectors = { phantom, solflare, backpack };
-
-  // ── State ─────────────────────────────────────────────────────────────────
+  // ── Email OTP state ─────────────────────────────────────────────────────
   const [email, setEmail] = useState('');
   const [otpCode, setOtpCode] = useState('');
   const [otpSent, setOtpSent] = useState(false);
-  const [connectingWallet, setConnectingWallet] = useState<string | null>(null);
 
-  // ── Watch for wallet connection completion (address populated after deep link return) ──
-  const pendingWalletRef = useRef<'phantom' | 'solflare' | 'backpack' | null>(null);
-
-  useEffect(() => {
-    const brandId = pendingWalletRef.current;
-    if (!brandId) return;
-
-    const connector = connectors[brandId];
-    if (!connector.isConnected || !connector.address) return;
-
-    // Wallet just connected — complete SIWS flow
-    pendingWalletRef.current = null;
-    const walletAddress = connector.address;
-
-    (async () => {
-      try {
-        // Generate SIWS message
-        const { message } = await generateMessage({
-          wallet: { address: walletAddress },
-          from: {
-            domain: 'lineageagent.app',
-            uri: 'https://lineageagent.app',
-          },
-        });
-
-        // Ask wallet to sign the SIWS message
-        const { signature } = await connector.signMessage(message);
-
-        // Login with Privy
-        const user = await siwsLogin({
-          signature,
-          message,
-          wallet: { walletClientType: brandId, connectorType: 'deeplink' },
-        });
-
-        // Sync with backend
-        await handlePrivyLoginSuccess(user);
-      } catch (err: any) {
-        const msg = err?.message || 'Wallet authentication failed.';
-        if (!msg.includes('cancel') && !msg.includes('dismiss')) {
-          Alert.alert('Auth failed', msg);
-        }
-      } finally {
-        setConnectingWallet(null);
-      }
-    })();
-  }, [phantom.isConnected, phantom.address, solflare.isConnected, solflare.address, backpack.isConnected, backpack.address]);
-
-  // ── Email OTP flow ────────────────────────────────────────────────────────
+  // ── Email OTP handlers ──────────────────────────────────────────────────
 
   const handleSendOtp = useCallback(async () => {
     const trimmed = email.trim();
@@ -227,32 +166,36 @@ export default function LoginScreen() {
     }
   }, [otpCode, email, loginWithCode]);
 
-  // ── Wallet connect: initiate deep link, SIWS flow completes in useEffect above ─
-
-  const handleWalletConnect = useCallback(async (brand: WalletBrand) => {
-    setConnectingWallet(brand.id);
-    pendingWalletRef.current = brand.id;
-    const connector = connectors[brand.id];
-
-    try {
-      await connector.connect();
-      // If connector already has address (auto-reconnect), the useEffect will fire.
-      // Otherwise, we wait for the wallet deep link callback to populate address.
-    } catch (err: any) {
-      pendingWalletRef.current = null;
-      setConnectingWallet(null);
-      const msg = err?.message || 'Wallet connection failed.';
-      if (!msg.includes('cancel') && !msg.includes('dismiss')) {
-        Alert.alert('Connection failed', `Could not connect to ${brand.name}.`);
-      }
-    }
-  }, [connectors]);
-
   // ── Skip ──────────────────────────────────────────────────────────────────
 
   const handleSkip = useCallback(() => {
     router.replace('/(tabs)/radar');
   }, []);
+
+  // ── Derived state for wallet cards ────────────────────────────────────────
+
+  const activeWalletId = walletState.status !== 'idle' && walletState.status !== 'done'
+    ? (walletState as any).walletId as WalletBrandId
+    : null;
+
+  const isWalletBusy = activeWalletId !== null;
+
+  function walletHintText(brandId: WalletBrandId): string {
+    if (activeWalletId !== brandId) return 'Tap to connect';
+    switch (walletState.status) {
+      case 'connecting':
+      case 'awaiting_callback':
+        return 'Connecting...';
+      case 'signing':
+        return 'Signing...';
+      case 'authenticating':
+        return 'Authenticating...';
+      case 'error':
+        return (walletState as any).error ?? 'Failed';
+      default:
+        return 'Tap to connect';
+    }
+  }
 
   return (
     <View style={styles.container}>
@@ -290,58 +233,14 @@ export default function LoginScreen() {
                 <ShieldCheck size={20} color={tokens.secondary} strokeWidth={2} />
               </View>
             </View>
-            <Text style={styles.headerTitle}>Connect Wallet</Text>
+            <Text style={styles.headerTitle}>Sign In</Text>
             <Text style={styles.headerSubtitle}>
-              Link your Solana wallet or sign in with email to access full features.
+              Sign in with email to get started, or connect an external Solana wallet.
             </Text>
           </Animated.View>
 
-          {/* Wallet options */}
-          <Animated.View entering={FadeInDown.delay(300).duration(500)} style={styles.walletGrid}>
-            {WALLET_BRANDS.map((wallet, i) => (
-              <Animated.View
-                key={wallet.id}
-                entering={FadeInDown.delay(350 + i * 60).duration(400)}
-              >
-                <Pressable
-                  onPress={() => handleWalletConnect(wallet)}
-                  disabled={!!connectingWallet}
-                  style={({ pressed }) => [
-                    styles.walletCard,
-                    pressed && styles.walletCardPressed,
-                    connectingWallet === wallet.id && styles.walletCardActive,
-                  ]}
-                >
-                  <View style={[styles.walletIcon, { backgroundColor: wallet.bgColor }]}>
-                    <Text style={[styles.walletLetter, { color: wallet.color }]}>
-                      {wallet.letter}
-                    </Text>
-                  </View>
-                  <View style={styles.walletInfo}>
-                    <Text style={styles.walletName}>{wallet.name}</Text>
-                    <Text style={styles.walletHint}>
-                      {connectingWallet === wallet.id ? 'Connecting...' : 'Tap to connect'}
-                    </Text>
-                  </View>
-                  {connectingWallet === wallet.id ? (
-                    <ActivityIndicator size="small" color={wallet.color} />
-                  ) : (
-                    <ChevronRight size={16} color={tokens.white20} strokeWidth={2} />
-                  )}
-                </Pressable>
-              </Animated.View>
-            ))}
-          </Animated.View>
-
-          {/* Divider */}
-          <Animated.View entering={FadeInDown.delay(550).duration(400)} style={styles.dividerRow}>
-            <View style={styles.dividerLine} />
-            <Text style={styles.dividerText}>OR</Text>
-            <View style={styles.dividerLine} />
-          </Animated.View>
-
-          {/* Email OTP section */}
-          <Animated.View entering={FadeInDown.delay(600).duration(400)} style={styles.emailSection}>
+          {/* ── Email OTP section (primary) ──────────────────────────────── */}
+          <Animated.View entering={FadeInDown.delay(300).duration(400)} style={styles.emailSection}>
             <View style={styles.emailTitleRow}>
               <Mail size={14} color={tokens.secondary} strokeWidth={2} />
               <Text style={styles.emailSectionTitle}>Email Sign In</Text>
@@ -424,8 +323,68 @@ export default function LoginScreen() {
             )}
           </Animated.View>
 
+          {/* Divider */}
+          <Animated.View entering={FadeInDown.delay(500).duration(400)} style={styles.dividerRow}>
+            <View style={styles.dividerLine} />
+            <Text style={styles.dividerText}>OR</Text>
+            <View style={styles.dividerLine} />
+          </Animated.View>
+
+          {/* ── External wallet options (secondary) ──────────────────────── */}
+          <Animated.View entering={FadeInDown.delay(550).duration(500)} style={styles.walletSection}>
+            <View style={styles.walletTitleRow}>
+              <Wallet size={14} color={tokens.white35} strokeWidth={2} />
+              <Text style={styles.walletSectionTitle}>External Wallet</Text>
+            </View>
+
+            <View style={styles.walletGrid}>
+              {WALLET_BRANDS.map((wallet, i) => (
+                <Animated.View
+                  key={wallet.id}
+                  entering={FadeInDown.delay(600 + i * 60).duration(400)}
+                >
+                  <Pressable
+                    onPress={() => {
+                      if (walletState.status === 'error') {
+                        cancelWallet();
+                      }
+                      connectWallet(wallet.id);
+                    }}
+                    disabled={isWalletBusy && activeWalletId !== wallet.id}
+                    style={({ pressed }) => [
+                      styles.walletCard,
+                      pressed && styles.walletCardPressed,
+                      activeWalletId === wallet.id && styles.walletCardActive,
+                      walletState.status === 'error' && activeWalletId === wallet.id && styles.walletCardError,
+                    ]}
+                  >
+                    <View style={[styles.walletIcon, { backgroundColor: wallet.bgColor }]}>
+                      <Text style={[styles.walletLetter, { color: wallet.color }]}>
+                        {wallet.letter}
+                      </Text>
+                    </View>
+                    <View style={styles.walletInfo}>
+                      <Text style={styles.walletName}>{wallet.name}</Text>
+                      <Text style={[
+                        styles.walletHint,
+                        walletState.status === 'error' && activeWalletId === wallet.id && styles.walletHintError,
+                      ]}>
+                        {walletHintText(wallet.id)}
+                      </Text>
+                    </View>
+                    {activeWalletId === wallet.id && walletState.status !== 'error' ? (
+                      <ActivityIndicator size="small" color={wallet.color} />
+                    ) : (
+                      <ChevronRight size={16} color={tokens.white20} strokeWidth={2} />
+                    )}
+                  </Pressable>
+                </Animated.View>
+              ))}
+            </View>
+          </Animated.View>
+
           {/* Skip */}
-          <Animated.View entering={FadeInDown.delay(700).duration(400)} style={styles.skipSection}>
+          <Animated.View entering={FadeInDown.delay(750).duration(400)} style={styles.skipSection}>
             <Pressable onPress={handleSkip} hitSlop={8}>
               <Text style={styles.skipText}>Continue without account</Text>
             </Pressable>
@@ -482,69 +441,6 @@ const styles = StyleSheet.create({
     fontSize: tokens.font.body,
     color: tokens.white35,
     lineHeight: 21,
-  },
-
-  // Wallet cards
-  walletGrid: { gap: 8, marginBottom: 20 },
-  walletCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
-    backgroundColor: tokens.bgGlass,
-    borderRadius: tokens.radius.md,
-    borderWidth: 1,
-    borderColor: tokens.borderSubtle,
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-  },
-  walletCardPressed: {
-    backgroundColor: tokens.bgGlass8,
-  },
-  walletCardActive: {
-    borderColor: tokens.borderActive,
-    backgroundColor: tokens.bgGlass8,
-  },
-  walletIcon: {
-    width: 42,
-    height: 42,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  walletLetter: {
-    fontFamily: 'Lexend-Bold',
-    fontSize: 18,
-  },
-  walletInfo: { flex: 1 },
-  walletName: {
-    fontFamily: 'Lexend-SemiBold',
-    fontSize: tokens.font.subheading,
-    color: tokens.white100,
-    marginBottom: 2,
-  },
-  walletHint: {
-    fontFamily: 'Lexend-Regular',
-    fontSize: tokens.font.small,
-    color: tokens.white35,
-  },
-
-  // Divider
-  dividerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
-    marginBottom: 20,
-  },
-  dividerLine: {
-    flex: 1,
-    height: 1,
-    backgroundColor: tokens.borderSubtle,
-  },
-  dividerText: {
-    fontFamily: 'Lexend-SemiBold',
-    fontSize: tokens.font.tiny,
-    color: tokens.white20,
-    letterSpacing: 2,
   },
 
   // Email section
@@ -623,6 +519,88 @@ const styles = StyleSheet.create({
     color: tokens.white35,
     textDecorationLine: 'underline',
     textDecorationColor: tokens.white10,
+  },
+
+  // Divider
+  dividerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    marginBottom: 20,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: tokens.borderSubtle,
+  },
+  dividerText: {
+    fontFamily: 'Lexend-SemiBold',
+    fontSize: tokens.font.tiny,
+    color: tokens.white20,
+    letterSpacing: 2,
+  },
+
+  // Wallet section
+  walletSection: { marginBottom: 24 },
+  walletTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    marginBottom: 10,
+  },
+  walletSectionTitle: {
+    fontFamily: 'Lexend-SemiBold',
+    fontSize: tokens.font.small,
+    color: tokens.white35,
+    letterSpacing: 0.5,
+  },
+  walletGrid: { gap: 8 },
+  walletCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    backgroundColor: tokens.bgGlass,
+    borderRadius: tokens.radius.md,
+    borderWidth: 1,
+    borderColor: tokens.borderSubtle,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+  },
+  walletCardPressed: {
+    backgroundColor: tokens.bgGlass8,
+  },
+  walletCardActive: {
+    borderColor: tokens.borderActive,
+    backgroundColor: tokens.bgGlass8,
+  },
+  walletCardError: {
+    borderColor: `${tokens.error}40`,
+  },
+  walletIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  walletLetter: {
+    fontFamily: 'Lexend-Bold',
+    fontSize: 18,
+  },
+  walletInfo: { flex: 1 },
+  walletName: {
+    fontFamily: 'Lexend-SemiBold',
+    fontSize: tokens.font.subheading,
+    color: tokens.white100,
+    marginBottom: 2,
+  },
+  walletHint: {
+    fontFamily: 'Lexend-Regular',
+    fontSize: tokens.font.small,
+    color: tokens.white35,
+  },
+  walletHintError: {
+    color: tokens.error,
   },
 
   // Skip

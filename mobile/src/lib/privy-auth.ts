@@ -32,6 +32,22 @@ export async function syncPrivyUser(privyUser: PrivyUser): Promise<boolean> {
   }
 }
 
+export async function updateWalletAddress(
+  privyId: string,
+  walletAddress: string,
+): Promise<void> {
+  const { apiKey, user } = useAuthStore.getState();
+  if (!apiKey) return;
+  try {
+    await authLogin(privyId, {
+      wallet_address: walletAddress,
+      email: user?.email ?? undefined,
+    });
+  } catch (err) {
+    console.error('[privy-auth] updateWalletAddress failed:', err);
+  }
+}
+
 export function clearPrivySession(): void {
   useAuthStore.getState().setApiKey(null);
 }
