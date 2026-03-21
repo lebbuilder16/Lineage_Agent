@@ -157,18 +157,10 @@ export default function LoginScreen() {
       const scheme = schemes[brand.id];
       if (!scheme) return;
 
-      const canOpen = await Linking.canOpenURL(scheme);
-      if (!canOpen) {
-        Alert.alert('Not Installed', `${brand.name} wallet is not installed on this device.`);
-        return;
-      }
-
-      // SIWS flow: generate message → wallet signs → login with signature.
-      // Full flow requires wallet address first (returned via deep link callback).
-      // The deep link handler in _layout.tsx completes auth after wallet responds.
+      // Try opening directly — canOpenURL fails on Android without queries declaration
       await Linking.openURL(scheme);
     } catch {
-      Alert.alert('Error', `Could not connect to ${brand.name}.`);
+      Alert.alert('Not Installed', `${brand.name} does not appear to be installed on this device.`);
     } finally {
       setConnectingWallet(null);
     }
