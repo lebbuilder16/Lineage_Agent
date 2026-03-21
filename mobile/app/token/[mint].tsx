@@ -40,6 +40,7 @@ import { HapticButton } from '../../src/components/ui/HapticButton';
 import { useToast } from '../../src/components/ui/Toast';
 import { useLineage } from '../../src/lib/query';
 import { useAuthStore } from '../../src/store/auth';
+import { useHistoryStore } from '../../src/store/history';
 import { addWatch } from '../../src/lib/api';
 import { tokens } from '../../src/theme/tokens';
 import Animated, { FadeInDown, FadeIn } from 'react-native-reanimated';
@@ -191,6 +192,7 @@ export default function TokenScreen() {
   }, [reportExpandMint, mint]);
 
   const apiKey = useAuthStore((s) => s.apiKey);
+  const previousInvestigation = useHistoryStore((s) => s.getByMint(mint ?? ''));
   const addWatchFn = useAuthStore((s) => s.addWatch);
   const watches = useAuthStore((s) => s.watches);
   const alreadyWatched = watches.some((w) => w.value === mint);
@@ -456,6 +458,39 @@ export default function TokenScreen() {
                 </HapticButton>
               )}
             </GlassCard>
+
+            {/* ═══════════════════════════════════════════════════
+                PREVIOUS INVESTIGATION — cross-session memory
+                ═══════════════════════════════════════════════════ */}
+            {previousInvestigation && (
+              <TouchableOpacity onPress={() => router.push(`/investigate/${mint}` as any)} activeOpacity={0.75}>
+                <GlassCard style={{ borderColor: `${tokens.secondary}20`, borderWidth: 1 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                    <Bot size={13} color={tokens.secondary} />
+                    <Text style={{ fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.tiny, color: tokens.secondary, letterSpacing: 1, flex: 1 }}>
+                      PREVIOUS INVESTIGATION
+                    </Text>
+                    <RiskBadge
+                      level={previousInvestigation.riskScore >= 75 ? 'critical' : previousInvestigation.riskScore >= 50 ? 'high' : previousInvestigation.riskScore >= 25 ? 'medium' : 'low'}
+                      size="sm"
+                    />
+                  </View>
+                  <Text style={{ fontFamily: 'Lexend-Regular', fontSize: tokens.font.small, color: tokens.white60 }} numberOfLines={2}>
+                    {previousInvestigation.verdict}
+                  </Text>
+                  <Text style={{ fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny, color: tokens.white35, marginTop: 4 }}>
+                    Risk {previousInvestigation.riskScore}/100 · {(() => {
+                      const diff = Date.now() - previousInvestigation.timestamp;
+                      const mins = Math.floor(diff / 60000);
+                      if (mins < 60) return `${mins}m ago`;
+                      const hrs = Math.floor(mins / 60);
+                      if (hrs < 24) return `${hrs}h ago`;
+                      return `${Math.floor(hrs / 24)}d ago`;
+                    })()}
+                  </Text>
+                </GlassCard>
+              </TouchableOpacity>
+            )}
 
             {/* ═══════════════════════════════════════════════════
                 AGENT SUGGESTIONS — contextual next actions

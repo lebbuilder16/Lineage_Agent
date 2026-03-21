@@ -57,6 +57,7 @@ import { useInvestigateStore } from '../../src/store/investigate';
 import type { AgentStep, ScanStep } from '../../src/store/investigate';
 import { useAuthStore } from '../../src/store/auth';
 import { useSubscriptionStore, useRemainingQuota } from '../../src/store/subscription';
+import { useHistoryStore } from '../../src/store/history';
 import { GlassCard } from '../../src/components/ui/GlassCard';
 import { RiskBadge } from '../../src/components/ui/RiskBadge';
 import { AuroraBackground } from '../../src/components/ui/AuroraBackground';
@@ -484,6 +485,57 @@ function VerdictHero() {
   );
 }
 
+// ─── Verdict Feedback ────────────────────────────────────────────────────────
+
+function VerdictFeedback() {
+  const mint = useInvestigateStore((s) => s.mint);
+  const verdict = useInvestigateStore((s) => s.verdict);
+  const previous = useHistoryStore((s) => mint ? s.getByMint(mint) : undefined);
+  const setFeedback = useHistoryStore((s) => s.setFeedback);
+
+  if (!verdict || !mint) return null;
+  if (previous?.feedback) {
+    return (
+      <Animated.View entering={FadeIn.duration(200)}>
+        <View style={styles.feedbackDone}>
+          <CheckCircle size={14} color={tokens.success} />
+          <Text style={styles.feedbackDoneText}>
+            Feedback recorded: {previous.feedback === 'accurate' ? 'Accurate' : 'Incorrect'}
+          </Text>
+        </View>
+      </Animated.View>
+    );
+  }
+
+  return (
+    <Animated.View entering={FadeInDown.duration(300).springify()}>
+      <GlassCard>
+        <Text style={styles.feedbackTitle}>Was this verdict accurate?</Text>
+        <View style={styles.feedbackRow}>
+          <HapticButton
+            variant="ghost"
+            size="sm"
+            style={styles.feedbackBtn}
+            onPress={() => setFeedback(mint, 'accurate')}
+          >
+            <CheckCircle size={16} color={tokens.success} />
+            <Text style={[styles.feedbackBtnText, { color: tokens.success }]}>Accurate</Text>
+          </HapticButton>
+          <HapticButton
+            variant="ghost"
+            size="sm"
+            style={styles.feedbackBtn}
+            onPress={() => setFeedback(mint, 'incorrect')}
+          >
+            <XOctagon size={16} color={tokens.risk?.high ?? '#FF6B6B'} />
+            <Text style={[styles.feedbackBtnText, { color: tokens.risk?.high ?? '#FF6B6B' }]}>Incorrect</Text>
+          </HapticButton>
+        </View>
+      </GlassCard>
+    </Animated.View>
+  );
+}
+
 // ─── Verdict skeleton (shown while running) ─────────────────────────────────
 
 function VerdictSkeleton() {
@@ -769,24 +821,40 @@ export default function InvestigateScreen() {
         useInvestigateStore.setState({ turnsUsed: result.turns_used, tokensUsed: result.tokens_used });
       }
       useSubscriptionStore.getState().incrementUsage('investigate');
+      // Save to investigation history for cross-session memory
+      const verdict = useInvestigateStore.getState().verdict;
+      if (verdict && mint) {
+        useHistoryStore.getState().addInvestigation({
+          mint,
+          riskScore: verdict.risk_score ?? 0,
+          verdict: verdict.verdict_summary ?? '',
+          keyFindings: Array.isArray(verdict.key_findings) ? verdict.key_findings : [],
+          timestamp: Date.now(),
+        });
+      }
     } else if (!s.error) {
       s.setError('Investigation completed without result');
     }
-  }, []);
+  }, [mint]);
 
   const handleError = useCallback((err: Error) => {
     useInvestigateStore.getState().setError(err.message);
   }, []);
 
-  const startInvestigation = useCallback(() => {
+  const launchStream = useCallback(() => {
     if (!mint) return;
-    useInvestigateStore.getState().startInvestigation(mint, plan);
+    useInvestigateStore.getState().confirmInvestigation();
     cancelRef.current = investigateStream(mint, apiKey ?? '', {
       onEvent: handleEvent,
       onDone: handleDone,
       onError: handleError,
     });
-  }, [mint, apiKey, plan]);
+  }, [mint, apiKey]);
+
+  const startInvestigation = useCallback(() => {
+    if (!mint) return;
+    useInvestigateStore.getState().startInvestigation(mint, plan);
+  }, [mint, plan]);
 
   useEffect(() => {
     startInvestigation();
@@ -802,6 +870,8 @@ export default function InvestigateScreen() {
     cancelRef.current?.();
     useInvestigateStore.getState().reset();
     startInvestigation();
+    // Auto-launch on retry (skip preview)
+    setTimeout(() => launchStream(), 50);
   };
 
   const isRunning = status === 'scanning' || status === 'analyzing' || status === 'reasoning';
@@ -871,6 +941,45 @@ export default function InvestigateScreen() {
         <ElapsedTimer />
       )}
 
+      {/* Intent Preview — show plan before starting */}
+      {status === 'preview' && (
+        <Animated.View entering={FadeInDown.duration(400).springify()} style={styles.previewContainer}>
+          <GlassCard style={styles.previewCard}>
+            <View style={styles.previewHeader}>
+              <Brain size={18} color={tokens.secondary} />
+              <Text style={styles.previewTitle}>INVESTIGATION PLAN</Text>
+            </View>
+            <Text style={styles.previewSubtitle}>I'll analyze this token in 3 phases:</Text>
+            <View style={styles.previewSteps}>
+              <View style={styles.previewStep}>
+                <View style={[styles.previewDot, { backgroundColor: tokens.secondary }]} />
+                <Text style={styles.previewStepText}>Lineage scan + deployer forensics</Text>
+                <Text style={styles.previewEta}>~15s</Text>
+              </View>
+              <View style={styles.previewStep}>
+                <View style={[styles.previewDot, { backgroundColor: tokens.accent }]} />
+                <Text style={styles.previewStepText}>Bundle, cartel & SOL flow check</Text>
+                <Text style={styles.previewEta}>~10s</Text>
+              </View>
+              <View style={styles.previewStep}>
+                <View style={[styles.previewDot, { backgroundColor: tokens.success }]} />
+                <Text style={styles.previewStepText}>AI risk verdict & key findings</Text>
+                <Text style={styles.previewEta}>~10s</Text>
+              </View>
+            </View>
+            <HapticButton
+              variant="primary"
+              size="lg"
+              fullWidth
+              onPress={launchStream}
+              accessibilityLabel="Start investigation"
+            >
+              <Text style={styles.btnText}>START INVESTIGATION</Text>
+            </HapticButton>
+          </GlassCard>
+        </Animated.View>
+      )}
+
       {/* ─── INVERTED PYRAMID LAYOUT ─── */}
       <ScrollView
         ref={scrollRef}
@@ -880,6 +989,9 @@ export default function InvestigateScreen() {
       >
         {/* 1. Verdict hero at TOP (Pro / Pro+) */}
         {status === 'done' && verdict && <VerdictHero />}
+
+        {/* 1a. Verdict feedback */}
+        {status === 'done' && verdict && <VerdictFeedback />}
 
         {/* 1b. Heuristic at TOP (Free tier) */}
         {status === 'done' && heuristicScore != null && !verdict && (
@@ -1152,6 +1264,41 @@ const styles = StyleSheet.create({
     color: tokens.white60, lineHeight: 20, textAlign: 'center',
   },
 
+  // Intent Preview
+  previewContainer: {
+    paddingHorizontal: tokens.spacing.screenPadding,
+    flex: 1, justifyContent: 'center',
+  },
+  previewCard: {
+    borderColor: `${tokens.secondary}30`, borderWidth: 1,
+  },
+  previewHeader: {
+    flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 16,
+  },
+  previewTitle: {
+    fontFamily: 'Lexend-Bold', fontSize: tokens.font.sectionHeader,
+    color: tokens.white100, letterSpacing: 1,
+  },
+  previewSubtitle: {
+    fontFamily: 'Lexend-Regular', fontSize: tokens.font.body,
+    color: tokens.white60, marginBottom: 16,
+  },
+  previewSteps: { gap: 14, marginBottom: 24 },
+  previewStep: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+  },
+  previewDot: {
+    width: 8, height: 8, borderRadius: 4,
+  },
+  previewStepText: {
+    flex: 1, fontFamily: 'Lexend-Medium', fontSize: tokens.font.small,
+    color: tokens.white80,
+  },
+  previewEta: {
+    fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny,
+    color: tokens.white35,
+  },
+
   // Timer
   timerRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
@@ -1160,6 +1307,30 @@ const styles = StyleSheet.create({
   timerText: {
     fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny,
     color: tokens.white35, letterSpacing: 0.3,
+  },
+
+  // Feedback
+  feedbackTitle: {
+    fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.small,
+    color: tokens.white60, textAlign: 'center', marginBottom: 10,
+  },
+  feedbackRow: {
+    flexDirection: 'row', justifyContent: 'center', gap: 16,
+  },
+  feedbackBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    paddingHorizontal: 16, paddingVertical: 8,
+  },
+  feedbackBtnText: {
+    fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.small,
+  },
+  feedbackDone: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 6, paddingVertical: 8,
+  },
+  feedbackDoneText: {
+    fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny,
+    color: tokens.white35,
   },
 
   // Verdict actions

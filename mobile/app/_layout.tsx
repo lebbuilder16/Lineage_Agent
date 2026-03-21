@@ -79,6 +79,10 @@ export default function RootLayout() {
 
   useEffect(() => {
     hydrate();
+    // Hydrate investigation history for cross-session memory
+    import('../src/store/history').then(({ useHistoryStore }) => {
+      useHistoryStore.getState().hydrate();
+    }).catch(() => {});
     Notifications.requestPermissionsAsync().catch(() => {});
     Notifications.setNotificationHandler({
       handleNotification: async () => ({
