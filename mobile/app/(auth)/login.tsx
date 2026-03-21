@@ -36,7 +36,7 @@ import { syncPrivyUser } from '../../src/lib/privy-auth';
 // ── Constants ────────────────────────────────────────────────────────────────
 
 const APP_URL = 'https://lineageagent.app';
-const REDIRECT_URI = '/';
+const REDIRECT_URI = '/(auth)/login';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -124,11 +124,13 @@ export default function LoginScreen() {
   const phantom = usePhantomDeeplinkWalletConnector({
     appUrl: APP_URL,
     redirectUri: REDIRECT_URI,
+    autoReconnect: false,
   });
 
   const backpack = useBackpackDeeplinkWalletConnector({
     appUrl: APP_URL,
     redirectUri: REDIRECT_URI,
+    autoReconnect: false,
   });
 
   // Solflare uses the generic connector
@@ -137,6 +139,7 @@ export default function LoginScreen() {
     redirectUri: REDIRECT_URI,
     baseUrl: 'https://solflare.com',
     encryptionPublicKeyName: 'solflare_encryption_public_key',
+    autoReconnect: false,
   });
 
   const connectors = { phantom, solflare, backpack };
