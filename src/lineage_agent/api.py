@@ -532,22 +532,46 @@ async def get_lineage(
 
 
 async def _warm_heavy_analyses(mint: str, deployer: str):
-    """Pre-compute bundle, sol_flow, cartel in background for fast /investigate."""
+    """Pre-compute bundle, sol_flow, cartel in background for fast /investigate.
+
+    These are the 3 heaviest analyses (10-60s each). By running them here
+    (fire-and-forget after /lineage returns), the /investigate pipeline
+    finds them already cached and completes in 5-7s instead of 20-40s.
+    """
     try:
-        from .bundle_tracker_service import get_cached_bundle_report
-        from .sol_flow_service import get_sol_flow_report
+        from .bundle_tracker_service import analyze_bundle, get_cached_bundle_report
+        from .sol_flow_service import trace_sol_flow, get_sol_flow_report
         from .cartel_service import compute_cartel_report
 
-        async def _safe(coro):
+        async def _safe_bundle():
+            # Skip if already cached
+            cached = await get_cached_bundle_report(mint)
+            if cached:
+                return
             try:
-                await coro
+                await asyncio.wait_for(analyze_bundle(mint, deployer), timeout=90.0)
+            except Exception:
+                pass
+
+        async def _safe_sol_flow():
+            cached = await get_sol_flow_report(mint)
+            if cached:
+                return
+            try:
+                await asyncio.wait_for(trace_sol_flow(mint, deployer), timeout=60.0)
+            except Exception:
+                pass
+
+        async def _safe_cartel():
+            try:
+                await asyncio.wait_for(compute_cartel_report(mint, deployer), timeout=30.0)
             except Exception:
                 pass
 
         await asyncio.gather(
-            _safe(get_cached_bundle_report(mint)),
-            _safe(get_sol_flow_report(mint)),
-            _safe(compute_cartel_report(mint, deployer)),
+            _safe_bundle(),
+            _safe_sol_flow(),
+            _safe_cartel(),
             return_exceptions=True,
         )
         logger.info("[warm] pre-computed bundle/sol_flow/cartel for %s", mint[:12])

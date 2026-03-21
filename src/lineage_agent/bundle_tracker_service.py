@@ -72,9 +72,9 @@ _PUMP_PROGRAM = "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBymtzbm"
 # timeout budget.  (Optimization #6)
 _MAX_PAGINATION_PAGES = 12
 # Concurrency throttle — max parallel RPC calls from the bundle tracker.
-# 3 keeps us well under Helius Starter (10 req/s) even when pre/post-sell
-# analyses fire simultaneously with Phase-1 TX decoding.
-_RPC_CONCURRENCY = 3
+# 8 stays within Helius Growth plan limits (50 req/s) while allowing
+# pre/post-sell analyses + Phase-1 TX decoding to complete faster.
+_RPC_CONCURRENCY = 8
 # Max bundle-window TXs to decode in Phase 1.  The actual Jito bundle lands
 # in the first 2–4 slots; we decode the _MAX_BUNDLE_WALLETS*4 OLDEST TXs
 # in the window (true bundle buys) and skip later regular traders.

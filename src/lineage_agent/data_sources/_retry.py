@@ -1,5 +1,5 @@
 """
-Shared async retry utility with exponential backoff.
+Shared async retry utility with exponential backoff + jitter.
 
 Used by all HTTP data-source clients (DexScreener, Solana RPC, Jupiter)
 to avoid duplicating retry/backoff logic.
@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import random
 from typing import Any, Optional
 
 import httpx
@@ -78,14 +79,16 @@ async def async_http_post_json(
     url: str,
     *,
     json_payload: Any,
-    max_retries: int = 5,
-    backoff_base: float = 2.0,
+    max_retries: int = 3,
+    backoff_base: float = 1.5,
     label: str = "RPC",
 ) -> Optional[Any]:
-    """POST JSON *payload* with retry + exponential backoff.
+    """POST JSON *payload* with retry + exponential backoff + jitter.
 
     Returns parsed JSON body on success, ``None`` on exhausted retries.
     Special handling: 403 returns None immediately, RPC-level errors logged.
+
+    Max wait: 3 retries × 1.5s base = ~10.5s worst case (was 62s with 5×2s).
     """
     for attempt in range(max_retries):
         try:
@@ -107,13 +110,15 @@ async def async_http_post_json(
         except httpx.HTTPStatusError as exc:
             logger.warning("%s HTTP %s", label, exc.response.status_code)
             if attempt < max_retries - 1:
-                await asyncio.sleep(backoff_base * (2 ** attempt))
+                jitter = random.uniform(0, 0.5)
+                await asyncio.sleep(backoff_base * (2 ** attempt) + jitter)
                 continue
             return None
         except httpx.RequestError as exc:
             logger.warning("%s request failed: %s", label, exc)
             if attempt < max_retries - 1:
-                await asyncio.sleep(backoff_base * (2 ** attempt))
+                jitter = random.uniform(0, 0.5)
+                await asyncio.sleep(backoff_base * (2 ** attempt) + jitter)
                 continue
             return None
     return None

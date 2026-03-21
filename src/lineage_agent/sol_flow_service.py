@@ -45,7 +45,7 @@ _MAX_TXN_PER_WALLET = 50
 _MAX_TXN_HOP1_PLUS = 20          # Fewer txs per wallet for hops > 0
 _MAX_FRONTIER_PER_HOP = 8        # Cap BFS frontier to avoid explosion
 _TRACE_TIMEOUT = 45.0
-_HOP_SEM_CONCURRENCY = 5
+_HOP_SEM_CONCURRENCY = 12
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
