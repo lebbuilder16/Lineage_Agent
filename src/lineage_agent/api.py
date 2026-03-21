@@ -1778,6 +1778,35 @@ async def auth_login(body: _LoginRequest, request: Request):
     }
 
 
+@app.post("/auth/admin/upgrade", tags=["auth"])
+async def auth_admin_upgrade(request: Request):
+    """Upgrade a user's plan. Requires admin secret in X-Admin-Secret header."""
+    import os
+    admin_secret = os.environ.get("ADMIN_SECRET", "")
+    if not admin_secret or request.headers.get("X-Admin-Secret") != admin_secret:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    body = await request.json()
+    email = body.get("email")
+    plan = body.get("plan")
+    if not email or not plan:
+        raise HTTPException(status_code=422, detail="email and plan required")
+    from .data_sources._clients import cache as _cache
+    db = await _cache._get_conn()
+    cursor = await db.execute("SELECT id FROM users WHERE email = ?", (email,))
+    row = await cursor.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="User not found")
+    from .auth_service import upgrade_user_plan
+    logger.info("admin upgrade: user_id=%s email=%s plan=%s", row[0], email, plan)
+    try:
+        ok = await upgrade_user_plan(_cache, row[0], plan)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Upgrade failed: {exc}") from exc
+    if not ok:
+        raise HTTPException(status_code=400, detail=f"Invalid plan: {plan!r} for user_id={row[0]}")
+    return {"email": email, "plan": plan, "upgraded": True}
+
+
 @app.get("/auth/me", tags=["auth"])
 async def auth_me(request: Request):
     """Return current user info. Requires X-API-Key header."""
