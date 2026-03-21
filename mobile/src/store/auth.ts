@@ -48,7 +48,13 @@ export const useAuthStore = create<AuthState>((set) => ({
         console.error('[auth] SecureStore.deleteItem failed', e),
       );
     }
-    set({ apiKey: key, user: null, watches: [] });
+    if (!key) {
+      // Full reset on logout — clear all user-scoped data
+      SecureStore.deleteItemAsync(LS_RECENT_KEY).catch(() => {});
+      set({ apiKey: null, user: null, watches: [], scanCount: 0, recentSearches: [], reportExpandMint: null, pendingClockMint: null });
+    } else {
+      set({ apiKey: key, user: null, watches: [] });
+    }
   },
 
   setUser: (user) => set({ user }),

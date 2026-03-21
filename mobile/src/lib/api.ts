@@ -109,10 +109,27 @@ export async function authLogin(
   privyId: string,
   opts?: { wallet_address?: string; email?: string },
 ): Promise<{ api_key: string; wallet_address?: string; email?: string; plan?: string }> {
-  const { data } = await apiClient.POST('/auth/login', {
-    body: { privy_id: privyId, wallet_address: opts?.wallet_address, email: opts?.email },
+  const BASE = (process.env.EXPO_PUBLIC_API_URL ?? 'https://lineage-agent.fly.dev').replace(/\/$/, '');
+  const body = {
+    privy_id: privyId,
+    wallet_address: opts?.wallet_address ?? null,
+    email: opts?.email ?? null,
+  };
+  console.log('[api] authLogin →', BASE, JSON.stringify(body));
+  const res = await fetch(`${BASE}/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
   });
-  return data as unknown as { api_key: string; wallet_address?: string; email?: string; plan?: string };
+  const json = await res.json().catch(() => null);
+  console.log('[api] authLogin ←', res.status, JSON.stringify(json));
+  if (!res.ok) {
+    throw new Error(json?.detail ?? `HTTP ${res.status}`);
+  }
+  if (!json?.api_key) {
+    throw new Error('Backend returned no api_key');
+  }
+  return json;
 }
 
 export async function getMe(apiKey: string): Promise<User> {

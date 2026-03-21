@@ -153,6 +153,9 @@ export function SettingsSheet({ visible, onClose }: SettingsSheetProps) {
   const handleRemove = async () => {
     try { await privyLogout(); } catch { /* best-effort */ }
     setApiKey(null);
+    // Clear cached query data so next user starts fresh
+    const { queryClient } = await import('../../lib/query-client');
+    queryClient.clear();
     onClose();
   };
 
