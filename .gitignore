@@ -55,6 +55,10 @@ htmlcov/
 coverage.xml
 *.cover
 
+# Playwright / E2E test artifacts
+frontend/test-results/
+frontend/playwright-report/
+
 # Docker
 docker-compose.override.yml
 
