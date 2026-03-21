@@ -102,6 +102,17 @@ async def run_forensic_pipeline(
     # Branch B: Deployer-based forensics (needs deployer only)
     # Branch C: On-chain traces (needs mint + deployer)
 
+    # Shared list for sub-task step events (collected during parallel execution,
+    # yielded after gather completes — async generators can't yield from tasks)
+    _step_events: list[dict] = []
+
+    def _sub_step(name: str, status: str, ms: int = 0, ok: bool = True) -> None:
+        """Record a sub-task step event for later emission."""
+        _step_events.append(_evt("step", {
+            "step": name, "status": status, "ms": ms,
+            **({"error": True} if not ok else {}),
+        }))
+
     async def _branch_a_family() -> Any:
         """Search for similar tokens + score + select root (NO forensic enrichment)."""
         from .lineage_detector import detect_lineage
@@ -127,16 +138,21 @@ async def run_forensic_pipeline(
         from .models import TokenMetadata
 
         async def _deployer_profile() -> None:
+            _sub_step("deployer_profile", "running")
+            t = time.monotonic()
             try:
                 results["deployer_profile"] = await asyncio.wait_for(
                     compute_deployer_profile(deployer), timeout=7.0
                 )
+                _sub_step("deployer_profile", "done", ms=int((time.monotonic() - t) * 1000))
             except Exception as e:
                 logger.warning("[pipeline] deployer_profile failed: %s", e)
+                _sub_step("deployer_profile", "done", ms=int((time.monotonic() - t) * 1000), ok=False)
 
         async def _death_clock() -> None:
+            _sub_step("death_clock", "running")
+            t = time.monotonic()
             try:
-                # Build a TokenMetadata for the death clock
                 meta = TokenMetadata(
                     mint=identity.mint,
                     name=identity.name,
@@ -148,20 +164,27 @@ async def run_forensic_pipeline(
                     compute_death_clock(deployer, identity.created_at, token_metadata=meta),
                     timeout=7.0,
                 )
+                _sub_step("death_clock", "done", ms=int((time.monotonic() - t) * 1000))
             except Exception as e:
                 logger.warning("[pipeline] death_clock failed: %s", e)
+                _sub_step("death_clock", "done", ms=int((time.monotonic() - t) * 1000), ok=False)
 
         async def _factory() -> None:
+            _sub_step("factory_rhythm", "running")
+            t = time.monotonic()
             try:
                 results["factory_rhythm"] = await asyncio.wait_for(
                     analyze_factory_rhythm(deployer), timeout=7.0
                 )
+                _sub_step("factory_rhythm", "done", ms=int((time.monotonic() - t) * 1000))
             except Exception as e:
                 logger.warning("[pipeline] factory failed: %s", e)
+                _sub_step("factory_rhythm", "done", ms=int((time.monotonic() - t) * 1000), ok=False)
 
         async def _fingerprint() -> None:
+            _sub_step("operator_fingerprint", "running")
+            t = time.monotonic()
             try:
-                # Build fingerprint from deployer's token history
                 from .data_sources._clients import get_rpc_client
                 rpc = get_rpc_client()
                 assets = await rpc.search_assets_by_creator(deployer, limit=50)
@@ -177,8 +200,10 @@ async def run_forensic_pipeline(
                     results["operator_fingerprint"] = await asyncio.wait_for(
                         build_operator_fingerprint(uri_tuples), timeout=8.0
                     )
+                _sub_step("operator_fingerprint", "done", ms=int((time.monotonic() - t) * 1000))
             except Exception as e:
                 logger.warning("[pipeline] fingerprint failed: %s", e)
+                _sub_step("operator_fingerprint", "done", ms=int((time.monotonic() - t) * 1000), ok=False)
 
         # Run all 4 in parallel
         await asyncio.gather(
@@ -195,46 +220,55 @@ async def run_forensic_pipeline(
         from .bundle_tracker_service import get_cached_bundle_report, analyze_bundle
 
         async def _sol_flow() -> None:
-            # Try cache first, if miss run full trace
+            _sub_step("sol_flow", "running")
+            t = time.monotonic()
             try:
                 cached = await get_sol_flow_report(mint)
                 if cached:
                     results["sol_flow"] = cached
+                    _sub_step("sol_flow", "done", ms=int((time.monotonic() - t) * 1000))
                     return
-                # Cache miss — run full SOL flow trace
                 if deployer:
                     results["sol_flow"] = await asyncio.wait_for(
                         trace_sol_flow(mint, deployer), timeout=35.0,
                     )
+                _sub_step("sol_flow", "done", ms=int((time.monotonic() - t) * 1000))
             except Exception as e:
                 logger.warning("[pipeline] sol_flow failed: %s", e)
+                _sub_step("sol_flow", "done", ms=int((time.monotonic() - t) * 1000), ok=False)
 
         async def _bundle() -> None:
-            # Try cache first, if miss run full bundle analysis
+            _sub_step("bundle", "running")
+            t = time.monotonic()
             try:
                 cached = await get_cached_bundle_report(mint)
                 if cached:
                     results["bundle_report"] = cached
+                    _sub_step("bundle", "done", ms=int((time.monotonic() - t) * 1000))
                     return
-                # Cache miss — run full bundle analysis
                 if deployer:
                     results["bundle_report"] = await asyncio.wait_for(
                         analyze_bundle(mint, deployer), timeout=35.0,
                     )
+                _sub_step("bundle", "done", ms=int((time.monotonic() - t) * 1000))
             except Exception as e:
                 logger.warning("[pipeline] bundle failed: %s", e)
+                _sub_step("bundle", "done", ms=int((time.monotonic() - t) * 1000), ok=False)
 
         async def _cartel() -> None:
             if not deployer:
                 return
-            # If warm cache hit: returns in <100ms. If cold: needs 5-15s for edge detection.
+            _sub_step("cartel", "running")
+            t = time.monotonic()
             try:
                 from .cartel_service import compute_cartel_report
                 results["cartel_report"] = await asyncio.wait_for(
                     compute_cartel_report(mint, deployer), timeout=20.0
                 )
+                _sub_step("cartel", "done", ms=int((time.monotonic() - t) * 1000))
             except Exception as e:
                 logger.warning("[pipeline] cartel failed: %s", e)
+                _sub_step("cartel", "done", ms=int((time.monotonic() - t) * 1000), ok=False)
 
         await asyncio.gather(
             _sol_flow(), _bundle(), _cartel(),
@@ -264,8 +298,11 @@ async def run_forensic_pipeline(
                 if not t.done():
                     t.cancel()
             break
-        # Wait up to _KEEPALIVE_INTERVAL, then yield a ping
+        # Wait up to _KEEPALIVE_INTERVAL, then yield a ping + flush sub-step events
         await asyncio.sleep(min(_KEEPALIVE_INTERVAL, remaining))
+        # Flush any sub-step events accumulated during this interval
+        while _step_events:
+            yield _step_events.pop(0)
         elapsed = int((time.monotonic() - t_fork) * 1000)
         yield _evt("ping", {"elapsed_ms": elapsed})
 
@@ -281,6 +318,10 @@ async def run_forensic_pipeline(
     family_result = _safe_result(task_a)
     deployer_results = _safe_result(task_b)
     chain_results = _safe_result(task_c)
+
+    # Flush any remaining sub-step events
+    while _step_events:
+        yield _step_events.pop(0)
 
     fork_ms = int((time.monotonic() - t_fork) * 1000)
 
@@ -318,6 +359,8 @@ async def run_forensic_pipeline(
         yield _evt("step", {"step": "dependent_enrichers", "status": "running"})
 
         async def _insider() -> None:
+            _sub_step("insider_sell", "running")
+            t = time.monotonic()
             try:
                 from .insider_sell_service import analyze_insider_sell
                 from .data_sources._clients import get_rpc_client
@@ -327,30 +370,41 @@ async def run_forensic_pipeline(
                         mint, deployer, linked_wallets,
                         identity.pairs, rpc,
                     ),
-                    timeout=5.0,
+                    timeout=8.0,
                 )
+                _sub_step("insider_sell", "done", ms=int((time.monotonic() - t) * 1000))
             except Exception as e:
                 logger.warning("[pipeline] insider_sell failed: %s", e)
+                _sub_step("insider_sell", "done", ms=int((time.monotonic() - t) * 1000), ok=False)
 
         async def _impact() -> None:
+            _sub_step("operator_impact", "running")
+            t = time.monotonic()
             try:
                 from .operator_impact_service import compute_operator_impact
-                # compute_operator_impact takes fingerprint string + linked_wallets
                 fp_str = fingerprint.fingerprint if fingerprint else ""
                 if fp_str and linked_wallets:
                     report.operator_impact = await asyncio.wait_for(
                         compute_operator_impact(fp_str, linked_wallets),
-                        timeout=7.0,
+                        timeout=8.0,
                     )
+                _sub_step("operator_impact", "done", ms=int((time.monotonic() - t) * 1000))
             except Exception as e:
                 logger.warning("[pipeline] operator_impact failed: %s", e)
+                _sub_step("operator_impact", "done", ms=int((time.monotonic() - t) * 1000), ok=False)
 
         dep_task = asyncio.ensure_future(
             asyncio.gather(_insider(), _impact(), return_exceptions=True)
         )
         while not dep_task.done():
             await asyncio.sleep(min(_KEEPALIVE_INTERVAL, 5.0))
+            while _step_events:
+                yield _step_events.pop(0)
             yield _evt("ping", {"elapsed_ms": int((time.monotonic() - t_fork) * 1000)})
+
+        # Flush remaining sub-step events from dependent enrichers
+        while _step_events:
+            yield _step_events.pop(0)
 
         dep_ms = int((time.monotonic() - t_dep) * 1000)
         yield _evt("step", {"step": "dependent_enrichers", "status": "done", "ms": dep_ms})
