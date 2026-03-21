@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 
 # SSE keepalive interval (seconds) — prevents Fly proxy idle timeout
 _KEEPALIVE_INTERVAL = 3.0
-_PIPELINE_TIMEOUT = 45.0
+_PIPELINE_TIMEOUT = 90.0
 
 
 @dataclass
@@ -191,37 +191,47 @@ async def run_forensic_pipeline(
         """SOL flow trace + cartel edges + bundle analysis."""
         results: dict[str, Any] = {}
 
-        from .sol_flow_service import get_sol_flow_report
-        from .bundle_tracker_service import get_cached_bundle_report
+        from .sol_flow_service import get_sol_flow_report, trace_sol_flow
+        from .bundle_tracker_service import get_cached_bundle_report, analyze_bundle
 
         async def _sol_flow() -> None:
-            # Reads warm cache (pre-computed by /lineage background task) — 5s is plenty
+            # Try cache first, if miss run full trace
             try:
-                results["sol_flow"] = await asyncio.wait_for(
-                    get_sol_flow_report(mint, force_refresh=force_refresh),
-                    timeout=5.0,
-                )
+                cached = await get_sol_flow_report(mint)
+                if cached:
+                    results["sol_flow"] = cached
+                    return
+                # Cache miss — run full SOL flow trace
+                if deployer:
+                    results["sol_flow"] = await asyncio.wait_for(
+                        trace_sol_flow(mint, deployer), timeout=35.0,
+                    )
             except Exception as e:
                 logger.warning("[pipeline] sol_flow failed: %s", e)
 
         async def _bundle() -> None:
-            # Reads warm cache — pure DB read, 5s is plenty
+            # Try cache first, if miss run full bundle analysis
             try:
-                results["bundle_report"] = await asyncio.wait_for(
-                    get_cached_bundle_report(mint, force_refresh=force_refresh),
-                    timeout=5.0,
-                )
+                cached = await get_cached_bundle_report(mint)
+                if cached:
+                    results["bundle_report"] = cached
+                    return
+                # Cache miss — run full bundle analysis
+                if deployer:
+                    results["bundle_report"] = await asyncio.wait_for(
+                        analyze_bundle(mint, deployer), timeout=35.0,
+                    )
             except Exception as e:
                 logger.warning("[pipeline] bundle failed: %s", e)
 
         async def _cartel() -> None:
             if not deployer:
                 return
-            # Community detection from pre-computed edges — 5s is plenty
+            # If warm cache hit: returns in <100ms. If cold: needs 5-15s for edge detection.
             try:
                 from .cartel_service import compute_cartel_report
                 results["cartel_report"] = await asyncio.wait_for(
-                    compute_cartel_report(mint, deployer), timeout=5.0
+                    compute_cartel_report(mint, deployer), timeout=20.0
                 )
             except Exception as e:
                 logger.warning("[pipeline] cartel failed: %s", e)
