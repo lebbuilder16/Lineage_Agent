@@ -29,12 +29,13 @@ interface HapticButtonProps extends Omit<PressableProps, 'style'> {
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
 const GRADIENTS = {
-  // Figma: from-[#091A7A] to-[#4F8EFF] — the exact gradient used on all primary CTAs
-  primary: [tokens.primary, '#4F8EFF'] as const,
-  // Figma: secondary (#ADC8FF) — no two-stop gradient specified; use flat secondary
+  // 3-stop mesh: violet → indigo → periwinkle (bioluminescent 2026)
+  primary: tokens.gradient.primaryCTA as unknown as readonly string[],
+  // Flat ice blue secondary
   secondary: [tokens.secondary, tokens.secondary] as const,
   ghost: ['transparent', 'transparent'] as const,
-  destructive: [tokens.error, tokens.accent] as const,
+  // Crimson depth → neon pink
+  destructive: tokens.gradient.danger as unknown as readonly string[],
 };
 
 export function HapticButton({

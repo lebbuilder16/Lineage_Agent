@@ -82,13 +82,24 @@ const TOOL_META: Record<string, { label: string; Icon: React.ElementType }> = {
   compare_tokens:      { label: 'Token Compare',    Icon: GitCompareArrows },
 };
 
-const SCAN_STEPS: Record<string, { label: string; Icon: React.ElementType }> = {
-  lineage:  { label: 'Lineage Trace',    Icon: Search },
-  deployer: { label: 'Deployer Profile', Icon: User },
-  cartel:   { label: 'Cartel Detection', Icon: Network },
-  bundle:   { label: 'Bundle Analysis',  Icon: Package },
-  sol_flow: { label: 'SOL Flow',         Icon: ArrowRightLeft },
-  ai:       { label: 'AI Analysis',      Icon: Brain },
+const SCAN_STEPS: Record<string, { label: string; Icon: React.ElementType; color: string }> = {
+  identity:             { label: 'Token Identity',        Icon: Search,         color: tokens.step.identity },
+  family_search:        { label: 'Family Search',         Icon: Search,         color: tokens.step.identity },
+  lineage:              { label: 'Lineage Trace',         Icon: Search,         color: tokens.step.identity },
+  deployer_profile:     { label: 'Deployer Profile',      Icon: User,           color: tokens.step.deployer_profile },
+  deployer:             { label: 'Deployer Profile',      Icon: User,           color: tokens.step.deployer_profile },
+  death_clock:          { label: 'Death Clock',           Icon: Clock,          color: tokens.step.death_clock },
+  factory_rhythm:       { label: 'Factory Rhythm',        Icon: Network,        color: tokens.step.factory_rhythm },
+  operator_fingerprint: { label: 'Operator Fingerprint',  Icon: User,           color: tokens.step.operator_fingerprint },
+  cartel:               { label: 'Cartel Detection',      Icon: Network,        color: tokens.step.cartel },
+  bundle:               { label: 'Bundle Analysis',       Icon: Package,        color: tokens.step.bundle },
+  sol_flow:             { label: 'SOL Flow Trace',        Icon: ArrowRightLeft, color: tokens.step.sol_flow },
+  insider_sell:         { label: 'Insider Sell',           Icon: ArrowRightLeft, color: tokens.step.insider_sell },
+  operator_impact:      { label: 'Operator Impact',       Icon: User,           color: tokens.step.operator_impact },
+  dependent_enrichers:  { label: 'Deep Analysis',         Icon: Brain,          color: tokens.violet },
+  deployer_forensics:   { label: 'Deployer Forensics',    Icon: User,           color: tokens.step.deployer_profile },
+  chain_traces:         { label: 'Chain Traces',          Icon: ArrowRightLeft, color: tokens.cyan },
+  ai:                   { label: 'AI Analysis',           Icon: Brain,          color: tokens.lavender },
 };
 
 const SCAN_STEP_COUNT = Object.keys(SCAN_STEPS).length;
@@ -212,9 +223,11 @@ function groupToolCalls(steps: AgentStep[]): GroupedTool[] {
 // ─── Scan step card ──────────────────────────────────────────────────────────
 
 function ScanStepCard({ step }: { step: ScanStep }) {
-  const meta = SCAN_STEPS[step.step] ?? { label: step.step, Icon: Clock };
+  const meta = SCAN_STEPS[step.step] ?? { label: step.step, Icon: Clock, color: tokens.secondary };
   const StepIcon = meta.Icon;
+  const stepColor = meta.color;
   const isDone = step.status === 'done';
+  const hasError = (step as Record<string, unknown>).error === true;
 
   return (
     <Animated.View entering={FadeInDown.duration(200).springify()}>
@@ -223,16 +236,20 @@ function ScanStepCard({ step }: { step: ScanStep }) {
         accessibilityLabel={`${meta.label} — ${isDone ? 'complete' : 'in progress'}`}
       >
         {isDone ? (
-          <CheckCircle size={16} color={tokens.success} />
+          hasError
+            ? <AlertTriangle size={16} color={tokens.warning} />
+            : <CheckCircle size={16} color={tokens.success} />
         ) : (
-          <Spinner size={16} color={tokens.secondary} />
+          <Spinner size={16} color={stepColor} />
         )}
-        <StepIcon size={14} color={isDone ? tokens.white60 : tokens.secondary} />
+        <StepIcon size={14} color={isDone ? (hasError ? tokens.warning : `${stepColor}99`) : stepColor} />
         <Text style={[styles.scanStepLabel, isDone && styles.scanStepDone]}>
           {meta.label}
         </Text>
         {isDone && step.ms != null && (
-          <Text style={styles.scanStepMs}>{step.ms}ms</Text>
+          <Text style={[styles.scanStepMs, { color: hasError ? tokens.warning : tokens.white35 }]}>
+            {step.ms >= 1000 ? `${(step.ms / 1000).toFixed(1)}s` : `${step.ms}ms`}
+          </Text>
         )}
       </View>
     </Animated.View>
