@@ -1556,6 +1556,7 @@ async def investigate_token(
     from .data_sources._clients import cache as _cache
 
     async def _generator():
+        import json as _json
         try:
             async for event in run_investigation(
                 mint, tier=tier, cache=_cache, user_id=user_id,
@@ -1564,7 +1565,7 @@ async def investigate_token(
                 # Store verdict in investigations table for server-side history
                 if user_id and event.get("event") == "verdict":
                     ev_data = event.get("data", "")
-                    verdict_dict = json.loads(ev_data) if isinstance(ev_data, str) else ev_data
+                    verdict_dict = _json.loads(ev_data) if isinstance(ev_data, str) else ev_data
                     if isinstance(verdict_dict, dict):
                         asyncio.create_task(
                             _store_investigation(_cache, user_id, mint, verdict_dict)
@@ -1573,7 +1574,7 @@ async def investigate_token(
             logger.exception("[investigate] unhandled error for %s", mint[:12])
             yield {
                 "event": "error",
-                "data": json.dumps({"detail": f"Investigation failed: {type(exc).__name__}", "recoverable": False}),
+                "data": _json.dumps({"detail": f"Investigation failed: {type(exc).__name__}", "recoverable": False}),
             }
 
     return EventSourceResponse(_generator())
@@ -2617,6 +2618,7 @@ async def get_agent_status(request: Request):
 @app.get("/agent/history", tags=["agent"])
 async def get_investigation_history(request: Request):
     """Return user's investigation history (server-side memory)."""
+    import json as _json  # noqa: PLC0415
     user = await _get_current_user(request)
     from .data_sources._clients import cache as _cache  # noqa: PLC0415
     db = await _cache._get_conn()
@@ -2631,7 +2633,7 @@ async def get_investigation_history(request: Request):
     for r in rows:
         findings = r[5]
         try:
-            findings = json.loads(findings) if findings else []
+            findings = _json.loads(findings) if findings else []
         except Exception:
             findings = []
         results.append({
