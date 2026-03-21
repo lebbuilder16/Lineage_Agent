@@ -911,7 +911,11 @@ export default function InvestigateScreen() {
       </ScrollView>
 
       {/* Chat panel (Pro+ only, after investigation done) */}
-      {status === 'done' && chatAvailable && mint && <ChatPanel mint={mint} />}
+      {status === 'done' && chatAvailable && mint && (
+        <View style={{ paddingBottom: Math.max(insets.bottom, 8) }}>
+          <ChatPanel mint={mint} />
+        </View>
+      )}
 
       {/* Toast overlay */}
       {toast}
@@ -1109,7 +1113,7 @@ const styles = StyleSheet.create({
     fontFamily: 'Lexend-Medium', fontSize: tokens.font.small, color: tokens.secondary,
   },
   chatPanel: {
-    maxHeight: 300,
+    maxHeight: 420,
     borderTopWidth: 2, borderTopColor: tokens.secondary + '40',
   },
   chatHandle: { alignItems: 'center', paddingVertical: 8 },
