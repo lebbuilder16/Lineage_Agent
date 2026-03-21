@@ -18,6 +18,7 @@ import { useAuthStore } from '../../store/auth';
 import { useOpenClawStore } from '../../store/openclaw';
 import { useAlertPrefsStore } from '../../store/alert-prefs';
 import { connectOpenClaw, disconnectOpenClaw } from '../../lib/openclaw';
+import { usePrivy } from '@privy-io/expo';
 import type { AlertChannelId } from '../../types/openclaw';
 
 const CHANNEL_LABELS: Record<AlertChannelId, string> = {
@@ -105,6 +106,7 @@ interface SettingsSheetProps {
 export function SettingsSheet({ visible, onClose }: SettingsSheetProps) {
   const apiKey = useAuthStore((s) => s.apiKey);
   const setApiKey = useAuthStore((s) => s.setApiKey);
+  const { logout: privyLogout } = usePrivy();
   const [pendingKey, setPendingKey] = useState('');
 
   const { host, connected, status } = useOpenClawStore();
@@ -148,7 +150,8 @@ export function SettingsSheet({ visible, onClose }: SettingsSheetProps) {
     }
   };
 
-  const handleRemove = () => {
+  const handleRemove = async () => {
+    try { await privyLogout(); } catch { /* best-effort */ }
     setApiKey(null);
     onClose();
   };

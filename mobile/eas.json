@@ -21,7 +21,8 @@
       "ios": { "simulator": true },
       "env": {
         "EXPO_PUBLIC_API_URL": "https://lineage-agent.fly.dev",
-        "EXPO_PUBLIC_PRIVY_APP_ID": "cmmh5ec23067i0djpthc30w9l"
+        "EXPO_PUBLIC_PRIVY_APP_ID": "cmmh5ec23067i0djpthc30w9l",
+        "EXPO_PUBLIC_PRIVY_CLIENT_ID": "client-WY6WthGNjAZuESsrJRZ6V4ZPyqMuL8DLzHF3iBvfezcL4"
       }
     },
     "production": {
@@ -29,7 +30,8 @@
       "channel": "production",
       "env": {
         "EXPO_PUBLIC_API_URL": "https://lineage-agent.fly.dev",
-        "EXPO_PUBLIC_PRIVY_APP_ID": "cmmh5ec23067i0djpthc30w9l"
+        "EXPO_PUBLIC_PRIVY_APP_ID": "cmmh5ec23067i0djpthc30w9l",
+        "EXPO_PUBLIC_PRIVY_CLIENT_ID": "client-WY6WthGNjAZuESsrJRZ6V4ZPyqMuL8DLzHF3iBvfezcL4"
       }
     }
   },

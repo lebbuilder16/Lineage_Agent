@@ -23,6 +23,7 @@ import { ErrorBoundary } from '../src/components/ui/ErrorBoundary';
 import { useAuthStore } from '../src/store/auth';
 
 const PRIVY_APP_ID = process.env.EXPO_PUBLIC_PRIVY_APP_ID || '';
+const PRIVY_CLIENT_ID = process.env.EXPO_PUBLIC_PRIVY_CLIENT_ID || '';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -190,6 +191,7 @@ export default function RootLayout() {
       {PRIVY_APP_ID ? (
         <PrivyProvider
           appId={PRIVY_APP_ID}
+          clientId={PRIVY_CLIENT_ID || undefined}
           config={{
             embedded: {
               solana: {

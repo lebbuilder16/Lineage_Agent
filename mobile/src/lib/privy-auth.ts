@@ -26,9 +26,11 @@ export async function syncPrivyUser(privyUser: PrivyUser): Promise<boolean> {
     } catch { /* best-effort */ }
 
     return true;
-  } catch (err) {
+  } catch (err: any) {
     console.error('[privy-auth] syncPrivyUser failed:', err);
-    return false;
+    const detail =
+      err?.detail ?? err?.message ?? 'Unknown error';
+    throw new Error(detail);
   }
 }
 

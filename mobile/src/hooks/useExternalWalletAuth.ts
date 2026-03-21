@@ -195,7 +195,7 @@ export function useExternalWalletAuth() {
           dispatch({ type: 'AUTH_SUCCESS' });
           router.replace('/(tabs)/radar');
         } else {
-          dispatch({ type: 'ERROR', error: 'Could not sync your account.' });
+          dispatch({ type: 'ERROR', error: 'Sync failed — no API key returned.' });
         }
       } catch (err: any) {
         if (signal?.aborted) return;
