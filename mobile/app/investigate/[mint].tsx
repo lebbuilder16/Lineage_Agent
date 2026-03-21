@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useCallback, useState } from 'react';
+import React, { useEffect, useRef, useCallback, useState, useMemo } from 'react';
 import {
   View,
   Text,
@@ -9,11 +9,13 @@ import {
   FlatList,
   KeyboardAvoidingView,
   Platform,
+  Linking,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router, Stack } from 'expo-router';
 import {
   ChevronLeft,
+  ChevronDown,
   X,
   CheckCircle,
   AlertTriangle,
@@ -28,16 +30,19 @@ import {
   Fingerprint,
   GitCompareArrows,
   Send,
-  ChevronUp,
-  Lock,
-  ArrowUpRight,
+  Copy,
+  ExternalLink,
+  ShieldCheck,
+  ShieldAlert,
+  XOctagon,
 } from 'lucide-react-native';
+import * as Clipboard from 'expo-clipboard';
+import * as Haptics from 'expo-haptics';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
   withRepeat,
   withTiming,
-  withSpring,
   FadeIn,
   FadeInDown,
   Easing,
@@ -53,8 +58,12 @@ import { GlassCard } from '../../src/components/ui/GlassCard';
 import { RiskBadge } from '../../src/components/ui/RiskBadge';
 import { AuroraBackground } from '../../src/components/ui/AuroraBackground';
 import { HapticButton } from '../../src/components/ui/HapticButton';
+import { GaugeRing } from '../../src/components/ui/GaugeRing';
+import { SkeletonLoader, SkeletonBlock } from '../../src/components/ui/SkeletonLoader';
+import { UpgradePrompt } from '../../src/components/ui/UpgradePrompt';
+import { useToast } from '../../src/components/ui/Toast';
+import { shortAddr, timeAgo } from '../../src/lib/format';
 import { tokens } from '../../src/theme/tokens';
-import type { PlanTier } from '../../src/lib/tier-limits';
 
 // ─── Tool meta ───────────────────────────────────────────────────────────────
 
@@ -77,6 +86,54 @@ const SCAN_STEPS: Record<string, { label: string; Icon: React.ElementType }> = {
   sol_flow: { label: 'SOL Flow',         Icon: ArrowRightLeft },
   ai:       { label: 'AI Analysis',      Icon: Brain },
 };
+
+const SCAN_STEP_COUNT = Object.keys(SCAN_STEPS).length;
+
+// ─── Finding category badges ────────────────────────────────────────────────
+
+const FINDING_CATEGORIES: Record<string, { color: string; icon: React.ElementType }> = {
+  FINANCIAL:     { color: tokens.risk?.high ?? '#FF9933',     icon: TrendingDown },
+  EXIT:          { color: tokens.risk?.critical ?? '#FF3366', icon: XOctagon },
+  COORDINATION:  { color: tokens.risk?.critical ?? '#FF3366', icon: Network },
+  DEPLOYMENT:    { color: tokens.risk?.medium ?? '#F59E0B',   icon: Package },
+  IDENTITY:      { color: tokens.secondary,                   icon: Fingerprint },
+  TIMING:        { color: tokens.risk?.medium ?? '#F59E0B',   icon: Clock },
+};
+
+function parseFinding(text: string): { category: string | null; body: string } {
+  const match = text.match(/^\[([A-Z_]+)\]\s*(.*)$/);
+  if (match) return { category: match[1], body: match[2] };
+  return { category: null, body: text };
+}
+
+// ─── Risk level helpers ─────────────────────────────────────────────────────
+
+type RiskLevel = 'low' | 'medium' | 'high' | 'critical';
+
+function riskColor(score: number): string {
+  if (score >= 75) return tokens.risk?.critical ?? '#FF3366';
+  if (score >= 50) return tokens.risk?.high ?? '#FF9933';
+  if (score >= 25) return tokens.risk?.medium ?? '#F59E0B';
+  return tokens.risk?.low ?? '#00FF88';
+}
+
+function riskLevel(score: number): RiskLevel {
+  if (score >= 75) return 'critical';
+  if (score >= 50) return 'high';
+  if (score >= 25) return 'medium';
+  return 'low';
+}
+
+/** Colorblind-safe icon companion for risk levels */
+function RiskIcon({ level, size = 14 }: { level: RiskLevel; size?: number }) {
+  const color = tokens.risk?.[level] ?? tokens.white60;
+  switch (level) {
+    case 'low': return <ShieldCheck size={size} color={color} />;
+    case 'medium': return <AlertTriangle size={size} color={color} />;
+    case 'high': return <ShieldAlert size={size} color={color} />;
+    case 'critical': return <XOctagon size={size} color={color} />;
+  }
+}
 
 // ─── Spinner ─────────────────────────────────────────────────────────────────
 
@@ -101,13 +158,51 @@ function Spinner({ size = 20, color = tokens.secondary }: { size?: number; color
   );
 }
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+// ─── Pulsing dot (chat indicator) ───────────────────────────────────────────
 
-function riskColor(score: number): string {
-  if (score >= 75) return tokens.risk?.critical ?? '#FF3366';
-  if (score >= 50) return tokens.risk?.high ?? '#FF6B6B';
-  if (score >= 25) return tokens.risk?.medium ?? '#FFB700';
-  return tokens.risk?.low ?? '#00FF88';
+function PulsingDot({ color = tokens.secondary, size = 8 }: { color?: string; size?: number }) {
+  const opacity = useSharedValue(1);
+  useEffect(() => {
+    opacity.value = withRepeat(
+      withTiming(0.3, { duration: 800, easing: Easing.inOut(Easing.ease) }),
+      -1, true,
+    );
+  }, []);
+  const animStyle = useAnimatedStyle(() => ({ opacity: opacity.value }));
+  return (
+    <Animated.View
+      style={[{ width: size, height: size, borderRadius: size / 2, backgroundColor: color }, animStyle]}
+    />
+  );
+}
+
+// ─── Tool call deduplication ────────────────────────────────────────────────
+
+interface GroupedTool {
+  toolName: string;
+  callCount: number;
+  latestResult: AgentStep | null;
+  latestCall: AgentStep | null;
+  hasError: boolean;
+}
+
+function groupToolCalls(steps: AgentStep[]): GroupedTool[] {
+  const map = new Map<string, GroupedTool>();
+  for (const step of steps) {
+    if (step.type !== 'tool_call' && step.type !== 'tool_result') continue;
+    const tool = String(step.data.tool ?? 'unknown');
+    const existing = map.get(tool) ?? { toolName: tool, callCount: 0, latestResult: null, latestCall: null, hasError: false };
+    if (step.type === 'tool_call') {
+      existing.callCount++;
+      existing.latestCall = step;
+    }
+    if (step.type === 'tool_result') {
+      existing.latestResult = step;
+      if (step.data.error) existing.hasError = true;
+    }
+    map.set(tool, existing);
+  }
+  return Array.from(map.values());
 }
 
 // ─── Scan step card ──────────────────────────────────────────────────────────
@@ -119,7 +214,10 @@ function ScanStepCard({ step }: { step: ScanStep }) {
 
   return (
     <Animated.View entering={FadeInDown.duration(200).springify()}>
-      <View style={styles.scanStepRow}>
+      <View
+        style={styles.scanStepRow}
+        accessibilityLabel={`${meta.label} — ${isDone ? 'complete' : 'in progress'}`}
+      >
         {isDone ? (
           <CheckCircle size={16} color={tokens.success} />
         ) : (
@@ -137,115 +235,230 @@ function ScanStepCard({ step }: { step: ScanStep }) {
   );
 }
 
-// ─── Agent step cards (reused from agent screen) ─────────────────────────────
+// ─── Collapsible forensic scan section ──────────────────────────────────────
 
-function ThinkingCard({ step }: { step: AgentStep }) {
+function ForensicScanSection({ steps, isRunning }: { steps: ScanStep[]; isRunning: boolean }) {
+  const [expanded, setExpanded] = useState(true);
+  const doneCount = steps.filter(s => s.status === 'done').length;
+
+  // Auto-collapse 500ms after scan finishes
+  useEffect(() => {
+    if (!isRunning && steps.length > 0) {
+      const timer = setTimeout(() => setExpanded(false), 500);
+      return () => clearTimeout(timer);
+    }
+  }, [isRunning, steps.length]);
+
   return (
     <Animated.View entering={FadeInDown.duration(250).springify()}>
       <GlassCard>
-        <View style={styles.stepRow}>
-          <Brain size={18} color={tokens.white60} />
-          <Text style={styles.thinkingText} numberOfLines={4}>
-            {String(step.data.text ?? 'Reasoning...')}
-          </Text>
-        </View>
+        <TouchableOpacity
+          onPress={() => setExpanded(e => !e)}
+          style={styles.sectionHeaderRow}
+          activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel={`Forensic scan, ${doneCount} of ${SCAN_STEP_COUNT} complete`}
+          accessibilityState={{ expanded }}
+        >
+          <Text style={styles.sectionLabel}>FORENSIC SCAN</Text>
+          <View style={styles.sectionHeaderRight}>
+            <Text style={styles.sectionMeta}>{doneCount}/{SCAN_STEP_COUNT}</Text>
+            {isRunning && <Spinner size={14} color={tokens.secondary} />}
+            <ChevronDown
+              size={16}
+              color={tokens.white35}
+              style={expanded ? { transform: [{ rotate: '180deg' }] } : undefined}
+            />
+          </View>
+        </TouchableOpacity>
+        {expanded && (
+          <View style={styles.scanStepsContainer}>
+            {steps.map((step, i) => (
+              <ScanStepCard key={`scan-${step.step}-${step.status}-${i}`} step={step} />
+            ))}
+          </View>
+        )}
       </GlassCard>
     </Animated.View>
   );
 }
 
-function ToolCallCard({ step }: { step: AgentStep }) {
-  const toolName = String(step.data.tool ?? 'unknown');
-  const meta = TOOL_META[toolName] ?? { label: toolName, Icon: Search };
+// ─── Grouped tool card (deduplicated) ───────────────────────────────────────
+
+function GroupedToolCard({ group }: { group: GroupedTool }) {
+  const meta = TOOL_META[group.toolName] ?? { label: group.toolName, Icon: Search };
   const ToolIcon = meta.Icon;
+  const isDone = group.latestResult != null;
+  const hasError = group.hasError;
+  const durationMs = isDone ? Number(group.latestResult?.data.durationMs ?? group.latestResult?.data.duration_ms ?? 0) : 0;
+
   return (
-    <Animated.View entering={FadeInDown.duration(250).springify()}>
-      <GlassCard>
-        <View style={styles.stepRow}>
-          <Spinner size={18} color={tokens.secondary} />
-          <View style={styles.toolInfo}>
-            <View style={styles.toolLabelRow}>
-              <ToolIcon size={14} color={tokens.secondary} />
-              <Text style={styles.toolLabel}>{meta.label}</Text>
-            </View>
-          </View>
+    <View
+      style={styles.groupedToolRow}
+      accessibilityLabel={`${meta.label} — ${hasError ? 'error' : isDone ? 'complete' : 'running'}${group.callCount > 1 ? `, called ${group.callCount} times` : ''}`}
+    >
+      {isDone ? (
+        hasError ? <AlertTriangle size={16} color={tokens.risk?.high ?? '#FF6B6B'} /> : <CheckCircle size={16} color={tokens.success} />
+      ) : (
+        <Spinner size={16} color={tokens.secondary} />
+      )}
+      <ToolIcon size={14} color={tokens.secondary} />
+      <Text style={[styles.toolLabel, hasError && styles.errorText]}>{meta.label}</Text>
+      {group.callCount > 1 && (
+        <View style={styles.countBadge}>
+          <Text style={styles.countBadgeText}>x{group.callCount}</Text>
         </View>
-      </GlassCard>
-    </Animated.View>
+      )}
+      {isDone && !hasError && durationMs > 0 && (
+        <Text style={styles.stepMeta}>{durationMs}ms</Text>
+      )}
+    </View>
   );
 }
 
-function ToolResultCard({ step }: { step: AgentStep }) {
-  const toolName = String(step.data.tool ?? 'unknown');
-  const meta = TOOL_META[toolName] ?? { label: toolName, Icon: Search };
-  const hasError = Boolean(step.data.error);
-  const durationMs = Number(step.data.durationMs ?? step.data.duration_ms ?? 0);
+// ─── Agent reasoning section (collapsible) ──────────────────────────────────
+
+function AgentReasoningSection({ steps, isReasoning }: { steps: AgentStep[]; isReasoning: boolean }) {
+  const [expanded, setExpanded] = useState(true);
+  const groupedTools = useMemo(() => groupToolCalls(steps), [steps]);
+  const textSteps = useMemo(() => steps.filter(s => s.type === 'text'), [steps]);
+  const thinkingSteps = useMemo(() => steps.filter(s => s.type === 'thinking'), [steps]);
+  const maxTurn = useMemo(() => Math.max(...steps.map(s => s.turn), 0), [steps]);
+
+  // Auto-collapse when reasoning done
+  useEffect(() => {
+    if (!isReasoning && steps.length > 0) {
+      const timer = setTimeout(() => setExpanded(false), 600);
+      return () => clearTimeout(timer);
+    }
+  }, [isReasoning, steps.length]);
+
   return (
     <Animated.View entering={FadeInDown.duration(250).springify()}>
       <GlassCard>
-        <View style={styles.stepRow}>
-          {hasError ? (
-            <AlertTriangle size={18} color={tokens.risk?.high ?? '#FF6B6B'} />
-          ) : (
-            <CheckCircle size={18} color={tokens.success} />
-          )}
-          <View style={styles.toolInfo}>
-            <Text style={[styles.toolLabel, hasError && styles.errorText]}>
-              {meta.label}
-            </Text>
-            {hasError ? (
-              <Text style={styles.errorDetail} numberOfLines={2}>{String(step.data.error)}</Text>
-            ) : (
-              <Text style={styles.stepMeta}>{durationMs > 0 ? `${durationMs}ms` : 'Done'}</Text>
+        <TouchableOpacity
+          onPress={() => setExpanded(e => !e)}
+          style={styles.sectionHeaderRow}
+          activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel={`Agent reasoning, ${maxTurn} turn${maxTurn !== 1 ? 's' : ''}`}
+          accessibilityState={{ expanded }}
+        >
+          <View style={styles.sectionHeaderLeft}>
+            <Brain size={16} color={tokens.secondary} />
+            <Text style={styles.sectionLabel}>AGENT REASONING</Text>
+          </View>
+          <View style={styles.sectionHeaderRight}>
+            <Text style={styles.sectionMeta}>{maxTurn} turn{maxTurn !== 1 ? 's' : ''}</Text>
+            {isReasoning && <Spinner size={14} color={tokens.secondary} />}
+            <ChevronDown
+              size={16}
+              color={tokens.white35}
+              style={expanded ? { transform: [{ rotate: '180deg' }] } : undefined}
+            />
+          </View>
+        </TouchableOpacity>
+        {expanded && (
+          <View style={{ gap: 8, marginTop: 8 }}>
+            {/* Grouped tool calls */}
+            {groupedTools.map(g => (
+              <GroupedToolCard key={g.toolName} group={g} />
+            ))}
+            {/* Thinking excerpts (last only) */}
+            {thinkingSteps.length > 0 && (
+              <View style={styles.stepRow}>
+                <Brain size={14} color={tokens.white60} />
+                <Text style={styles.thinkingText} numberOfLines={3}>
+                  {String(thinkingSteps[thinkingSteps.length - 1].data.text ?? 'Reasoning...')}
+                </Text>
+              </View>
             )}
+            {/* Narrative text blocks */}
+            {textSteps.map((s, i) => (
+              <Text key={`tx-${i}`} style={styles.narrativeText}>{String(s.data.text ?? '')}</Text>
+            ))}
           </View>
-        </View>
+        )}
       </GlassCard>
     </Animated.View>
   );
 }
 
-function TextCard({ step }: { step: AgentStep }) {
+// ─── Finding item with category badge ───────────────────────────────────────
+
+function FindingItem({ text }: { text: string }) {
+  const { category, body } = parseFinding(text);
+  const cat = category ? FINDING_CATEGORIES[category] : null;
+  const CatIcon = cat?.icon;
+
   return (
-    <Animated.View entering={FadeInDown.duration(300).springify()}>
-      <GlassCard>
-        <Text style={styles.narrativeText}>{String(step.data.text ?? '')}</Text>
-      </GlassCard>
-    </Animated.View>
+    <View style={styles.findingRow}>
+      {cat && CatIcon && (
+        <View style={[styles.findingBadge, { backgroundColor: `${cat.color}1A`, borderColor: `${cat.color}50` }]}>
+          <CatIcon size={10} color={cat.color} />
+          <Text style={[styles.findingBadgeText, { color: cat.color }]}>{category}</Text>
+        </View>
+      )}
+      <Text style={styles.findingBody}>{body}</Text>
+    </View>
   );
 }
 
-// ─── Verdict card ────────────────────────────────────────────────────────────
+// ─── Verdict hero (score + gauge + summary) ─────────────────────────────────
 
-function VerdictCard() {
+function VerdictHero() {
   const verdict = useInvestigateStore((s) => s.verdict);
   const mint = useInvestigateStore((s) => s.mint);
   if (!verdict) return null;
 
   const score = verdict.risk_score ?? 0;
   const color = riskColor(score);
-  const level = score >= 75 ? 'critical' : score >= 50 ? 'high' : score >= 25 ? 'medium' : 'low';
+  const level = riskLevel(score);
 
   return (
     <Animated.View entering={FadeInDown.duration(400).springify()}>
       <GlassCard>
-        <View style={styles.verdictHeader}>
-          <Text style={[styles.verdictScore, { color }]}>{score}</Text>
-          <Text style={styles.verdictScoreLabel}>/100</Text>
-          <RiskBadge level={level} size="md" />
+        <View
+          style={styles.verdictHeroCenter}
+          accessibilityLabel={`Risk score ${score} out of 100, ${level} risk`}
+          accessibilityRole="summary"
+        >
+          <GaugeRing
+            value={score / 100}
+            color={color}
+            size={100}
+            strokeWidth={7}
+            label={String(score)}
+            sublabel="RISK SCORE"
+          />
+          <View style={styles.verdictBadgeRow}>
+            <RiskBadge level={level} size="md" />
+            <RiskIcon level={level} size={16} />
+          </View>
         </View>
         <Text style={styles.verdictSummary}>{verdict.verdict_summary}</Text>
+
+        {/* Key findings with category badges */}
         {Array.isArray(verdict.key_findings) && verdict.key_findings.length > 0 && (
           <View style={styles.findingsSection}>
             {verdict.key_findings.map((f, i) => (
-              <Text key={i} style={styles.findingItem}>{String(f)}</Text>
+              <FindingItem key={i} text={String(f)} />
             ))}
           </View>
         )}
+
         {verdict.conviction_chain ? (
           <Text style={styles.convictionText}>{verdict.conviction_chain}</Text>
         ) : null}
-        <HapticButton variant="primary" size="md" fullWidth onPress={() => router.push(`/token/${mint}`)} style={styles.viewReportBtn}>
+
+        <HapticButton
+          variant="primary"
+          size="md"
+          fullWidth
+          onPress={() => router.push(`/token/${mint}`)}
+          style={styles.viewReportBtn}
+          accessibilityLabel="View full token report"
+        >
           <Text style={styles.btnText}>VIEW FULL REPORT</Text>
         </HapticButton>
       </GlassCard>
@@ -253,42 +466,55 @@ function VerdictCard() {
   );
 }
 
-// ─── Heuristic card (Free tier) ──────────────────────────────────────────────
+// ─── Verdict skeleton (shown while running) ─────────────────────────────────
 
-function HeuristicCard({ score }: { score: number }) {
-  const color = riskColor(score);
+function VerdictSkeleton() {
   return (
-    <Animated.View entering={FadeInDown.duration(400).springify()}>
+    <Animated.View entering={FadeIn.duration(200)}>
       <GlassCard>
-        <View style={styles.verdictHeader}>
-          <Text style={[styles.verdictScore, { color }]}>{score}</Text>
-          <Text style={styles.verdictScoreLabel}>/100</Text>
-          <Text style={styles.heuristicLabel}>Heuristic</Text>
+        <View style={styles.verdictHeroCenter}>
+          <SkeletonLoader width={100} height={100} borderRadius={50} />
+          <View style={{ marginTop: 12, gap: 8, alignItems: 'center' }}>
+            <SkeletonLoader width={120} height={14} />
+            <SkeletonLoader width={80} height={12} />
+          </View>
         </View>
-        <Text style={styles.heuristicInfo}>
-          This is a rule-based pre-score. Upgrade to Pro to unlock AI-powered analysis with deeper insights.
-        </Text>
+        <View style={{ marginTop: 16 }}>
+          <SkeletonBlock lines={3} />
+        </View>
       </GlassCard>
     </Animated.View>
   );
 }
 
-// ─── Upsell card ─────────────────────────────────────────────────────────────
+// ─── Heuristic card (Free tier) with GaugeRing ──────────────────────────────
 
-function UpgradeCard({ feature, plan }: { feature: string; plan: string }) {
+function HeuristicCard({ score }: { score: number }) {
+  const color = riskColor(score);
+  const level = riskLevel(score);
   return (
-    <Animated.View entering={FadeInDown.duration(300).springify()}>
+    <Animated.View entering={FadeInDown.duration(400).springify()}>
       <GlassCard>
-        <View style={styles.upgradeRow}>
-          <Lock size={20} color={tokens.secondary} />
-          <View style={{ flex: 1 }}>
-            <Text style={styles.upgradeTitle}>Unlock {feature}</Text>
-            <Text style={styles.upgradeSubtitle}>
-              Upgrade to {plan === 'pro' ? 'Pro' : 'Pro+'} for AI-powered investigation and follow-up chat.
-            </Text>
+        <View
+          style={styles.verdictHeroCenter}
+          accessibilityLabel={`Heuristic risk score ${score} out of 100, ${level} risk`}
+        >
+          <GaugeRing
+            value={score / 100}
+            color={color}
+            size={100}
+            strokeWidth={7}
+            label={String(score)}
+            sublabel="HEURISTIC"
+          />
+          <View style={styles.verdictBadgeRow}>
+            <RiskBadge level={level} size="md" />
+            <RiskIcon level={level} size={16} />
           </View>
-          <ArrowUpRight size={18} color={tokens.secondary} />
         </View>
+        <Text style={styles.heuristicInfo}>
+          This is a rule-based pre-score. Upgrade to Pro to unlock AI-powered analysis with deeper insights.
+        </Text>
       </GlassCard>
     </Animated.View>
   );
@@ -325,7 +551,6 @@ function ChatPanel({ mint }: { mint: string }) {
       messages.filter((m) => m.role === 'user' || m.role === 'assistant').slice(-8),
       (token) => {
         assistantContent += token;
-        // Update last message in-place
         const currentMsgs = useInvestigateStore.getState().chatMessages;
         const updated = [...currentMsgs];
         updated[updated.length - 1] = { role: 'assistant', content: assistantContent };
@@ -343,16 +568,28 @@ function ChatPanel({ mint }: { mint: string }) {
 
   if (!expanded) {
     return (
-      <TouchableOpacity style={styles.chatCollapsed} onPress={() => setExpanded(true)} activeOpacity={0.8}>
-        <ChevronUp size={16} color={tokens.white60} />
-        <Text style={styles.chatCollapsedText}>Ask a follow-up</Text>
+      <TouchableOpacity
+        style={styles.chatCollapsed}
+        onPress={() => setExpanded(true)}
+        activeOpacity={0.8}
+        accessibilityRole="button"
+        accessibilityLabel="Open follow-up chat"
+      >
+        <PulsingDot color={tokens.secondary} size={8} />
+        <Send size={14} color={tokens.secondary} />
+        <Text style={styles.chatCollapsedText}>Ask a follow-up question</Text>
       </TouchableOpacity>
     );
   }
 
   return (
     <View style={styles.chatPanel}>
-      <TouchableOpacity style={styles.chatHandle} onPress={() => setExpanded(false)}>
+      <TouchableOpacity
+        style={styles.chatHandle}
+        onPress={() => setExpanded(false)}
+        accessibilityRole="button"
+        accessibilityLabel="Collapse chat"
+      >
         <View style={styles.chatHandleBar} />
       </TouchableOpacity>
 
@@ -382,11 +619,15 @@ function ChatPanel({ mint }: { mint: string }) {
           editable={!busy}
           onSubmitEditing={sendMessage}
           returnKeyType="send"
+          accessibilityLabel="Chat message input"
         />
         <TouchableOpacity
           style={[styles.chatSendBtn, (!input.trim() || busy) && styles.chatSendDisabled]}
           onPress={sendMessage}
           disabled={!input.trim() || busy}
+          accessibilityRole="button"
+          accessibilityLabel="Send message"
+          accessibilityState={{ disabled: !input.trim() || busy }}
         >
           <Send size={18} color={input.trim() && !busy ? tokens.white100 : tokens.white35} />
         </TouchableOpacity>
@@ -402,19 +643,27 @@ export default function InvestigateScreen() {
   const { mint } = useLocalSearchParams<{ mint: string }>();
   const apiKey = useAuthStore((s) => s.apiKey);
   const plan = useSubscriptionStore((s) => s.plan);
+  const { showToast, toast } = useToast();
 
+  // Reactive selectors (fix: no getState() in render)
   const status = useInvestigateStore((s) => s.status);
   const scanSteps = useInvestigateStore((s) => s.scanSteps);
   const agentSteps = useInvestigateStore((s) => s.agentSteps);
   const heuristicScore = useInvestigateStore((s) => s.heuristicScore);
+  const verdict = useInvestigateStore((s) => s.verdict);
   const chatAvailable = useInvestigateStore((s) => s.chatAvailable);
   const error = useInvestigateStore((s) => s.error);
+  const startedAt = useInvestigateStore((s) => s.startedAt);
   const remaining = useRemainingQuota('investigate');
 
   const cancelRef = useRef<(() => void) | null>(null);
   const scrollRef = useRef<ScrollView>(null);
 
-  const store = useInvestigateStore.getState();
+  const handleCopy = useCallback(async (value: string, label = 'Address') => {
+    await Clipboard.setStringAsync(value);
+    await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    showToast(`${label} copied`);
+  }, [showToast]);
 
   const handleEvent = useCallback((event: InvestigateEvent) => {
     const s = useInvestigateStore.getState();
@@ -446,7 +695,7 @@ export default function InvestigateScreen() {
         s.addAgentStep({
           type: event.type,
           turn: (event.data as { turn: number }).turn ?? 0,
-          data: event.data as Record<string, unknown>,
+          data: event.data as unknown as Record<string, unknown>,
           timestamp: Date.now(),
         });
         break;
@@ -459,8 +708,6 @@ export default function InvestigateScreen() {
       case 'error':
         break; // handled by onDone/onError
     }
-
-    setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 80);
   }, []);
 
   const handleDone = useCallback((result: InvestigateDoneEvent | null) => {
@@ -468,14 +715,12 @@ export default function InvestigateScreen() {
     if (result) {
       s.setDone(result.chat_available);
       if (result.turns_used > 0 || result.tokens_used > 0) {
-        // Update turns/tokens from done event if verdict was set earlier
         useInvestigateStore.setState({ turnsUsed: result.turns_used, tokensUsed: result.tokens_used });
       }
       useSubscriptionStore.getState().incrementUsage('investigate');
     } else if (!s.error) {
       s.setError('Investigation completed without result');
     }
-    setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 120);
   }, []);
 
   const handleError = useCallback((err: Error) => {
@@ -484,7 +729,7 @@ export default function InvestigateScreen() {
 
   const startInvestigation = useCallback(() => {
     if (!mint) return;
-    store.startInvestigation(mint, plan);
+    useInvestigateStore.getState().startInvestigation(mint, plan);
     cancelRef.current = investigateStream(mint, apiKey ?? '', {
       onEvent: handleEvent,
       onDone: handleDone,
@@ -499,12 +744,12 @@ export default function InvestigateScreen() {
 
   const handleAbort = () => {
     cancelRef.current?.();
-    store.cancel();
+    useInvestigateStore.getState().cancel();
   };
 
   const handleRetry = () => {
     cancelRef.current?.();
-    store.reset();
+    useInvestigateStore.getState().reset();
     startInvestigation();
   };
 
@@ -543,48 +788,62 @@ export default function InvestigateScreen() {
         )}
       </View>
 
-      {/* Quota */}
+      {/* Quota + Mint address with copy/explorer */}
       <Text style={styles.quota}>
         {remaining === -1 ? 'Unlimited' : `${remaining} investigations remaining today`}
       </Text>
-      <Text style={styles.mintAddr} numberOfLines={1}>{mint}</Text>
+      <View style={styles.mintRow}>
+        <TouchableOpacity
+          onPress={() => handleCopy(mint ?? '', 'Mint address')}
+          style={styles.mintCopyBtn}
+          activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel="Copy mint address"
+          accessibilityHint="Double tap to copy to clipboard"
+        >
+          <Text style={styles.mintAddr} numberOfLines={1}>{shortAddr(mint ?? '')}</Text>
+          <Copy size={11} color={tokens.white35} />
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={() => Linking.openURL(`https://solscan.io/token/${mint}`)}
+          style={styles.explorerBtn}
+          activeOpacity={0.7}
+          accessibilityRole="link"
+          accessibilityLabel="View on Solscan"
+        >
+          <ExternalLink size={12} color={tokens.secondary} />
+        </TouchableOpacity>
+      </View>
 
-      {/* Timeline */}
+      {/* Timestamp */}
+      {startedAt && (
+        <Text style={styles.timestamp}>
+          Started {new Date(startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · {timeAgo(new Date(startedAt).toISOString())}
+        </Text>
+      )}
+
+      {/* ─── INVERTED PYRAMID LAYOUT ─── */}
       <ScrollView
         ref={scrollRef}
         style={styles.timeline}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.timelineContent}
       >
-        {/* Scan steps */}
-        {scanSteps.length > 0 && (
-          <GlassCard>
-            <Text style={styles.sectionLabel}>Forensic Scan</Text>
-            <View style={styles.scanStepsContainer}>
-              {scanSteps.map((step, i) => (
-                <ScanStepCard key={`scan-${step.step}-${step.status}-${i}`} step={step} />
-              ))}
-            </View>
-          </GlassCard>
+        {/* 1. Verdict hero at TOP (Pro / Pro+) */}
+        {status === 'done' && verdict && <VerdictHero />}
+
+        {/* 1b. Heuristic at TOP (Free tier) */}
+        {status === 'done' && heuristicScore != null && !verdict && (
+          <>
+            <HeuristicCard score={heuristicScore} />
+            <UpgradePrompt feature="AI Analysis" requiredPlan="pro" />
+          </>
         )}
 
-        {/* Agent reasoning steps (Pro+ only) */}
-        {agentSteps.map((step, i) => {
-          switch (step.type) {
-            case 'thinking':
-              return <ThinkingCard key={`t-${i}`} step={step} />;
-            case 'tool_call':
-              return <ToolCallCard key={`tc-${i}`} step={step} />;
-            case 'tool_result':
-              return <ToolResultCard key={`tr-${i}`} step={step} />;
-            case 'text':
-              return <TextCard key={`tx-${i}`} step={step} />;
-            default:
-              return null;
-          }
-        })}
+        {/* 1c. Skeleton placeholder while running */}
+        {isRunning && <VerdictSkeleton />}
 
-        {/* Running indicator */}
+        {/* 2. Running indicator */}
         {isRunning && (scanSteps.length > 0 || agentSteps.length > 0) && (
           <Animated.View entering={FadeIn.duration(200)} style={styles.runningRow}>
             <Spinner size={16} color={tokens.white35} />
@@ -594,18 +853,24 @@ export default function InvestigateScreen() {
           </Animated.View>
         )}
 
-        {/* Verdict (Pro / Pro+) */}
-        {status === 'done' && useInvestigateStore.getState().verdict && <VerdictCard />}
-
-        {/* Heuristic (Free) */}
-        {status === 'done' && heuristicScore != null && !useInvestigateStore.getState().verdict && (
-          <>
-            <HeuristicCard score={heuristicScore} />
-            <UpgradeCard feature="AI Analysis" plan="pro" />
-          </>
+        {/* 3. Collapsible forensic scan */}
+        {scanSteps.length > 0 && (
+          <ForensicScanSection steps={scanSteps} isRunning={status === 'scanning'} />
         )}
 
-        {/* Error */}
+        {/* 4. Collapsible agent reasoning (Pro+ only) */}
+        {agentSteps.length > 0 && (
+          <AgentReasoningSection steps={agentSteps} isReasoning={status === 'reasoning'} />
+        )}
+
+        {/* 5. Initial skeleton (before first event) */}
+        {isRunning && scanSteps.length === 0 && agentSteps.length === 0 && (
+          <GlassCard>
+            <SkeletonBlock lines={4} gap={10} />
+          </GlassCard>
+        )}
+
+        {/* 6. Error */}
         {status === 'error' && (
           <Animated.View entering={FadeInDown.duration(300).springify()}>
             <GlassCard>
@@ -613,19 +878,31 @@ export default function InvestigateScreen() {
                 <AlertTriangle size={20} color={tokens.risk?.high ?? '#FF6B6B'} />
                 <Text style={styles.errorText}>{error ?? 'Unknown error'}</Text>
               </View>
-              <HapticButton variant="ghost" size="sm" onPress={handleRetry} style={styles.retryBtn}>
+              <HapticButton
+                variant="ghost"
+                size="sm"
+                onPress={handleRetry}
+                style={styles.retryBtn}
+                accessibilityLabel="Retry investigation"
+              >
                 <Text style={styles.retryText}>RETRY</Text>
               </HapticButton>
             </GlassCard>
           </Animated.View>
         )}
 
-        {/* Cancelled */}
+        {/* 7. Cancelled */}
         {status === 'cancelled' && (
           <Animated.View entering={FadeIn.duration(200)}>
             <GlassCard>
               <Text style={styles.cancelledText}>Investigation cancelled</Text>
-              <HapticButton variant="ghost" size="sm" onPress={handleRetry} style={styles.retryBtn}>
+              <HapticButton
+                variant="ghost"
+                size="sm"
+                onPress={handleRetry}
+                style={styles.retryBtn}
+                accessibilityLabel="Restart investigation"
+              >
                 <Text style={styles.retryText}>RESTART</Text>
               </HapticButton>
             </GlassCard>
@@ -635,6 +912,9 @@ export default function InvestigateScreen() {
 
       {/* Chat panel (Pro+ only, after investigation done) */}
       {status === 'done' && chatAvailable && mint && <ChatPanel mint={mint} />}
+
+      {/* Toast overlay */}
+      {toast}
     </KeyboardAvoidingView>
   );
 }
@@ -655,20 +935,54 @@ const styles = StyleSheet.create({
     fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny,
     color: tokens.white35, textAlign: 'center', marginBottom: 4,
   },
+  mintRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 8, marginBottom: 4,
+  },
+  mintCopyBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    paddingHorizontal: 8, paddingVertical: 3,
+    borderRadius: tokens.radius.xs,
+    backgroundColor: tokens.bgGlass8 ?? 'rgba(255,255,255,0.08)',
+  },
   mintAddr: {
     fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny,
-    color: tokens.white35, textAlign: 'center',
-    paddingHorizontal: tokens.spacing.screenPadding, marginBottom: 12,
+    color: tokens.white60,
+  },
+  explorerBtn: {
+    padding: 4,
+    borderRadius: tokens.radius.xs,
+    backgroundColor: tokens.bgGlass8 ?? 'rgba(255,255,255,0.08)',
+  },
+  timestamp: {
+    fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny,
+    color: tokens.white35, textAlign: 'center', marginBottom: 8,
   },
   timeline: { flex: 1, paddingHorizontal: tokens.spacing.screenPadding },
   timelineContent: { gap: 8, paddingBottom: 32 },
 
-  // Scan steps
+  // Section headers (collapsible)
+  sectionHeaderRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    minHeight: 32,
+  },
+  sectionHeaderLeft: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+  },
+  sectionHeaderRight: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+  },
   sectionLabel: {
     fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.small,
-    color: tokens.white60, marginBottom: 8, letterSpacing: 0.5,
+    color: tokens.white60, letterSpacing: 0.5,
   },
-  scanStepsContainer: { gap: 6 },
+  sectionMeta: {
+    fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny,
+    color: tokens.white35,
+  },
+
+  // Scan steps
+  scanStepsContainer: { gap: 6, marginTop: 8 },
   scanStepRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   scanStepLabel: {
     fontFamily: 'Lexend-Medium', fontSize: tokens.font.small,
@@ -685,9 +999,10 @@ const styles = StyleSheet.create({
   toolLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   toolLabel: {
     fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.body, color: tokens.white80,
+    flex: 1,
   },
   stepMeta: {
-    fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny, color: tokens.white35, marginTop: 2,
+    fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny, color: tokens.white35,
   },
   thinkingText: {
     flex: 1, fontFamily: 'Lexend-Regular', fontSize: tokens.font.small,
@@ -719,19 +1034,47 @@ const styles = StyleSheet.create({
     fontFamily: 'Lexend-Regular', fontSize: tokens.font.small, color: tokens.white35,
   },
 
-  // Verdict
-  verdictHeader: { flexDirection: 'row', alignItems: 'baseline', gap: 4, marginBottom: 12 },
-  verdictScore: { fontFamily: 'Lexend-Bold', fontSize: 36 },
-  verdictScoreLabel: {
-    fontFamily: 'Lexend-Regular', fontSize: tokens.font.body,
-    color: tokens.white35, marginRight: 10,
+  // Grouped tool row
+  groupedToolRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+  },
+  countBadge: {
+    paddingHorizontal: 6, paddingVertical: 1,
+    borderRadius: tokens.radius.xs,
+    backgroundColor: tokens.bgGlass12 ?? 'rgba(255,255,255,0.12)',
+  },
+  countBadgeText: {
+    fontFamily: 'Lexend-Medium', fontSize: tokens.font.tiny,
+    color: tokens.white60,
+  },
+
+  // Verdict hero
+  verdictHeroCenter: {
+    alignItems: 'center', gap: 8, marginBottom: 16,
+  },
+  verdictBadgeRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4,
   },
   verdictSummary: {
     fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.subheading,
     color: tokens.white100, marginBottom: 12,
   },
-  findingsSection: { gap: 6, marginBottom: 12 },
-  findingItem: {
+  findingsSection: { gap: 8, marginBottom: 12 },
+  findingRow: {
+    gap: 6,
+  },
+  findingBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    alignSelf: 'flex-start',
+    paddingHorizontal: 8, paddingVertical: 2,
+    borderRadius: tokens.radius.pill,
+    borderWidth: 1,
+  },
+  findingBadgeText: {
+    fontFamily: 'Lexend-Bold', fontSize: 9,
+    letterSpacing: 0.5,
+  },
+  findingBody: {
     fontFamily: 'Lexend-Regular', fontSize: tokens.font.small,
     color: tokens.white80, lineHeight: 20,
   },
@@ -751,38 +1094,23 @@ const styles = StyleSheet.create({
   },
 
   // Heuristic
-  heuristicLabel: {
-    fontFamily: 'Lexend-Medium', fontSize: tokens.font.tiny,
-    color: tokens.white35, marginLeft: 4,
-  },
   heuristicInfo: {
     fontFamily: 'Lexend-Regular', fontSize: tokens.font.small,
-    color: tokens.white60, lineHeight: 20,
-  },
-
-  // Upgrade card
-  upgradeRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  upgradeTitle: {
-    fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.body,
-    color: tokens.secondary, marginBottom: 2,
-  },
-  upgradeSubtitle: {
-    fontFamily: 'Lexend-Regular', fontSize: tokens.font.small,
-    color: tokens.white60, lineHeight: 18,
+    color: tokens.white60, lineHeight: 20, textAlign: 'center',
   },
 
   // Chat panel
   chatCollapsed: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    gap: 6, paddingVertical: 12,
-    borderTopWidth: 1, borderTopColor: tokens.bgGlass8 ?? 'rgba(255,255,255,0.08)',
+    gap: 8, paddingVertical: 14,
+    borderTopWidth: 2, borderTopColor: tokens.secondary + '40',
   },
   chatCollapsedText: {
-    fontFamily: 'Lexend-Medium', fontSize: tokens.font.small, color: tokens.white60,
+    fontFamily: 'Lexend-Medium', fontSize: tokens.font.small, color: tokens.secondary,
   },
   chatPanel: {
     maxHeight: 300,
-    borderTopWidth: 1, borderTopColor: tokens.bgGlass8 ?? 'rgba(255,255,255,0.08)',
+    borderTopWidth: 2, borderTopColor: tokens.secondary + '40',
   },
   chatHandle: { alignItems: 'center', paddingVertical: 8 },
   chatHandleBar: {

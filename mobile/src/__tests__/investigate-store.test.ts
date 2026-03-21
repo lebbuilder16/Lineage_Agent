@@ -33,13 +33,16 @@ describe('InvestigateStore', () => {
     expect(state.mint).toBeNull();
   });
 
-  test('startInvestigation transitions to scanning', () => {
+  test('startInvestigation transitions to scanning with startedAt', () => {
+    const before = Date.now();
     useInvestigateStore.getState().startInvestigation(MINT, 'pro_plus');
     const state = useInvestigateStore.getState();
     expect(state.status).toBe('scanning');
     expect(state.mint).toBe(MINT);
     expect(state.tier).toBe('pro_plus');
     expect(state.sessionId).toBeTruthy();
+    expect(state.startedAt).toBeGreaterThanOrEqual(before);
+    expect(state.startedAt).toBeLessThanOrEqual(Date.now());
   });
 
   test('addScanStep accumulates steps', () => {
@@ -119,13 +122,15 @@ describe('InvestigateStore', () => {
     expect(useInvestigateStore.getState().status).toBe('cancelled');
   });
 
-  test('reset returns to initial state', () => {
+  test('reset returns to initial state including startedAt', () => {
     useInvestigateStore.getState().startInvestigation(MINT, 'pro_plus');
+    expect(useInvestigateStore.getState().startedAt).not.toBeNull();
     useInvestigateStore.getState().addScanStep({ step: 'lineage', status: 'done', ms: 100, timestamp: Date.now() });
     useInvestigateStore.getState().reset();
     const state = useInvestigateStore.getState();
     expect(state.status).toBe('idle');
     expect(state.mint).toBeNull();
+    expect(state.startedAt).toBeNull();
     expect(state.scanSteps).toHaveLength(0);
     expect(state.agentSteps).toHaveLength(0);
   });

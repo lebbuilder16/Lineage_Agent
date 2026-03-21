@@ -59,6 +59,9 @@ interface InvestigateState {
   chatBusy: boolean;
   chatAvailable: boolean;
 
+  // Timing
+  startedAt: number | null;
+
   // Error
   error: string | null;
 
@@ -93,6 +96,7 @@ const INITIAL_STATE = {
   chatMessages: [] as ChatMessage[],
   chatBusy: false,
   chatAvailable: false,
+  startedAt: null as number | null,
   error: null as string | null,
 };
 
@@ -106,6 +110,7 @@ export const useInvestigateStore = create<InvestigateState>((set, get) => ({
       mint,
       tier,
       status: 'scanning',
+      startedAt: Date.now(),
     }),
 
   addScanStep: (step) =>
