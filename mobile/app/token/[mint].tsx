@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -29,6 +29,7 @@ import {
   ShieldAlert,
   ShieldCheck,
   Shield,
+  Bot,
 } from 'lucide-react-native';
 import { AuroraBackground } from '../../src/components/ui/AuroraBackground';
 import { GlassCard } from '../../src/components/ui/GlassCard';
@@ -107,6 +108,66 @@ function DataRow({ label, value, valueColor, isLast }: {
     </View>
   );
 }
+
+// ─── Agent Suggestions ───────────────────────────────────────────────────────
+
+function AgentSuggestions({ data, mint }: { data: any; mint: string }) {
+  const suggestions = useMemo(() => {
+    const s: { Icon: any; text: string; route: string; priority: number }[] = [];
+    const dp = data?.deployer_profile;
+    const br = data?.bundle_report;
+    const ins = data?.insider_sell;
+    const cr = data?.cartel_report;
+    const sf = data?.sol_flow;
+
+    if (ins?.deployer_exited)
+      s.push({ Icon: AlertTriangle, text: 'Deployer has fully exited', route: `/investigate/${mint}`, priority: 0 });
+    if (dp?.rug_rate_pct != null && dp.rug_rate_pct > 30)
+      s.push({ Icon: ShieldAlert, text: `Deployer rugged ${dp.confirmed_rug_count ?? '?'} tokens (${dp.rug_rate_pct.toFixed(0)}%)`, route: `/investigate/${mint}`, priority: 1 });
+    if (br?.overall_verdict?.includes('confirmed'))
+      s.push({ Icon: Zap, text: 'Bundle extraction confirmed', route: `/sol-trace/${mint}`, priority: 1 });
+    if ((cr?.deployer_community?.wallets?.length ?? 0) > 2)
+      s.push({ Icon: Users, text: `${cr.deployer_community.wallets.length} linked deployers`, route: `/cartel/${cr.deployer_community?.community_id}`, priority: 2 });
+    if (sf?.total_extracted_sol != null && sf.total_extracted_sol > 10)
+      s.push({ Icon: ArrowUpRight, text: `${sf.total_extracted_sol.toFixed(1)} SOL extracted`, route: `/sol-trace/${mint}`, priority: 1 });
+
+    return s.sort((a, b) => a.priority - b.priority).slice(0, 3);
+  }, [data, mint]);
+
+  if (suggestions.length === 0) return null;
+
+  return (
+    <GlassCard style={agentStyles.card}>
+      <View style={agentStyles.header}>
+        <Bot size={13} color={tokens.secondary} />
+        <Text style={agentStyles.title}>AGENT SUGGESTS</Text>
+      </View>
+      {suggestions.map((s, i) => (
+        <TouchableOpacity
+          key={i}
+          onPress={() => router.push(s.route as any)}
+          activeOpacity={0.75}
+          style={[agentStyles.row, i === suggestions.length - 1 && { borderBottomWidth: 0 }]}
+        >
+          <s.Icon size={14} color={tokens.secondary} />
+          <Text style={agentStyles.text} numberOfLines={1}>{s.text}</Text>
+          <ChevronRight size={14} color={tokens.white35} />
+        </TouchableOpacity>
+      ))}
+    </GlassCard>
+  );
+}
+
+const agentStyles = StyleSheet.create({
+  card: { borderColor: `${tokens.secondary}25`, borderWidth: 1 },
+  header: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 },
+  title: { fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.tiny, color: tokens.secondary, letterSpacing: 1 },
+  row: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: tokens.borderSubtle,
+  },
+  text: { flex: 1, fontFamily: 'Lexend-Medium', fontSize: tokens.font.small, color: tokens.white80 },
+});
 
 // ─── Main Screen ─────────────────────────────────────────────────────────────
 
@@ -395,6 +456,11 @@ export default function TokenScreen() {
                 </HapticButton>
               )}
             </GlassCard>
+
+            {/* ═══════════════════════════════════════════════════
+                AGENT SUGGESTIONS — contextual next actions
+                ═══════════════════════════════════════════════════ */}
+            <AgentSuggestions data={data} mint={mint ?? ''} />
 
             {/* ═══════════════════════════════════════════════════
                 LEVEL 2 — Risk summary  (verdict · key signal · CTA)

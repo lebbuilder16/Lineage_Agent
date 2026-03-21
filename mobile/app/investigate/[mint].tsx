@@ -10,6 +10,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Linking,
+  Share,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router, Stack } from 'expo-router';
@@ -35,6 +36,8 @@ import {
   ShieldCheck,
   ShieldAlert,
   XOctagon,
+  Share2,
+  Timer,
 } from 'lucide-react-native';
 import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
@@ -451,16 +454,31 @@ function VerdictHero() {
           <Text style={styles.convictionText}>{verdict.conviction_chain}</Text>
         ) : null}
 
-        <HapticButton
-          variant="primary"
-          size="md"
-          fullWidth
-          onPress={() => router.push(`/token/${mint}`)}
-          style={styles.viewReportBtn}
-          accessibilityLabel="View full token report"
-        >
-          <Text style={styles.btnText}>VIEW FULL REPORT</Text>
-        </HapticButton>
+        <View style={styles.verdictActions}>
+          <HapticButton
+            variant="primary"
+            size="md"
+            style={{ flex: 1 }}
+            onPress={() => router.push(`/token/${mint}`)}
+            accessibilityLabel="View full token report"
+          >
+            <Text style={styles.btnText}>VIEW REPORT</Text>
+          </HapticButton>
+          <HapticButton
+            variant="ghost"
+            size="md"
+            onPress={() => {
+              const text = `Lineage Investigation\n`
+                + `Risk: ${verdict.risk_score}/100 — ${verdict.verdict_summary}\n`
+                + `Key findings:\n${Array.isArray(verdict.key_findings) ? verdict.key_findings.map((f: string) => `- ${f}`).join('\n') : ''}\n`
+                + `\nAnalyzed by Lineage Agent`;
+              Share.share({ message: text });
+            }}
+            accessibilityLabel="Share verdict"
+          >
+            <Share2 size={18} color={tokens.secondary} />
+          </HapticButton>
+        </View>
       </GlassCard>
     </Animated.View>
   );
@@ -632,6 +650,39 @@ function ChatPanel({ mint }: { mint: string }) {
           <Send size={18} color={input.trim() && !busy ? tokens.white100 : tokens.white35} />
         </TouchableOpacity>
       </View>
+    </View>
+  );
+}
+
+// ─── Elapsed Timer ──────────────────────────────────────────────────────────
+
+function ElapsedTimer() {
+  const startedAt = useInvestigateStore((s) => s.startedAt);
+  const status = useInvestigateStore((s) => s.status);
+  const [elapsed, setElapsed] = useState(0);
+
+  useEffect(() => {
+    if (!startedAt) return;
+    const frozen = status === 'done' || status === 'error' || status === 'cancelled';
+    if (frozen) {
+      setElapsed(Date.now() - startedAt);
+      return;
+    }
+    const interval = setInterval(() => setElapsed(Date.now() - startedAt), 1000);
+    return () => clearInterval(interval);
+  }, [startedAt, status]);
+
+  if (!startedAt) return null;
+  const secs = Math.floor(elapsed / 1000);
+  const mins = Math.floor(secs / 60);
+  const display = mins > 0 ? `${mins}m ${secs % 60}s` : `${secs}s`;
+
+  return (
+    <View style={styles.timerRow}>
+      <Timer size={12} color={tokens.white35} />
+      <Text style={styles.timerText}>
+        {status === 'done' || status === 'error' ? `Completed in ${display}` : `Started ${display} ago`}
+      </Text>
     </View>
   );
 }
@@ -815,11 +866,9 @@ export default function InvestigateScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Timestamp */}
+      {/* Live elapsed timer */}
       {startedAt && (
-        <Text style={styles.timestamp}>
-          Started {new Date(startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · {timeAgo(new Date(startedAt).toISOString())}
-        </Text>
+        <ElapsedTimer />
       )}
 
       {/* ─── INVERTED PYRAMID LAYOUT ─── */}
@@ -1101,6 +1150,21 @@ const styles = StyleSheet.create({
   heuristicInfo: {
     fontFamily: 'Lexend-Regular', fontSize: tokens.font.small,
     color: tokens.white60, lineHeight: 20, textAlign: 'center',
+  },
+
+  // Timer
+  timerRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 6, marginBottom: 12,
+  },
+  timerText: {
+    fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny,
+    color: tokens.white35, letterSpacing: 0.3,
+  },
+
+  // Verdict actions
+  verdictActions: {
+    flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 16,
   },
 
   // Chat panel

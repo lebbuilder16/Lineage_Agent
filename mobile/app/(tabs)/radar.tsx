@@ -540,6 +540,33 @@ export default function RadarScreen() {
             </Animated.View>
           )}
 
+          {/* Agent Intelligence Summary */}
+          {(() => {
+            const recent = allAlerts.filter(a => Date.now() - new Date(a.timestamp ?? a.created_at ?? '').getTime() < 24 * 3600 * 1000);
+            const criticalCount = recent.filter(a => (a.risk_score ?? 0) >= 75).length;
+            const rugCount = recent.filter(a => a.type === 'rug').length;
+            if (recent.length === 0) return null;
+            const summary = criticalCount > 0
+              ? `${criticalCount} critical event${criticalCount > 1 ? 's' : ''} in the last 24h — tap Alerts for details`
+              : rugCount > 0
+                ? `${rugCount} rug event${rugCount > 1 ? 's' : ''} detected today`
+                : `${recent.length} event${recent.length > 1 ? 's' : ''} monitored — all clear`;
+            return (
+              <Animated.View entering={FadeInDown.delay(80).duration(350)} style={styles.section}>
+                <TouchableOpacity onPress={() => router.push('/(tabs)/alerts' as any)} activeOpacity={0.75}>
+                  <GlassCard style={[styles.briefingCard, criticalCount > 0 && { borderColor: `${tokens.risk?.critical ?? tokens.accent}30`, borderWidth: 1 }]} noPadding={false}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <Shield size={14} color={criticalCount > 0 ? (tokens.risk?.critical ?? tokens.accent) : tokens.secondary} />
+                      <Text style={[styles.briefingTitle, { flex: 1 }]}>AGENT INTEL</Text>
+                      <ChevronRight size={14} color={tokens.white35} />
+                    </View>
+                    <Text style={[styles.briefingPreview, { marginTop: 6 }]}>{summary}</Text>
+                  </GlassCard>
+                </TouchableOpacity>
+              </Animated.View>
+            );
+          })()}
+
           {/* Daily Briefing (OpenClaw) */}
           {briefing ? (
             <Animated.View entering={FadeInDown.delay(100).duration(400)} style={styles.section}>
