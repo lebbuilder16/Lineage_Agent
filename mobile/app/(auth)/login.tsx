@@ -36,7 +36,7 @@ import { syncPrivyUser } from '../../src/lib/privy-auth';
 // ── Constants ────────────────────────────────────────────────────────────────
 
 const APP_URL = 'https://lineageagent.app';
-const REDIRECT_URI = '/--/auth/callback';
+const REDIRECT_URI = '/';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
