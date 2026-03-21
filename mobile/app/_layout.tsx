@@ -45,14 +45,18 @@ export default function RootLayout() {
   const ocToken = useOpenClawStore((s) => s.deviceToken);
 
   // Handle deep links: lineage://activate?key=XXX&wallet=phantom | lineage://openclaw?host=X&token=Y
+  // IMPORTANT: Ignore wallet callback URLs (wallet_action param) — those are handled by Privy connectors
   const url = Linking.useURL();
   useEffect(() => {
     if (!url) return;
     try {
       const parsed = Linking.parse(url);
+      // Skip wallet deep link callbacks — Privy connectors handle these via their own Linking listener
+      if (parsed.queryParams?.wallet_action || parsed.queryParams?.wallet_id) {
+        return;
+      }
       if (parsed.hostname === 'activate' && typeof parsed.queryParams?.key === 'string' && parsed.queryParams.key) {
         setApiKey(parsed.queryParams.key);
-        // After wallet activation, fetch user profile
         const fetchProfile = async () => {
           try {
             const { getMe } = await import('../src/lib/api');

@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -36,7 +36,7 @@ import { syncPrivyUser } from '../../src/lib/privy-auth';
 // ── Constants ────────────────────────────────────────────────────────────────
 
 const APP_URL = 'https://lineageagent.app';
-const REDIRECT_URI = '/';
+const REDIRECT_URI = '/--/auth/callback';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -147,6 +147,54 @@ export default function LoginScreen() {
   const [otpSent, setOtpSent] = useState(false);
   const [connectingWallet, setConnectingWallet] = useState<string | null>(null);
 
+  // ── Watch for wallet connection completion (address populated after deep link return) ──
+  const pendingWalletRef = useRef<'phantom' | 'solflare' | 'backpack' | null>(null);
+
+  useEffect(() => {
+    const brandId = pendingWalletRef.current;
+    if (!brandId) return;
+
+    const connector = connectors[brandId];
+    if (!connector.isConnected || !connector.address) return;
+
+    // Wallet just connected — complete SIWS flow
+    pendingWalletRef.current = null;
+    const walletAddress = connector.address;
+
+    (async () => {
+      try {
+        // Generate SIWS message
+        const { message } = await generateMessage({
+          wallet: { address: walletAddress },
+          from: {
+            domain: 'lineageagent.app',
+            uri: 'https://lineageagent.app',
+          },
+        });
+
+        // Ask wallet to sign the SIWS message
+        const { signature } = await connector.signMessage(message);
+
+        // Login with Privy
+        const user = await siwsLogin({
+          signature,
+          message,
+          wallet: { walletClientType: brandId, connectorType: 'deeplink' },
+        });
+
+        // Sync with backend
+        await handlePrivyLoginSuccess(user);
+      } catch (err: any) {
+        const msg = err?.message || 'Wallet authentication failed.';
+        if (!msg.includes('cancel') && !msg.includes('dismiss')) {
+          Alert.alert('Auth failed', msg);
+        }
+      } finally {
+        setConnectingWallet(null);
+      }
+    })();
+  }, [phantom.isConnected, phantom.address, solflare.isConnected, solflare.address, backpack.isConnected, backpack.address]);
+
   // ── Email OTP flow ────────────────────────────────────────────────────────
 
   const handleSendOtp = useCallback(async () => {
@@ -176,54 +224,26 @@ export default function LoginScreen() {
     }
   }, [otpCode, email, loginWithCode]);
 
-  // ── Wallet connect: full SIWS flow via Privy connectors ───────────────────
+  // ── Wallet connect: initiate deep link, SIWS flow completes in useEffect above ─
 
   const handleWalletConnect = useCallback(async (brand: WalletBrand) => {
     setConnectingWallet(brand.id);
+    pendingWalletRef.current = brand.id;
     const connector = connectors[brand.id];
 
     try {
-      // Step 1: Connect to wallet via deep link → get wallet address
       await connector.connect();
-      const walletAddress = connector.address;
-
-      if (!walletAddress) {
-        Alert.alert('Connection failed', `Could not get address from ${brand.name}.`);
-        return;
-      }
-
-      // Step 2: Generate SIWS message for this wallet
-      const { message } = await generateMessage({
-        wallet: { address: walletAddress },
-        from: {
-          domain: 'lineageagent.app',
-          uri: 'https://lineageagent.app',
-        },
-      });
-
-      // Step 3: Ask wallet to sign the SIWS message
-      const { signature } = await connector.signMessage(message);
-
-      // Step 4: Login with Privy using the signature
-      const user = await siwsLogin({
-        signature,
-        message,
-        wallet: { walletClientType: brand.id, connectorType: 'deeplink' },
-      });
-
-      // Step 5: Sync with backend
-      await handlePrivyLoginSuccess(user);
+      // If connector already has address (auto-reconnect), the useEffect will fire.
+      // Otherwise, we wait for the wallet deep link callback to populate address.
     } catch (err: any) {
-      const msg = err?.message || 'Wallet connection failed.';
-      if (msg.includes('cancelled') || msg.includes('canceled') || msg.includes('dismiss')) {
-        // User cancelled — do nothing
-      } else {
-        Alert.alert('Connection failed', `Could not connect to ${brand.name}. ${msg}`);
-      }
-    } finally {
+      pendingWalletRef.current = null;
       setConnectingWallet(null);
+      const msg = err?.message || 'Wallet connection failed.';
+      if (!msg.includes('cancel') && !msg.includes('dismiss')) {
+        Alert.alert('Connection failed', `Could not connect to ${brand.name}.`);
+      }
     }
-  }, [connectors, generateMessage, siwsLogin]);
+  }, [connectors]);
 
   // ── Skip ──────────────────────────────────────────────────────────────────
 
