@@ -22,11 +22,21 @@ import {
   Smartphone,
 } from 'lucide-react-native';
 import { useLoginWithEmail, useLoginWithSiws } from '@privy-io/expo';
+import {
+  usePhantomDeeplinkWalletConnector,
+  useBackpackDeeplinkWalletConnector,
+  useDeeplinkWalletConnector,
+} from '@privy-io/expo/connectors';
 import type { User } from '@privy-io/api-types';
 import { AuroraBackground } from '../../src/components/ui/AuroraBackground';
 import { HapticButton } from '../../src/components/ui/HapticButton';
 import { tokens } from '../../src/theme/tokens';
 import { syncPrivyUser } from '../../src/lib/privy-auth';
+
+// ── Constants ────────────────────────────────────────────────────────────────
+
+const APP_URL = 'https://lineageagent.app';
+const REDIRECT_URI = '/';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -63,7 +73,7 @@ async function handlePrivyLoginSuccess(user: User) {
 // ── Wallet brand configs ─────────────────────────────────────────────────────
 
 interface WalletBrand {
-  id: string;
+  id: 'phantom' | 'solflare' | 'backpack';
   name: string;
   color: string;
   bgColor: string;
@@ -98,7 +108,8 @@ const WALLET_BRANDS: WalletBrand[] = [
 
 export default function LoginScreen() {
   const insets = useSafeAreaInsets();
-  // Email OTP login
+
+  // ── Email OTP login ───────────────────────────────────────────────────────
   const { sendCode, loginWithCode, state: emailState } = useLoginWithEmail({
     onLoginSuccess: (user) => { handlePrivyLoginSuccess(user); },
     onError: (err) => {
@@ -106,15 +117,37 @@ export default function LoginScreen() {
     },
   });
 
-  // SIWS (Sign In With Solana) — available for wallet deep link callback completion
-  const siwsHook = useLoginWithSiws();
+  // ── SIWS (Sign In With Solana) ────────────────────────────────────────────
+  const { generateMessage, login: siwsLogin } = useLoginWithSiws();
 
+  // ── Privy deep-link wallet connectors ─────────────────────────────────────
+  const phantom = usePhantomDeeplinkWalletConnector({
+    appUrl: APP_URL,
+    redirectUri: REDIRECT_URI,
+  });
+
+  const backpack = useBackpackDeeplinkWalletConnector({
+    appUrl: APP_URL,
+    redirectUri: REDIRECT_URI,
+  });
+
+  // Solflare uses the generic connector
+  const solflare = useDeeplinkWalletConnector({
+    appUrl: APP_URL,
+    redirectUri: REDIRECT_URI,
+    baseUrl: 'https://solflare.com',
+    encryptionPublicKeyName: 'solflare_encryption_public_key',
+  });
+
+  const connectors = { phantom, solflare, backpack };
+
+  // ── State ─────────────────────────────────────────────────────────────────
   const [email, setEmail] = useState('');
   const [otpCode, setOtpCode] = useState('');
   const [otpSent, setOtpSent] = useState(false);
   const [connectingWallet, setConnectingWallet] = useState<string | null>(null);
 
-  // ── Email OTP flow ──────────────────────────────────────────────────────────
+  // ── Email OTP flow ────────────────────────────────────────────────────────
 
   const handleSendOtp = useCallback(async () => {
     const trimmed = email.trim();
@@ -143,30 +176,56 @@ export default function LoginScreen() {
     }
   }, [otpCode, email, loginWithCode]);
 
-  // ── Wallet connect via Privy SIWS ─────────────────────────────────────────
+  // ── Wallet connect: full SIWS flow via Privy connectors ───────────────────
 
   const handleWalletConnect = useCallback(async (brand: WalletBrand) => {
     setConnectingWallet(brand.id);
-    try {
-      const { Linking } = await import('react-native');
-      const schemes: Record<string, string> = {
-        phantom: 'phantom://',
-        solflare: 'solflare://',
-        backpack: 'backpack://',
-      };
-      const scheme = schemes[brand.id];
-      if (!scheme) return;
+    const connector = connectors[brand.id];
 
-      // Try opening directly — canOpenURL fails on Android without queries declaration
-      await Linking.openURL(scheme);
-    } catch {
-      Alert.alert('Not Installed', `${brand.name} does not appear to be installed on this device.`);
+    try {
+      // Step 1: Connect to wallet via deep link → get wallet address
+      await connector.connect();
+      const walletAddress = connector.address;
+
+      if (!walletAddress) {
+        Alert.alert('Connection failed', `Could not get address from ${brand.name}.`);
+        return;
+      }
+
+      // Step 2: Generate SIWS message for this wallet
+      const { message } = await generateMessage({
+        wallet: { address: walletAddress },
+        from: {
+          domain: 'lineageagent.app',
+          uri: 'https://lineageagent.app',
+        },
+      });
+
+      // Step 3: Ask wallet to sign the SIWS message
+      const { signature } = await connector.signMessage(message);
+
+      // Step 4: Login with Privy using the signature
+      const user = await siwsLogin({
+        signature,
+        message,
+        wallet: { walletClientType: brand.id, connectorType: 'deeplink' },
+      });
+
+      // Step 5: Sync with backend
+      await handlePrivyLoginSuccess(user);
+    } catch (err: any) {
+      const msg = err?.message || 'Wallet connection failed.';
+      if (msg.includes('cancelled') || msg.includes('canceled') || msg.includes('dismiss')) {
+        // User cancelled — do nothing
+      } else {
+        Alert.alert('Connection failed', `Could not connect to ${brand.name}. ${msg}`);
+      }
     } finally {
       setConnectingWallet(null);
     }
-  }, [siwsHook]);
+  }, [connectors, generateMessage, siwsLogin]);
 
-  // ── Skip ────────────────────────────────────────────────────────────────────
+  // ── Skip ──────────────────────────────────────────────────────────────────
 
   const handleSkip = useCallback(() => {
     router.replace('/(tabs)/radar');
