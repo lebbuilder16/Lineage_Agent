@@ -129,7 +129,7 @@ async def run_forensic_pipeline(
         async def _deployer_profile() -> None:
             try:
                 results["deployer_profile"] = await asyncio.wait_for(
-                    compute_deployer_profile(deployer), timeout=5.0
+                    compute_deployer_profile(deployer), timeout=7.0
                 )
             except Exception as e:
                 logger.warning("[pipeline] deployer_profile failed: %s", e)
@@ -146,7 +146,7 @@ async def run_forensic_pipeline(
                 )
                 results["death_clock"] = await asyncio.wait_for(
                     compute_death_clock(deployer, identity.created_at, token_metadata=meta),
-                    timeout=5.0,
+                    timeout=7.0,
                 )
             except Exception as e:
                 logger.warning("[pipeline] death_clock failed: %s", e)
@@ -154,7 +154,7 @@ async def run_forensic_pipeline(
         async def _factory() -> None:
             try:
                 results["factory_rhythm"] = await asyncio.wait_for(
-                    analyze_factory_rhythm(deployer), timeout=5.0
+                    analyze_factory_rhythm(deployer), timeout=7.0
                 )
             except Exception as e:
                 logger.warning("[pipeline] factory failed: %s", e)
@@ -175,7 +175,7 @@ async def run_forensic_pipeline(
                 ]
                 if uri_tuples:
                     results["operator_fingerprint"] = await asyncio.wait_for(
-                        build_operator_fingerprint(uri_tuples), timeout=5.0
+                        build_operator_fingerprint(uri_tuples), timeout=8.0
                     )
             except Exception as e:
                 logger.warning("[pipeline] fingerprint failed: %s", e)
@@ -195,19 +195,21 @@ async def run_forensic_pipeline(
         from .bundle_tracker_service import get_cached_bundle_report
 
         async def _sol_flow() -> None:
+            # Reads warm cache (pre-computed by /lineage background task) — 5s is plenty
             try:
                 results["sol_flow"] = await asyncio.wait_for(
                     get_sol_flow_report(mint, force_refresh=force_refresh),
-                    timeout=10.0,
+                    timeout=5.0,
                 )
             except Exception as e:
                 logger.warning("[pipeline] sol_flow failed: %s", e)
 
         async def _bundle() -> None:
+            # Reads warm cache — pure DB read, 5s is plenty
             try:
                 results["bundle_report"] = await asyncio.wait_for(
                     get_cached_bundle_report(mint, force_refresh=force_refresh),
-                    timeout=10.0,
+                    timeout=5.0,
                 )
             except Exception as e:
                 logger.warning("[pipeline] bundle failed: %s", e)
@@ -215,10 +217,11 @@ async def run_forensic_pipeline(
         async def _cartel() -> None:
             if not deployer:
                 return
+            # Community detection from pre-computed edges — 5s is plenty
             try:
                 from .cartel_service import compute_cartel_report
                 results["cartel_report"] = await asyncio.wait_for(
-                    compute_cartel_report(mint, deployer), timeout=10.0
+                    compute_cartel_report(mint, deployer), timeout=5.0
                 )
             except Exception as e:
                 logger.warning("[pipeline] cartel failed: %s", e)

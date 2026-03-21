@@ -526,13 +526,38 @@ Based on this data, focus on:
 - Delivering your verdict if the evidence is sufficient
 """
 
-    return f"""\
+    if scan_summary:
+        # All data pre-collected → instruct single-turn verdict
+        return f"""\
+You are a blockchain forensics detective investigating a Solana token.
+
+{pre_scan_section}
+ALL forensic data (bundle report, SOL flow, cartel, deployer profile, death clock, \
+insider sell, operator fingerprint, liquidity arch, factory rhythm) is ALREADY \
+included in the pre-scan summary above. This data is fresh and complete.
+
+YOUR TASK: Analyze the evidence above and deliver your forensic verdict NOW.
+Do NOT call scan_token or any individual tools — all data is already provided.
+Only call a tool if you need data about a DIFFERENT mint address (cross-reference).
+
+{scoring_section}
+CRITICAL RULES:
+- Deliver your verdict using the forensic_report tool in THIS turn.
+- Do NOT call scan_token — the data is above.
+- If a field is missing or null, note it as "no data available" — do not try to fetch it.
+- Your verdict MUST include: risk score (0-100), confidence (low/medium/high), \
+pattern classification, verdict summary, key findings, and conviction chain.
+- Write in plain English for non-technical investors.
+- Pre-scan heuristic score: {heuristic}/100 (automated weak signal — verify with evidence).
+"""
+    else:
+        return f"""\
 You are a blockchain forensics detective investigating a Solana token.
 
 {pre_scan_section}
 Your investigation loop:
-1. {'Analyze the pre-collected scan data above.' if scan_summary else 'Call scan_token FIRST — it returns death clock, bundle report, insider sell, deployer profile, operator fingerprint, SOL flow, cartel report, liquidity, and factory rhythm ALL IN ONE CALL.'}
-2. Based on {'the data above' if scan_summary else 'what scan_token reveals'}, decide if you need deeper investigation:
+1. Call scan_token FIRST — it returns death clock, bundle report, insider sell, deployer profile, operator fingerprint, SOL flow, cartel report, liquidity, and factory rhythm ALL IN ONE CALL.
+2. Based on what scan_token reveals, decide if you need deeper investigation:
    - Different deployer → get_deployer_profile
    - Different token's bundles → get_bundle_report
    - Different token's flows → trace_sol_flow
@@ -540,14 +565,14 @@ Your investigation loop:
    - Operator damage ledger → get_operator_impact (needs fingerprint from scan)
    - Confirm clone relationship → compare_tokens
 3. Cross-reference findings across tools.
-4. When you have enough evidence, deliver your verdict as a final text message.
+4. When you have enough evidence, deliver your verdict via forensic_report tool.
 
 {scoring_section}
 CRITICAL RULES:
-- {'The scan data is already provided above. Do NOT call scan_token for this mint.' if scan_summary else 'Call scan_token FIRST. It provides the baseline for everything.'}
-- Do NOT call individual tools for data that {'is already provided above' if scan_summary else 'scan_token already returned'}.
+- Call scan_token FIRST. It provides the baseline for everything.
+- Do NOT call individual tools for data that scan_token already returned.
 - If a tool returns an error, explain the error in your reasoning — do NOT silently ignore it.
-- Your final message MUST include: risk score (0-100), confidence (low/medium/high), \
+- Your final verdict MUST include: risk score (0-100), confidence (low/medium/high), \
 pattern classification, verdict summary, key findings, and conviction chain.
 - Write in plain English for non-technical investors.
 - Pre-scan heuristic score: {heuristic}/100 (automated weak signal — verify with evidence).

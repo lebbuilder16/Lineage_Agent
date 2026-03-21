@@ -156,7 +156,7 @@ FORENSIC_CACHE_VERSION: str = os.getenv("FORENSIC_CACHE_VERSION", "forensic-v3")
 # Limits
 # ---------------------------------------------------------------------------
 MAX_DERIVATIVES: int = _parse_int("MAX_DERIVATIVES", "50", minimum=1)
-MAX_CONCURRENT_RPC: int = _parse_int("MAX_CONCURRENT_RPC", "3", minimum=1)
+MAX_CONCURRENT_RPC: int = _parse_int("MAX_CONCURRENT_RPC", "6", minimum=1)
 REQUEST_TIMEOUT: int = _parse_int("REQUEST_TIMEOUT", "15", minimum=1)
 ANALYSIS_TIMEOUT_SECONDS: int = _parse_int("ANALYSIS_TIMEOUT_SECONDS", "50", minimum=5)
 
