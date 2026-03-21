@@ -188,7 +188,18 @@ export default function RootLayout() {
   return (
     <ErrorBoundary>
       {PRIVY_APP_ID ? (
-        <PrivyProvider appId={PRIVY_APP_ID}>{appContent}</PrivyProvider>
+        <PrivyProvider
+          appId={PRIVY_APP_ID}
+          config={{
+            embedded: {
+              solana: {
+                createOnLogin: 'users-without-wallets',
+              },
+            },
+          }}
+        >
+          {appContent}
+        </PrivyProvider>
       ) : (
         appContent
       )}
