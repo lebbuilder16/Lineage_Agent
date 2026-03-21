@@ -674,6 +674,67 @@ class SQLiteCache:
             "CREATE INDEX IF NOT EXISTS idx_ws_watch ON watch_snapshots(watch_id, scanned_at)"
         )
 
+        # ---------------------------------------------------------------
+        # Phase 5 — agent preferences (agentic UX)
+        # ---------------------------------------------------------------
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS agent_prefs (
+                user_id INTEGER PRIMARY KEY,
+                alert_deployer_launch INTEGER NOT NULL DEFAULT 1,
+                alert_high_risk INTEGER NOT NULL DEFAULT 1,
+                auto_investigate INTEGER NOT NULL DEFAULT 0,
+                daily_briefing INTEGER NOT NULL DEFAULT 1,
+                briefing_hour INTEGER NOT NULL DEFAULT 8,
+                updated_at REAL
+            )
+            """
+        )
+
+        # Phase 6 — investigation history (server-side memory)
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS investigations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER,
+                mint TEXT NOT NULL,
+                name TEXT,
+                symbol TEXT,
+                risk_score INTEGER,
+                verdict_summary TEXT,
+                key_findings TEXT,
+                model TEXT,
+                turns_used INTEGER DEFAULT 0,
+                tokens_used INTEGER DEFAULT 0,
+                created_at REAL NOT NULL
+            )
+            """
+        )
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_inv_user ON investigations(user_id, created_at)"
+        )
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_inv_mint ON investigations(mint)"
+        )
+
+        # Phase 7 — investigation feedback
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS investigation_feedback (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER,
+                mint TEXT NOT NULL,
+                risk_score INTEGER,
+                rating TEXT NOT NULL,
+                note TEXT,
+                created_at REAL NOT NULL
+            )
+            """
+        )
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_fb_mint ON investigation_feedback(mint)"
+        )
+
         # Safe column migrations
         for col_sql in [
             "ALTER TABLE users ADD COLUMN rc_customer_id TEXT",

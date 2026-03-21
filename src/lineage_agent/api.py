@@ -248,6 +248,9 @@ async def lifespan(application: FastAPI):
     _schedule_cartel_sweep()
     schedule_db_maintenance()
 
+    _schedule_watchlist_sweep()
+    _schedule_briefing_loop()
+
     # ── Log arq status ─────────────────────────────────────────────────────
     from config import ARQ_REDIS_URL  # noqa: PLC0415
     if ARQ_REDIS_URL:
@@ -275,6 +278,8 @@ async def lifespan(application: FastAPI):
     cancel_alert_sweep()
     _cancel_cartel_sweep()
     cancel_db_maintenance()
+    _cancel_watchlist_sweep()
+    _cancel_briefing_loop()
     _cancel_wallet_label_refresh()
     await close_clients()
 
@@ -505,9 +510,14 @@ async def get_lineage(
             detail="Invalid Solana mint address. Expected 32-44 base58 characters.",
         )
     try:
-        return await asyncio.wait_for(
+        result = await asyncio.wait_for(
             detect_lineage(mint, force_refresh=force_refresh), timeout=ANALYSIS_TIMEOUT_SECONDS
         )
+        # Warm cache: pre-compute heavy analyses in background so /investigate is fast
+        _deployer = getattr(getattr(result, "root", None), "deployer", "") or ""
+        if _deployer and not force_refresh:
+            asyncio.create_task(_warm_heavy_analyses(mint, _deployer))
+        return result
     except asyncio.TimeoutError:
         raise HTTPException(
             status_code=504,
@@ -519,6 +529,30 @@ async def get_lineage(
         raise HTTPException(
             status_code=500, detail="Internal server error"
         ) from exc
+
+
+async def _warm_heavy_analyses(mint: str, deployer: str):
+    """Pre-compute bundle, sol_flow, cartel in background for fast /investigate."""
+    try:
+        from .bundle_tracker_service import get_cached_bundle_report
+        from .sol_flow_service import get_sol_flow_report
+        from .cartel_service import compute_cartel_report
+
+        async def _safe(coro):
+            try:
+                await coro
+            except Exception:
+                pass
+
+        await asyncio.gather(
+            _safe(get_cached_bundle_report(mint)),
+            _safe(get_sol_flow_report(mint)),
+            _safe(compute_cartel_report(mint, deployer)),
+            return_exceptions=True,
+        )
+        logger.info("[warm] pre-computed bundle/sol_flow/cartel for %s", mint[:12])
+    except Exception as exc:
+        logger.debug("[warm] failed for %s: %s", mint[:12], exc)
 
 
 @app.post(
@@ -1503,12 +1537,19 @@ async def investigate_token(
                 mint, tier=tier, cache=_cache, user_id=user_id,
             ):
                 yield event
+                # Store verdict in investigations table for server-side history
+                if user_id and event.get("event") == "verdict":
+                    ev_data = event.get("data", "")
+                    verdict_dict = json.loads(ev_data) if isinstance(ev_data, str) else ev_data
+                    if isinstance(verdict_dict, dict):
+                        asyncio.create_task(
+                            _store_investigation(_cache, user_id, mint, verdict_dict)
+                        )
         except Exception as exc:
             logger.exception("[investigate] unhandled error for %s", mint[:12])
-            import json as _json
             yield {
                 "event": "error",
-                "data": _json.dumps({"detail": f"Investigation failed: {type(exc).__name__}", "recoverable": False}),
+                "data": json.dumps({"detail": f"Investigation failed: {type(exc).__name__}", "recoverable": False}),
             }
 
     return EventSourceResponse(_generator())
@@ -2438,6 +2479,303 @@ async def get_stats_brief(request: Request) -> dict:
     )
 
     return {"text": text, "generated_at": datetime.now(tz=timezone.utc).isoformat()}
+
+
+# ------------------------------------------------------------------
+# Agent — preferences, status, history, feedback (agentic UX)
+# ------------------------------------------------------------------
+
+class _AgentPrefsBody(BaseModel):
+    alertOnDeployerLaunch: bool = True
+    alertOnHighRisk: bool = True
+    autoInvestigate: bool = False
+    dailyBriefing: bool = True
+    briefingHour: int = 8
+
+
+@app.post("/agent/prefs", tags=["agent"])
+async def set_agent_prefs(request: Request, body: _AgentPrefsBody):
+    """Save user's agent autonomy preferences."""
+    user = await _get_current_user(request)
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+    db = await _cache._get_conn()
+    await db.execute(
+        """INSERT OR REPLACE INTO agent_prefs
+           (user_id, alert_deployer_launch, alert_high_risk,
+            auto_investigate, daily_briefing, briefing_hour, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+        (user["id"], int(body.alertOnDeployerLaunch), int(body.alertOnHighRisk),
+         int(body.autoInvestigate), int(body.dailyBriefing), body.briefingHour,
+         time.time()),
+    )
+    await db.commit()
+    return {"ok": True}
+
+
+@app.get("/agent/prefs", tags=["agent"])
+async def get_agent_prefs(request: Request):
+    """Get user's agent autonomy preferences."""
+    user = await _get_current_user(request)
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+    db = await _cache._get_conn()
+    cursor = await db.execute(
+        "SELECT alert_deployer_launch, alert_high_risk, auto_investigate, "
+        "daily_briefing, briefing_hour FROM agent_prefs WHERE user_id = ?",
+        (user["id"],),
+    )
+    row = await cursor.fetchone()
+    if not row:
+        return {
+            "alertOnDeployerLaunch": True, "alertOnHighRisk": True,
+            "autoInvestigate": False, "dailyBriefing": True, "briefingHour": 8,
+        }
+    return {
+        "alertOnDeployerLaunch": bool(row[0]), "alertOnHighRisk": bool(row[1]),
+        "autoInvestigate": bool(row[2]), "dailyBriefing": bool(row[3]),
+        "briefingHour": row[4],
+    }
+
+
+@app.get("/agent/status", tags=["agent"])
+async def get_agent_status(request: Request):
+    """Return real-time agent status for the Agent tab."""
+    user = await _get_current_user(request)
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+    db = await _cache._get_conn()
+
+    # Count watches
+    cursor = await db.execute(
+        "SELECT COUNT(*) FROM user_watches WHERE user_id = ?", (user["id"],)
+    )
+    watch_count = (await cursor.fetchone())[0]
+
+    # Last sweep time
+    cursor = await db.execute(
+        "SELECT MAX(scanned_at) FROM watch_snapshots ws "
+        "JOIN user_watches uw ON ws.watch_id = uw.id WHERE uw.user_id = ?",
+        (user["id"],),
+    )
+    row = await cursor.fetchone()
+    last_sweep = row[0] if row and row[0] else None
+
+    # Investigations today
+    today_start = time.time() - 86400
+    cursor = await db.execute(
+        "SELECT COUNT(*) FROM investigations WHERE user_id = ? AND created_at > ?",
+        (user["id"], today_start),
+    )
+    today_count = (await cursor.fetchone())[0]
+
+    # Total investigations
+    cursor = await db.execute(
+        "SELECT COUNT(*) FROM investigations WHERE user_id = ?", (user["id"],),
+    )
+    total_count = (await cursor.fetchone())[0]
+
+    # Agent prefs
+    cursor = await db.execute(
+        "SELECT auto_investigate, daily_briefing, briefing_hour FROM agent_prefs WHERE user_id = ?",
+        (user["id"],),
+    )
+    prefs_row = await cursor.fetchone()
+
+    return {
+        "watching": watch_count,
+        "last_sweep": last_sweep,
+        "investigations_today": today_count,
+        "total_investigations": total_count,
+        "auto_investigate": bool(prefs_row[2]) if prefs_row else False,
+        "daily_briefing": bool(prefs_row[1]) if prefs_row else True,
+        "briefing_hour": prefs_row[2] if prefs_row else 8,
+    }
+
+
+@app.get("/agent/history", tags=["agent"])
+async def get_investigation_history(request: Request):
+    """Return user's investigation history (server-side memory)."""
+    user = await _get_current_user(request)
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+    db = await _cache._get_conn()
+    cursor = await db.execute(
+        "SELECT mint, name, symbol, risk_score, verdict_summary, "
+        "key_findings, model, turns_used, tokens_used, created_at "
+        "FROM investigations WHERE user_id = ? ORDER BY created_at DESC LIMIT 50",
+        (user["id"],),
+    )
+    rows = await cursor.fetchall()
+    results = []
+    for r in rows:
+        findings = r[5]
+        try:
+            findings = json.loads(findings) if findings else []
+        except Exception:
+            findings = []
+        results.append({
+            "mint": r[0], "name": r[1], "symbol": r[2],
+            "riskScore": r[3], "verdict": r[4],
+            "keyFindings": findings, "model": r[6],
+            "turnsUsed": r[7], "tokensUsed": r[8],
+            "timestamp": int((r[9] or 0) * 1000),
+        })
+    return results
+
+
+@app.post("/agent/feedback", tags=["agent"])
+async def submit_feedback(request: Request):
+    """Store verdict feedback (accurate/incorrect) for learning."""
+    user = await _get_current_user(request)
+    body = await request.json()
+    mint = body.get("mint", "")
+    rating = body.get("rating", "")
+    if rating not in ("accurate", "incorrect"):
+        raise HTTPException(status_code=422, detail="rating must be 'accurate' or 'incorrect'")
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+    db = await _cache._get_conn()
+    await db.execute(
+        "INSERT INTO investigation_feedback (user_id, mint, risk_score, rating, note, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (user["id"], mint, body.get("risk_score"), rating, body.get("note", ""), time.time()),
+    )
+    await db.commit()
+    return {"ok": True}
+
+
+# ------------------------------------------------------------------
+# Agent — background loops (watchlist sweep + briefing + auto-investigate)
+# ------------------------------------------------------------------
+
+_watchlist_sweep_task: Optional[asyncio.Task] = None
+_briefing_task: Optional[asyncio.Task] = None
+
+
+async def _watchlist_sweep_loop():
+    """Rescan watched tokens every 2 hours and alert on risk escalation."""
+    from .watchlist_monitor_service import run_single_rescan, SWEEP_INTERVAL_SECONDS
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+    while True:
+        await asyncio.sleep(SWEEP_INTERVAL_SECONDS)
+        try:
+            db = await _cache._get_conn()
+            cursor = await db.execute("SELECT id, user_id FROM user_watches WHERE sub_type = 'mint'")
+            watches = await cursor.fetchall()
+            for watch_id, user_id in watches:
+                try:
+                    result = await run_single_rescan(watch_id, _cache)
+                    if result and result.get("escalated"):
+                        # Auto-investigate if user enabled it
+                        cursor2 = await db.execute(
+                            "SELECT auto_investigate FROM agent_prefs WHERE user_id = ?",
+                            (user_id,),
+                        )
+                        pref = await cursor2.fetchone()
+                        if pref and pref[0]:
+                            asyncio.create_task(
+                                _auto_investigate_token(result["mint"], user_id, _cache)
+                            )
+                except Exception as exc:
+                    logger.warning("[sweep] watch %d failed: %s", watch_id, exc)
+        except Exception as exc:
+            logger.exception("[sweep] loop error: %s", exc)
+
+
+async def _briefing_loop():
+    """Generate daily briefings at the configured hour."""
+    from .briefing_service import generate_briefing
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+    while True:
+        await asyncio.sleep(3600)  # check every hour
+        try:
+            now = datetime.now(tz=timezone.utc)
+            db = await _cache._get_conn()
+            cursor = await db.execute(
+                "SELECT user_id, briefing_hour FROM agent_prefs WHERE daily_briefing = 1"
+            )
+            rows = await cursor.fetchall()
+            for user_id, hour in rows:
+                if now.hour == (hour or 8):
+                    try:
+                        content = await generate_briefing(user_id, _cache)
+                        if content:
+                            await db.execute(
+                                "INSERT INTO briefings (user_id, content, created_at) VALUES (?, ?, ?)",
+                                (user_id, content, time.time()),
+                            )
+                            await db.commit()
+                            logger.info("[briefing] generated for user %d", user_id)
+                    except Exception as exc:
+                        logger.warning("[briefing] user %d failed: %s", user_id, exc)
+        except Exception as exc:
+            logger.exception("[briefing] loop error: %s", exc)
+
+
+async def _auto_investigate_token(mint: str, user_id: int, cache):
+    """Run auto-investigation and store result in investigations table."""
+    try:
+        from .investigate_service import run_investigation
+        from .subscription_tiers import get_limits
+
+        db = await cache._get_conn()
+        cursor = await db.execute("SELECT plan FROM users WHERE id = ?", (user_id,))
+        row = await cursor.fetchone()
+        tier = get_limits(row[0] if row else "free")
+
+        verdict = None
+        async for event in run_investigation(mint, tier=tier, cache=cache, user_id=user_id):
+            ev_type = event.get("event", "")
+            if ev_type == "verdict":
+                import json as _json
+                verdict = _json.loads(event["data"]) if isinstance(event["data"], str) else event.get("data")
+
+        if verdict:
+            await _store_investigation(cache, user_id, mint, verdict)
+            logger.info("[auto-investigate] completed %s for user %d — score %s",
+                        mint[:12], user_id, verdict.get("risk_score"))
+    except Exception as exc:
+        logger.exception("[auto-investigate] failed %s for user %d: %s", mint[:12], user_id, exc)
+
+
+async def _store_investigation(cache, user_id: int, mint: str, verdict: dict):
+    """Persist an investigation verdict to the investigations table."""
+    db = await cache._get_conn()
+    key_findings = verdict.get("key_findings", [])
+    if isinstance(key_findings, list):
+        key_findings = json.dumps(key_findings)
+    await db.execute(
+        "INSERT INTO investigations "
+        "(user_id, mint, name, symbol, risk_score, verdict_summary, "
+        "key_findings, model, turns_used, tokens_used, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (user_id, mint, verdict.get("name"), verdict.get("symbol"),
+         verdict.get("risk_score"), verdict.get("verdict_summary"),
+         key_findings, verdict.get("model"),
+         verdict.get("turns_used", 0), verdict.get("tokens_used", 0),
+         time.time()),
+    )
+    await db.commit()
+
+
+def _schedule_watchlist_sweep():
+    global _watchlist_sweep_task
+    _watchlist_sweep_task = asyncio.create_task(_watchlist_sweep_loop())
+    logger.info("Watchlist sweep scheduled (every 2h)")
+
+
+def _cancel_watchlist_sweep():
+    global _watchlist_sweep_task
+    if _watchlist_sweep_task:
+        _watchlist_sweep_task.cancel()
+
+
+def _schedule_briefing_loop():
+    global _briefing_task
+    _briefing_task = asyncio.create_task(_briefing_loop())
+    logger.info("Briefing loop scheduled (hourly check)")
+
+
+def _cancel_briefing_loop():
+    global _briefing_task
+    if _briefing_task:
+        _briefing_task.cancel()
 
 
 if __name__ == "__main__":
