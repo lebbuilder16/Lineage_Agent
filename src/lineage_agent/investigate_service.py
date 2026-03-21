@@ -127,13 +127,17 @@ async def run_investigation(
         except Exception as exc:
             logger.exception("[investigate] agent error for %s", mint[:12])
             detail = str(exc)
-            if "credit balance is too low" in detail:
-                user_msg = "AI service temporarily unavailable — please try again later."
-            elif "overloaded" in detail.lower():
-                user_msg = "AI service is overloaded — please retry in a few moments."
+            is_overloaded = "overloaded" in detail.lower() or "529" in detail
+            is_credit = "credit balance is too low" in detail
+
+            if is_overloaded or is_credit:
+                # Fallback: deliver heuristic-based verdict instead of failing
+                logger.info("[investigate] overload/credit fallback → heuristic verdict for %s", mint[:12])
+                fallback_verdict = _build_heuristic_verdict(hscore, mint)
+                yield _evt("verdict", fallback_verdict)
+                verdict = fallback_verdict
             else:
-                user_msg = f"Agent error: {type(exc).__name__}"
-            yield _evt("error", {"detail": user_msg, "recoverable": False})
+                yield _evt("error", {"detail": f"Agent error: {type(exc).__name__}", "recoverable": True})
 
         yield _evt("phase", {"phase": "agent", "status": "done"})
         yield _evt("done", {
@@ -191,6 +195,39 @@ async def run_investigation(
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
+
+
+def _build_heuristic_verdict(hscore: int, mint: str) -> dict:
+    """Build a rule-based verdict from the heuristic score when AI is unavailable."""
+    if hscore >= 75:
+        level, pattern = "critical", "high_risk_signals"
+    elif hscore >= 50:
+        level, pattern = "high", "moderate_risk_signals"
+    elif hscore >= 25:
+        level, pattern = "medium", "low_risk_signals"
+    else:
+        level, pattern = "low", "minimal_risk"
+
+    return {
+        "mint": mint,
+        "risk_score": hscore,
+        "confidence": "low",
+        "rug_pattern": pattern,
+        "verdict_summary": f"Rule-based analysis (AI temporarily unavailable). Heuristic score: {hscore}/100.",
+        "narrative": {
+            "observation": "Score derived from bundle verdict, SOL flow, and lineage signals.",
+            "pattern": None,
+            "risk": "AI narrative unavailable — treat this score as a preliminary indicator only.",
+        },
+        "key_findings": [
+            f"[HEURISTIC] Risk score {hscore}/100 — {level} risk level.",
+            "[FALLBACK] AI analysis was unavailable. Retry for a full investigation.",
+        ],
+        "conviction_chain": None,
+        "operator_hypothesis": None,
+        "model": "heuristic_fallback",
+    }
+
 
 def _tier_name(tier: TierLimits) -> str:
     """Derive a human-readable tier name from limits."""

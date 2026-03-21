@@ -24,6 +24,7 @@ from typing import Any, AsyncGenerator, Optional
 
 from .ai_analyst import (
     _FORENSIC_TOOL,
+    _MODEL,
     _MODEL_SONNET,
     _SYSTEM_PROMPT,
     _get_client,
@@ -33,11 +34,11 @@ from .ai_analyst import (
 
 logger = logging.getLogger(__name__)
 
-_AGENT_TIMEOUT = 240.0  # wall-clock budget — scan is pre-injected so agent only reasons
-_MAX_TURNS = 8
-_TOOL_TIMEOUT_DEFAULT = 15.0
-_TOOL_TIMEOUT_SCAN = 45.0
-_TOOL_TIMEOUT_COMPARE = 30.0
+_AGENT_TIMEOUT = 55.0  # wall-clock budget — scan is pre-injected so agent only reasons
+_MAX_TURNS = 2
+_TOOL_TIMEOUT_DEFAULT = 8.0
+_TOOL_TIMEOUT_SCAN = 15.0
+_TOOL_TIMEOUT_COMPARE = 12.0
 _COMPRESS_THRESHOLD = 4000  # chars — compress tool results larger than this
 
 
@@ -616,6 +617,7 @@ async def run_agent(
     turn = 0
     total_input_tokens = 0
     total_output_tokens = 0
+    verdict: dict | None = None
 
     # ── Main loop ────────────────────────────────────────────────────────
     while turn < max_turns:
@@ -631,17 +633,33 @@ async def run_agent(
         # ── Call Claude — stream tokens in real-time to keep SSE alive ───
         text_parts: list[str] = []
         tool_uses: list[dict] = []
-        call_timeout = min(remaining - 2.0, 90.0)
+        call_timeout = min(remaining - 2.0, 45.0)
         if call_timeout < 5.0:
             call_timeout = 5.0
 
+        # On the final turn, force structured verdict via forensic_report tool
+        is_final_turn = (turn >= max_turns) or (remaining < 15.0)
+        if is_final_turn:
+            tools_for_call = AGENT_TOOLS + [_FORENSIC_TOOL]
+            tool_choice_arg: dict[str, Any] = {"type": "tool", "name": "forensic_report"}
+            # Nudge agent to deliver verdict now
+            if messages[-1].get("role") != "user" or not any("forensic_report" in str(m) for m in messages[-2:]):
+                messages.append({
+                    "role": "user",
+                    "content": "Deliver your final forensic_report verdict now based on all evidence collected.",
+                })
+        else:
+            tools_for_call = AGENT_TOOLS
+            tool_choice_arg = {"type": "auto"}
+
         try:
             async with client.messages.stream(
-                model=_MODEL_SONNET,
-                max_tokens=4096,
+                model=_MODEL,
+                max_tokens=2048,
                 temperature=0,
                 system=system_prompt,
-                tools=AGENT_TOOLS,
+                tools=tools_for_call,
+                tool_choice=tool_choice_arg,
                 messages=messages,
                 timeout=call_timeout,
             ) as stream:
@@ -707,10 +725,30 @@ async def run_agent(
         if text_parts and tool_uses:
             yield {"event": "thinking", "data": {"turn": turn, "text": ""}}
 
+        # ── Check for forensic_report (verdict) in tool_uses ─────────────
+        verdict_from_tool: dict | None = None
+        regular_tool_uses: list[dict] = []
+        for tu in tool_uses:
+            if tu["name"] == "forensic_report":
+                # This IS the verdict — extract directly, no execution needed
+                verdict_from_tool = tu["input"]
+                verdict_from_tool["mint"] = mint
+                verdict_from_tool["model"] = _MODEL
+            else:
+                regular_tool_uses.append(tu)
+
+        if verdict_from_tool:
+            # Verdict delivered inline — persist and finish
+            await _cache_verdict(cache, mint, verdict_from_tool)
+            verdict = verdict_from_tool
+            if text_parts:
+                yield {"event": "text", "data": {"turn": turn, "text": " ".join(text_parts)}}
+            break
+
         # ── Tool execution (OPT-2: parallel) ─────────────────────────────
-        if tool_uses:
+        if regular_tool_uses:
             # Yield all tool_call events
-            for tu in tool_uses:
+            for tu in regular_tool_uses:
                 yield {"event": "tool_call", "data": {
                     "turn": turn,
                     "tool": tu["name"],
@@ -718,22 +756,19 @@ async def run_agent(
                     "call_id": tu["id"],
                 }}
 
-            # Execute all tools in parallel — yield keepalive pings every 5s
-            # to prevent SSE connection drop during slow tool calls.
-            # asyncio.shield prevents cancellation of the gather while we
-            # wait_for with a short timeout to interleave ping yields.
+            # Execute all tools in parallel — yield keepalive pings every 3s
             t0 = time.monotonic()
             gather_task = asyncio.ensure_future(asyncio.gather(*[
                 _execute_tool(tu["name"], {**tu["input"], "_mint": mint}, cache=cache)
-                for tu in tool_uses
+                for tu in regular_tool_uses
             ]))
             while not gather_task.done():
                 try:
-                    await asyncio.wait_for(asyncio.shield(gather_task), timeout=5.0)
+                    await asyncio.wait_for(asyncio.shield(gather_task), timeout=3.0)
                 except asyncio.TimeoutError:
                     yield {"event": "ping", "data": {"ts": time.monotonic()}}
                 except Exception:
-                    break  # Non-timeout exception — exit ping loop, re-raise below
+                    break
             try:
                 results = gather_task.result()
             except Exception as exc:
@@ -743,7 +778,7 @@ async def run_agent(
 
             # Yield tool_result events and build response messages
             tool_result_contents: list[dict] = []
-            for tu, result in zip(tool_uses, results):
+            for tu, result in zip(regular_tool_uses, results):
                 elapsed_ms = int((time.monotonic() - t0) * 1000)
                 is_error = "error" in result and len(result) == 1
                 yield {"event": "tool_result", "data": {
@@ -764,7 +799,7 @@ async def run_agent(
             assistant_content = []
             for part in text_parts:
                 assistant_content.append({"type": "text", "text": part})
-            for tu in tool_uses:
+            for tu in regular_tool_uses:
                 assistant_content.append({
                     "type": "tool_use",
                     "id": tu["id"],
@@ -774,9 +809,7 @@ async def run_agent(
             messages.append({"role": "assistant", "content": assistant_content})
             messages.append({"role": "user", "content": tool_result_contents})
 
-            # OPT-5: Compress old tool results in conversation
             _compress_old_tool_results(messages, current_turn=turn)
-
             continue  # Next turn
 
         # ── Text response (no tools) — agent is done ─────────────────────
@@ -790,13 +823,12 @@ async def run_agent(
         logger.warning("[agent] empty response at turn %d for %s", turn, mint[:12])
         break
 
-    # ── Extract structured verdict ───────────────────────────────────────
-    verdict = await _extract_verdict(client, messages, system_prompt, mint)
+    # ── Verdict (already extracted inline, or fallback to _extract_verdict) ──
+    if not verdict:
+        verdict = await _extract_verdict(client, messages, system_prompt, mint)
     if verdict:
         total_output_tokens += verdict.pop("_output_tokens", 0)
         total_input_tokens += verdict.pop("_input_tokens", 0)
-
-        # OPT-4: Persist to AI cache for cross-endpoint benefit
         await _cache_verdict(cache, mint, verdict)
 
     yield {"event": "done", "data": {
