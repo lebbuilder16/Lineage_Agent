@@ -70,6 +70,14 @@ async def run_forensic_pipeline(
     def _evt(event: str, data: dict) -> dict:
         return {"event": event, "data": json.dumps(data, default=str)}
 
+    async def _safe_background(coro, name: str, mint_short: str):
+        """Run a slow analysis in background — result lands in cache for next call."""
+        try:
+            await asyncio.wait_for(coro, timeout=90.0)
+            logger.info("[pipeline] background %s completed for %s", name, mint_short[:12])
+        except Exception as e:
+            logger.warning("[pipeline] background %s failed for %s: %s", name, mint_short[:12], e)
+
     yield _evt("phase", {"phase": "scan", "status": "started"})
 
     # -- Phase 1: Token Identity (2-3s) -----------------------------------
@@ -230,9 +238,15 @@ async def run_forensic_pipeline(
                     return
                 if deployer:
                     results["sol_flow"] = await asyncio.wait_for(
-                        trace_sol_flow(mint, deployer), timeout=35.0,
+                        trace_sol_flow(mint, deployer), timeout=15.0,
                     )
                 _sub_step("sol_flow", "done", ms=int((time.monotonic() - t) * 1000))
+            except asyncio.TimeoutError:
+                logger.info("[pipeline] sol_flow timeout at 15s for %s — continuing in background", mint[:12])
+                asyncio.create_task(
+                    _safe_background(trace_sol_flow(mint, deployer), "sol_flow", mint),
+                )
+                _sub_step("sol_flow", "done", ms=int((time.monotonic() - t) * 1000), ok=False)
             except Exception as e:
                 logger.warning("[pipeline] sol_flow failed: %s", e)
                 _sub_step("sol_flow", "done", ms=int((time.monotonic() - t) * 1000), ok=False)
@@ -246,11 +260,20 @@ async def run_forensic_pipeline(
                     results["bundle_report"] = cached
                     _sub_step("bundle", "done", ms=int((time.monotonic() - t) * 1000))
                     return
+                # Cache miss — try with 12s budget in pipeline.
+                # If it doesn't finish, the warm cache background task will complete it.
                 if deployer:
                     results["bundle_report"] = await asyncio.wait_for(
-                        analyze_bundle(mint, deployer), timeout=35.0,
+                        analyze_bundle(mint, deployer), timeout=12.0,
                     )
                 _sub_step("bundle", "done", ms=int((time.monotonic() - t) * 1000))
+            except asyncio.TimeoutError:
+                # Bundle is too slow for inline — fire-and-forget in background
+                logger.info("[pipeline] bundle timeout at 12s for %s — continuing in background", mint[:12])
+                asyncio.create_task(
+                    _safe_background(analyze_bundle(mint, deployer), "bundle", mint),
+                )
+                _sub_step("bundle", "done", ms=int((time.monotonic() - t) * 1000), ok=False)
             except Exception as e:
                 logger.warning("[pipeline] bundle failed: %s", e)
                 _sub_step("bundle", "done", ms=int((time.monotonic() - t) * 1000), ok=False)
