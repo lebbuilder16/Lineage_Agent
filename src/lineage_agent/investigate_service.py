@@ -139,6 +139,12 @@ async def run_investigation(
             else:
                 yield _evt("error", {"detail": f"Agent error: {type(exc).__name__}", "recoverable": True})
 
+        # Safety net: if agent completed but produced no verdict, deliver heuristic
+        if not verdict:
+            logger.warning("[investigate] agent produced no verdict for %s — heuristic fallback", mint[:12])
+            verdict = _build_heuristic_verdict(hscore, mint)
+            yield _evt("verdict", verdict)
+
         yield _evt("phase", {"phase": "agent", "status": "done"})
         yield _evt("done", {
             "tier": tier_name,
