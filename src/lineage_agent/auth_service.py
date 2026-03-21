@@ -94,8 +94,11 @@ async def create_or_get_user(
             "created_at": now,
         }
 
-    except Exception:  # pragma: no cover
-        logger.error("create_or_get_user failed for privy_id=%s", privy_id, exc_info=True)
+    except Exception as exc:  # pragma: no cover
+        logger.error(
+            "create_or_get_user failed for privy_id=%s: %s",
+            privy_id, exc, exc_info=True,
+        )
         raise
 
 

@@ -1766,8 +1766,8 @@ async def auth_login(body: _LoginRequest, request: Request):
             email=body.email,
         )
     except Exception as exc:
-        logger.exception("auth_login failed")
-        raise HTTPException(status_code=500, detail="User creation failed") from exc
+        logger.exception("auth_login failed: %s", exc)
+        raise HTTPException(status_code=500, detail=f"User creation failed: {exc}") from exc
     return {
         "id": user["id"],
         "privy_id": user["privy_id"],

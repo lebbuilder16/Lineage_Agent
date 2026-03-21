@@ -53,6 +53,7 @@ function extractFromLinkedAccounts(user: User) {
 
 async function handlePrivyLoginSuccess(user: User) {
   const { walletAddress, emailAddress } = extractFromLinkedAccounts(user);
+  console.log('[login] handlePrivyLoginSuccess:', JSON.stringify({ id: user.id, walletAddress, emailAddress }));
   try {
     const ok = await syncPrivyUser({
       id: user.id,
