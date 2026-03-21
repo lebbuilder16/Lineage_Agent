@@ -151,7 +151,10 @@ export async function getWatches(apiKey: string): Promise<Watch[]> {
   const { data } = await apiClient.GET('/auth/watches', {
     headers: { 'X-API-Key': apiKey },
   });
-  return (data as unknown as Watch[]) ?? [];
+  // Backend returns { watches: Watch[] } — extract the array
+  const raw = data as unknown as { watches?: Watch[] } | Watch[];
+  if (Array.isArray(raw)) return raw;
+  return raw?.watches ?? [];
 }
 
 export async function addWatch(
