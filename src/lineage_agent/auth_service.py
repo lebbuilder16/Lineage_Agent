@@ -179,18 +179,25 @@ async def upgrade_user_plan(cache, user_id: int, plan: str) -> bool:
     if plan not in ("free", "pro", "pro_plus", "whale"):
         logger.warning("upgrade_user_plan: invalid plan %r for user_id=%s", plan, user_id)
         return False
-    try:
-        db = await cache._get_conn()
-        await db.execute(
-            "UPDATE users SET plan = ? WHERE id = ?",
-            (plan, user_id),
-        )
-        await db.commit()
-        logger.info("upgrade_user_plan: user_id=%s → %s", user_id, plan)
-        return True
-    except Exception:
-        logger.warning("upgrade_user_plan failed for user_id=%s", user_id, exc_info=True)
-        return False
+    import asyncio
+    for attempt in range(5):
+        try:
+            db = await cache._get_conn()
+            await db.execute("PRAGMA busy_timeout = 5000")
+            await db.execute(
+                "UPDATE users SET plan = ? WHERE id = ?",
+                (plan, user_id),
+            )
+            await db.commit()
+            logger.info("upgrade_user_plan: user_id=%s → %s", user_id, plan)
+            return True
+        except Exception as exc:
+            if "locked" in str(exc) and attempt < 4:
+                logger.warning("upgrade_user_plan locked, retry %d/4", attempt + 1)
+                await asyncio.sleep(1)
+                continue
+            logger.warning("upgrade_user_plan failed for user_id=%s: %s", user_id, exc, exc_info=True)
+            raise
 
 
 async def update_notification_prefs(cache, user_id: int, prefs: dict) -> bool:
