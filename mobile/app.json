@@ -24,7 +24,10 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#0A0A07"
       },
-      "package": "com.lineageagent.app"
+      "package": "com.lineageagent.app",
+      "queries": {
+        "schemes": ["phantom", "solflare", "backpack"]
+      }
     },
     "web": {
       "bundler": "metro"
