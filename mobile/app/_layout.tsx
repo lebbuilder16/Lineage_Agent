@@ -61,7 +61,7 @@ export default function RootLayout() {
         const fetchProfile = async () => {
           try {
             const { getMe } = await import('../src/lib/api');
-            const user = await getMe(parsed.queryParams!.key as string);
+            const user = await getMe(parsed.queryParams?.key as string);
             useAuthStore.getState().setUser(user);
           } catch { /* profile fetch is best-effort */ }
         };

@@ -174,10 +174,10 @@ export default function OperatorScreen() {
                 <GlassCard>
                   <Text style={styles.sectionTitle}>NARRATIVE SEQUENCE</Text>
                   <View style={styles.narrativeWrap}>
-                    {data.narrative_sequence!.map((n, i) => (
+                    {(data.narrative_sequence ?? []).map((n, i) => (
                       <View key={i} style={styles.narrativePill}>
                         <Text style={styles.narrativeText}>{n}</Text>
-                        {i < data.narrative_sequence!.length - 1 && (
+                        {i < (data.narrative_sequence?.length ?? 0) - 1 && (
                           <Text style={styles.narrativeArrow}> → </Text>
                         )}
                       </View>
@@ -232,9 +232,9 @@ export default function OperatorScreen() {
               {(data.active_tokens?.length ?? 0) > 0 && (
                 <GlassCard>
                   <Text style={styles.sectionTitle}>
-                    ACTIVE TOKENS ({data.active_tokens!.length})
+                    ACTIVE TOKENS ({data.active_tokens?.length ?? 0})
                   </Text>
-                  {data.active_tokens!.map((mint) => (
+                  {(data.active_tokens ?? []).map((mint) => (
                     <TouchableOpacity
                       key={mint}
                       onPress={() => router.push(`/token/${mint}` as any)}

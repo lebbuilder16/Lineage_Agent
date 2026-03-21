@@ -117,7 +117,7 @@ export default function CartelScreen() {
                 <GlassCard>
                   <Text style={styles.sectionTitle}>SIGNAL BREAKDOWN</Text>
                   <View style={styles.signals}>
-                    {data.deployer_community!.edges!.map((edge, i) => (
+                    {(data.deployer_community?.edges ?? []).map((edge, i) => (
                       <SignalRow
                         key={i}
                         label={edge.signal_type.replace('_', ' ').toUpperCase()}
@@ -134,7 +134,7 @@ export default function CartelScreen() {
                 <GlassCard>
                   <Text style={styles.sectionTitle}>CONNECTED DEPLOYERS</Text>
                   <View style={{ gap: 0 }}>
-                    {data.deployer_community!.wallets.map((addr) => (
+                    {(data.deployer_community?.wallets ?? []).map((addr) => (
                       <TouchableOpacity
                         key={addr}
                         onPress={() => router.push(`/deployer/${addr}` as any)}

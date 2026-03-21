@@ -23,7 +23,7 @@ interface SSECallbacks {
  * Call `feed(responseText)` each time onprogress fires — it tracks its own
  * read cursor so only new bytes are parsed.
  */
-function createSSEParser(cb: SSECallbacks) {
+export function createSSEParser(cb: SSECallbacks) {
   let cursor = 0;
   let buffer = '';
   let pendingEvent = '';

@@ -1456,6 +1456,64 @@ async def stream_ai_analysis(
 
     return EventSourceResponse(_generator())
 
+
+# ------------------------------------------------------------------
+# Unified Investigation — tier-adaptive SSE endpoint
+# ------------------------------------------------------------------
+
+@app.post(
+    "/investigate/{mint}",
+    tags=["lineage"],
+    summary="Tier-adaptive investigation with SSE progress events",
+)
+@limiter.limit("6/minute")
+async def investigate_token(
+    request: Request,
+    mint: str,
+) -> EventSourceResponse:
+    """Unified investigation endpoint. Adapts depth based on user tier:
+    - Free: forensic pipeline → heuristic score
+    - Pro: pipeline + single-shot AI verdict
+    - Pro+/Whale: pipeline + autonomous agent multi-turn
+    """
+    if not _BASE58_RE.match(mint):
+        raise HTTPException(status_code=400, detail="Invalid Solana mint address")
+
+    from .investigate_service import run_investigation
+    from .subscription_tiers import get_limits
+
+    # Resolve user tier from API key (default to free)
+    api_key = request.headers.get("X-API-Key", "")
+    user_plan = "free"
+    user_id = None
+    if api_key:
+        from .data_sources._clients import cache as _cache
+        user = await verify_api_key(_cache, api_key)
+        if user:
+            user_plan = user.get("plan", "free")
+            user_id = user.get("id")
+
+    tier = get_limits(user_plan)
+
+    from .data_sources._clients import cache as _cache
+
+    async def _generator():
+        try:
+            async for event in run_investigation(
+                mint, tier=tier, cache=_cache, user_id=user_id,
+            ):
+                yield event
+        except Exception as exc:
+            logger.exception("[investigate] unhandled error for %s", mint[:12])
+            import json as _json
+            yield {
+                "event": "error",
+                "data": _json.dumps({"detail": f"Investigation failed: {type(exc).__name__}", "recoverable": False}),
+            }
+
+    return EventSourceResponse(_generator())
+
+
 # ------------------------------------------------------------------
 # AI Forensic Chat — conversational analysis endpoint (Phase 3.1)
 # ------------------------------------------------------------------
@@ -1650,6 +1708,21 @@ async def forensic_chat(
             yield _evt("error", {"detail": f"Chat error: {type(_exc).__name__}"})
 
     return EventSourceResponse(_generator())
+
+
+@app.post(
+    "/investigate/{mint}/chat",
+    tags=["lineage"],
+    summary="Follow-up chat within an investigation context (delegates to /chat/{mint})",
+)
+@limiter.limit("20/minute")
+async def investigate_chat(
+    request: Request,
+    mint: str,
+    body: ChatRequest,
+) -> EventSourceResponse:
+    """Thin wrapper — delegates to the existing /chat/{mint} endpoint."""
+    return await forensic_chat(request, mint, body)
 
 
 # ------------------------------------------------------------------

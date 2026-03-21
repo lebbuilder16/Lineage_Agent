@@ -300,7 +300,7 @@ export default function SolTraceScreen() {
                 {(data.cross_chain_exits?.length ?? 0) > 0 && (
                   <GlassCard style={{ marginTop: 8 }}>
                     <Text style={styles.sectionTitle}>CROSS-CHAIN EXITS</Text>
-                    {data.cross_chain_exits!.map((exit, i) => (
+                    {(data.cross_chain_exits ?? []).map((exit, i) => (
                       <View key={i} style={styles.exitRow}>
                         <ExternalLink size={14} color={tokens.risk.high} />
                         <View style={{ flex: 1 }}>
