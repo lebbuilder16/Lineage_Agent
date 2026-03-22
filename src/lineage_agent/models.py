@@ -757,8 +757,18 @@ class SolFlowReport(BaseModel):
 
     mint: str
     deployer: str
-    total_extracted_sol: float = Field(ge=0.0, description="Direct SOL outflows from deployer (hop 0)")
+    total_extracted_sol: float = Field(ge=0.0, description="Direct SOL outflows from deployer (hop 0) — does NOT imply theft; see extraction_context")
     total_extracted_usd: Optional[float] = Field(None, description="USD value at time of extraction (SOL × market price)")
+    extraction_context: Optional[str] = Field(
+        None,
+        description=(
+            "Contextual interpretation: "
+            "'confirmed_extraction' (deployer exited + SOL moved), "
+            "'suspicious_outflow' (high sell pressure + SOL moved), "
+            "'deployer_operational' (deployer still holds tokens, SOL likely fees/costs), "
+            "'protocol_fees_only' (all flows are from/to launchpad programs)"
+        ),
+    )
     flows: list[SolFlowEdge] = Field(default_factory=list)
     terminal_wallets: list[str] = Field(
         default_factory=list,
