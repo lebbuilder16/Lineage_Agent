@@ -2894,7 +2894,9 @@ async def _watchlist_sweep_loop():
             db = await _cache._get_conn()
             cursor = await db.execute("SELECT id, user_id FROM user_watches WHERE sub_type = 'mint'")
             watches = await cursor.fetchall()
-            for watch_id, user_id in watches:
+            for _wi, (watch_id, user_id) in enumerate(watches):
+                if _wi > 0:
+                    await asyncio.sleep(5)  # stagger rescans to avoid DB contention
                 try:
                     result = await run_single_rescan(watch_id, _cache)
                     if result and result.get("escalated"):
