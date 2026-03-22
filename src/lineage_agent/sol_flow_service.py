@@ -523,11 +523,26 @@ def _flows_to_report(
     hop0_times = [e.block_time for e in edges if e.hop == 0 and e.block_time is not None]
     rug_ts: Optional[datetime] = min(hop0_times) if hop0_times else None
 
+    # Determine extraction context from flow labels
+    protocol_only = all(e.flow_context == "protocol_fee" for e in edges) if edges else True
+    deployer_outflows = [e for e in edges if e.flow_context == "deployer_outflow"]
+    has_deployer_outflows = len(deployer_outflows) > 0
+
+    if protocol_only and not has_deployer_outflows:
+        extraction_ctx = "protocol_fees_only"
+    elif has_deployer_outflows and known_cex:
+        extraction_ctx = "confirmed_extraction"
+    elif has_deployer_outflows:
+        extraction_ctx = "suspicious_outflow"
+    else:
+        extraction_ctx = "deployer_operational"
+
     return SolFlowReport(
         mint=mint,
         deployer=deployer,
         total_extracted_sol=round(total_sol, 4),
         total_extracted_usd=total_usd,
+        extraction_context=extraction_ctx,
         flows=edges,
         terminal_wallets=terminal_wallets,
         known_cex_detected=known_cex,
