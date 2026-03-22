@@ -88,7 +88,9 @@ _LAUNCHPAD_CONTENT_HOSTS: dict[str, tuple[str, ...]] = {
 }
 
 _LAUNCHPAD_MINT_SUFFIXES: dict[str, tuple[str, ...]] = {
+    "pumpfun": ("pump",),
     "moonshot": ("moon",),
+    "letsbonk": ("bonk",),
 }
 
 
@@ -136,23 +138,39 @@ def classify_market_context(
         # Mixed (some bonding-curve + some real DEX pairs): token graduated.
         # Fall through to DAS-based detection to determine platform context.
 
-    # ── Steps 1-3: DAS-based detection ────────────────────────────────────────
-    authorities = asset.get("authorities") or [] if asset else []
-    creators = asset.get("creators") or [] if asset else []
-    authority_addrs = [a.get("address") for a in authorities if a.get("address")]
-    creator_addrs = [c.get("address") for c in creators if c.get("address")]
-
-    platform = next((LAUNCHPAD_PROGRAMS[a] for a in authority_addrs if a in LAUNCHPAD_PROGRAMS), None)
-    evidence = EvidenceLevel.STRONG if platform else EvidenceLevel.WEAK
+    # ── Step 1: Mint suffix — immutable, highest priority ─────────────────────
+    # When a token graduates from LetsBonk/PumpFun to Raydium, the DAS
+    # authority changes to Raydium's. But the mint suffix is permanent.
+    _mint_lower = mint_address.strip().lower() if mint_address else ""
+    platform: Optional[str] = None
+    evidence = EvidenceLevel.WEAK
     reason_codes: list[str] = []
-    if platform:
-        reason_codes.append("launchpad_authority_matched")
-    else:
-        platform = next((LAUNCHPAD_PROGRAMS[a] for a in creator_addrs if a in LAUNCHPAD_PROGRAMS), None)
-        if platform:
-            evidence = EvidenceLevel.MODERATE
-            reason_codes.append("launchpad_creator_matched")
 
+    for _sfx_platform, _sfx_values in _LAUNCHPAD_MINT_SUFFIXES.items():
+        if _mint_lower.endswith(_sfx_values):
+            platform = _sfx_platform
+            evidence = EvidenceLevel.STRONG
+            reason_codes.append(f"mint_suffix_{_sfx_platform}")
+            break
+
+    # ── Step 2: DAS authority / creator (if suffix didn't match) ────────────
+    if not platform:
+        authorities = asset.get("authorities") or [] if asset else []
+        creators = asset.get("creators") or [] if asset else []
+        authority_addrs = [a.get("address") for a in authorities if a.get("address")]
+        creator_addrs = [c.get("address") for c in creators if c.get("address")]
+
+        platform = next((LAUNCHPAD_PROGRAMS[a] for a in authority_addrs if a in LAUNCHPAD_PROGRAMS), None)
+        if platform:
+            evidence = EvidenceLevel.STRONG
+            reason_codes.append("launchpad_authority_matched")
+        else:
+            platform = next((LAUNCHPAD_PROGRAMS[a] for a in creator_addrs if a in LAUNCHPAD_PROGRAMS), None)
+            if platform:
+                evidence = EvidenceLevel.MODERATE
+                reason_codes.append("launchpad_creator_matched")
+
+    # ── Step 3: Heuristic signals (content URLs, etc.) ──────────────────────
     if not platform:
         platform, heuristic_evidence, heuristic_reasons = _infer_launchpad_from_asset_signals(
             asset, mint_address=mint_address
