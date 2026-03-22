@@ -2563,18 +2563,36 @@ async def get_top_tokens(
         col_names = [d[0] for d in cursor.description]
         results = [dict(zip(col_names, row)) for row in rows]
 
-        tokens_list = [
-            TopToken(
+        # Enrich with live mcap from lineage cache (updated on each scan)
+        from .lineage_detector import get_cached_lineage_report
+        tokens_list = []
+        for r in results:
+            mcap = r.get("mcap_usd")
+            name = r.get("name", "") or ""
+            symbol = r.get("symbol", "") or ""
+            try:
+                cached = await get_cached_lineage_report(r["mint"])
+                if cached:
+                    qt = getattr(cached, "query_token", None)
+                    if qt:
+                        live_mcap = getattr(qt, "market_cap_usd", None)
+                        if live_mcap is not None:
+                            mcap = live_mcap
+                        if getattr(qt, "name", None):
+                            name = qt.name
+                        if getattr(qt, "symbol", None):
+                            symbol = qt.symbol
+            except Exception:
+                pass
+            tokens_list.append(TopToken(
                 mint=r["mint"],
-                name=r.get("name", "") or "",
-                symbol=r.get("symbol", "") or "",
+                name=name,
+                symbol=symbol,
                 narrative=r.get("narrative"),
-                mcap_usd=r.get("mcap_usd"),
+                mcap_usd=mcap,
                 event_count=r.get("event_count", 1),
                 created_at=r.get("created_at"),
-            )
-            for r in results
-        ]
+            ))
 
         _top_tokens_cache = (now_mono, tokens_list)
         return tokens_list
