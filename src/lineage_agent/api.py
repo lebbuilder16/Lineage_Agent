@@ -1598,6 +1598,8 @@ async def investigate_token(
                         })(),
                     ))
                 # Store verdict in investigations table for server-side history
+                if event.get("event") == "verdict":
+                    logger.info("[investigate] verdict event received for %s, user_id=%s", mint[:12], user_id)
                 if user_id and event.get("event") == "verdict":
                     ev_data = event.get("data", "")
                     verdict_dict = _json.loads(ev_data) if isinstance(ev_data, str) else ev_data
