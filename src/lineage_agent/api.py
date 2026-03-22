@@ -2535,7 +2535,7 @@ async def get_top_tokens(
 
     global _top_tokens_cache
     now_mono = _time.monotonic()
-    if _top_tokens_cache and (now_mono - _top_tokens_cache[0]) < 60.0:
+    if _top_tokens_cache and (now_mono - _top_tokens_cache[0]) < 120.0:
         return _top_tokens_cache[1][:limit]
 
     try:
@@ -2563,31 +2563,32 @@ async def get_top_tokens(
         col_names = [d[0] for d in cursor.description]
         results = [dict(zip(col_names, row)) for row in rows]
 
-        # Enrich with live mcap from lineage cache (updated on each scan)
-        from .lineage_detector import get_cached_lineage_report
+        # Enrich with LIVE mcap from DexScreener (single batch call, <200ms)
+        live_mcap_map: dict[str, float] = {}
+        try:
+            from .data_sources._clients import get_dex_client
+            dex = get_dex_client()
+            mints_csv = ",".join(r["mint"] for r in results[:30])
+            pairs = await asyncio.wait_for(dex.get_token_pairs(mints_csv), timeout=5.0)
+            # Build mint → best mcap map (highest liquidity pair wins)
+            for pair in pairs:
+                ba = pair.get("baseToken", {}).get("address", "")
+                mc = pair.get("marketCap") or pair.get("fdv")
+                if ba and mc and isinstance(mc, (int, float)):
+                    existing = live_mcap_map.get(ba, 0)
+                    if mc > existing:
+                        live_mcap_map[ba] = mc
+        except Exception:
+            pass  # best-effort — fall back to DB values
+
         tokens_list = []
         for r in results:
-            mcap = r.get("mcap_usd")
-            name = r.get("name", "") or ""
-            symbol = r.get("symbol", "") or ""
-            try:
-                cached = await get_cached_lineage_report(r["mint"])
-                if cached:
-                    qt = getattr(cached, "query_token", None)
-                    if qt:
-                        live_mcap = getattr(qt, "market_cap_usd", None)
-                        if live_mcap is not None:
-                            mcap = live_mcap
-                        if getattr(qt, "name", None):
-                            name = qt.name
-                        if getattr(qt, "symbol", None):
-                            symbol = qt.symbol
-            except Exception:
-                pass
+            mint_addr = r["mint"]
+            mcap = live_mcap_map.get(mint_addr) or r.get("mcap_usd")
             tokens_list.append(TopToken(
-                mint=r["mint"],
-                name=name,
-                symbol=symbol,
+                mint=mint_addr,
+                name=r.get("name", "") or "",
+                symbol=r.get("symbol", "") or "",
                 narrative=r.get("narrative"),
                 mcap_usd=mcap,
                 event_count=r.get("event_count", 1),
