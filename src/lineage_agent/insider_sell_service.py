@@ -274,9 +274,10 @@ async def _fetch_balance(
 ) -> Optional[InsiderSellEvent]:
     """Return an :class:`InsiderSellEvent` for a single wallet, or None on error."""
     try:
+        _balance_timeout = 8.0 if role == "deployer" else 5.0
         balance = await asyncio.wait_for(
             rpc.get_wallet_token_balance(wallet, mint),
-            timeout=5.0,
+            timeout=_balance_timeout,
         )
         zero_balance_expected = (
             role == "deployer"
@@ -290,7 +291,15 @@ async def _fetch_balance(
             context = "zero_balance_expected_by_protocol"
         elif balance == 0.0 and role == "deployer":
             # Deployer exited — try to quantify the exit
-            context = await _build_exit_context(rpc, wallet, mint)
+            try:
+                context = await asyncio.wait_for(
+                    _build_exit_context(rpc, wallet, mint),
+                    timeout=10.0,
+                )
+                logger.info("[insider] exit context for %s: %s", wallet[:8], context)
+            except Exception as ctx_exc:
+                logger.warning("[insider] exit context failed for %s: %s", wallet[:8], ctx_exc)
+                context = "Deployer wallet has 0 balance — exit analysis timed out."
 
         return InsiderSellEvent(
             wallet=wallet,
