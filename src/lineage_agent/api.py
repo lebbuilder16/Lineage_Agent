@@ -2593,23 +2593,98 @@ _top_tokens_cache: tuple[float, list] | None = None
 @app.get(
     "/stats/brief",
     tags=["intelligence"],
-    summary="Human-readable 2-sentence intelligence brief from the last 24 h stats",
+    summary="Personalized intelligence briefing (falls back to global if unauthenticated)",
 )
 @limiter.limit("60/minute")
 async def get_stats_brief(request: Request) -> dict:
-    """Compose a short English summary from GlobalStats for display in the mobile AI Brief card."""
+    """Personalized daily briefing based on user's watchlist, alerts, and global stats.
+
+    When X-API-Key is provided: personalized briefing with watchlist risk deltas.
+    When unauthenticated: global platform summary.
+    """
     from datetime import datetime, timezone  # noqa: PLC0415
 
     stats: GlobalStats = await get_global_stats(request)
-
     top_nar = stats.top_narratives[0].narrative.upper() if stats.top_narratives else "MISC"
-    rug_rate = f"{stats.rug_rate_24h_pct:.1f}"
 
-    text = (
-        f"{stats.tokens_rugged_24h} confirmed rug pulls detected in the last 24 h "
-        f"({rug_rate}% confirmed rug rate) across {stats.tokens_scanned_24h:,} scanned tokens. "
-        f"Top narrative: {top_nar} — {stats.active_deployers_24h} active deployers tracked."
+    # ── Global summary (always included) ─────────────────────────
+    global_line = (
+        f"{stats.tokens_rugged_24h} rug pull(s) in 24h "
+        f"({stats.rug_rate_24h_pct:.1f}% rate) across {stats.tokens_scanned_24h:,} tokens. "
+        f"Top narrative: {top_nar}."
     )
+
+    # ── Personalized section (if authenticated) ──────────────────
+    api_key = request.headers.get("X-API-Key", "")
+    personal_lines: list[str] = []
+
+    if api_key:
+        try:
+            from .data_sources._clients import cache as _cache  # noqa: PLC0415
+            user = await verify_api_key(_cache, api_key)
+            if user:
+                user_id = user["id"]
+                db = await _cache._get_conn()
+
+                # 1. Get user's watched mints
+                cursor = await db.execute(
+                    "SELECT value FROM user_watches WHERE user_id = ? AND sub_type = 'mint'",
+                    (user_id,),
+                )
+                watched_mints = [row[0] for row in await cursor.fetchall()]
+
+                if watched_mints:
+                    # 2. Check latest risk data for each watched mint
+                    placeholders = ",".join("?" for _ in watched_mints)
+
+                    # Get latest lineage data from cache for watched tokens
+                    risk_changes: list[str] = []
+                    for mint_addr in watched_mints[:10]:  # cap at 10 to avoid slow queries
+                        try:
+                            from .lineage_detector import get_cached_lineage_report
+                            cached = await get_cached_lineage_report(mint_addr)
+                            if cached:
+                                name = getattr(getattr(cached, "query_token", None), "name", "") or mint_addr[:8]
+                                symbol = getattr(getattr(cached, "query_token", None), "symbol", "") or "?"
+
+                                # Check risk signals
+                                dp = getattr(cached, "deployer_profile", None)
+                                ins = getattr(cached, "insider_sell", None)
+                                dc = getattr(cached, "death_clock", None)
+
+                                if ins and getattr(ins, "deployer_exited", False):
+                                    risk_changes.append(f"{symbol}: deployer exited (critical)")
+                                elif dp and getattr(dp, "rug_rate_pct", 0) > 50:
+                                    risk_changes.append(f"{symbol}: deployer rug rate {getattr(dp, 'rug_rate_pct', 0):.0f}%")
+                                elif dc and getattr(dc, "risk_level", "") in ("high", "critical"):
+                                    risk_changes.append(f"{symbol}: {getattr(dc, 'risk_level', '')} risk")
+                        except Exception:
+                            pass
+
+                    personal_lines.append(f"Your watchlist: {len(watched_mints)} token(s) monitored.")
+
+                    if risk_changes:
+                        personal_lines.append("Alerts: " + " | ".join(risk_changes[:5]) + ".")
+                    else:
+                        personal_lines.append("No risk changes detected on your watched tokens.")
+
+                # 3. Recent investigations
+                cursor = await db.execute(
+                    "SELECT COUNT(*) FROM investigations WHERE user_id = ?",
+                    (user_id,),
+                )
+                inv_count = (await cursor.fetchone())[0]
+                if inv_count > 0:
+                    personal_lines.append(f"{inv_count} investigation(s) in your history.")
+
+        except Exception as exc:
+            logger.debug("[brief] personalization failed: %s", exc)
+
+    # ── Compose final briefing ───────────────────────────────────
+    if personal_lines:
+        text = " ".join(personal_lines) + " — " + global_line
+    else:
+        text = global_line
 
     return {"text": text, "generated_at": datetime.now(tz=timezone.utc).isoformat()}
 
