@@ -22,6 +22,8 @@ import {
   Zap,
   AlertTriangle,
   Eye,
+  XOctagon,
+  Info,
 } from 'lucide-react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { AuroraBackground } from '../../src/components/ui/AuroraBackground';
@@ -306,9 +308,9 @@ export default function AgentScreen() {
                   const severityColor = flag.severity === 'critical' ? tokens.risk.critical
                     : flag.severity === 'warning' ? tokens.risk.high
                     : tokens.white60;
-                  const severityIcon = flag.severity === 'critical' ? '🔴'
-                    : flag.severity === 'warning' ? '⚠️'
-                    : 'ℹ️';
+                  const SeverityIcon = flag.severity === 'critical' ? XOctagon
+                    : flag.severity === 'warning' ? AlertTriangle
+                    : Info;
                   return (
                     <TouchableOpacity
                       key={flag.id}
@@ -317,10 +319,13 @@ export default function AgentScreen() {
                       style={[
                         styles.flagRow,
                         i === Math.min(sweepFlags.length, 8) - 1 && { borderBottomWidth: 0 },
-                        !flag.read && { backgroundColor: `${severityColor}08` },
+                        !flag.read && { backgroundColor: `${severityColor}0A` },
                       ]}
+                      accessibilityLabel={`${flag.severity} flag: ${flag.title}`}
                     >
-                      <Text style={styles.flagIcon}>{severityIcon}</Text>
+                      <View style={[styles.flagIconWrap, { backgroundColor: `${severityColor}15` }]}>
+                        <SeverityIcon size={14} color={severityColor} strokeWidth={2.5} />
+                      </View>
                       <View style={{ flex: 1 }}>
                         <Text style={[styles.flagTitle, { color: severityColor }]} numberOfLines={1}>
                           {flag.title}
@@ -614,24 +619,28 @@ const styles = StyleSheet.create({
     color: tokens.white60,
   },
   accuracyBar: {
-    height: 4, borderRadius: 2, backgroundColor: tokens.bgGlass12, marginTop: 6,
+    height: 6, borderRadius: 3, backgroundColor: tokens.borderMedium, marginTop: 6,
   },
   accuracyFill: {
-    height: 4, borderRadius: 2,
+    height: 6, borderRadius: 3,
   },
 
   // Intelligence feed flags
   flagRow: {
     flexDirection: 'row', alignItems: 'center', gap: 10,
-    paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: tokens.borderSubtle,
+    paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: tokens.borderSubtle,
+    minHeight: tokens.minTouchSize,
   },
-  flagIcon: { fontSize: 14, width: 20, textAlign: 'center' },
+  flagIconWrap: {
+    width: 28, height: 28, borderRadius: 14,
+    alignItems: 'center', justifyContent: 'center',
+  },
   flagTitle: {
     fontFamily: 'Lexend-Medium', fontSize: tokens.font.small, lineHeight: 18,
   },
   flagMint: {
     fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny, color: tokens.white35,
-    marginTop: 1,
+    marginTop: 2,
   },
 
   // History search
