@@ -11,6 +11,9 @@ import * as Linking from 'expo-linking';
 import * as Notifications from 'expo-notifications';
 import { PrivyProvider } from '@privy-io/expo';
 import { checkWatchedTokenAlerts } from '../src/lib/notifications';
+import { connectAlertsWS } from '../src/lib/streaming';
+import { useAlertsStore } from '../src/store/alerts';
+import { maybeAutoInvestigate } from '../src/lib/auto-investigate';
 import { connectOpenClaw, disconnectOpenClaw, isOpenClawAvailable } from '../src/lib/openclaw';
 import { useOpenClawStore } from '../src/store/openclaw';
 import { registerDeviceNode, startNodeCommandListener } from '../src/lib/openclaw-node';
@@ -94,12 +97,26 @@ export default function RootLayout() {
       }),
     });
 
+    // Global WebSocket alerts connection — always active regardless of tab
+    const _addAlert = useAlertsStore.getState().addAlert;
+    const _setWsConnected = useAlertsStore.getState().setWsConnected;
+    const addAlertWithAutoInvestigate = (alert: any) => {
+      _addAlert(alert);
+      maybeAutoInvestigate(alert);
+    };
+    const wsCleanup = connectAlertsWS(
+      addAlertWithAutoInvestigate,
+      undefined,
+      (connected) => _setWsConnected(connected),
+    );
+
     // Check watched tokens for risk signals when app comes to foreground
     const sub = AppState.addEventListener('change', (state) => {
       if (state === 'active') checkWatchedTokenAlerts();
     });
     return () => {
       sub.remove();
+      wsCleanup();
       disconnectOpenClaw();
     };
   }, []);

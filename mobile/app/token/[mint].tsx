@@ -236,26 +236,34 @@ export default function TokenScreen() {
 
   const riskLevel = data?.death_clock?.risk_level as RiskLevel | undefined;
 
-  // Fallback risk level — cascades through ALL available signals
+  // Fallback risk level — cascades through ALL available signals (strongest first)
   const displayRiskLevel: RiskLevel = (() => {
     // 1. death_clock — primary predictive source
     if (riskLevel && riskLevel !== 'insufficient_data') return riskLevel;
-    // 2. insider_sell — live market reality (deployer exited = confirmed rug-in-progress)
+    // 2. insider_sell — deployer exited = confirmed insider dump
     const ins = data?.insider_sell;
     if (ins?.verdict === 'insider_dump' && ins?.deployer_exited) return 'critical';
     if (ins?.verdict === 'insider_dump') return 'high';
-    if (ins?.flags?.includes('PRICE_CRASH') && (ins?.sell_pressure_24h ?? 0) > 0.4) return 'high';
-    if (ins?.verdict === 'suspicious') return 'medium';
-    // 3. bundle_report verdict
+    // 3. sol_flow — large SOL extraction is a critical/high signal
+    const sf = data?.sol_flow;
+    if (sf?.total_extracted_sol != null && sf.total_extracted_sol > 50) return 'critical';
+    if (sf?.total_extracted_sol != null && sf.total_extracted_sol > 10) return 'high';
+    // 4. bundle_report verdict
     const verdict = data?.bundle_report?.overall_verdict;
     if (verdict === 'confirmed_team_extraction') return 'critical';
     if (verdict === 'suspected_team_extraction' || verdict === 'coordinated_dump_unknown_team') return 'high';
-    // 4. deployer rug rate
+    // 5. insider sell — price crash or suspicious (weaker signals)
+    if (ins?.flags?.includes('PRICE_CRASH') && (ins?.sell_pressure_24h ?? 0) > 0.4) return 'high';
+    if (ins?.deployer_exited) return 'high';
+    if (ins?.verdict === 'suspicious') return 'medium';
+    // 6. deployer rug rate
     const rugRate = data?.deployer_profile?.rug_rate_pct;
     if (rugRate != null && rugRate > 70) return 'critical';
     if (rugRate != null && rugRate > 40) return 'high';
     if (rugRate != null && rugRate > 15) return 'medium';
-    // 5. final fallback — token exists but no signal data yet
+    // 7. sol_flow — any extraction is at least medium
+    if (sf?.total_extracted_sol != null && sf.total_extracted_sol > 0) return 'medium';
+    // 8. final fallback
     return 'insufficient_data';
   })();
 
