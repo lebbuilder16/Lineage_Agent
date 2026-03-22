@@ -2,6 +2,8 @@ import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 import { getLineage } from './api';
 import { useAuthStore } from '../store/auth';
+import { useAlertsStore } from '../store/alerts';
+import type { AlertItem } from '../types/api';
 
 // Configure how notifications are displayed while app is foregrounded
 Notifications.setNotificationHandler({
@@ -145,6 +147,22 @@ export async function checkWatchedTokenAlerts(): Promise<void> {
 
       if (signal) {
         _notifiedAt[watch.value] = now;
+
+        // Add to alerts store so it's visible in the Alerts tab
+        const alertItem: AlertItem = {
+          id: `local-${watch.value}-${now}`,
+          type: signal.priority >= 3 ? 'insider' : signal.priority >= 2 ? 'bundle' : 'deployer',
+          title: signal.title,
+          message: signal.body,
+          mint: watch.value,
+          token_name: name,
+          risk_score: signal.priority * 25,
+          timestamp: new Date().toISOString(),
+          read: false,
+        };
+        useAlertsStore.getState().addAlert(alertItem);
+
+        // Also fire local notification
         await Notifications.scheduleNotificationAsync({
           content: {
             title: signal.title,
