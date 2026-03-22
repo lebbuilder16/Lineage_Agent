@@ -35,11 +35,12 @@ export function startBriefingListener(apiKey?: string): () => void {
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (apiKey) headers['X-API-Key'] = apiKey;
 
-      const res = await fetch(`${BASE_URL}/auth/briefing`, { headers });
+      const res = await fetch(`${BASE_URL}/stats/brief`, { headers });
       if (res.ok) {
         const data = await res.json();
-        if (data.content) {
-          useBriefingStore.getState().setBriefing(data.content);
+        const content = data.content || data.text;
+        if (content) {
+          useBriefingStore.getState().setBriefing(content);
         }
       }
     } catch {
