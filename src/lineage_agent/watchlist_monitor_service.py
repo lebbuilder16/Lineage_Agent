@@ -36,7 +36,7 @@ async def run_single_rescan(watch_id: int, cache) -> dict | None:
         old_score = prev[1] if prev else 0
 
         # Rescan
-        from .lineage_core import detect_lineage
+        from .lineage_detector import detect_lineage
         lin = await asyncio.wait_for(detect_lineage(mint), timeout=30.0)
 
         dc = getattr(lin, "death_clock", None)
