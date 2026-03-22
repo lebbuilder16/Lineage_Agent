@@ -150,7 +150,7 @@ async def run_forensic_pipeline(
             t = time.monotonic()
             try:
                 results["deployer_profile"] = await asyncio.wait_for(
-                    compute_deployer_profile(deployer), timeout=7.0
+                    compute_deployer_profile(deployer), timeout=10.0
                 )
                 _sub_step("deployer_profile", "done", ms=int((time.monotonic() - t) * 1000))
             except Exception as e:
@@ -170,7 +170,7 @@ async def run_forensic_pipeline(
                 )
                 results["death_clock"] = await asyncio.wait_for(
                     compute_death_clock(deployer, identity.created_at, token_metadata=meta),
-                    timeout=7.0,
+                    timeout=10.0,
                 )
                 _sub_step("death_clock", "done", ms=int((time.monotonic() - t) * 1000))
             except Exception as e:
@@ -182,7 +182,7 @@ async def run_forensic_pipeline(
             t = time.monotonic()
             try:
                 results["factory_rhythm"] = await asyncio.wait_for(
-                    analyze_factory_rhythm(deployer), timeout=7.0
+                    analyze_factory_rhythm(deployer), timeout=10.0
                 )
                 _sub_step("factory_rhythm", "done", ms=int((time.monotonic() - t) * 1000))
             except Exception as e:
@@ -206,7 +206,7 @@ async def run_forensic_pipeline(
                 ]
                 if uri_tuples:
                     results["operator_fingerprint"] = await asyncio.wait_for(
-                        build_operator_fingerprint(uri_tuples), timeout=8.0
+                        build_operator_fingerprint(uri_tuples), timeout=12.0
                     )
                 _sub_step("operator_fingerprint", "done", ms=int((time.monotonic() - t) * 1000))
             except Exception as e:
@@ -238,7 +238,7 @@ async def run_forensic_pipeline(
                     return
                 if deployer:
                     results["sol_flow"] = await asyncio.wait_for(
-                        trace_sol_flow(mint, deployer), timeout=15.0,
+                        trace_sol_flow(mint, deployer), timeout=25.0,
                     )
                 _sub_step("sol_flow", "done", ms=int((time.monotonic() - t) * 1000))
             except asyncio.TimeoutError:
@@ -264,7 +264,7 @@ async def run_forensic_pipeline(
                 # If it doesn't finish, the warm cache background task will complete it.
                 if deployer:
                     results["bundle_report"] = await asyncio.wait_for(
-                        analyze_bundle(mint, deployer), timeout=12.0,
+                        analyze_bundle(mint, deployer), timeout=25.0,
                     )
                 _sub_step("bundle", "done", ms=int((time.monotonic() - t) * 1000))
             except asyncio.TimeoutError:
@@ -393,7 +393,7 @@ async def run_forensic_pipeline(
                         mint, deployer, linked_wallets,
                         identity.pairs, rpc,
                     ),
-                    timeout=8.0,
+                    timeout=12.0,
                 )
                 _sub_step("insider_sell", "done", ms=int((time.monotonic() - t) * 1000))
             except Exception as e:
@@ -409,7 +409,7 @@ async def run_forensic_pipeline(
                 if fp_str and linked_wallets:
                     report.operator_impact = await asyncio.wait_for(
                         compute_operator_impact(fp_str, linked_wallets),
-                        timeout=8.0,
+                        timeout=12.0,
                     )
                 _sub_step("operator_impact", "done", ms=int((time.monotonic() - t) * 1000))
             except Exception as e:
