@@ -1814,6 +1814,18 @@ async def _get_deployer_cached(
         except (asyncio.TimeoutError, Exception) as _sw_exc:
             logger.warning("Signature-walk failed/timed out for %s: %s", mint, _sw_exc)
 
+    # --- PumpFun last-resort: use update_authority as deployer ---
+    # For pump.fun tokens, DAS creators[] is often empty and sig-walk may
+    # timeout. The update_authority is typically the real user who created
+    # the token — safer than returning "" which disables all forensics.
+    if not deployer and not _sw_deployer and mint.endswith("pump") and ua:
+        if ua not in _NON_DEPLOYER_AUTHORITIES and ua != mint:
+            deployer = ua
+            logger.info(
+                "Using update_authority as deployer for pump.fun token %s: %s",
+                mint[:12], ua[:12],
+            )
+
     # Use on-chain timestamp if available
     if _sw_ts:
         created_at = _sw_ts
