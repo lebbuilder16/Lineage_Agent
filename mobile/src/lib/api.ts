@@ -162,11 +162,21 @@ export async function addWatch(
   sub_type: 'deployer' | 'mint',
   value: string,
 ): Promise<Watch> {
-  const { data } = await apiClient.POST('/auth/watches', {
-    headers: { 'X-API-Key': apiKey },
-    body: { sub_type, value },
-  });
-  return data as unknown as Watch;
+  try {
+    const { data } = await apiClient.POST('/auth/watches', {
+      headers: { 'X-API-Key': apiKey },
+      body: { sub_type, value },
+    });
+    return data as unknown as Watch;
+  } catch (err: unknown) {
+    // 409 = already exists — treat as success, fetch existing watch
+    if (err && typeof err === 'object' && 'status' in err && (err as { status: number }).status === 409) {
+      const watches = await getWatches(apiKey);
+      const existing = watches.find((w) => w.value === value && w.sub_type === sub_type);
+      if (existing) return existing;
+    }
+    throw err;
+  }
 }
 
 export async function deleteWatch(apiKey: string, id: string): Promise<void> {
