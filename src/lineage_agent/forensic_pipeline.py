@@ -30,6 +30,10 @@ logger = logging.getLogger(__name__)
 _KEEPALIVE_INTERVAL = 3.0
 _PIPELINE_TIMEOUT = 90.0
 
+# In-process cache for ForensicReport (avoids re-running pipeline on retry)
+_report_cache: dict[str, tuple[float, "ForensicReport"]] = {}
+_REPORT_CACHE_TTL = 300.0  # 5 minutes
+
 
 @dataclass
 class ForensicReport:
@@ -77,6 +81,19 @@ async def run_forensic_pipeline(
             logger.info("[pipeline] background %s completed for %s", name, mint_short[:12])
         except Exception as e:
             logger.warning("[pipeline] background %s failed for %s: %s", name, mint_short[:12], e)
+
+    # -- Check in-process cache first (avoids full re-run on retry) ----------
+    _cached = _report_cache.get(mint)
+    if _cached and not force_refresh:
+        _cache_age = time.monotonic() - _cached[0]
+        if _cache_age < _REPORT_CACHE_TTL:
+            cached_report = _cached[1]
+            logger.info("[pipeline] cache hit for %s (%.0fs old)", mint[:12], _cache_age)
+            yield _evt("phase", {"phase": "scan", "status": "started"})
+            yield _evt("step", {"step": "identity", "status": "done", "ms": 0})
+            yield _evt("phase", {"phase": "scan", "status": "done"})
+            yield {"event": "_report", "data": cached_report}
+            return
 
     yield _evt("phase", {"phase": "scan", "status": "started"})
 
@@ -299,19 +316,49 @@ async def run_forensic_pipeline(
         )
         return results
 
-    # Execute all 3 branches in parallel with SSE keepalive pings
+    # -- Branch D: Insider Sell (needs deployer + pairs, NOT fingerprint) ----
+    async def _branch_d_insider_sell() -> Optional[Any]:
+        """Insider sell detection — runs in parallel with other branches."""
+        if not deployer:
+            return None
+        _sub_step("insider_sell", "running")
+        t = time.monotonic()
+        try:
+            from .insider_sell_service import analyze_insider_sell
+            from .data_sources._clients import get_rpc_client
+            rpc = get_rpc_client()
+            result = await asyncio.wait_for(
+                analyze_insider_sell(
+                    mint, deployer, [],  # no linked_wallets yet — enriched later if available
+                    identity.pairs, rpc,
+                    launch_platform=identity.launch_platform,
+                    lifecycle_stage=identity.lifecycle_stage,
+                ),
+                timeout=15.0,
+            )
+            _sub_step("insider_sell", "done", ms=int((time.monotonic() - t) * 1000))
+            return result
+        except Exception as e:
+            logger.warning("[pipeline] insider_sell failed: %s", e)
+            _sub_step("insider_sell", "done", ms=int((time.monotonic() - t) * 1000), ok=False)
+            return None
+
+    # Execute all 4 branches in parallel with SSE keepalive pings
     t_fork = time.monotonic()
 
     yield _evt("step", {"step": "family_search", "status": "running"})
     yield _evt("step", {"step": "deployer_forensics", "status": "running"})
     yield _evt("step", {"step": "chain_traces", "status": "running"})
 
-    # Launch branches as tasks and poll with SSE keepalive pings every 5s
-    # to prevent Fly proxy from killing the idle connection.
+    # Launch branches as tasks and poll with SSE keepalive pings
     task_a = asyncio.ensure_future(_branch_a_family())
     task_b = asyncio.ensure_future(_branch_b_deployer_forensics())
     task_c = asyncio.ensure_future(_branch_c_chain_traces())
-    all_tasks = [task_a, task_b, task_c]
+    task_d = asyncio.ensure_future(_branch_d_insider_sell())
+    all_tasks = [task_a, task_b, task_c, task_d]
+
+    # Track whether we've emitted the early pre-scan (B+D ready)
+    _early_prescan_emitted = False
 
     deadline = time.monotonic() + _PIPELINE_TIMEOUT
     while not all(t.done() for t in all_tasks):
@@ -326,6 +373,27 @@ async def run_forensic_pipeline(
         # Flush any sub-step events accumulated during this interval
         while _step_events:
             yield _step_events.pop(0)
+
+        # Emit early pre-scan as soon as Branch B (deployer) + D (insider) complete
+        # The agent can start reasoning while A (family) + C (chain) continue
+        if not _early_prescan_emitted and task_b.done() and task_d.done():
+            _early_prescan_emitted = True
+            _ep_deployer = {}
+            _ep_insider = None
+            try:
+                _ep_deployer = task_b.result() if not task_b.cancelled() else {}
+            except Exception:
+                _ep_deployer = {}
+            try:
+                _ep_insider = task_d.result() if not task_d.cancelled() else None
+            except Exception:
+                _ep_insider = None
+            yield {"event": "_early_prescan", "data": {
+                "deployer_profile": _ep_deployer.get("deployer_profile") if isinstance(_ep_deployer, dict) else None,
+                "death_clock": _ep_deployer.get("death_clock") if isinstance(_ep_deployer, dict) else None,
+                "insider_sell": _ep_insider,
+            }}
+
         elapsed = int((time.monotonic() - t_fork) * 1000)
         yield _evt("ping", {"elapsed_ms": elapsed})
 
@@ -341,6 +409,7 @@ async def run_forensic_pipeline(
     family_result = _safe_result(task_a)
     deployer_results = _safe_result(task_b)
     chain_results = _safe_result(task_c)
+    insider_result = _safe_result(task_d)
 
     # Flush any remaining sub-step events
     while _step_events:
@@ -369,36 +438,21 @@ async def run_forensic_pipeline(
         report.bundle_report = chain_results.get("bundle_report")
         report.cartel_report = chain_results.get("cartel_report")
 
+    # Insider sell from Branch D (ran in parallel, not sequential)
+    if insider_result is not None and not isinstance(insider_result, Exception):
+        report.insider_sell = insider_result
+
     report.timings["fork"] = fork_ms
 
-    # -- Phase 3: Dependent enrichers (insider_sell always, impact needs fingerprint)
+    # -- Phase 3: Operator impact only (needs fingerprint from Branch B) ----
     fingerprint = report.operator_fingerprint
     linked_wallets: list[str] = []
     if fingerprint and hasattr(fingerprint, "linked_wallets"):
         linked_wallets = fingerprint.linked_wallets or []
 
-    if deployer:
+    if deployer and fingerprint and linked_wallets:
         t_dep = time.monotonic()
         yield _evt("step", {"step": "dependent_enrichers", "status": "running"})
-
-        async def _insider() -> None:
-            _sub_step("insider_sell", "running")
-            t = time.monotonic()
-            try:
-                from .insider_sell_service import analyze_insider_sell
-                from .data_sources._clients import get_rpc_client
-                rpc = get_rpc_client()
-                report.insider_sell = await asyncio.wait_for(
-                    analyze_insider_sell(
-                        mint, deployer, linked_wallets,
-                        identity.pairs, rpc,
-                    ),
-                    timeout=12.0,
-                )
-                _sub_step("insider_sell", "done", ms=int((time.monotonic() - t) * 1000))
-            except Exception as e:
-                logger.warning("[pipeline] insider_sell failed: %s", e)
-                _sub_step("insider_sell", "done", ms=int((time.monotonic() - t) * 1000), ok=False)
 
         async def _impact() -> None:
             _sub_step("operator_impact", "running")
@@ -416,16 +470,14 @@ async def run_forensic_pipeline(
                 logger.warning("[pipeline] operator_impact failed: %s", e)
                 _sub_step("operator_impact", "done", ms=int((time.monotonic() - t) * 1000), ok=False)
 
-        dep_task = asyncio.ensure_future(
-            asyncio.gather(_insider(), _impact(), return_exceptions=True)
-        )
+        dep_task = asyncio.ensure_future(_impact())
         while not dep_task.done():
             await asyncio.sleep(min(_KEEPALIVE_INTERVAL, 5.0))
             while _step_events:
                 yield _step_events.pop(0)
             yield _evt("ping", {"elapsed_ms": int((time.monotonic() - t_fork) * 1000)})
 
-        # Flush remaining sub-step events from dependent enrichers
+        # Flush remaining sub-step events
         while _step_events:
             yield _step_events.pop(0)
 
@@ -434,6 +486,13 @@ async def run_forensic_pipeline(
         report.timings["dependent"] = dep_ms
 
     yield _evt("phase", {"phase": "scan", "status": "done"})
+
+    # Cache the report for fast retry (5 min TTL)
+    _report_cache[mint] = (time.monotonic(), report)
+    # Prune old entries (keep last 50)
+    if len(_report_cache) > 50:
+        oldest_key = min(_report_cache, key=lambda k: _report_cache[k][0])
+        _report_cache.pop(oldest_key, None)
 
     # Yield the complete report as a special event (consumed by investigate_service)
     yield {"event": "_report", "data": report}
