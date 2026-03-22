@@ -2525,14 +2525,13 @@ async def get_top_tokens(
             ORDER BY event_count DESC
             LIMIT ?
         """
-        # Try 24h first, widen to 7d if too few results
-        cutoff_24h = (datetime.now(tz=timezone.utc) - timedelta(hours=24)).isoformat()
-        cursor = await db.execute(sql, (cutoff_24h, limit))
-        rows = await cursor.fetchall()
-        if len(rows) < 3:
-            cutoff_7d = (datetime.now(tz=timezone.utc) - timedelta(days=7)).isoformat()
-            cursor = await db.execute(sql, (cutoff_7d, limit))
+        # Progressive time windows: 24h → 7d → 30d → all time
+        for window in [timedelta(hours=24), timedelta(days=7), timedelta(days=30), timedelta(days=3650)]:
+            cutoff = (datetime.now(tz=timezone.utc) - window).isoformat()
+            cursor = await db.execute(sql, (cutoff, limit))
             rows = await cursor.fetchall()
+            if len(rows) >= 3:
+                break
         col_names = [d[0] for d in cursor.description]
         results = [dict(zip(col_names, row)) for row in rows]
 
