@@ -85,6 +85,8 @@ _WEIGHTS = {
 
 _LAUNCHPAD_CONTENT_HOSTS: dict[str, tuple[str, ...]] = {
     "moonshot": ("moonshot.money", "assets.moonshot.money", "dl.moonshot.money", "moonshot.com", "cdn.moonshot.com", "api.moonshot.com"),
+    "letsbonk": ("meta.uxento.io", "letsbonk.fun", "bonk.fun"),
+    "pumpfun": ("pump.fun", "ipfs.pump.fun", "cf-ipfs.com"),
 }
 
 _LAUNCHPAD_MINT_SUFFIXES: dict[str, tuple[str, ...]] = {
@@ -153,7 +155,17 @@ def classify_market_context(
             reason_codes.append(f"mint_suffix_{_sfx_platform}")
             break
 
-    # ── Step 2: DAS authority / creator (if suffix didn't match) ────────────
+    # ── Step 2: Content host check (before authority — disambiguates shared authorities)
+    if not platform:
+        _content_platform, _content_evidence, _content_reasons = _infer_launchpad_from_asset_signals(
+            asset, mint_address=mint_address
+        )
+        if _content_platform:
+            platform = _content_platform
+            evidence = _content_evidence
+            reason_codes.extend(_content_reasons)
+
+    # ── Step 3: DAS authority / creator (if suffix + content didn't match) ──
     if not platform:
         authorities = asset.get("authorities") or [] if asset else []
         creators = asset.get("creators") or [] if asset else []
@@ -170,7 +182,7 @@ def classify_market_context(
                 evidence = EvidenceLevel.MODERATE
                 reason_codes.append("launchpad_creator_matched")
 
-    # ── Step 3: Heuristic signals (content URLs, etc.) ──────────────────────
+    # ── Step 4: Remaining heuristic signals ─────────────────────────────────
     if not platform:
         platform, heuristic_evidence, heuristic_reasons = _infer_launchpad_from_asset_signals(
             asset, mint_address=mint_address
