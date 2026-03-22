@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -9,6 +9,7 @@ import {
   Platform,
   StatusBar,
   RefreshControl,
+  TextInput,
 } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -115,6 +116,17 @@ export default function AgentScreen() {
 
     return items.sort((a, b) => b.time - a.time).slice(0, 8);
   }, [investigations, alerts]);
+
+  const [historyQuery, setHistoryQuery] = useState('');
+  const historyFiltered = useMemo(() => {
+    if (!historyQuery.trim()) return investigations;
+    const q = historyQuery.toLowerCase();
+    return investigations.filter((inv) =>
+      (inv.name ?? '').toLowerCase().includes(q) ||
+      (inv.symbol ?? '').toLowerCase().includes(q) ||
+      inv.mint.toLowerCase().includes(q)
+    );
+  }, [investigations, historyQuery]);
 
   const watches = useAuthStore((s) => s.watches);
   const watchCount = serverStatus?.watching ?? watches.length;
@@ -259,6 +271,72 @@ export default function AgentScreen() {
               )}
             </GlassCard>
           </Animated.View>
+
+          {/* ── Feedback Accuracy ── */}
+          {investigations.length > 0 && (() => {
+            const withFeedback = investigations.filter((i) => i.feedback);
+            const accurate = withFeedback.filter((i) => i.feedback === 'accurate').length;
+            const total = withFeedback.length;
+            if (total === 0) return null;
+            const pct = Math.round((accurate / total) * 100);
+            return (
+              <Animated.View entering={FadeInDown.delay(200).duration(300).springify()}>
+                <GlassCard>
+                  <Text style={styles.sectionTitle}>AGENT ACCURACY</Text>
+                  <View style={styles.accuracyRow}>
+                    <Text style={[styles.accuracyPct, { color: pct >= 70 ? tokens.success : pct >= 40 ? tokens.warning : tokens.accent }]}>
+                      {pct}%
+                    </Text>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.accuracyLabel}>
+                        {accurate}/{total} investigations rated accurate
+                      </Text>
+                      <View style={styles.accuracyBar}>
+                        <View style={[styles.accuracyFill, { width: `${pct}%`, backgroundColor: pct >= 70 ? tokens.success : pct >= 40 ? tokens.warning : tokens.accent }]} />
+                      </View>
+                    </View>
+                  </View>
+                </GlassCard>
+              </Animated.View>
+            );
+          })()}
+
+          {/* ── History Search ── */}
+          {investigations.length > 3 && (
+            <Animated.View entering={FadeInDown.delay(220).duration(300).springify()}>
+              <GlassCard>
+                <Text style={styles.sectionTitle}>INVESTIGATION HISTORY</Text>
+                <TextInput
+                  style={styles.historySearch}
+                  placeholder="Search by name or symbol..."
+                  placeholderTextColor={tokens.white35}
+                  value={historyQuery}
+                  onChangeText={setHistoryQuery}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
+                {historyFiltered.slice(0, 5).map((inv, i) => (
+                  <TouchableOpacity
+                    key={inv.mint}
+                    onPress={() => router.push(`/token/${inv.mint}` as any)}
+                    activeOpacity={0.75}
+                    style={[styles.activityRow, i === Math.min(historyFiltered.length, 5) - 1 && { borderBottomWidth: 0 }]}
+                  >
+                    <View style={[styles.historyDot, {
+                      backgroundColor: inv.riskScore >= 75 ? tokens.risk.critical : inv.riskScore >= 50 ? tokens.risk.high : inv.riskScore >= 25 ? tokens.risk.medium : tokens.risk.low,
+                    }]} />
+                    <Text style={styles.activityText} numberOfLines={1}>
+                      {inv.name ?? inv.symbol ?? inv.mint.slice(0, 8)} — {inv.riskScore}/100
+                    </Text>
+                    <Text style={styles.activityTime}>{timeAgoShort(inv.timestamp)}</Text>
+                  </TouchableOpacity>
+                ))}
+                {historyFiltered.length > 5 && (
+                  <Text style={styles.historyMore}>+{historyFiltered.length - 5} more results</Text>
+                )}
+              </GlassCard>
+            </Animated.View>
+          )}
 
           {/* ── Quick Actions ── */}
           <Animated.View entering={FadeInDown.delay(240).duration(300).springify()}>
@@ -457,5 +535,38 @@ const styles = StyleSheet.create({
   quickBtnText: {
     fontFamily: 'Lexend-Medium', fontSize: tokens.font.tiny,
     color: tokens.white60,
+  },
+
+  // Feedback accuracy
+  accuracyRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 14, marginTop: 8,
+  },
+  accuracyPct: {
+    fontFamily: 'Lexend-Bold', fontSize: tokens.font.heading,
+  },
+  accuracyLabel: {
+    fontFamily: 'Lexend-Regular', fontSize: tokens.font.small,
+    color: tokens.white60,
+  },
+  accuracyBar: {
+    height: 4, borderRadius: 2, backgroundColor: tokens.bgGlass12, marginTop: 6,
+  },
+  accuracyFill: {
+    height: 4, borderRadius: 2,
+  },
+
+  // History search
+  historySearch: {
+    fontFamily: 'Lexend-Regular', fontSize: tokens.font.body,
+    color: tokens.white100, backgroundColor: tokens.bgGlass8,
+    borderRadius: tokens.radius.sm, borderWidth: 1, borderColor: tokens.borderSubtle,
+    paddingHorizontal: 14, paddingVertical: 10, marginBottom: 8,
+  },
+  historyDot: {
+    width: 8, height: 8, borderRadius: 4,
+  },
+  historyMore: {
+    fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny,
+    color: tokens.white35, textAlign: 'center', marginTop: 8,
   },
 });

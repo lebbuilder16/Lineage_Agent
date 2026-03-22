@@ -69,13 +69,26 @@ export default function AlertsScreen() {
     let list = alerts;
     if (activeFilter === 'critical') list = alerts.filter((a) => CRITICAL_TYPES.has(a.type));
     else if (activeFilter === 'unread') list = alerts.filter((a) => !a.read);
-    // Smart triage: sort by risk score descending, unread first
+    // Smart triage: sort by mint (group), then risk score descending, unread first
     return [...list].sort((a, b) => {
+      // Group by mint first (alerts for same token stay together)
+      const ma = a.mint ?? '';
+      const mb = b.mint ?? '';
+      if (ma && mb && ma !== mb) return ma < mb ? -1 : 1;
       if (!a.read && b.read) return -1;
       if (a.read && !b.read) return 1;
       return (b.risk_score ?? 0) - (a.risk_score ?? 0);
     });
   }, [alerts, activeFilter]);
+
+  // Count alerts per mint for grouping badges
+  const mintCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const a of filtered) {
+      if (a.mint) counts.set(a.mint, (counts.get(a.mint) ?? 0) + 1);
+    }
+    return counts;
+  }, [filtered]);
 
   // Alert summary for header
   const alertSummary = useMemo(() => {
@@ -165,8 +178,21 @@ export default function AlertsScreen() {
             keyExtractor={(item) => item.id}
             contentContainerStyle={[styles.listContent, { paddingBottom: Math.max(insets.bottom + 100, 120) }]}
             showsVerticalScrollIndicator={false}
-            renderItem={({ item, index }) => (
+            renderItem={({ item, index }) => {
+              // Group header: show "N alerts for TOKEN" before first alert of a group
+              const mintCount = item.mint ? (mintCounts.get(item.mint) ?? 0) : 0;
+              const isFirstOfGroup = item.mint && mintCount > 1 &&
+                (index === 0 || filtered[index - 1]?.mint !== item.mint);
+
+              return (
               <Animated.View exiting={FadeInDown} entering={FadeInDown.delay(index * 50).springify()} layout={LinearTransition.springify()}>
+                {isFirstOfGroup && (
+                  <View style={styles.groupHeader}>
+                    <Text style={styles.groupHeaderText}>
+                      {mintCount} alerts for {item.token_name ?? item.mint?.slice(0, 8) ?? 'token'}
+                    </Text>
+                  </View>
+                )}
                 <Swipeable
                   key={item.id}
                   containerStyle={styles.swipeContainer}
@@ -319,7 +345,7 @@ export default function AlertsScreen() {
                   </TouchableOpacity>
                 </Swipeable>
               </Animated.View>
-            )}
+            ); }}
           />
         )}
       </View>
@@ -574,5 +600,16 @@ const styles = StyleSheet.create({
     fontFamily: 'Lexend-Medium',
     fontSize: tokens.font.tiny,
     color: tokens.white60,
+  },
+  groupHeader: {
+    paddingVertical: 6,
+    paddingHorizontal: 4,
+    marginTop: 8,
+  },
+  groupHeaderText: {
+    fontFamily: 'Lexend-SemiBold',
+    fontSize: tokens.font.tiny,
+    color: tokens.white35,
+    letterSpacing: 0.5,
   },
 });
