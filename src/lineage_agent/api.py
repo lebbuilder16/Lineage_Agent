@@ -2546,8 +2546,8 @@ async def get_top_tokens(
         return tokens_list
 
     except Exception as exc:
-        logger.exception("get_top_tokens failed")
-        return []
+        logger.exception("get_top_tokens failed: %s", exc)
+        raise HTTPException(status_code=500, detail=f"top-tokens error: {exc}")
 
 
 _top_tokens_cache: tuple[float, list] | None = None
