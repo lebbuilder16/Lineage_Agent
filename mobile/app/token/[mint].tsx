@@ -201,18 +201,25 @@ function SweepAlertsBanner({ mint }: { mint: string }) {
     return hrs < 1 ? 'recently' : `${hrs}h ago`;
   })();
 
+  const bannerColor = critCount > 0 ? tokens.risk.critical : tokens.warning;
+
   return (
-    <GlassCard style={{ borderColor: critCount > 0 ? `${tokens.risk.critical}30` : `${tokens.warning}30`, borderWidth: 1 }}>
-      <Text style={{ fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.small, color: critCount > 0 ? tokens.risk.critical : tokens.warning, marginBottom: 6 }}>
-        {critCount > 0 ? '🔴' : '⚠️'} Agent detected {flags.length} flag{flags.length > 1 ? 's' : ''} ({ago})
-      </Text>
+    <GlassCard style={{ borderColor: `${bannerColor}30`, borderWidth: 1, backgroundColor: `${bannerColor}06` }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+        <View style={{ width: 24, height: 24, borderRadius: 12, backgroundColor: `${bannerColor}18`, alignItems: 'center', justifyContent: 'center' }}>
+          <AlertTriangle size={14} color={bannerColor} strokeWidth={2.5} />
+        </View>
+        <Text style={{ fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.small, color: bannerColor, flex: 1 }}>
+          Agent detected {flags.length} flag{flags.length > 1 ? 's' : ''} ({ago})
+        </Text>
+      </View>
       {flags.slice(0, 3).map((f, i) => (
-        <Text key={i} style={{ fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny, color: tokens.white60, lineHeight: 16 }}>
+        <Text key={i} style={{ fontFamily: 'Lexend-Regular', fontSize: tokens.font.badge, color: tokens.white60, lineHeight: 18, paddingLeft: 32 }}>
           • {f.title}
         </Text>
       ))}
       {flags.length > 3 && (
-        <Text style={{ fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny, color: tokens.white35, marginTop: 4 }}>
+        <Text style={{ fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny, color: tokens.white35, marginTop: 4, paddingLeft: 32 }}>
           +{flags.length - 3} more
         </Text>
       )}

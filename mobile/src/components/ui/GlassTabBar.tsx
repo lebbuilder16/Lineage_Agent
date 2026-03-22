@@ -150,7 +150,7 @@ const styles = StyleSheet.create({
     borderRadius: tokens.radius.xl,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.22)',
+    borderColor: tokens.borderMedium,
     // Glow shadow — Figma secondary (ice blue)
     shadowColor: tokens.secondary,
     shadowOffset: { width: 0, height: 4 },
@@ -163,7 +163,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     paddingHorizontal: 8,
     paddingVertical: 8,
-    backgroundColor: 'rgba(8, 10, 22, 0.94)',
+    backgroundColor: `${tokens.bgApp}F0`,
   },
   tabButton: {
     flex: 1,
@@ -210,9 +210,9 @@ const styles = StyleSheet.create({
   },
   badgeText: {
     fontFamily: 'Lexend-Bold',
-    fontSize: 9,
-    color: '#fff',
-    lineHeight: 12,
+    fontSize: 10,
+    color: tokens.white100,
+    lineHeight: 13,
   },
   labelActive: {
     fontFamily: 'Lexend-SemiBold',

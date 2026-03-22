@@ -150,7 +150,39 @@ export const tokens = {
     body: 14,
     small: 12,
     tiny: 10,
+    badge: 11,        // badges, pills, chips — never below 11
   },
+
+  // ── Icon sizes ────────────────────────────────────────────────────────────
+  icon: {
+    xs: 12,
+    sm: 14,
+    md: 18,
+    lg: 24,
+    xl: 32,
+  },
+
+  // ── Animation timing ──────────────────────────────────────────────────────
+  timing: {
+    fast: 150,
+    normal: 250,
+    slow: 400,
+    spring: { damping: 15, stiffness: 400 },
+  },
+
+  // ── Z-index scale ─────────────────────────────────────────────────────────
+  zIndex: {
+    base: 0,
+    card: 1,
+    sticky: 10,
+    dropdown: 50,
+    modal: 100,
+    toast: 200,
+  },
+
+  // ── Touch targets ─────────────────────────────────────────────────────────
+  hitSlop: { top: 10, bottom: 10, left: 10, right: 10 },
+  minTouchSize: 44,  // Apple HIG minimum
 
   // ── Spacing ────────────────────────────────────────────────────────────────
   spacing: {
@@ -158,6 +190,8 @@ export const tokens = {
     cardPadding: 16,
     sectionGap: 16,
     itemGap: 8,
+    rowPadding: 12,
+    compactPadding: 8,
   },
 } as const;
 
