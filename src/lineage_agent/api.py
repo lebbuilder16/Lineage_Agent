@@ -2509,21 +2509,28 @@ async def get_top_tokens(
 
         cutoff = (datetime.now(tz=timezone.utc) - timedelta(hours=24)).isoformat()
 
-        rows = await _eq(
-            where="created_at >= ?",
-            params=(cutoff,),
-            columns="mint, name, symbol, narrative, market_cap_usd, created_at, COUNT(*) as event_count",
-            order_by="event_count DESC",
-            limit=limit * 2,
-        )
-
-        # Deduplicate by mint (GROUP BY may not work with all SQLite versions)
-        seen: dict[str, dict] = {}
-        for row in rows:
-            m = row.get("mint", "")
-            if not m or m in seen:
-                continue
-            seen[m] = row
+        # Direct SQL query with GROUP BY (event_query wrapper doesn't support it)
+        from .data_sources._clients import cache as _cache  # noqa: PLC0415
+        db = await _cache._get_conn()
+        sql = """
+            SELECT mint,
+                   MAX(name) as name,
+                   MAX(symbol) as symbol,
+                   MAX(narrative) as narrative,
+                   MAX(market_cap_usd) as market_cap_usd,
+                   MIN(created_at) as created_at,
+                   COUNT(*) as event_count
+            FROM intelligence_events
+            WHERE created_at >= ?
+              AND mint IS NOT NULL AND mint != ''
+            GROUP BY mint
+            ORDER BY event_count DESC
+            LIMIT ?
+        """
+        cursor = await db.execute(sql, (cutoff, limit))
+        rows = await cursor.fetchall()
+        col_names = [d[0] for d in cursor.description]
+        results = [dict(zip(col_names, row)) for row in rows]
 
         tokens_list = [
             TopToken(
@@ -2535,7 +2542,7 @@ async def get_top_tokens(
                 event_count=r.get("event_count", 1),
                 created_at=r.get("created_at"),
             )
-            for r in list(seen.values())[:limit]
+            for r in results
         ]
 
         _top_tokens_cache = (now_mono, tokens_list)
