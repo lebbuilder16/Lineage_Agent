@@ -51,10 +51,36 @@ export function scheduleLocalAlert(title: string, body: string) {
 }
 
 // ─── Watched token alerts ──────────────────────────────────────────────────────
-// In-memory dedup: mint → last notified timestamp
-// Prevents re-alerting the same signal within the cooldown window
-const _notifiedAt: Record<string, number> = {};
-const COOLDOWN_MS = 60 * 60 * 1000; // 1 hour per token
+// Persistent dedup: mint+signalType → last notified timestamp
+// Survives app restart via AsyncStorage
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+const _DEDUP_KEY = 'lineage-alert-dedup';
+const COOLDOWN_MS = 4 * 60 * 60 * 1000; // 4 hours per token+signal (was 1h → too aggressive)
+let _notifiedAt: Record<string, number> = {};
+let _dedupLoaded = false;
+
+async function _loadDedup(): Promise<void> {
+  if (_dedupLoaded) return;
+  try {
+    const stored = await AsyncStorage.getItem(_DEDUP_KEY);
+    if (stored) _notifiedAt = JSON.parse(stored);
+  } catch { /* ignore */ }
+  _dedupLoaded = true;
+}
+
+async function _saveDedup(): Promise<void> {
+  try {
+    // Prune entries older than 24h
+    const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+    const pruned: Record<string, number> = {};
+    for (const [k, v] of Object.entries(_notifiedAt)) {
+      if (v > cutoff) pruned[k] = v;
+    }
+    _notifiedAt = pruned;
+    await AsyncStorage.setItem(_DEDUP_KEY, JSON.stringify(pruned));
+  } catch { /* ignore */ }
+}
 
 type AlertSignal = {
   title: string;
@@ -134,47 +160,67 @@ export async function checkWatchedTokenAlerts(): Promise<void> {
   const { status } = await Notifications.getPermissionsAsync();
   if (status !== 'granted') return;
 
+  // Load persistent dedup state
+  await _loadDedup();
   const now = Date.now();
+  let didNotify = false;
 
   for (const watch of mintWatches) {
-    const lastNotified = _notifiedAt[watch.value] ?? 0;
-    if (now - lastNotified < COOLDOWN_MS) continue;
-
     try {
       const data = await getLineage(watch.value);
       const name = data.query_token?.name ?? `${watch.value.slice(0, 6)}…`;
       const signal = detectSignals(data, name);
 
-      if (signal) {
-        _notifiedAt[watch.value] = now;
+      if (!signal) continue;
 
-        // Add to alerts store so it's visible in the Alerts tab
-        const alertItem: AlertItem = {
-          id: `local-${watch.value}-${now}`,
-          type: signal.priority >= 3 ? 'insider' : signal.priority >= 2 ? 'bundle' : 'deployer',
-          title: signal.title,
-          message: signal.body,
-          mint: watch.value,
-          token_name: name,
-          risk_score: signal.priority * 25,
-          timestamp: new Date().toISOString(),
-          read: false,
-        };
-        useAlertsStore.getState().addAlert(alertItem);
+      // Dedup key: mint + signal body (same signal = same key)
+      const dedupKey = `${watch.value}:${signal.body}`;
+      const lastNotified = _notifiedAt[dedupKey] ?? 0;
+      if (now - lastNotified < COOLDOWN_MS) continue;
 
-        // Also fire local notification
-        await Notifications.scheduleNotificationAsync({
-          content: {
-            title: signal.title,
-            body: signal.body,
-            sound: true,
-            data: { mint: watch.value },
-          },
-          trigger: null,
-        });
+      // Also check if the alerts store already has this exact signal (prevent duplicates)
+      const existingAlerts = useAlertsStore.getState().alerts;
+      const alreadyExists = existingAlerts.some(
+        (a) => a.mint === watch.value && a.message === signal.body
+          && (now - new Date(a.timestamp).getTime()) < COOLDOWN_MS
+      );
+      if (alreadyExists) {
+        _notifiedAt[dedupKey] = now;
+        continue;
       }
+
+      _notifiedAt[dedupKey] = now;
+      didNotify = true;
+
+      // Add to alerts store so it's visible in the Alerts tab
+      const alertItem: AlertItem = {
+        id: `local-${watch.value}-${signal.priority}-${Math.floor(now / COOLDOWN_MS)}`,
+        type: signal.priority >= 3 ? 'insider' : signal.priority >= 2 ? 'bundle' : 'deployer',
+        title: signal.title,
+        message: signal.body,
+        mint: watch.value,
+        token_name: name,
+        risk_score: signal.priority * 25,
+        timestamp: new Date().toISOString(),
+        read: false,
+      };
+      useAlertsStore.getState().addAlert(alertItem);
+
+      // Also fire local notification
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title: signal.title,
+          body: signal.body,
+          sound: true,
+          data: { mint: watch.value },
+        },
+        trigger: null,
+      });
     } catch {
       // Silent — token unavailable or network error
     }
   }
+
+  // Persist dedup state if we notified anything
+  if (didNotify) await _saveDedup();
 }
