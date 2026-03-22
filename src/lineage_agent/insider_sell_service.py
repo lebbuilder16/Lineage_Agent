@@ -216,12 +216,21 @@ def _fill_market_signals(
 
     report.applicability = DataApplicability.OBSERVED
 
-    # Aggregate txn counts across all pools
+    # Filter out bonding curve pairs — their sell pressure is the curve mechanism,
+    # not real insider selling. Only aggregate from real DEX pairs (Raydium, Orca, etc.)
+    real_dex_pairs = [
+        p for p in solana
+        if (p.get("dexId") or "").lower() not in BONDING_CURVE_LAUNCHPAD_PLATFORMS
+    ]
+    # If ALL pairs are bonding curve, use them anyway (no DEX data available)
+    pairs_to_analyze = real_dex_pairs if real_dex_pairs else solana
+
+    # Aggregate txn counts across real DEX pools only
     buys_1h = sells_1h = buys_6h = sells_6h = buys_24h = sells_24h = 0
     vol_1h = vol_24h = 0.0
     price_1h = price_6h = price_24h = None
 
-    for p in solana:
+    for p in pairs_to_analyze:
         txns = p.get("txns") or {}
         h1   = txns.get("h1")  or {}
         h6   = txns.get("h6")  or {}
@@ -307,11 +316,8 @@ async def _fetch_balance(
                     logger.warning("[insider] exit context failed for %s: %s", wallet[:8], ctx_exc)
                     context = "Deployer sold tokens — exit details unavailable."
             else:
-                context = (
-                    f"Deployer never held {mint[:8]}... tokens. "
-                    f"On {launch_platform or 'launchpad'}, tokens are distributed "
-                    f"directly to buyers by the protocol."
-                )
+                # CRITICAL: this string must match the check in _apply_flags() line 582
+                context = "zero_balance_expected_by_protocol"
         elif balance == 0.0 and role == "deployer":
             # Non-launchpad deployer exited — try to quantify the exit
             try:

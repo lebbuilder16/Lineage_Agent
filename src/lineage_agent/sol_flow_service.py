@@ -460,6 +460,11 @@ def _flows_to_report(
     dynamic_labels: Optional[dict] = None,
 ) -> SolFlowReport:
     """Convert raw flow dicts to a SolFlowReport model."""
+    from .constants import LAUNCHPAD_PROGRAMS  # noqa: PLC0415
+
+    # Build set of known protocol addresses (fees from these = legitimate)
+    _protocol_addresses = set(LAUNCHPAD_PROGRAMS.keys()) | _SKIP_ADDRESSES
+
     _dyn = dynamic_labels or {}
     edges: list[SolFlowEdge] = []
     for f in flows:
@@ -469,9 +474,19 @@ def _flows_to_report(
         from_info = _dyn.get(f["from_address"]) or classify_address(f["from_address"])
         to_info   = _dyn.get(f["to_address"])   or classify_address(f["to_address"])
 
+        # Classify the nature of this flow
+        from_addr = f["from_address"]
+        to_addr = f["to_address"]
+        if from_addr in _protocol_addresses:
+            flow_ctx = "protocol_fee"
+        elif from_addr == deployer:
+            flow_ctx = "deployer_outflow"
+        else:
+            flow_ctx = "wallet_transfer"
+
         edges.append(SolFlowEdge(
-            from_address=f["from_address"],
-            to_address=f["to_address"],
+            from_address=from_addr,
+            to_address=to_addr,
             amount_sol=round(f.get("amount_lamports", 0) / 1_000_000_000.0, 6),
             hop=f.get("hop", 0),
             signature=f.get("signature", ""),
@@ -479,10 +494,15 @@ def _flows_to_report(
             from_label=from_info.label,
             to_label=to_info.label,
             entity_type=to_info.entity_type,
+            flow_context=flow_ctx,
         ))
 
-    # Total extracted = direct outflows from the deployer (hop 0)
-    total_sol = sum(e.amount_sol for e in edges if e.hop == 0)
+    # Total extracted = deployer outflows at hop 0, EXCLUDING protocol fees
+    # Protocol fees (bonding curve, launchpad rewards) are legitimate income.
+    total_sol = sum(
+        e.amount_sol for e in edges
+        if e.hop == 0 and e.flow_context != "protocol_fee"
+    )
 
     # Compute USD value if SOL price is available
     total_usd: Optional[float] = None

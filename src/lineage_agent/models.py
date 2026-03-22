@@ -735,6 +735,10 @@ class SolFlowEdge(BaseModel):
     from_label: Optional[str] = Field(None, description="Human-readable label for from_address")
     to_label: Optional[str] = Field(None, description="Human-readable label for to_address")
     entity_type: Optional[str] = Field(None, description="Entity type of to_address (cex, dex, bridge, …)")
+    flow_context: Optional[str] = Field(
+        None,
+        description="Nature of this flow: 'protocol_fee', 'deployer_outflow', 'wallet_transfer', 'unknown'",
+    )
 
 
 class CrossChainExit(BaseModel):

@@ -135,8 +135,9 @@ function detectSignals(data: Awaited<ReturnType<typeof getLineage>>, name: strin
     };
   }
 
-  // Priority 6 — Large SOL extraction
-  if (sf?.total_extracted_sol != null && sf.total_extracted_sol > 50) {
+  // Priority 6 — Large SOL extraction (only if deployer actually exited or sold)
+  if (sf?.total_extracted_sol != null && sf.total_extracted_sol > 50
+      && (ins?.deployer_exited || (ins?.sell_pressure_24h ?? 0) > 0.5)) {
     return {
       title: `💸 ${name}`,
       body: `${sf.total_extracted_sol.toFixed(1)} SOL extracted via ${sf.hop_count ?? '?'}-hop chain`,
