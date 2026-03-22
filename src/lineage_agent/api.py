@@ -514,6 +514,10 @@ async def get_lineage(
         result = await asyncio.wait_for(
             detect_lineage(mint, force_refresh=force_refresh), timeout=ANALYSIS_TIMEOUT_SECONDS
         )
+        # Record scan event for top-tokens ranking
+        _qt = getattr(result, "query_token", None) or getattr(result, "root", None)
+        asyncio.create_task(_record_scan_event(mint, _qt))
+
         # Warm cache: pre-compute heavy analyses in background so /investigate is fast
         _deployer = getattr(getattr(result, "root", None), "deployer", "") or ""
         if _deployer and not force_refresh:
@@ -578,6 +582,24 @@ async def _warm_heavy_analyses(mint: str, deployer: str):
         logger.info("[warm] pre-computed bundle/sol_flow/cartel for %s", mint[:12])
     except Exception as exc:
         logger.debug("[warm] failed for %s: %s", mint[:12], exc)
+
+
+async def _record_scan_event(mint: str, token_meta: Any) -> None:
+    """Record a user scan event so top-tokens reflects actual usage."""
+    try:
+        from .data_sources._clients import event_insert
+        await event_insert(
+            event_type="token_scanned",
+            mint=mint,
+            name=getattr(token_meta, "name", "") or "",
+            symbol=getattr(token_meta, "symbol", "") or "",
+            deployer=getattr(token_meta, "deployer", "") or "",
+            mcap_usd=getattr(token_meta, "market_cap_usd", None),
+            narrative=getattr(token_meta, "narrative", None) if hasattr(token_meta, "narrative") else None,
+            created_at=str(getattr(token_meta, "created_at", "")) if getattr(token_meta, "created_at", None) else None,
+        )
+    except Exception:
+        pass  # best-effort, never fail the main request
 
 
 @app.post(
