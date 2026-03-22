@@ -105,9 +105,17 @@ export const useAuthStore = create<AuthState>((set) => ({
       // Validate key against backend — clear stale keys immediately
       if (key) {
         try {
-          const { getMe } = await import('../lib/api');
+          const { getMe, getWatches } = await import('../lib/api');
           const user = await getMe(key);
           set({ user: user ?? null });
+
+          // Pre-load watches into store for immediate display
+          try {
+            const watches = await getWatches(key);
+            set({ watches });
+          } catch {
+            // best-effort — react-query will retry in the watchlist screen
+          }
 
           const { useSubscriptionStore } = await import('./subscription');
           useSubscriptionStore.getState().fetchStatus(key);
