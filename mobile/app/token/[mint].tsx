@@ -174,6 +174,52 @@ const agentStyles = StyleSheet.create({
   why: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny, color: tokens.white35, marginTop: 2 },
 });
 
+// ─── Sweep Alerts Banner ─────────────────────────────────────────────────────
+
+const SWEEP_BASE = (process.env.EXPO_PUBLIC_API_URL ?? 'https://lineage-agent.fly.dev').replace(/\/$/, '');
+
+function SweepAlertsBanner({ mint }: { mint: string }) {
+  const apiKey = useAuthStore((s) => s.apiKey);
+  const [flags, setFlags] = useState<{ severity: string; title: string; createdAt: number }[]>([]);
+
+  useEffect(() => {
+    if (!apiKey || !mint) return;
+    fetch(`${SWEEP_BASE}/agent/flags?mint=${mint}&limit=5`, {
+      headers: { 'X-API-Key': apiKey },
+    })
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => { if (d?.flags?.length) setFlags(d.flags); })
+      .catch(() => {});
+  }, [apiKey, mint]);
+
+  if (flags.length === 0) return null;
+
+  const critCount = flags.filter((f) => f.severity === 'critical').length;
+  const ago = (() => {
+    const diff = Date.now() - (flags[0]?.createdAt ?? 0) * 1000;
+    const hrs = Math.floor(diff / 3600000);
+    return hrs < 1 ? 'recently' : `${hrs}h ago`;
+  })();
+
+  return (
+    <GlassCard style={{ borderColor: critCount > 0 ? `${tokens.risk.critical}30` : `${tokens.warning}30`, borderWidth: 1 }}>
+      <Text style={{ fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.small, color: critCount > 0 ? tokens.risk.critical : tokens.warning, marginBottom: 6 }}>
+        {critCount > 0 ? '🔴' : '⚠️'} Agent detected {flags.length} flag{flags.length > 1 ? 's' : ''} ({ago})
+      </Text>
+      {flags.slice(0, 3).map((f, i) => (
+        <Text key={i} style={{ fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny, color: tokens.white60, lineHeight: 16 }}>
+          • {f.title}
+        </Text>
+      ))}
+      {flags.length > 3 && (
+        <Text style={{ fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny, color: tokens.white35, marginTop: 4 }}>
+          +{flags.length - 3} more
+        </Text>
+      )}
+    </GlassCard>
+  );
+}
+
 // ─── Main Screen ─────────────────────────────────────────────────────────────
 
 export default function TokenScreen() {
@@ -508,6 +554,9 @@ export default function TokenScreen() {
                 AGENT SUGGESTIONS — contextual next actions
                 ═══════════════════════════════════════════════════ */}
             <AgentSuggestions data={data} mint={mint ?? ''} />
+
+            {/* Sweep intelligence flags */}
+            <SweepAlertsBanner mint={mint ?? ''} />
 
             {/* ═══════════════════════════════════════════════════
                 LEVEL 2 — Risk summary  (verdict · key signal · CTA)

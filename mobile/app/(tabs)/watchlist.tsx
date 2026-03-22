@@ -41,7 +41,7 @@ import type { Watch } from '../../src/types/api';
 
 // ─── Watch item card with enriched display ──────────────────────────────────
 
-function WatchItemCard({ item, onPress, onCopy }: { item: Watch; onPress: (w: Watch) => void; onCopy: (v: string) => void }) {
+function WatchItemCard({ item, onPress, onCopy, flagCount = 0 }: { item: Watch; onPress: (w: Watch) => void; onCopy: (v: string) => void; flagCount?: number }) {
   // Try to get token name/symbol from react-query lineage cache
   const cached = item.sub_type === 'mint'
     ? queryClient.getQueryData<LineageResult>(QK.lineage(item.value))
@@ -104,6 +104,11 @@ function WatchItemCard({ item, onPress, onCopy }: { item: Watch; onPress: (w: Wa
               {item.value.slice(0, 8)}…{item.value.slice(-6)}
             </Text>
             {riskLevel && <RiskBadge level={riskLevel} size="sm" />}
+            {flagCount > 0 && (
+              <View style={styles.flagBadge}>
+                <Text style={styles.flagBadgeText}>{flagCount} flag{flagCount > 1 ? 's' : ''}</Text>
+              </View>
+            )}
           </View>
         </View>
       </TouchableOpacity>
@@ -129,6 +134,24 @@ export default function WatchlistScreen() {
   const [addError, setAddError] = useState('');
   const [sweeping, setSweeping] = useState(false);
   const [sweepProgress, setSweepProgress] = useState(0);
+  const [flagCounts, setFlagCounts] = useState<Record<string, number>>({});
+
+  // Fetch flag counts for all watched tokens
+  React.useEffect(() => {
+    if (!apiKey) return;
+    const BASE = (process.env.EXPO_PUBLIC_API_URL ?? 'https://lineage-agent.fly.dev').replace(/\/$/, '');
+    fetch(`${BASE}/agent/flags?limit=200`, { headers: { 'X-API-Key': apiKey } })
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => {
+        if (!d?.flags) return;
+        const counts: Record<string, number> = {};
+        for (const f of d.flags) {
+          if (!f.read) counts[f.mint] = (counts[f.mint] ?? 0) + 1;
+        }
+        setFlagCounts(counts);
+      })
+      .catch(() => {});
+  }, [apiKey, watches]);
 
   const handleSweepAll = async () => {
     const mintWatches = (watches ?? []).filter((w) => w.sub_type === 'mint');
@@ -405,7 +428,7 @@ export default function WatchlistScreen() {
                   </TouchableOpacity>
                 )}
               >
-              <WatchItemCard item={item} onPress={handlePress} onCopy={handleCopy} />
+              <WatchItemCard item={item} onPress={handlePress} onCopy={handleCopy} flagCount={flagCounts[item.value] ?? 0} />
                 </Swipeable>
               </Animated.View>
             )}
@@ -486,6 +509,21 @@ const styles = StyleSheet.create({
   tokenImgFallback: {
     fontFamily: 'Lexend-Bold',
     fontSize: tokens.font.subheading,
+  },
+  flagBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: `${tokens.warning}20`,
+    borderRadius: tokens.radius.pill,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderWidth: 1,
+    borderColor: `${tokens.warning}40`,
+  },
+  flagBadgeText: {
+    fontFamily: 'Lexend-SemiBold',
+    fontSize: 9,
+    color: tokens.warning,
   },
   typeBadge: {
     alignSelf: 'flex-start',

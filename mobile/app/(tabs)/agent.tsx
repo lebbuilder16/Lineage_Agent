@@ -51,6 +51,17 @@ interface AgentStatus {
   total_investigations: number;
 }
 
+interface SweepFlag {
+  id: number;
+  mint: string;
+  flagType: string;
+  severity: 'info' | 'warning' | 'critical';
+  title: string;
+  detail: Record<string, unknown>;
+  createdAt: number;
+  read: boolean;
+}
+
 export default function AgentScreen() {
   const insets = useSafeAreaInsets();
   const prefs = useAgentPrefsStore();
@@ -59,6 +70,7 @@ export default function AgentScreen() {
   const apiKey = useAuthStore((s) => s.apiKey);
   const wsConnected = useAlertsStore((s) => s.wsConnected);
   const [serverStatus, setServerStatus] = useState<AgentStatus | null>(null);
+  const [sweepFlags, setSweepFlags] = useState<SweepFlag[]>([]);
   const [refreshing, setRefreshing] = useState(false);
 
   const fetchStatus = async () => {
@@ -71,18 +83,31 @@ export default function AgentScreen() {
     } catch { /* best-effort */ }
   };
 
+  const fetchFlags = async () => {
+    if (!apiKey) return;
+    try {
+      const res = await fetch(`${BASE_URL}/agent/flags?limit=20`, {
+        headers: { 'X-API-Key': apiKey },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSweepFlags(data.flags ?? []);
+      }
+    } catch { /* best-effort */ }
+  };
+
   useEffect(() => {
     useAgentPrefsStore.getState().hydrate();
     useHistoryStore.getState().hydrate();
     fetchStatus();
-    // Poll every 30s for live status updates
-    const interval = setInterval(fetchStatus, 30_000);
+    fetchFlags();
+    const interval = setInterval(() => { fetchStatus(); fetchFlags(); }, 30_000);
     return () => clearInterval(interval);
   }, [apiKey]);
 
   const handleRefresh = async () => {
     setRefreshing(true);
-    await fetchStatus();
+    await Promise.all([fetchStatus(), fetchFlags()]);
     setRefreshing(false);
   };
 
@@ -271,6 +296,46 @@ export default function AgentScreen() {
               )}
             </GlassCard>
           </Animated.View>
+
+          {/* ── Intelligence Feed (sweep flags) ── */}
+          {sweepFlags.length > 0 && (
+            <Animated.View entering={FadeInDown.delay(180).duration(300).springify()}>
+              <GlassCard>
+                <Text style={styles.sectionTitle}>INTELLIGENCE FEED</Text>
+                {sweepFlags.slice(0, 8).map((flag, i) => {
+                  const severityColor = flag.severity === 'critical' ? tokens.risk.critical
+                    : flag.severity === 'warning' ? tokens.risk.high
+                    : tokens.white60;
+                  const severityIcon = flag.severity === 'critical' ? '🔴'
+                    : flag.severity === 'warning' ? '⚠️'
+                    : 'ℹ️';
+                  return (
+                    <TouchableOpacity
+                      key={flag.id}
+                      onPress={() => router.push(`/token/${flag.mint}` as any)}
+                      activeOpacity={0.75}
+                      style={[
+                        styles.flagRow,
+                        i === Math.min(sweepFlags.length, 8) - 1 && { borderBottomWidth: 0 },
+                        !flag.read && { backgroundColor: `${severityColor}08` },
+                      ]}
+                    >
+                      <Text style={styles.flagIcon}>{severityIcon}</Text>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.flagTitle, { color: severityColor }]} numberOfLines={1}>
+                          {flag.title}
+                        </Text>
+                        <Text style={styles.flagMint} numberOfLines={1}>
+                          {flag.mint.slice(0, 8)}…{flag.mint.slice(-4)}
+                        </Text>
+                      </View>
+                      <Text style={styles.activityTime}>{timeAgoShort(flag.createdAt * 1000)}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </GlassCard>
+            </Animated.View>
+          )}
 
           {/* ── Feedback Accuracy ── */}
           {investigations.length > 0 && (() => {
@@ -553,6 +618,20 @@ const styles = StyleSheet.create({
   },
   accuracyFill: {
     height: 4, borderRadius: 2,
+  },
+
+  // Intelligence feed flags
+  flagRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: tokens.borderSubtle,
+  },
+  flagIcon: { fontSize: 14, width: 20, textAlign: 'center' },
+  flagTitle: {
+    fontFamily: 'Lexend-Medium', fontSize: tokens.font.small, lineHeight: 18,
+  },
+  flagMint: {
+    fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny, color: tokens.white35,
+    marginTop: 1,
   },
 
   // History search

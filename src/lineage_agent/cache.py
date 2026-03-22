@@ -675,6 +675,32 @@ class SQLiteCache:
         )
 
         # ---------------------------------------------------------------
+        # Sweep intelligence flags
+        # ---------------------------------------------------------------
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS sweep_flags (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                watch_id INTEGER NOT NULL,
+                mint TEXT NOT NULL,
+                user_id INTEGER NOT NULL,
+                flag_type TEXT NOT NULL,
+                severity TEXT NOT NULL DEFAULT 'info',
+                title TEXT NOT NULL,
+                detail TEXT,
+                created_at REAL NOT NULL,
+                read INTEGER DEFAULT 0
+            )
+            """
+        )
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_sf_user ON sweep_flags(user_id, created_at DESC)"
+        )
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_sf_mint ON sweep_flags(mint, created_at DESC)"
+        )
+
+        # ---------------------------------------------------------------
         # Phase 5 — agent preferences (agentic UX)
         # ---------------------------------------------------------------
         await db.execute(
