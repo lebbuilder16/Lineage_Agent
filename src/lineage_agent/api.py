@@ -2507,7 +2507,7 @@ async def get_top_tokens(
     try:
         from .data_sources._clients import event_query as _eq  # noqa: PLC0415
 
-        # Direct SQL query with GROUP BY (event_query wrapper doesn't support it)
+        # Direct SQL — GROUP BY mint, rank by event count
         from .data_sources._clients import cache as _cache  # noqa: PLC0415
         db = await _cache._get_conn()
         sql = """
@@ -2519,19 +2519,13 @@ async def get_top_tokens(
                    MIN(created_at) as created_at,
                    COUNT(*) as event_count
             FROM intelligence_events
-            WHERE created_at >= ?
-              AND mint IS NOT NULL AND mint != ''
+            WHERE mint IS NOT NULL AND mint != ''
             GROUP BY mint
-            ORDER BY event_count DESC
+            ORDER BY event_count DESC, MAX(ROWID) DESC
             LIMIT ?
         """
-        # Progressive time windows: 24h → 7d → 30d → all time
-        for window in [timedelta(hours=24), timedelta(days=7), timedelta(days=30), timedelta(days=3650)]:
-            cutoff = (datetime.now(tz=timezone.utc) - window).isoformat()
-            cursor = await db.execute(sql, (cutoff, limit))
-            rows = await cursor.fetchall()
-            if len(rows) >= 3:
-                break
+        cursor = await db.execute(sql, (limit,))
+        rows = await cursor.fetchall()
         col_names = [d[0] for d in cursor.description]
         results = [dict(zip(col_names, row)) for row in rows]
 
