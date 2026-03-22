@@ -2605,13 +2605,18 @@ async def get_stats_brief(request: Request) -> dict:
     from datetime import datetime, timezone  # noqa: PLC0415
 
     stats: GlobalStats = await get_global_stats(request)
-    top_nar = stats.top_narratives[0].narrative.upper() if stats.top_narratives else "MISC"
 
     # ── Global summary (always included) ─────────────────────────
+    nar_suffix = ""
+    if stats.top_narratives:
+        top_nar = stats.top_narratives[0].narrative.upper()
+        if top_nar not in ("MISC", "OTHER", ""):
+            nar_suffix = f" Top narrative: {top_nar}."
+
     global_line = (
         f"{stats.tokens_rugged_24h} rug pull(s) in 24h "
-        f"({stats.rug_rate_24h_pct:.1f}% rate) across {stats.tokens_scanned_24h:,} tokens. "
-        f"Top narrative: {top_nar}."
+        f"({stats.rug_rate_24h_pct:.1f}% rate) across {stats.tokens_scanned_24h:,} tokens."
+        f"{nar_suffix}"
     )
 
     # ── Personalized section (if authenticated) ──────────────────
