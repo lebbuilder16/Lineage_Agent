@@ -102,6 +102,35 @@ async def _build_profile(deployer: str) -> Optional[DeployerProfile]:
         limit=500,
     )
     if not created_rows:
+        # Fallback: live DAS scan for deployers not yet in intelligence_events
+        try:
+            from .data_sources._clients import get_rpc_client
+            rpc = get_rpc_client()
+            import asyncio as _aio
+            assets = await _aio.wait_for(rpc.search_assets_by_creator(deployer, limit=50), timeout=8.0)
+            if assets:
+                from datetime import datetime, timezone
+                return DeployerProfile(
+                    address=deployer,
+                    total_tokens_launched=len(assets),
+                    rug_count=0,
+                    confirmed_rug_count=0,
+                    negative_outcome_count=0,
+                    rug_rate_pct=0.0,
+                    confirmed_rug_rate_pct=0.0,
+                    negative_outcome_rate_pct=0.0,
+                    avg_lifespan_hours=None,
+                    median_lifespan_hours=None,
+                    top_narratives=[],
+                    rug_mechanisms={},
+                    tokens=[],
+                    wallet_age_days=None,
+                    first_activity=None,
+                    last_activity=datetime.now(tz=timezone.utc),
+                    is_active=True,
+                )
+        except Exception as _exc:
+            logger.debug("DAS fallback for deployer_profile failed: %s", _exc)
         return None
 
     # Fetch rug events for these mints
