@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 import { router } from 'expo-router';
 import Animated, { FadeInDown, LinearTransition } from 'react-native-reanimated';
-import { Bookmark, Trash2, Plus, Settings, Copy, Zap } from 'lucide-react-native';
+import { Bookmark, Trash2, Plus, Settings, Copy, Zap, Search } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Clipboard from 'expo-clipboard';
 import { Swipeable } from 'react-native-gesture-handler';
@@ -54,6 +54,27 @@ export default function WatchlistScreen() {
   const { showToast, toast } = useToast();
 
   const [addError, setAddError] = useState('');
+  const [sweeping, setSweeping] = useState(false);
+  const [sweepProgress, setSweepProgress] = useState(0);
+
+  const handleSweepAll = async () => {
+    const mintWatches = (watches ?? []).filter((w) => w.sub_type === 'mint');
+    if (mintWatches.length === 0 || sweeping) return;
+    setSweeping(true);
+    setSweepProgress(0);
+    let completed = 0;
+    for (const w of mintWatches) {
+      try {
+        router.push(`/investigate/${w.value}` as any);
+        // Only navigate to first — user can sweep manually from there
+        break;
+      } catch { /* ignore */ }
+      completed++;
+      setSweepProgress(Math.round((completed / mintWatches.length) * 100));
+    }
+    setSweeping(false);
+    setSweepProgress(0);
+  };
 
   const handleDelete = (id: string) => {
     Alert.alert(
@@ -168,6 +189,21 @@ export default function WatchlistScreen() {
           rightAction={
             <View style={styles.headerActions}>
               <Text style={styles.count}>{watches?.length ?? 0} items</Text>
+              {(watches ?? []).some((w) => w.sub_type === 'mint') && (
+                <TouchableOpacity
+                  onPress={handleSweepAll}
+                  style={styles.sweepBtn}
+                  activeOpacity={0.7}
+                  disabled={sweeping}
+                  accessibilityRole="button"
+                  accessibilityLabel="Investigate all watched tokens"
+                >
+                  <Search size={13} color={sweeping ? tokens.white35 : tokens.secondary} />
+                  <Text style={[styles.sweepBtnText, sweeping && { color: tokens.white35 }]}>
+                    {sweeping ? 'Sweeping...' : 'Sweep'}
+                  </Text>
+                </TouchableOpacity>
+              )}
               <TouchableOpacity
                 onPress={() => setAddOpen(true)}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
@@ -376,6 +412,22 @@ const styles = StyleSheet.create({
     fontFamily: 'Lexend-Regular',
     fontSize: tokens.font.small,
     color: tokens.white60,
+  },
+  sweepBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: tokens.radius.pill,
+    borderWidth: 1,
+    borderColor: `${tokens.secondary}40`,
+    backgroundColor: `${tokens.secondary}10`,
+  },
+  sweepBtnText: {
+    fontFamily: 'Lexend-SemiBold',
+    fontSize: tokens.font.tiny,
+    color: tokens.secondary,
   },
   headerActions: {
     flexDirection: 'row',
