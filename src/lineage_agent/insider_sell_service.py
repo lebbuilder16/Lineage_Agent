@@ -279,18 +279,41 @@ async def _fetch_balance(
             rpc.get_wallet_token_balance(wallet, mint),
             timeout=_balance_timeout,
         )
+        is_launchpad = (launch_platform or "") in BONDING_CURVE_LAUNCHPAD_PLATFORMS
+        # For launchpad tokens (PumpFun, Moonshot, Raydium Launchpad, etc.),
+        # the deployer often never receives tokens — the protocol distributes
+        # them directly to buyers. A zero balance is expected behavior, not
+        # evidence of exit, regardless of lifecycle stage.
         zero_balance_expected = (
             role == "deployer"
-            and lifecycle_stage != LifecycleStage.DEX_LISTED
-            and (launch_platform or "") in BONDING_CURVE_LAUNCHPAD_PLATFORMS
+            and is_launchpad
             and balance == 0.0
         )
 
         context: Optional[str] = None
         if zero_balance_expected:
-            context = "zero_balance_expected_by_protocol"
+            # Check if deployer ever held tokens by looking at recent TX
+            had_tokens = await _deployer_ever_held_tokens(rpc, wallet, mint)
+            if had_tokens:
+                # Deployer DID hold tokens and now has 0 — genuine exit
+                zero_balance_expected = False
+                try:
+                    context = await asyncio.wait_for(
+                        _build_exit_context(rpc, wallet, mint),
+                        timeout=10.0,
+                    )
+                    logger.info("[insider] exit context for %s: %s", wallet[:8], context)
+                except Exception as ctx_exc:
+                    logger.warning("[insider] exit context failed for %s: %s", wallet[:8], ctx_exc)
+                    context = "Deployer sold tokens — exit details unavailable."
+            else:
+                context = (
+                    f"Deployer never held {mint[:8]}... tokens. "
+                    f"On {launch_platform or 'launchpad'}, tokens are distributed "
+                    f"directly to buyers by the protocol."
+                )
         elif balance == 0.0 and role == "deployer":
-            # Deployer exited — try to quantify the exit
+            # Non-launchpad deployer exited — try to quantify the exit
             try:
                 context = await asyncio.wait_for(
                     _build_exit_context(rpc, wallet, mint),
@@ -311,6 +334,50 @@ async def _fetch_balance(
     except Exception as exc:
         logger.debug("get_wallet_token_balance failed for %s: %s", wallet[:8], exc)
         return None
+
+
+async def _deployer_ever_held_tokens(
+    rpc: SolanaRpcClient,
+    wallet: str,
+    mint: str,
+) -> bool:
+    """Check if the deployer ever had a non-zero balance of this token.
+
+    Scans recent TX preTokenBalances for any entry where owner=wallet
+    and mint=mint with a positive balance. Returns True if found.
+    """
+    try:
+        sigs = await asyncio.wait_for(
+            rpc.get_recent_signatures(wallet, limit=20),
+            timeout=5.0,
+        )
+        for sig_info in sigs[:10]:
+            sig = sig_info.get("signature", "")
+            if not sig:
+                continue
+            try:
+                tx = await asyncio.wait_for(
+                    rpc._call(
+                        "getTransaction",
+                        [sig, {"encoding": "jsonParsed", "maxSupportedTransactionVersion": 0}],
+                    ),
+                    timeout=3.0,
+                )
+                if not tx or not isinstance(tx, dict):
+                    continue
+                meta = tx.get("meta", {})
+                for b in meta.get("preTokenBalances", []) + meta.get("postTokenBalances", []):
+                    if (
+                        b.get("mint") == mint
+                        and b.get("owner") == wallet
+                        and float((b.get("uiTokenAmount") or {}).get("uiAmount", 0) or 0) > 0
+                    ):
+                        return True
+            except Exception:
+                continue
+        return False
+    except Exception:
+        return False
 
 
 async def _build_exit_context(
