@@ -2885,8 +2885,11 @@ async def _watchlist_sweep_loop():
     """Rescan watched tokens every 2 hours and alert on risk escalation."""
     from .watchlist_monitor_service import run_single_rescan, SWEEP_INTERVAL_SECONDS
     from .data_sources._clients import cache as _cache  # noqa: PLC0415
+    # First sweep after 60s startup delay, then every 2h
+    first_run = True
     while True:
-        await asyncio.sleep(SWEEP_INTERVAL_SECONDS)
+        await asyncio.sleep(60 if first_run else SWEEP_INTERVAL_SECONDS)
+        first_run = False
         try:
             db = await _cache._get_conn()
             cursor = await db.execute("SELECT id, user_id FROM user_watches WHERE sub_type = 'mint'")
@@ -2969,22 +2972,41 @@ async def _auto_investigate_token(mint: str, user_id: int, cache):
 
 async def _store_investigation(cache, user_id: int, mint: str, verdict: dict):
     """Persist an investigation verdict to the investigations table."""
-    db = await cache._get_conn()
-    key_findings = verdict.get("key_findings", [])
-    if isinstance(key_findings, list):
-        key_findings = json.dumps(key_findings)
-    await db.execute(
-        "INSERT INTO investigations "
-        "(user_id, mint, name, symbol, risk_score, verdict_summary, "
-        "key_findings, model, turns_used, tokens_used, created_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (user_id, mint, verdict.get("name"), verdict.get("symbol"),
-         verdict.get("risk_score"), verdict.get("verdict_summary"),
-         key_findings, verdict.get("model"),
-         verdict.get("turns_used", 0), verdict.get("tokens_used", 0),
-         time.time()),
-    )
-    await db.commit()
+    try:
+        db = await cache._get_conn()
+        key_findings = verdict.get("key_findings", [])
+        if isinstance(key_findings, list):
+            key_findings = json.dumps(key_findings)
+
+        # Extract name/symbol from narrative or verdict fields
+        name = verdict.get("name") or ""
+        symbol = verdict.get("symbol") or ""
+
+        # Retry up to 3 times on database locked
+        for _attempt in range(3):
+            try:
+                await db.execute(
+                    "INSERT INTO investigations "
+                    "(user_id, mint, name, symbol, risk_score, verdict_summary, "
+                    "key_findings, model, turns_used, tokens_used, created_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (user_id, mint, name, symbol,
+                     verdict.get("risk_score"), verdict.get("verdict_summary"),
+                     key_findings, verdict.get("model"),
+                     verdict.get("turns_used", 0), verdict.get("tokens_used", 0),
+                     time.time()),
+                )
+                await db.commit()
+                logger.info("[store_investigation] saved for user=%d mint=%s score=%s",
+                            user_id, mint[:12], verdict.get("risk_score"))
+                return
+            except Exception as db_exc:
+                if "locked" in str(db_exc).lower() and _attempt < 2:
+                    await asyncio.sleep(0.5 * (_attempt + 1))
+                    continue
+                raise
+    except Exception as exc:
+        logger.error("[store_investigation] FAILED for user=%d mint=%s: %s", user_id, mint[:12], exc)
 
 
 def _schedule_watchlist_sweep():
