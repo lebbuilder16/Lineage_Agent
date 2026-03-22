@@ -29,13 +29,10 @@ interface HapticButtonProps extends Omit<PressableProps, 'style'> {
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
 const GRADIENTS = {
-  // 3-stop mesh: violet → indigo → periwinkle (bioluminescent 2026)
-  primary: tokens.gradient.primaryCTA as unknown as readonly string[],
-  // Flat ice blue secondary
+  primary: ['#2D1B69', '#4F46E5', '#818CF8'] as const,
   secondary: [tokens.secondary, tokens.secondary] as const,
   ghost: ['transparent', 'transparent'] as const,
-  // Crimson depth → neon pink
-  destructive: tokens.gradient.danger as unknown as readonly string[],
+  destructive: ['#4C0519', '#DC2626', '#FF3366'] as const,
 };
 
 export function HapticButton({
