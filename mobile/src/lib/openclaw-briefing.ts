@@ -1,27 +1,34 @@
 /**
- * Briefing listener — now polls backend API instead of OpenClaw cron events.
+ * Briefing listener — polls backend /stats/brief for personalized daily briefing.
  */
 import { create } from 'zustand';
 
-// ─── Briefing store (kept here for API compatibility) ────────────────────────
+// ─── Briefing store ─────────────────────────────────────────────────────────
 
 export interface BriefingState {
-  latest: string | null;       // markdown content
-  receivedAt: string | null;   // ISO timestamp
+  latest: string | null;       // briefing content text
+  generatedAt: string | null;  // ISO timestamp from backend (when briefing was generated)
+  receivedAt: string | null;   // ISO timestamp (when mobile received it)
   unread: boolean;
-  setBriefing: (content: string) => void;
+  setBriefing: (content: string, generatedAt?: string) => void;
   markRead: () => void;
   clear: () => void;
 }
 
 export const useBriefingStore = create<BriefingState>((set) => ({
   latest: null,
+  generatedAt: null,
   receivedAt: null,
   unread: false,
-  setBriefing: (content) =>
-    set({ latest: content, receivedAt: new Date().toISOString(), unread: true }),
+  setBriefing: (content, generatedAt) =>
+    set({
+      latest: content,
+      generatedAt: generatedAt ?? null,
+      receivedAt: new Date().toISOString(),
+      unread: true,
+    }),
   markRead: () => set({ unread: false }),
-  clear: () => set({ latest: null, receivedAt: null, unread: false }),
+  clear: () => set({ latest: null, generatedAt: null, receivedAt: null, unread: false }),
 }));
 
 // ─── Backend polling ─────────────────────────────────────────────────────────
@@ -40,7 +47,7 @@ export function startBriefingListener(apiKey?: string): () => void {
         const data = await res.json();
         const content = data.content || data.text;
         if (content) {
-          useBriefingStore.getState().setBriefing(content);
+          useBriefingStore.getState().setBriefing(content, data.generated_at);
         }
       }
     } catch {

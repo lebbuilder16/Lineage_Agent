@@ -227,7 +227,7 @@ function ScanStepCard({ step }: { step: ScanStep }) {
   const StepIcon = meta.Icon;
   const stepColor = meta.color;
   const isDone = step.status === 'done';
-  const hasError = (step as Record<string, unknown>).error === true;
+  const hasError = (step as unknown as Record<string, unknown>).error === true;
 
   return (
     <Animated.View entering={FadeInDown.duration(200).springify()}>

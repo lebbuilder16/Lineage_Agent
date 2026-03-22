@@ -48,6 +48,7 @@ import { connectAlertsWS } from '../../src/lib/api';
 import { useAlertsStore } from '../../src/store/alerts';
 import { useAuthStore } from '../../src/store/auth';
 import { useBriefingStore, startBriefingListener } from '../../src/lib/openclaw-briefing';
+import { maybeAutoInvestigate } from '../../src/lib/auto-investigate';
 import { isOpenClawAvailable } from '../../src/lib/openclaw';
 import { tokens } from '../../src/theme/tokens';
 import { RiskBadge } from '../../src/components/ui/RiskBadge';
@@ -413,7 +414,11 @@ export default function RadarScreen() {
   const { data: stats, isLoading: statsLoading, refetch: refetchStats } = useGlobalStats();
   const { data: topTokens, isLoading: topLoading, refetch: refetchTopTokens } = useTopTokens(10);
 
-  const addAlert = useAlertsStore((s) => s.addAlert);
+  const _rawAddAlert = useAlertsStore((s) => s.addAlert);
+  const addAlert = useCallback((alert: any) => {
+    _rawAddAlert(alert);
+    maybeAutoInvestigate(alert);
+  }, [_rawAddAlert]);
   const setWsConnected = useAlertsStore((s) => s.setWsConnected);
   const wsConnected = useAlertsStore((s) => s.wsConnected);
   const markRead = useAlertsStore((s) => s.markRead);
@@ -428,6 +433,7 @@ export default function RadarScreen() {
   const insets = useSafeAreaInsets();
 
   const briefing = useBriefingStore((s) => s.latest);
+  const briefingGeneratedAt = useBriefingStore((s) => s.generatedAt);
   const briefingUnread = useBriefingStore((s) => s.unread);
   const markBriefingRead = useBriefingStore((s) => s.markRead);
   const [briefingExpanded, setBriefingExpanded] = useState(false);
@@ -597,6 +603,12 @@ export default function RadarScreen() {
                   >
                     {briefing}
                   </Text>
+                  {briefingGeneratedAt && briefingExpanded && (
+                    <Text style={styles.briefingMeta}>
+                      Generated {new Date(briefingGeneratedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      {' · '}Updates every 5 min
+                    </Text>
+                  )}
                 </GlassCard>
               </TouchableOpacity>
             </Animated.View>
@@ -1013,5 +1025,12 @@ const styles = StyleSheet.create({
     color: tokens.white80,
     lineHeight: 20,
     marginTop: 8,
+  },
+  briefingMeta: {
+    fontFamily: 'Lexend-Regular',
+    fontSize: tokens.font.tiny,
+    color: tokens.white35,
+    marginTop: 8,
+    letterSpacing: 0.3,
   },
 });
