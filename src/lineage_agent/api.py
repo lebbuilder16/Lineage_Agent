@@ -89,6 +89,7 @@ from .models import (
     SolFlowReport,
     TokenCompareResult,
     TokenSearchResult,
+    TopToken,
 )
 from .rug_detector import cancel_rug_sweep, schedule_rug_sweep
 from .db_maintenance import cancel_db_maintenance, schedule_db_maintenance
@@ -2477,6 +2478,75 @@ async def get_global_stats(request: Request) -> GlobalStats:
     except Exception as exc:
         logger.exception("get_global_stats failed")
         raise HTTPException(status_code=500, detail="Internal server error") from exc
+
+
+# ---------------------------------------------------------------------------
+# /stats/top-tokens  — most scanned tokens in the last 24h
+# ---------------------------------------------------------------------------
+
+@app.get(
+    "/stats/top-tokens",
+    response_model=list[TopToken],
+    tags=["intelligence"],
+    summary="Top tokens by intelligence event count in the last 24 hours",
+)
+@limiter.limit("30/minute")
+async def get_top_tokens(
+    request: Request,
+    limit: int = Query(10, ge=1, le=50, description="Max tokens to return"),
+) -> list[TopToken]:
+    """Return the most actively scanned tokens ranked by event count."""
+    import time as _time  # noqa: PLC0415
+    from datetime import datetime, timezone, timedelta  # noqa: PLC0415
+
+    global _top_tokens_cache
+    now_mono = _time.monotonic()
+    if _top_tokens_cache and (now_mono - _top_tokens_cache[0]) < 60.0:
+        return _top_tokens_cache[1][:limit]
+
+    try:
+        from .data_sources._clients import event_query as _eq  # noqa: PLC0415
+
+        cutoff = (datetime.now(tz=timezone.utc) - timedelta(hours=24)).isoformat()
+
+        rows = await _eq(
+            where="created_at >= ?",
+            params=(cutoff,),
+            columns="mint, name, symbol, narrative, market_cap_usd, created_at, COUNT(*) as event_count",
+            order_by="event_count DESC",
+            limit=limit * 2,
+        )
+
+        # Deduplicate by mint (GROUP BY may not work with all SQLite versions)
+        seen: dict[str, dict] = {}
+        for row in rows:
+            m = row.get("mint", "")
+            if not m or m in seen:
+                continue
+            seen[m] = row
+
+        tokens_list = [
+            TopToken(
+                mint=r["mint"],
+                name=r.get("name", "") or "",
+                symbol=r.get("symbol", "") or "",
+                narrative=r.get("narrative"),
+                mcap_usd=r.get("market_cap_usd"),
+                event_count=r.get("event_count", 1),
+                created_at=r.get("created_at"),
+            )
+            for r in list(seen.values())[:limit]
+        ]
+
+        _top_tokens_cache = (now_mono, tokens_list)
+        return tokens_list
+
+    except Exception as exc:
+        logger.exception("get_top_tokens failed")
+        return []
+
+
+_top_tokens_cache: tuple[float, list] | None = None
 
 
 # ---------------------------------------------------------------------------
