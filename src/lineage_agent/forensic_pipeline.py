@@ -371,13 +371,13 @@ async def run_forensic_pipeline(
 
     report.timings["fork"] = fork_ms
 
-    # -- Phase 3: Dependent enrichers (need fingerprint) ------------------
+    # -- Phase 3: Dependent enrichers (insider_sell always, impact needs fingerprint)
     fingerprint = report.operator_fingerprint
     linked_wallets: list[str] = []
     if fingerprint and hasattr(fingerprint, "linked_wallets"):
         linked_wallets = fingerprint.linked_wallets or []
 
-    if deployer and (linked_wallets or fingerprint):
+    if deployer:
         t_dep = time.monotonic()
         yield _evt("step", {"step": "dependent_enrichers", "status": "running"})
 
