@@ -284,18 +284,147 @@ async def _fetch_balance(
             and (launch_platform or "") in BONDING_CURVE_LAUNCHPAD_PLATFORMS
             and balance == 0.0
         )
+
+        context: Optional[str] = None
+        if zero_balance_expected:
+            context = "zero_balance_expected_by_protocol"
+        elif balance == 0.0 and role == "deployer":
+            # Deployer exited — try to quantify the exit
+            context = await _build_exit_context(rpc, wallet, mint)
+
         return InsiderSellEvent(
             wallet=wallet,
             role=role,  # type: ignore[arg-type]
             balance_now=balance,
             exited=(balance == 0.0 and not zero_balance_expected),
-            balance_context=(
-                "zero_balance_expected_by_protocol" if zero_balance_expected else None
-            ),
+            balance_context=context,
         )
     except Exception as exc:
         logger.debug("get_wallet_token_balance failed for %s: %s", wallet[:8], exc)
         return None
+
+
+async def _build_exit_context(
+    rpc: SolanaRpcClient,
+    wallet: str,
+    mint: str,
+) -> Optional[str]:
+    """Analyse recent transactions to quantify how much the deployer sold.
+
+    Returns a human-readable summary like:
+      "Sold ~5.2M tokens in 3 transactions over 2h. Estimated exit: ~12.4 SOL."
+    """
+    import json as _json
+
+    try:
+        sigs = await asyncio.wait_for(
+            rpc.get_recent_signatures(wallet, limit=50),
+            timeout=5.0,
+        )
+        if not sigs:
+            return "Deployer wallet has 0 balance — exit details unavailable."
+
+        # Parse up to 5 recent transactions to find token sells
+        sell_txs = 0
+        total_token_amount = 0.0
+        total_sol_received = 0.0
+        earliest_ts = None
+        latest_ts = None
+
+        for sig_info in sigs[:10]:
+            sig = sig_info.get("signature", "")
+            block_time = sig_info.get("blockTime")
+            if not sig:
+                continue
+            try:
+                tx = await asyncio.wait_for(
+                    rpc._call(
+                        "getTransaction",
+                        [sig, {"encoding": "jsonParsed", "maxSupportedTransactionVersion": 0}],
+                    ),
+                    timeout=3.0,
+                )
+                if not tx or not isinstance(tx, dict):
+                    continue
+
+                # Check pre/post token balances for this mint
+                meta = tx.get("meta", {})
+                pre_balances = meta.get("preTokenBalances", [])
+                post_balances = meta.get("postTokenBalances", [])
+
+                # Find deployer's token balance change
+                deployer_pre = 0.0
+                deployer_post = 0.0
+                for b in pre_balances:
+                    if b.get("mint") == mint and b.get("owner") == wallet:
+                        deployer_pre = float(b.get("uiTokenAmount", {}).get("uiAmount", 0) or 0)
+                for b in post_balances:
+                    if b.get("mint") == mint and b.get("owner") == wallet:
+                        deployer_post = float(b.get("uiTokenAmount", {}).get("uiAmount", 0) or 0)
+
+                token_delta = deployer_pre - deployer_post
+                if token_delta > 0:
+                    # This was a sell (deployer reduced token balance)
+                    sell_txs += 1
+                    total_token_amount += token_delta
+
+                    # Check SOL balance change (pre/post lamports)
+                    account_keys = (
+                        tx.get("transaction", {}).get("message", {}).get("accountKeys", [])
+                    )
+                    deployer_idx = None
+                    for i, key in enumerate(account_keys):
+                        addr = key.get("pubkey", "") if isinstance(key, dict) else key
+                        if addr == wallet:
+                            deployer_idx = i
+                            break
+
+                    if deployer_idx is not None:
+                        pre_sol = (meta.get("preBalances") or [])[deployer_idx] if deployer_idx < len(meta.get("preBalances", [])) else 0
+                        post_sol = (meta.get("postBalances") or [])[deployer_idx] if deployer_idx < len(meta.get("postBalances", [])) else 0
+                        sol_delta = (post_sol - pre_sol) / 1e9  # lamports → SOL
+                        if sol_delta > 0:
+                            total_sol_received += sol_delta
+
+                    if block_time:
+                        if earliest_ts is None or block_time < earliest_ts:
+                            earliest_ts = block_time
+                        if latest_ts is None or block_time > latest_ts:
+                            latest_ts = block_time
+
+            except Exception:
+                continue
+
+        if sell_txs == 0:
+            return "Deployer wallet has 0 balance — no sell transactions found in recent history."
+
+        # Format amounts
+        if total_token_amount >= 1_000_000:
+            token_str = f"{total_token_amount / 1_000_000:.1f}M"
+        elif total_token_amount >= 1_000:
+            token_str = f"{total_token_amount / 1_000:.1f}K"
+        else:
+            token_str = f"{total_token_amount:.0f}"
+
+        duration_str = ""
+        if earliest_ts and latest_ts and latest_ts > earliest_ts:
+            hours = (latest_ts - earliest_ts) / 3600
+            if hours >= 1:
+                duration_str = f" over {hours:.0f}h"
+            else:
+                duration_str = f" over {hours * 60:.0f}min"
+
+        sol_str = ""
+        if total_sol_received > 0.01:
+            sol_str = f" Estimated exit: ~{total_sol_received:.2f} SOL."
+
+        return (
+            f"Sold ~{token_str} tokens in {sell_txs} transaction(s){duration_str}.{sol_str}"
+        )
+
+    except Exception as exc:
+        logger.debug("_build_exit_context failed for %s: %s", wallet[:8], exc)
+        return "Deployer wallet has 0 balance — exit analysis failed."
 
 
 async def _fill_onchain_activity(
