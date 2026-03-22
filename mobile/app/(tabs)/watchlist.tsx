@@ -10,10 +10,11 @@ import {
   TextInput,
   Modal,
   TouchableWithoutFeedback,
+  Image,
 } from 'react-native';
 import { router } from 'expo-router';
 import Animated, { FadeInDown, LinearTransition } from 'react-native-reanimated';
-import { Bookmark, Trash2, Plus, Settings, Copy, Zap, Search } from 'lucide-react-native';
+import { Bookmark, Trash2, Plus, Settings, Search } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Clipboard from 'expo-clipboard';
 import { Swipeable } from 'react-native-gesture-handler';
@@ -37,6 +38,78 @@ import { tokens } from '../../src/theme/tokens';
 import { isValidSolanaAddress } from '../../src/lib/risk';
 import { haptic } from '../../src/lib/haptics';
 import type { Watch } from '../../src/types/api';
+
+// ─── Watch item card with enriched display ──────────────────────────────────
+
+function WatchItemCard({ item, onPress, onCopy }: { item: Watch; onPress: (w: Watch) => void; onCopy: (v: string) => void }) {
+  // Try to get token name/symbol from react-query lineage cache
+  const cached = item.sub_type === 'mint'
+    ? queryClient.getQueryData<LineageResult>(QK.lineage(item.value))
+    : undefined;
+  const qt = (cached as Record<string, unknown> | undefined)?.query_token as Record<string, unknown> | undefined;
+  const tokenName = (qt?.name as string) || item.label || item.identifier || null;
+  const tokenSymbol = (qt?.symbol as string) || null;
+  const imageUri = (qt?.image_uri as string) || null;
+
+  // Risk badge from investigation history
+  const prev = useHistoryStore.getState().getByMint(item.value);
+  const riskLevel = prev
+    ? prev.riskScore >= 75 ? 'critical' : prev.riskScore >= 50 ? 'high' : prev.riskScore >= 25 ? 'medium' : 'low'
+    : null;
+
+  const isMint = item.sub_type === 'mint';
+  const accentColor = isMint ? tokens.secondary : tokens.accent;
+
+  return (
+    <GlassCard style={styles.watchCard} noPadding>
+      <TouchableOpacity
+        style={styles.watchInner}
+        onPress={() => onPress(item)}
+        onLongPress={() => onCopy(item.value)}
+        delayLongPress={400}
+        activeOpacity={0.75}
+      >
+        {/* Token image or type badge */}
+        {imageUri ? (
+          <View style={styles.tokenImgWrap}>
+            <Image source={{ uri: imageUri }} style={styles.tokenImg} />
+          </View>
+        ) : (
+          <View style={[styles.tokenImgWrap, { backgroundColor: `${accentColor}15` }]}>
+            <Text style={[styles.tokenImgFallback, { color: accentColor }]}>
+              {tokenSymbol?.[0]?.toUpperCase() ?? (isMint ? 'T' : 'D')}
+            </Text>
+          </View>
+        )}
+
+        {/* Name + address */}
+        <View style={styles.watchBody}>
+          <View style={styles.watchNameRow}>
+            <Text style={styles.watchLabel} numberOfLines={1}>
+              {tokenName ?? `${item.value.slice(0, 6)}…${item.value.slice(-4)}`}
+            </Text>
+            {tokenSymbol && (
+              <Text style={styles.watchSymbol}>{tokenSymbol}</Text>
+            )}
+            {!tokenSymbol && (
+              <View style={[styles.typeBadge, { backgroundColor: `${accentColor}18` }]}>
+                <Text style={[styles.typeText, { color: accentColor }]}>
+                  {isMint ? 'TOKEN' : 'DEPLOYER'}
+                </Text>
+              </View>
+            )}
+          </View>
+          <View style={styles.watchAddressRow}>
+            <Text style={styles.watchAddress} numberOfLines={1}>
+              {item.value.slice(0, 8)}…{item.value.slice(-6)}
+            </Text>
+            {riskLevel && <RiskBadge level={riskLevel} size="sm" />}
+          </View>
+        </View>
+      </TouchableOpacity>
+    </GlassCard>
+  );
+}
 
 export default function WatchlistScreen() {
   const insets = useSafeAreaInsets();
@@ -332,67 +405,7 @@ export default function WatchlistScreen() {
                   </TouchableOpacity>
                 )}
               >
-              <GlassCard style={styles.watchCard} noPadding>
-                <TouchableOpacity
-                  style={styles.watchInner}
-                  onPress={() => handlePress(item)}
-                  onLongPress={() => handleCopy(item.value)}
-                  delayLongPress={400}
-                  activeOpacity={0.75}
-                >
-                    <View
-                      style={[
-                        styles.typeBadge,
-                        {
-                          backgroundColor:
-                            item.sub_type === 'mint'
-                              ? `${tokens.secondary}18`
-                              : `${tokens.accent}18`,
-                        },
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          styles.typeText,
-                          {
-                            color:
-                              item.sub_type === 'mint' ? tokens.secondary : tokens.accent,
-                          },
-                        ]}
-                      >
-                        {item.sub_type.toUpperCase()}
-                      </Text>
-                    </View>
-                    <Text style={styles.watchLabel} numberOfLines={1}>
-                      {item.label ?? item.identifier ?? (() => {
-                        if (item.sub_type === 'mint') {
-                          const cached = queryClient.getQueryData<LineageResult>(QK.lineage(item.value));
-                          const qt = (cached as Record<string, unknown> | undefined)?.query_token as Record<string, unknown> | undefined;
-                          const name = qt?.name as string | undefined;
-                          return name || `${item.value.slice(0, 6)}…${item.value.slice(-4)}`;
-                        }
-                        return `${item.value.slice(0, 6)}…${item.value.slice(-4)}`;
-                      })()}
-                    </Text>
-                    <View style={styles.watchAddressRow}>
-                      <Text style={styles.watchAddress} numberOfLines={1}>
-                        {item.value.slice(0, 8)}…{item.value.slice(-6)}
-                      </Text>
-                      {isOpenClawAvailable() && (
-                        <View style={styles.monitorBadge}>
-                          <Zap size={9} color={tokens.secondary} />
-                          <Text style={styles.monitorText}>Monitored</Text>
-                        </View>
-                      )}
-                      {(() => {
-                        const prev = useHistoryStore.getState().getByMint(item.value);
-                        if (!prev) return null;
-                        const level = prev.riskScore >= 75 ? 'critical' : prev.riskScore >= 50 ? 'high' : prev.riskScore >= 25 ? 'medium' : 'low';
-                        return <RiskBadge level={level} size="sm" />;
-                      })()}
-                    </View>
-                  </TouchableOpacity>
-                </GlassCard>
+              <WatchItemCard item={item} onPress={handlePress} onCopy={handleCopy} />
                 </Swipeable>
               </Animated.View>
             )}
@@ -448,7 +461,32 @@ const styles = StyleSheet.create({
     gap: 12,
     flex: 1,
   },
-  watchBody: { flex: 1, gap: 4 },
+  watchBody: { flex: 1, gap: 3 },
+  watchNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  watchSymbol: {
+    fontFamily: 'Lexend-Regular',
+    fontSize: tokens.font.small,
+    color: tokens.white35,
+  },
+  tokenImgWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: tokens.borderSubtle,
+  },
+  tokenImg: { width: 40, height: 40 },
+  tokenImgFallback: {
+    fontFamily: 'Lexend-Bold',
+    fontSize: tokens.font.subheading,
+  },
   typeBadge: {
     alignSelf: 'flex-start',
     paddingHorizontal: 8,
