@@ -439,7 +439,7 @@ export default function RadarScreen() {
       setWsConnected,
       setWsStatus,
     );
-    const unsubBriefing = startBriefingListener();
+    const unsubBriefing = startBriefingListener(apiKey ?? undefined);
     return () => {
       wsCleanup.current?.();
       unsubBriefing();
