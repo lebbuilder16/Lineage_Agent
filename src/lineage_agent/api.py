@@ -1585,6 +1585,18 @@ async def investigate_token(
                 mint, tier=tier, cache=_cache, user_id=user_id,
             ):
                 yield event
+                # Record scan event with identity data from pipeline
+                if event.get("event") == "identity_ready":
+                    _id_data = _json.loads(event["data"]) if isinstance(event.get("data"), str) else event.get("data", {})
+                    asyncio.create_task(_record_scan_event(
+                        mint, type("_", (), {
+                            "name": _id_data.get("name", ""),
+                            "symbol": _id_data.get("symbol", ""),
+                            "deployer": _id_data.get("deployer", ""),
+                            "market_cap_usd": None,
+                            "created_at": _id_data.get("created_at"),
+                        })(),
+                    ))
                 # Store verdict in investigations table for server-side history
                 if user_id and event.get("event") == "verdict":
                     ev_data = event.get("data", "")
