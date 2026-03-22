@@ -74,6 +74,9 @@ export default function AgentScreen() {
     useAgentPrefsStore.getState().hydrate();
     useHistoryStore.getState().hydrate();
     fetchStatus();
+    // Poll every 30s for live status updates
+    const interval = setInterval(fetchStatus, 30_000);
+    return () => clearInterval(interval);
   }, [apiKey]);
 
   const handleRefresh = async () => {
@@ -161,6 +164,13 @@ export default function AgentScreen() {
                   <Text style={styles.statLabel}>Total</Text>
                 </View>
               </View>
+              {serverStatus?.last_sweep && (
+                <Text style={styles.sweepInfo}>
+                  Last sweep: {new Date(serverStatus.last_sweep).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  {' · Next: ~'}
+                  {new Date(new Date(serverStatus.last_sweep).getTime() + 2 * 3600_000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </Text>
+              )}
             </GlassCard>
           </Animated.View>
 
@@ -194,6 +204,22 @@ export default function AgentScreen() {
                 onToggle={() => prefs.toggle('dailyBriefing')}
                 isLast
               />
+              {prefs.dailyBriefing && (
+                <View style={styles.hourPicker}>
+                  {[6, 7, 8, 9, 10, 12].map((h) => (
+                    <TouchableOpacity
+                      key={h}
+                      style={[styles.hourChip, prefs.briefingHour === h && styles.hourChipActive]}
+                      onPress={() => prefs.setBriefingHour(h)}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={[styles.hourChipText, prefs.briefingHour === h && styles.hourChipTextActive]}>
+                        {h}:00
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
             </GlassCard>
           </Animated.View>
 
@@ -334,6 +360,43 @@ const styles = StyleSheet.create({
   },
   statDivider: {
     width: 1, height: 32, backgroundColor: tokens.borderSubtle,
+  },
+  sweepInfo: {
+    fontFamily: 'Lexend-Regular',
+    fontSize: tokens.font.tiny,
+    color: tokens.white35,
+    textAlign: 'center',
+    marginTop: 10,
+    letterSpacing: 0.3,
+  },
+  hourPicker: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: tokens.borderSubtle,
+  },
+  hourChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: tokens.radius.pill,
+    borderWidth: 1,
+    borderColor: tokens.borderSubtle,
+    backgroundColor: tokens.bgGlass8,
+  },
+  hourChipActive: {
+    borderColor: `${tokens.secondary}60`,
+    backgroundColor: `${tokens.secondary}15`,
+  },
+  hourChipText: {
+    fontFamily: 'Lexend-Medium',
+    fontSize: tokens.font.tiny,
+    color: tokens.white35,
+  },
+  hourChipTextActive: {
+    color: tokens.secondary,
   },
 
   // Section
