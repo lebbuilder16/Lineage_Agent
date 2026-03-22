@@ -2529,7 +2529,7 @@ async def get_top_tokens(
     try:
         from .data_sources._clients import event_query as _eq  # noqa: PLC0415
 
-        # Direct SQL — GROUP BY mint, rank by event count
+        # Rank by weighted event count: scans count 5x more than passive events
         from .data_sources._clients import cache as _cache  # noqa: PLC0415
         db = await _cache._get_conn()
         sql = """
@@ -2539,7 +2539,7 @@ async def get_top_tokens(
                    MAX(narrative) as narrative,
                    MAX(mcap_usd) as mcap_usd,
                    MIN(created_at) as created_at,
-                   COUNT(*) as event_count
+                   SUM(CASE WHEN event_type = 'token_scanned' THEN 5 ELSE 1 END) as event_count
             FROM intelligence_events
             WHERE mint IS NOT NULL AND mint != ''
             GROUP BY mint
