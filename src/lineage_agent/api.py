@@ -2515,7 +2515,7 @@ async def get_top_tokens(
                    MAX(name) as name,
                    MAX(symbol) as symbol,
                    MAX(narrative) as narrative,
-                   MAX(market_cap_usd) as market_cap_usd,
+                   MAX(mcap_usd) as mcap_usd,
                    MIN(created_at) as created_at,
                    COUNT(*) as event_count
             FROM intelligence_events
@@ -2535,7 +2535,7 @@ async def get_top_tokens(
                 name=r.get("name", "") or "",
                 symbol=r.get("symbol", "") or "",
                 narrative=r.get("narrative"),
-                mcap_usd=r.get("market_cap_usd"),
+                mcap_usd=r.get("mcap_usd"),
                 event_count=r.get("event_count", 1),
                 created_at=r.get("created_at"),
             )
@@ -2547,7 +2547,7 @@ async def get_top_tokens(
 
     except Exception as exc:
         logger.exception("get_top_tokens failed: %s", exc)
-        raise HTTPException(status_code=500, detail=f"top-tokens error: {exc}")
+        return []
 
 
 _top_tokens_cache: tuple[float, list] | None = None
