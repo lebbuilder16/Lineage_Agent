@@ -1738,6 +1738,7 @@ async def _get_deployer_cached(
             return cached, None
 
     deployer = ""
+    ua = ""
     created_at: Any = None
 
     # --- DAS-first path (O(1), works for all token standards) ---
@@ -1809,7 +1810,7 @@ async def _get_deployer_cached(
     if not skip_sig_walk:
         try:
             _sw_deployer, _sw_ts = await asyncio.wait_for(
-                rpc.get_deployer_and_timestamp(mint), timeout=10.0
+                rpc.get_deployer_and_timestamp(mint), timeout=20.0
             )
         except (asyncio.TimeoutError, Exception) as _sw_exc:
             logger.warning("Signature-walk failed/timed out for %s: %s", mint, _sw_exc)
