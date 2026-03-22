@@ -1585,6 +1585,9 @@ async def investigate_token(
                 mint, tier=tier, cache=_cache, user_id=user_id,
             ):
                 yield event
+                _ev_name = event.get("event", "?") if isinstance(event, dict) else "non-dict"
+                if _ev_name in ("verdict", "done", "error"):
+                    logger.info("[investigate] event=%s user_id=%s mint=%s", _ev_name, user_id, mint[:12])
                 # Record scan event with identity data from pipeline
                 if event.get("event") == "identity_ready":
                     _id_data = _json.loads(event["data"]) if isinstance(event.get("data"), str) else event.get("data", {})
@@ -1598,9 +1601,10 @@ async def investigate_token(
                         })(),
                     ))
                 # Store verdict in investigations table for server-side history
-                if event.get("event") == "verdict":
-                    logger.info("[investigate] verdict event received for %s, user_id=%s", mint[:12], user_id)
-                if user_id and event.get("event") == "verdict":
+                ev_type = event.get("event", "") if isinstance(event, dict) else ""
+                if ev_type == "verdict":
+                    logger.info("[investigate] verdict received for %s, user_id=%s, keys=%s", mint[:12], user_id, list(event.keys()) if isinstance(event, dict) else type(event))
+                if user_id and ev_type == "verdict":
                     ev_data = event.get("data", "")
                     verdict_dict = _json.loads(ev_data) if isinstance(ev_data, str) else ev_data
                     if isinstance(verdict_dict, dict):
