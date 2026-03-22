@@ -8,7 +8,7 @@ import {
 } from 'react-native';
 import { router } from 'expo-router';
 import Animated, { FadeInDown, LinearTransition } from 'react-native-reanimated';
-import { Bell, CheckCheck, AlertTriangle, Zap, Skull, BookMarked, Trash2, ChevronDown, ChevronUp, Bot } from 'lucide-react-native';
+import { Bell, CheckCheck, AlertTriangle, Zap, Skull, BookMarked, Trash2, ChevronDown, ChevronUp, Bot, Search, Bookmark } from 'lucide-react-native';
 import { Swipeable } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AuroraBackground } from '../../src/components/ui/AuroraBackground';
@@ -249,6 +249,34 @@ export default function AlertsScreen() {
                       )}
                     </View>
                   </View>
+
+                  {/* Quick actions — Investigate / Watch */}
+                  {item.mint && (
+                    <View style={styles.quickActions}>
+                      <TouchableOpacity
+                        style={styles.quickActionBtn}
+                        onPress={(e) => {
+                          e.stopPropagation?.();
+                          router.push(`/investigate/${item.mint}` as any);
+                        }}
+                        activeOpacity={0.7}
+                      >
+                        <Search size={12} color={tokens.secondary} />
+                        <Text style={styles.quickActionText}>Investigate</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={styles.quickActionBtn}
+                        onPress={(e) => {
+                          e.stopPropagation?.();
+                          router.push(`/token/${item.mint}` as any);
+                        }}
+                        activeOpacity={0.7}
+                      >
+                        <Bookmark size={12} color={tokens.white60} />
+                        <Text style={styles.quickActionText}>View Token</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
 
                   {/* AI enrichment panel */}
                   {item.enrichedData && expandedEnrichments.has(item.id) && (
@@ -524,5 +552,27 @@ const styles = StyleSheet.create({
     fontFamily: 'Lexend-SemiBold',
     fontSize: tokens.font.tiny,
     color: tokens.secondary,
+  },
+  quickActions: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+  },
+  quickActionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: tokens.radius.pill,
+    borderWidth: 1,
+    borderColor: tokens.borderSubtle,
+    backgroundColor: tokens.bgGlass8,
+  },
+  quickActionText: {
+    fontFamily: 'Lexend-Medium',
+    fontSize: tokens.font.tiny,
+    color: tokens.white60,
   },
 });
