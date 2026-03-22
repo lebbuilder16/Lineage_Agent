@@ -2507,8 +2507,6 @@ async def get_top_tokens(
     try:
         from .data_sources._clients import event_query as _eq  # noqa: PLC0415
 
-        cutoff = (datetime.now(tz=timezone.utc) - timedelta(hours=24)).isoformat()
-
         # Direct SQL query with GROUP BY (event_query wrapper doesn't support it)
         from .data_sources._clients import cache as _cache  # noqa: PLC0415
         db = await _cache._get_conn()
@@ -2527,8 +2525,14 @@ async def get_top_tokens(
             ORDER BY event_count DESC
             LIMIT ?
         """
-        cursor = await db.execute(sql, (cutoff, limit))
+        # Try 24h first, widen to 7d if too few results
+        cutoff_24h = (datetime.now(tz=timezone.utc) - timedelta(hours=24)).isoformat()
+        cursor = await db.execute(sql, (cutoff_24h, limit))
         rows = await cursor.fetchall()
+        if len(rows) < 3:
+            cutoff_7d = (datetime.now(tz=timezone.utc) - timedelta(days=7)).isoformat()
+            cursor = await db.execute(sql, (cutoff_7d, limit))
+            rows = await cursor.fetchall()
         col_names = [d[0] for d in cursor.description]
         results = [dict(zip(col_names, row)) for row in rows]
 
