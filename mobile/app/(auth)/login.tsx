@@ -137,10 +137,15 @@ export default function LoginScreen() {
   // ── External wallet auth (state machine) ──────────────────────────────────
   const { state: walletState, connect: connectWallet, cancel: cancelWallet } = useExternalWalletAuth();
 
-  // ── Clear stale Privy session on mount ───────────────────────────────────
+  // ── Clear stale Privy session on mount (tracked completion) ──────────────
+  const logoutDoneRef = useRef(false);
   useEffect(() => {
     if (privyReady && privyUser) {
-      privyLogout().catch(() => {});
+      privyLogout()
+        .then(() => { logoutDoneRef.current = true; })
+        .catch(() => { logoutDoneRef.current = true; });
+    } else {
+      logoutDoneRef.current = true;
     }
   }, [privyReady]);
 
@@ -157,14 +162,33 @@ export default function LoginScreen() {
       Alert.alert('Invalid email', 'Please enter a valid email address.');
       return;
     }
+    // Ensure any stale Privy session is fully cleared before sending code
+    if (!logoutDoneRef.current || privyUser) {
+      try {
+        await Promise.race([
+          privyLogout(),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 3000)),
+        ]);
+      } catch {} // best-effort — continue even if logout times out
+      logoutDoneRef.current = true;
+    }
     try {
-      // Clear any stale Privy session before sending code
-      if (privyUser) {
-        await privyLogout().catch(() => {});
-      }
       await sendCode({ email: trimmed });
       setOtpSent(true);
     } catch (err: any) {
+      // Retry once on "Already logged in" — logout again and resend
+      if (err?.message?.includes('Already logged in')) {
+        try {
+          await privyLogout().catch(() => {});
+          await new Promise((r) => setTimeout(r, 500));
+          await sendCode({ email: trimmed });
+          setOtpSent(true);
+          return;
+        } catch (retryErr: any) {
+          Alert.alert('Error', retryErr?.message ?? 'Could not send verification code.');
+          return;
+        }
+      }
       console.error('[login] sendCode error:', err);
       Alert.alert('Error', err?.message ?? 'Could not send verification code.');
     }
