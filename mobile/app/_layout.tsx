@@ -1,5 +1,5 @@
 import 'react-native-get-random-values'; // Polyfill crypto.getRandomValues for tweetnacl — MUST be first
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useFonts } from 'expo-font';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
@@ -9,7 +9,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { StyleSheet, View, AppState } from 'react-native';
 import * as Linking from 'expo-linking';
 import * as Notifications from 'expo-notifications';
-import { PrivyProvider } from '@privy-io/expo';
+import { PrivyProvider, usePrivy, useEmbeddedSolanaWallet } from '@privy-io/expo';
 import { checkWatchedTokenAlerts } from '../src/lib/notifications';
 import { connectAlertsWS } from '../src/lib/streaming';
 import { useAlertsStore } from '../src/store/alerts';
@@ -29,6 +29,52 @@ const PRIVY_APP_ID = process.env.EXPO_PUBLIC_PRIVY_APP_ID || '';
 const PRIVY_CLIENT_ID = process.env.EXPO_PUBLIC_PRIVY_CLIENT_ID || '';
 
 SplashScreen.preventAutoHideAsync();
+
+/**
+ * Auto-create embedded Solana wallet for authenticated users who don't have one.
+ * Must be a child of PrivyProvider (needs Privy hooks).
+ * createOnLogin is 'off' to avoid session conflicts during logout/re-login.
+ * This component handles wallet creation AFTER login, in the global layout.
+ */
+function WalletAutoCreate({ children }: { children: React.ReactNode }) {
+  const { user: privyUser } = usePrivy();
+  const embeddedWallet = useEmbeddedSolanaWallet();
+  const attemptedRef = useRef(false);
+
+  useEffect(() => {
+    // Only attempt once per mount, when user is authenticated but has no wallet
+    if (
+      privyUser &&
+      embeddedWallet.status === 'not-created' &&
+      !attemptedRef.current
+    ) {
+      attemptedRef.current = true;
+      console.log('[wallet] Auto-creating embedded Solana wallet for', privyUser.id?.slice(0, 12));
+      embeddedWallet.create?.()
+        .then(() => console.log('[wallet] Embedded wallet created'))
+        .catch((err: unknown) => console.log('[wallet] Create failed (may already exist):', err));
+    }
+    // Reset flag when user logs out
+    if (!privyUser) {
+      attemptedRef.current = false;
+    }
+  }, [privyUser, embeddedWallet.status]);
+
+  // Sync wallet address to backend when connected
+  useEffect(() => {
+    if (
+      privyUser &&
+      embeddedWallet.status === 'connected' &&
+      embeddedWallet.wallets.length > 0
+    ) {
+      import('../src/lib/privy-auth').then(({ updateWalletAddress }) => {
+        updateWalletAddress(privyUser.id, embeddedWallet.wallets[0].address);
+      }).catch(() => {});
+    }
+  }, [privyUser, embeddedWallet.status]);
+
+  return <>{children}</>;
+}
 
 import { queryClient } from '../src/lib/query-client';
 
@@ -221,7 +267,9 @@ export default function RootLayout() {
             },
           }}
         >
-          {appContent}
+          <WalletAutoCreate>
+            {appContent}
+          </WalletAutoCreate>
         </PrivyProvider>
       ) : (
         appContent
