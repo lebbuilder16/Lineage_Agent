@@ -151,14 +151,66 @@ export default function RootLayout() {
     };
   }, []);
 
+  // Track previous apiKey to detect account switches
+  const prevKeyRef = useRef<string | null>(null);
+
   // User-scoped: WebSocket alerts + history hydration — reconnect on account change
   useEffect(() => {
-    if (!apiKey) return;
+    if (!apiKey) {
+      prevKeyRef.current = null;
+      return;
+    }
 
-    // Hydrate investigation history for the current user
-    import('../src/store/history').then(({ useHistoryStore }) => {
-      useHistoryStore.getState().hydrate();
-    }).catch(() => {});
+    const prevKey = prevKeyRef.current;
+    prevKeyRef.current = apiKey;
+
+    // When switching to a DIFFERENT user (or first login after another user),
+    // flush ALL user-scoped stores + AsyncStorage so no data leaks across accounts.
+    const needsFlush = prevKey !== null && prevKey !== apiKey;
+
+    const boot = async () => {
+      if (needsFlush) {
+        const AsyncStorage = (await import('@react-native-async-storage/async-storage')).default;
+        const { queryClient: qc } = await import('../src/lib/query-client');
+        qc.clear();
+
+        // In-memory stores
+        useAlertsStore.setState({ alerts: [], wsConnected: false });
+        const { useHistoryStore } = await import('../src/store/history');
+        useHistoryStore.setState({ investigations: [] });
+        const { useInvestigateStore } = await import('../src/store/investigate');
+        useInvestigateStore.getState().reset();
+        const { useAgentStore } = await import('../src/store/agent');
+        useAgentStore.getState().reset();
+        const { useAgentPrefsStore } = await import('../src/store/agent-prefs');
+        useAgentPrefsStore.setState({ hydrated: false });
+        const { useBriefingStore } = await import('../src/lib/openclaw-briefing');
+        useBriefingStore.getState().clear();
+        const { resetNotificationDedup } = await import('../src/lib/notifications');
+        resetNotificationDedup();
+
+        // AsyncStorage
+        await Promise.all([
+          AsyncStorage.removeItem('lineage-alerts'),
+          AsyncStorage.removeItem('lineage_investigation_history'),
+          AsyncStorage.removeItem('lineage_agent_prefs'),
+          AsyncStorage.removeItem('lineage-alert-dedup'),
+          AsyncStorage.removeItem('lineage-alert-prefs'),
+        ]).catch(() => {});
+        try {
+          const allKeys = await AsyncStorage.getAllKeys();
+          const stale = allKeys.filter(
+            (k) => k.startsWith('investigate-result:') || k.startsWith('agent-result:'),
+          );
+          if (stale.length > 0) await AsyncStorage.multiRemove(stale);
+        } catch { /* best-effort */ }
+      }
+
+      // Hydrate investigation history for the current user
+      const { useHistoryStore: hs } = await import('../src/store/history');
+      hs.getState().hydrate();
+    };
+    boot();
 
     const _addAlert = useAlertsStore.getState().addAlert;
     const _setWsConnected = useAlertsStore.getState().setWsConnected;
