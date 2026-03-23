@@ -79,19 +79,36 @@ export function deriveRiskLevel(data: {
  * Used when full lineage data is not available.
  */
 export function deriveMarketRisk(token: {
+  mint?: string;
   market_cap_usd?: number | null;
   liquidity_usd?: number | null;
   pair_created_at?: string | null;
-}): 'low' | 'medium' | 'high' | 'critical' {
+}, forensicOverride?: { riskScore?: number }): 'low' | 'medium' | 'high' | 'critical' {
+  // 1. Use forensic score if available (from investigation history)
+  const score = forensicOverride?.riskScore;
+  if (score != null && score > 0) {
+    if (score >= 75) return 'critical';
+    if (score >= 50) return 'high';
+    if (score >= 25) return 'medium';
+    return 'low';
+  }
+
+  // 2. Fallback to market data heuristic
   const mcap = token.market_cap_usd ?? 0;
   const liq = token.liquidity_usd ?? 0;
   const ageMs = token.pair_created_at
     ? Date.now() - new Date(token.pair_created_at).getTime()
     : Infinity;
   const ageDays = ageMs / (1000 * 60 * 60 * 24);
-  if (mcap < 10_000 || ageDays < 0.5) return 'critical';
-  if (mcap < 100_000 || ageDays < 2 || (liq > 0 && mcap > 0 && liq / mcap < 0.05)) return 'high';
-  if (mcap < 1_000_000 || ageDays < 7) return 'medium';
+
+  // Tokens with decent mcap + liquidity are not automatically critical
+  if (mcap > 500_000 && liq > 50_000) {
+    if (ageDays < 1) return 'medium';
+    return 'low';
+  }
+  if (mcap < 10_000 && ageDays < 0.5) return 'critical';
+  if (mcap < 50_000 || ageDays < 1 || (liq > 0 && mcap > 0 && liq / mcap < 0.03)) return 'high';
+  if (mcap < 500_000 || ageDays < 3) return 'medium';
   return 'low';
 }
 
