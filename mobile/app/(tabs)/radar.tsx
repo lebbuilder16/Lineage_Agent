@@ -63,7 +63,7 @@ function topTokenToSearchResult(t: TopToken): TokenSearchResult {
     mint: t.mint,
     name: t.name,
     symbol: t.symbol,
-    image_uri: '',
+    image_uri: t.image_uri ?? '',
     metadata_uri: '',
     dex_url: '',
     market_cap_usd: t.mcap_usd ?? null,
