@@ -383,7 +383,7 @@ async def _run_rug_sweep() -> int:
 
         async with sem:
             try:
-                pairs = await dex.get_token_pairs(mint)
+                pairs = await dex.get_token_pairs_with_fallback(mint)
             except Exception:
                 return
 

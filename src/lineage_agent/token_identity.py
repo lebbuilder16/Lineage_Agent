@@ -84,7 +84,7 @@ async def resolve_token_identity(
         await _cache_delete(f"rpc:asset:{mint}")
 
     # Step 1: Fetch DexScreener pairs
-    pairs = await dex.get_token_pairs(mint)
+    pairs = await dex.get_token_pairs_with_fallback(mint)
     query_meta = dex.pairs_to_metadata(mint, pairs)
 
     # Step 2: Concurrent enrichment (deployer + DAS + Jupiter price)

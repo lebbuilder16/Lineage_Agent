@@ -17,6 +17,7 @@ import httpx
 
 from ..cache import SQLiteCache, TTLCache
 from ..circuit_breaker import CircuitBreaker, register
+from ..data_sources.birdeye import BirdeyeClient
 from ..data_sources.dexscreener import DexScreenerClient
 from ..data_sources.jupiter import JupiterClient
 from ..data_sources.solana_rpc import SolanaRpcClient
@@ -37,6 +38,7 @@ logger = logging.getLogger(__name__)
 # Module-level singletons (created once, reused)
 # ---------------------------------------------------------------------------
 _dex_client: Optional[DexScreenerClient] = None
+_birdeye_client: Optional[BirdeyeClient] = None
 _rpc_client: Optional[SolanaRpcClient] = None
 _jup_client: Optional[JupiterClient] = None
 _img_client: Optional[httpx.AsyncClient] = None
@@ -70,6 +72,13 @@ cb_jupiter: CircuitBreaker = register(
         recovery_timeout=CB_RECOVERY_TIMEOUT,
     )
 )
+cb_birdeye: CircuitBreaker = register(
+    CircuitBreaker(
+        "birdeye",
+        failure_threshold=CB_FAILURE_THRESHOLD,
+        recovery_timeout=CB_RECOVERY_TIMEOUT,
+    )
+)
 
 
 def get_dex_client() -> DexScreenerClient:
@@ -81,6 +90,16 @@ def get_dex_client() -> DexScreenerClient:
             circuit_breaker=cb_dexscreener,
         )
     return _dex_client
+
+
+def get_birdeye_client() -> BirdeyeClient:
+    global _birdeye_client
+    if _birdeye_client is None:
+        _birdeye_client = BirdeyeClient(
+            timeout=REQUEST_TIMEOUT,
+            circuit_breaker=cb_birdeye,
+        )
+    return _birdeye_client
 
 
 def get_rpc_client() -> SolanaRpcClient:

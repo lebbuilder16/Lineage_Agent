@@ -593,7 +593,7 @@ async def _detect_lineage_impl(
     # --- Step 1: Fetch metadata for the query token ---
     await _progress("Fetching token metadata", 10)
     logger.info("Fetching metadata for %s ...", mint_address)
-    pairs = await dex.get_token_pairs(mint_address)
+    pairs = await dex.get_token_pairs_with_fallback(mint_address)
     query_meta = dex.pairs_to_metadata(mint_address, pairs)
 
     # Enrich with on-chain deployer + DAS metadata + Jupiter price — all concurrent.
