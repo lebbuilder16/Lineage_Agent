@@ -9,7 +9,7 @@ interface PrivyUser {
 }
 
 export async function syncPrivyUser(privyUser: PrivyUser): Promise<boolean> {
-  const { setApiKey, setUser, apiKey: currentKey } = useAuthStore.getState();
+  const { setApiKey, setUser } = useAuthStore.getState();
 
   try {
     const result = await authLogin(privyUser.id, {
@@ -19,10 +19,9 @@ export async function syncPrivyUser(privyUser: PrivyUser): Promise<boolean> {
 
     if (!result.api_key) return false;
 
-    // If switching to a different user, purge ALL stale data first
-    if (currentKey && currentKey !== result.api_key) {
-      await purgeUserData();
-    }
+    // ALWAYS purge before setting a new key — eliminates all edge cases
+    // (persist middleware race, stale AsyncStorage, partial cleanup, etc.)
+    await purgeUserData();
 
     setApiKey(result.api_key);
 
