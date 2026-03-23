@@ -123,32 +123,38 @@ async def regenerate_api_key(cache, user_id: int) -> str | None:
 async def verify_api_key(cache, api_key: str) -> dict | None:
     """
     Look up a user by API key. Returns the user dict or None if invalid.
-    Also records api_usage for rate-limit tracking (fire-and-forget).
+    Retries on database locked errors.
     """
     if not api_key or not api_key.startswith(_KEY_PREFIX):
         return None
-    try:
-        db = await cache._get_conn()
-        cursor = await db.execute(
-            "SELECT id, privy_id, email, wallet_address, plan, api_key, created_at "
-            "FROM users WHERE api_key = ?",
-            (api_key,),
-        )
-        row = await cursor.fetchone()
-        if row is None:
+    for _attempt in range(5):
+        try:
+            db = await cache._get_conn()
+            cursor = await db.execute(
+                "SELECT id, privy_id, email, wallet_address, plan, api_key, created_at "
+                "FROM users WHERE api_key = ?",
+                (api_key,),
+            )
+            row = await cursor.fetchone()
+            if row is None:
+                return None
+            return {
+                "id": row[0],
+                "privy_id": row[1],
+                "email": row[2],
+                "wallet_address": row[3],
+                "plan": row[4],
+                "api_key": row[5],
+                "created_at": row[6],
+            }
+        except Exception as exc:
+            if "locked" in str(exc).lower() and _attempt < 4:
+                import asyncio as _aio
+                await _aio.sleep(0.5 * (_attempt + 1))
+                continue
+            logger.warning("verify_api_key failed: %s", exc, exc_info=True)
             return None
-        return {
-            "id": row[0],
-            "privy_id": row[1],
-            "email": row[2],
-            "wallet_address": row[3],
-            "plan": row[4],
-            "api_key": row[5],
-            "created_at": row[6],
-        }
-    except Exception:
-        logger.warning("verify_api_key failed", exc_info=True)
-        return None
+    return None
 
 
 async def register_fcm_token(cache, user_id: int, fcm_token: str) -> bool:
