@@ -4,13 +4,42 @@
  * to prevent cross-account data leaks.
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as SecureStore from 'expo-secure-store';
 import { queryClient } from './query-client';
 
 export async function purgeUserData(): Promise<void> {
   // ── 1. React Query cache ──────────────────────────────────────────────
   queryClient.clear();
 
-  // ── 2. In-memory Zustand stores ───────────────────────────────────────
+  // ── 2. Auth store non-key fields (recentSearches, scanCount, etc.) ───
+  const { useAuthStore } = await import('../store/auth');
+  useAuthStore.setState({
+    recentSearches: [], scanCount: 0,
+    reportExpandMint: null, pendingClockMint: null,
+  });
+  SecureStore.deleteItemAsync('lineage_recent_searches').catch(() => {});
+
+  // ── 3. AsyncStorage — nuke ALL keys FIRST (before Zustand setState ──
+  //    so the persist middleware's subsequent write of empty state is harmless)
+  await Promise.all([
+    AsyncStorage.removeItem('lineage-alerts'),
+    AsyncStorage.removeItem('lineage_investigation_history'),
+    AsyncStorage.removeItem('lineage_agent_prefs'),
+    AsyncStorage.removeItem('lineage-alert-dedup'),
+    AsyncStorage.removeItem('lineage-openclaw'),
+    AsyncStorage.removeItem('lineage-alert-prefs'),
+  ]).catch(() => {});
+
+  // Dynamic per-mint keys
+  try {
+    const allKeys = await AsyncStorage.getAllKeys();
+    const stale = allKeys.filter(
+      (k) => k.startsWith('investigate-result:') || k.startsWith('agent-result:'),
+    );
+    if (stale.length > 0) await AsyncStorage.multiRemove(stale);
+  } catch { /* best-effort */ }
+
+  // ── 4. In-memory Zustand stores (AFTER AsyncStorage is clean) ─────────
   const { useAlertsStore } = await import('../store/alerts');
   useAlertsStore.setState({ alerts: [], wsConnected: false });
 
@@ -33,7 +62,7 @@ export async function purgeUserData(): Promise<void> {
   });
 
   const { useAlertPrefsStore } = await import('../store/alert-prefs');
-  useAlertPrefsStore.persist.clearStorage();
+  try { useAlertPrefsStore.persist.clearStorage(); } catch { /* ok */ }
 
   const { useOpenClawStore } = await import('../store/openclaw');
   useOpenClawStore.getState().reset();
@@ -46,23 +75,4 @@ export async function purgeUserData(): Promise<void> {
 
   const { resetNotificationDedup } = await import('./notifications');
   resetNotificationDedup();
-
-  // ── 3. AsyncStorage — fixed keys ──────────────────────────────────────
-  await Promise.all([
-    AsyncStorage.removeItem('lineage-alerts'),
-    AsyncStorage.removeItem('lineage_investigation_history'),
-    AsyncStorage.removeItem('lineage_agent_prefs'),
-    AsyncStorage.removeItem('lineage-alert-dedup'),
-    AsyncStorage.removeItem('lineage-openclaw'),
-    AsyncStorage.removeItem('lineage-alert-prefs'),
-  ]).catch(() => {});
-
-  // ── 4. AsyncStorage — dynamic per-mint keys ───────────────────────────
-  try {
-    const allKeys = await AsyncStorage.getAllKeys();
-    const stale = allKeys.filter(
-      (k) => k.startsWith('investigate-result:') || k.startsWith('agent-result:'),
-    );
-    if (stale.length > 0) await AsyncStorage.multiRemove(stale);
-  } catch { /* best-effort */ }
 }
