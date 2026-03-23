@@ -23,3 +23,4 @@ arq>=0.25
 
 pytest-asyncio==0.24.*
 pytest-cov==6.1.*
+asyncpg>=0.30.0
