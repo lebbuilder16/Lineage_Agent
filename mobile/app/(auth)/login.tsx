@@ -137,17 +137,28 @@ export default function LoginScreen() {
   // ── External wallet auth (state machine) ──────────────────────────────────
   const { state: walletState, connect: connectWallet, cancel: cancelWallet } = useExternalWalletAuth();
 
-  // ── Clear stale Privy session on mount (tracked completion) ──────────────
-  const logoutDoneRef = useRef(false);
+  // ── Force-clear Privy session on EVERY mount + when privyUser changes ────
+  // The PrivyProvider wraps the entire app, so session persists across navigation.
+  // We must aggressively clear it every time the login screen appears.
+  const [sessionCleared, setSessionCleared] = useState(false);
   useEffect(() => {
-    if (privyReady && privyUser) {
-      privyLogout()
-        .then(() => { logoutDoneRef.current = true; })
-        .catch(() => { logoutDoneRef.current = true; });
-    } else {
-      logoutDoneRef.current = true;
+    let cancelled = false;
+    const clearSession = async () => {
+      try {
+        // Always attempt logout, even if privyUser appears null (stale state)
+        await privyLogout();
+      } catch {
+        // Privy throws if not logged in — that's fine
+      }
+      // Wait for Privy SDK internal state to fully settle
+      await new Promise((r) => setTimeout(r, 800));
+      if (!cancelled) setSessionCleared(true);
+    };
+    if (privyReady) {
+      clearSession();
     }
-  }, [privyReady]);
+    return () => { cancelled = true; };
+  }, [privyReady, privyLogout]);
 
   // ── Email OTP state ─────────────────────────────────────────────────────
   const [email, setEmail] = useState('');
@@ -162,37 +173,36 @@ export default function LoginScreen() {
       Alert.alert('Invalid email', 'Please enter a valid email address.');
       return;
     }
-    // Ensure any stale Privy session is fully cleared before sending code
-    if (!logoutDoneRef.current || privyUser) {
-      try {
-        await Promise.race([
-          privyLogout(),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 3000)),
-        ]);
-      } catch {} // best-effort — continue even if logout times out
-      logoutDoneRef.current = true;
-    }
+
+    // ALWAYS force logout before sending code — never trust cached state
     try {
-      await sendCode({ email: trimmed });
-      setOtpSent(true);
-    } catch (err: any) {
-      // Retry once on "Already logged in" — logout again and resend
-      if (err?.message?.includes('Already logged in')) {
-        try {
-          await privyLogout().catch(() => {});
-          await new Promise((r) => setTimeout(r, 500));
-          await sendCode({ email: trimmed });
-          setOtpSent(true);
-          return;
-        } catch (retryErr: any) {
-          Alert.alert('Error', retryErr?.message ?? 'Could not send verification code.');
-          return;
-        }
-      }
-      console.error('[login] sendCode error:', err);
-      Alert.alert('Error', err?.message ?? 'Could not send verification code.');
+      await privyLogout();
+    } catch {
+      // Not logged in — that's the desired state
     }
-  }, [email, sendCode, privyUser, privyLogout]);
+    // Critical: wait for Privy SDK to fully process the logout
+    await new Promise((r) => setTimeout(r, 500));
+
+    // Attempt to send code with up to 3 retries
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        await sendCode({ email: trimmed });
+        setOtpSent(true);
+        return;
+      } catch (err: any) {
+        const msg = err?.message ?? '';
+        if (msg.includes('Already logged in') && attempt < 2) {
+          // Force another logout cycle and wait longer
+          try { await privyLogout(); } catch {}
+          await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+          continue;
+        }
+        console.error('[login] sendCode error:', err);
+        Alert.alert('Error', msg || 'Could not send verification code.');
+        return;
+      }
+    }
+  }, [email, sendCode, privyLogout]);
 
   const handleVerifyOtp = useCallback(async () => {
     const trimmed = otpCode.trim();
