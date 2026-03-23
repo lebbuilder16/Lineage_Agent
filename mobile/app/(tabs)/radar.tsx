@@ -45,6 +45,7 @@ import { ScreenHeader } from '../../src/components/ui/ScreenHeader';
 import { SkeletonLoader, SkeletonBlock } from '../../src/components/ui/SkeletonLoader';
 import { useGlobalStats, useTopTokens, useAddWatch } from '../../src/lib/query';
 import { connectAlertsWS } from '../../src/lib/api';
+import { Swipeable } from 'react-native-gesture-handler';
 import { useAlertsStore } from '../../src/store/alerts';
 import { useAuthStore } from '../../src/store/auth';
 import { useBriefingStore, startBriefingListener } from '../../src/lib/openclaw-briefing';
@@ -423,7 +424,7 @@ export default function RadarScreen() {
   const wsConnected = useAlertsStore((s) => s.wsConnected);
   const markRead = useAlertsStore((s) => s.markRead);
   const allAlerts = useAlertsStore((s) => s.alerts);
-  const recentAlerts = useMemo(() => allAlerts.slice(0, 2), [allAlerts]);
+  const recentAlerts = useMemo(() => allAlerts.filter((a) => !a.read).slice(0, 3), [allAlerts]);
 
   const apiKey = useAuthStore((s) => s.apiKey);
   const user = useAuthStore((s) => s.user);
@@ -644,35 +645,48 @@ export default function RadarScreen() {
                 onSeeAll={() => router.push('/(tabs)/alerts' as any)}
               />
               <View style={styles.alertList}>
-                {recentAlerts.slice(0, 3).map((alert, i) => (
+                {recentAlerts.map((alert, i) => (
                   <Animated.View
                     key={alert.id}
                     entering={FadeInDown.delay(i * 40).duration(250).springify()}
                   >
-                    <TouchableOpacity
-                      onPress={() => {
-                        markRead(alert.id);
-                        if (alert.mint) router.push(`/token/${alert.mint}` as any);
-                      }}
-                      activeOpacity={0.75}
+                    <Swipeable
+                      overshootRight={false}
+                      renderRightActions={() => (
+                        <TouchableOpacity
+                          onPress={() => markRead(alert.id)}
+                          style={styles.swipeDismiss}
+                        >
+                          <Text style={styles.swipeDismissText}>Dismiss</Text>
+                        </TouchableOpacity>
+                      )}
+                      onSwipeableOpen={() => markRead(alert.id)}
                     >
-                      <View style={[styles.alertCard, !alert.read && styles.alertCardUnread]}>
-                        <View style={styles.alertIconWrap}>
-                          {ALERT_ICONS[alert.type] ?? <Bell size={14} color={tokens.secondary} />}
-                        </View>
-                        <View style={styles.alertBody}>
-                          <Text style={styles.alertTitle} numberOfLines={1}>
-                            {alert.title ?? alert.token_name ?? alert.type.toUpperCase()}
+                      <TouchableOpacity
+                        onPress={() => {
+                          markRead(alert.id);
+                          if (alert.mint) router.push(`/token/${alert.mint}` as any);
+                        }}
+                        activeOpacity={0.75}
+                      >
+                        <View style={[styles.alertCard, !alert.read && styles.alertCardUnread]}>
+                          <View style={styles.alertIconWrap}>
+                            {ALERT_ICONS[alert.type] ?? <Bell size={14} color={tokens.secondary} />}
+                          </View>
+                          <View style={styles.alertBody}>
+                            <Text style={styles.alertTitle} numberOfLines={1}>
+                              {alert.title ?? alert.token_name ?? alert.type.toUpperCase()}
+                            </Text>
+                            <Text style={styles.alertMsg} numberOfLines={1}>
+                              {alert.message}
+                            </Text>
+                          </View>
+                          <Text style={styles.alertTime}>
+                            {timeAgo(alert.timestamp ?? alert.created_at ?? '')}
                           </Text>
-                          <Text style={styles.alertMsg} numberOfLines={1}>
-                            {alert.message}
-                          </Text>
                         </View>
-                        <Text style={styles.alertTime}>
-                          {timeAgo(alert.timestamp ?? alert.created_at ?? '')}
-                        </Text>
-                      </View>
-                    </TouchableOpacity>
+                      </TouchableOpacity>
+                    </Swipeable>
                   </Animated.View>
                 ))}
               </View>
@@ -872,6 +886,19 @@ const styles = StyleSheet.create({
 
   // Alert cards
   alertList: { gap: 6 },
+  swipeDismiss: {
+    backgroundColor: tokens.bgGlass12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: 72,
+    borderRadius: tokens.radius.sm,
+    marginLeft: 6,
+  },
+  swipeDismissText: {
+    fontFamily: 'Lexend-SemiBold',
+    fontSize: tokens.font.tiny,
+    color: tokens.white60,
+  },
   alertCard: {
     flexDirection: 'row',
     alignItems: 'center',
