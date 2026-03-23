@@ -151,78 +151,13 @@ export function SettingsSheet({ visible, onClose }: SettingsSheetProps) {
   };
 
   const handleRemove = async () => {
-    // ── 1. Privy logout (best-effort) ────────────────────────────
     try { await privyLogout(); } catch { /* best-effort */ }
     await new Promise((r) => setTimeout(r, 1000));
 
-    // ── 2. Purge ALL persisted data BEFORE clearing apiKey ───────
-    //    setApiKey(null) triggers _layout useEffect[apiKey] which
-    //    closes the WebSocket and may re-hydrate stores. We must
-    //    wipe AsyncStorage first so there's nothing left to reload.
-    const AsyncStorage = (await import('@react-native-async-storage/async-storage')).default;
+    const { purgeUserData } = await import('../../lib/purge-user-data');
+    await purgeUserData();
 
-    // Remove known fixed keys
-    await Promise.all([
-      AsyncStorage.removeItem('lineage-alerts'),
-      AsyncStorage.removeItem('lineage_investigation_history'),
-      AsyncStorage.removeItem('lineage_agent_prefs'),
-      AsyncStorage.removeItem('lineage-alert-dedup'),
-      AsyncStorage.removeItem('lineage-openclaw'),
-      AsyncStorage.removeItem('lineage-alert-prefs'),
-    ]).catch(() => {});
-
-    // Remove dynamic per-mint cached verdicts (investigate-result:*, agent-result:*)
-    try {
-      const allKeys = await AsyncStorage.getAllKeys();
-      const userKeys = allKeys.filter(
-        (k) => k.startsWith('investigate-result:') || k.startsWith('agent-result:'),
-      );
-      if (userKeys.length > 0) await AsyncStorage.multiRemove(userKeys);
-    } catch { /* best-effort */ }
-
-    // ── 3. Reset ALL in-memory stores ────────────────────────────
-    const { queryClient } = await import('../../lib/query-client');
-    queryClient.clear();
-
-    const { useSubscriptionStore } = await import('../../store/subscription');
-    useSubscriptionStore.getState().reset();
-
-    const { useAlertsStore } = await import('../../store/alerts');
-    useAlertsStore.setState({ alerts: [], wsConnected: false });
-
-    const { useHistoryStore } = await import('../../store/history');
-    useHistoryStore.setState({ investigations: [] });
-
-    const { useBriefingStore } = await import('../../lib/openclaw-briefing');
-    useBriefingStore.getState().clear();
-
-    const { useInvestigateStore } = await import('../../store/investigate');
-    useInvestigateStore.getState().reset();
-
-    const { useAgentStore } = await import('../../store/agent');
-    useAgentStore.getState().reset();
-
-    const { useOpenClawStore: ocs } = await import('../../store/openclaw');
-    ocs.getState().reset();
-
-    const { useAlertPrefsStore } = await import('../../store/alert-prefs');
-    useAlertPrefsStore.persist.clearStorage();
-
-    const { useAgentPrefsStore } = await import('../../store/agent-prefs');
-    useAgentPrefsStore.setState({
-      alertOnDeployerLaunch: true, alertOnHighRisk: true, autoInvestigate: false,
-      dailyBriefing: true, briefingHour: 8, riskThreshold: 70,
-      alertTypes: ['deployer_exit', 'bundle', 'sol_extraction', 'price_crash', 'cartel', 'operator_match', 'deployer_rug'],
-      solExtractionMin: 20, sweepInterval: 7200, investigationDepth: 'standard',
-      quietHoursStart: null, quietHoursEnd: null, hydrated: false,
-    });
-
-    const { resetNotificationDedup } = await import('../../lib/notifications');
-    resetNotificationDedup();
-
-    // ── 4. NOW clear apiKey — triggers WS disconnect + re-render ─
     setApiKey(null);
-
     onClose();
   };
 

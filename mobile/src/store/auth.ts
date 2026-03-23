@@ -28,7 +28,7 @@ interface AuthState {
   hydrate: () => Promise<void>;
 }
 
-export const useAuthStore = create<AuthState>((set) => ({
+export const useAuthStore = create<AuthState>((set, get) => ({
   apiKey: null,
   user: null,
   watches: [],
@@ -39,6 +39,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   pendingClockMint: null,
 
   setApiKey: (key) => {
+    const prev = get().apiKey;
     if (key) {
       SecureStore.setItemAsync(LS_KEY, key).catch((e) =>
         console.error('[auth] SecureStore.setItem failed', e),
@@ -53,7 +54,10 @@ export const useAuthStore = create<AuthState>((set) => ({
       SecureStore.deleteItemAsync(LS_RECENT_KEY).catch(() => {});
       set({ apiKey: null, user: null, watches: [], scanCount: 0, recentSearches: [], reportExpandMint: null, pendingClockMint: null });
     } else {
-      set({ apiKey: key, user: null, watches: [] });
+      // Switching to a (possibly different) user — clear stale profile data
+      const resetRecent = prev && prev !== key;
+      if (resetRecent) SecureStore.deleteItemAsync(LS_RECENT_KEY).catch(() => {});
+      set({ apiKey: key, user: null, watches: [], scanCount: 0, recentSearches: resetRecent ? [] : get().recentSearches, reportExpandMint: null, pendingClockMint: null });
     }
   },
 
