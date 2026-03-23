@@ -1,5 +1,6 @@
 import { authLogin, getMe } from './api';
 import { useAuthStore } from '../store/auth';
+import { purgeUserData } from './purge-user-data';
 
 interface PrivyUser {
   id: string;
@@ -8,7 +9,7 @@ interface PrivyUser {
 }
 
 export async function syncPrivyUser(privyUser: PrivyUser): Promise<boolean> {
-  const { setApiKey, setUser } = useAuthStore.getState();
+  const { setApiKey, setUser, apiKey: currentKey } = useAuthStore.getState();
 
   try {
     const result = await authLogin(privyUser.id, {
@@ -17,6 +18,11 @@ export async function syncPrivyUser(privyUser: PrivyUser): Promise<boolean> {
     });
 
     if (!result.api_key) return false;
+
+    // If switching to a different user, purge ALL stale data first
+    if (currentKey && currentKey !== result.api_key) {
+      await purgeUserData();
+    }
 
     setApiKey(result.api_key);
 
