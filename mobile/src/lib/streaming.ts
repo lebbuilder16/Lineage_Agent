@@ -295,7 +295,11 @@ export function connectAlertsWS(
 
     ws.onmessage = (event) => {
       try {
-        const data = JSON.parse(event.data as string) as AlertItem;
+        const raw = JSON.parse(event.data as string);
+        // Normalize: backend sends `body`, mobile expects `message`
+        if (raw.body && !raw.message) raw.message = raw.body;
+        if (!raw.timestamp) raw.timestamp = new Date().toISOString();
+        const data = raw as AlertItem;
         if (!data.id) data.id = `${Date.now()}-${Math.random()}`;
         if (!data.read) data.read = false;
         if (isDuplicate(data)) return;
