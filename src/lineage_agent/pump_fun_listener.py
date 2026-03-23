@@ -134,16 +134,29 @@ async def _resolve_tx_accounts(signature: str) -> Optional[dict]:
         return None
 
 
+_log_sample_count = 0
+
 def _is_create_log(logs: list[str]) -> bool:
     """Check if logs indicate a Pump.fun token creation (not a swap/buy/sell)."""
-    # Pump.fun create instructions produce specific log patterns:
-    # "Program 6EF8... invoke [1]" + "Program log: Instruction: Create" or
-    # InitializeMint-related logs
+    global _log_sample_count
     log_text = " ".join(logs)
-    # Look for creation indicators
-    if "InitializeMint" in log_text or "Instruction: Create" in log_text:
+
+    # Debug: log first 5 messages to understand the format
+    if _log_sample_count < 5:
+        _log_sample_count += 1
+        # Log a compact sample of the log lines
+        sample = [l for l in logs if "Program" in l or "Instruction" in l][:5]
+        logger.info("[listener] LOG SAMPLE #%d: %s", _log_sample_count, " | ".join(sample))
+
+    # Pump.fun create instructions produce specific log patterns
+    if "InitializeMint" in log_text:
         return True
-    if "Instruction: Initialize" in log_text and _PUMP_PROGRAM_ID in log_text:
+    if "Instruction: Create" in log_text:
+        return True
+    if "Instruction: Initialize" in log_text:
+        return True
+    # Some Pump.fun creates log "Program log: create" (lowercase)
+    if "program log: create" in log_text.lower():
         return True
     return False
 
