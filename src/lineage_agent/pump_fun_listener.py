@@ -118,7 +118,7 @@ def _extract_graduated_token(tx: dict) -> Optional[dict]:
 # ── Triage ────────────────────────────────────────────────────────────────────
 
 async def _triage_token(mint: str, deployer: str) -> dict:
-    """Quick risk assessment with 6 independent signals.
+    """Quick risk assessment with 7 independent signals.
 
     Designed to catch factory-deployed scam tokens where the visible deployer
     is a fresh wallet with no history.  Signals:
@@ -127,7 +127,8 @@ async def _triage_token(mint: str, deployer: str) -> dict:
     3. Deployer wallet age < 24h (fresh wallet = disposable)
     4. Deployer SOL funding trace (funded by known scammer?)
     5. Factory rhythm (deployer launched many tokens recently)
-    6. Always escalate → run pipeline on EVERY graduated token
+    6. Bundle activity (coordinated launch wallets / team extraction)
+    7. Always escalate → run pipeline on EVERY graduated token
     """
     risk_signals: list[str] = []
     deployer_profile = None
@@ -217,6 +218,23 @@ async def _triage_token(mint: str, deployer: str) -> dict:
         )
         if len(recent) >= 3:
             risk_signals.append(f"factory_rhythm:{len(recent)}_tokens_7d")
+    except Exception:
+        pass
+
+    # ── Signal 6: Bundle activity (coordinated launch wallets) ────────────
+    try:
+        from .bundle_tracker_service import analyze_bundle
+        bundle = await asyncio.wait_for(analyze_bundle(mint, deployer), timeout=10.0)
+        if bundle:
+            verdict = bundle.overall_verdict
+            bw_count = bundle.bundle_wallet_count or 0
+            extracted = bundle.total_extracted_sol or 0
+            if verdict in ("confirmed_team_extraction", "suspected_team_extraction"):
+                risk_signals.append(f"bundle:{verdict}:{bw_count}w:{extracted:.1f}sol")
+            elif verdict == "coordinated_dump_unknown_team" and bw_count >= 3:
+                risk_signals.append(f"bundle:coordinated_dump:{bw_count}w")
+            elif bw_count >= 5:
+                risk_signals.append(f"bundle:large_cluster:{bw_count}w")
     except Exception:
         pass
 
