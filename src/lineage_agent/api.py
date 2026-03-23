@@ -258,6 +258,14 @@ async def lifespan(application: FastAPI):
     _schedule_watchlist_sweep()
     _schedule_briefing_loop()
 
+    # ── Pump.fun real-time listener ───────────────────────────────────────
+    from .pump_fun_listener import schedule_pump_fun_listener, is_listener_active
+    _pf_task = schedule_pump_fun_listener()
+    if _pf_task:
+        logger.info("Pump.fun real-time listener: ACTIVE")
+    else:
+        logger.info("Pump.fun real-time listener: DISABLED (set HELIUS_API_KEY to enable)")
+
     # ── Log arq status ─────────────────────────────────────────────────────
     from config import ARQ_REDIS_URL  # noqa: PLC0415
     if ARQ_REDIS_URL:
@@ -283,6 +291,8 @@ async def lifespan(application: FastAPI):
     logger.info("Shutting down \u2013 closing HTTP clients \u2026")
     from .db import close_backend as _close_db
     await _close_db()
+    from .pump_fun_listener import cancel_pump_fun_listener
+    cancel_pump_fun_listener()
     cancel_rug_sweep()
     cancel_alert_sweep()
     _cancel_cartel_sweep()
@@ -503,11 +513,13 @@ async def admin_health() -> dict:
     except Exception:
         cache_info = {"backend": type(cache).__name__}
 
+    from .pump_fun_listener import is_listener_active
     return {
         "status": "ok",
         "uptime_seconds": uptime_s,
         "cache": cache_info,
         "circuit_breakers": cb_statuses(),
+        "pump_fun_listener": "active" if is_listener_active() else "disabled",
     }
 
 
