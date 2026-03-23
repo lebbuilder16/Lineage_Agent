@@ -216,7 +216,7 @@ export default function RootLayout() {
           config={{
             embedded: {
               solana: {
-                createOnLogin: 'off',
+                createOnLogin: 'users-without-wallets',
               },
             },
           }}
