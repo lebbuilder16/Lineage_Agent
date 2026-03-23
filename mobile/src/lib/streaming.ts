@@ -254,6 +254,7 @@ export function connectAlertsWS(
   onError?: () => void,
   onStatusChange?: (connected: boolean) => void,
   onStatusDetailed?: (status: WsStatus) => void,
+  apiKey?: string | null,
 ): () => void {
   let ws: WebSocket | null = null;
   let reconnectTimer: ReturnType<typeof setTimeout>;
@@ -280,7 +281,10 @@ export function connectAlertsWS(
 
   const connect = () => {
     onStatusDetailed?.('reconnecting');
-    ws = new WebSocket(`${WS_BASE}/ws/alerts`);
+    const wsUrl = apiKey
+      ? `${WS_BASE}/ws/alerts?key=${encodeURIComponent(apiKey)}`
+      : `${WS_BASE}/ws/alerts`;
+    ws = new WebSocket(wsUrl);
 
     ws.onopen = () => {
       retryCount = 0;

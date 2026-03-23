@@ -60,6 +60,12 @@ const COOLDOWN_MS = 4 * 60 * 60 * 1000; // 4 hours per token+signal (was 1h → 
 let _notifiedAt: Record<string, number> = {};
 let _dedupLoaded = false;
 
+/** Reset in-memory dedup state on logout (AsyncStorage key cleared separately). */
+export function resetNotificationDedup(): void {
+  _notifiedAt = {};
+  _dedupLoaded = false;
+}
+
 async function _loadDedup(): Promise<void> {
   if (_dedupLoaded) return;
   try {

@@ -126,12 +126,11 @@ export default function RootLayout() {
     } catch { /* ignore malformed URLs */ }
   }, [url]);
 
+  const apiKey = useAuthStore((s) => s.apiKey);
+
+  // One-time setup: auth hydration, notifications, foreground check
   useEffect(() => {
     hydrate();
-    // Hydrate investigation history for cross-session memory
-    import('../src/store/history').then(({ useHistoryStore }) => {
-      useHistoryStore.getState().hydrate();
-    }).catch(() => {});
     Notifications.requestPermissionsAsync().catch(() => {});
     Notifications.setNotificationHandler({
       handleNotification: async () => ({
@@ -143,7 +142,24 @@ export default function RootLayout() {
       }),
     });
 
-    // Global WebSocket alerts connection — always active regardless of tab
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') checkWatchedTokenAlerts();
+    });
+    return () => {
+      sub.remove();
+      disconnectOpenClaw();
+    };
+  }, []);
+
+  // User-scoped: WebSocket alerts + history hydration — reconnect on account change
+  useEffect(() => {
+    if (!apiKey) return;
+
+    // Hydrate investigation history for the current user
+    import('../src/store/history').then(({ useHistoryStore }) => {
+      useHistoryStore.getState().hydrate();
+    }).catch(() => {});
+
     const _addAlert = useAlertsStore.getState().addAlert;
     const _setWsConnected = useAlertsStore.getState().setWsConnected;
     const addAlertWithAutoInvestigate = (alert: any) => {
@@ -154,18 +170,14 @@ export default function RootLayout() {
       addAlertWithAutoInvestigate,
       undefined,
       (connected) => _setWsConnected(connected),
+      undefined,
+      apiKey,
     );
 
-    // Check watched tokens for risk signals when app comes to foreground
-    const sub = AppState.addEventListener('change', (state) => {
-      if (state === 'active') checkWatchedTokenAlerts();
-    });
     return () => {
-      sub.remove();
       wsCleanup();
-      disconnectOpenClaw();
     };
-  }, []);
+  }, [apiKey]);
 
   // OpenClaw is optional (power users only) — don't auto-connect.
   // All features work via backend direct API.

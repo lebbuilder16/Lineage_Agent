@@ -57,8 +57,7 @@ async def all_subscriptions() -> list[dict]:
         db = await _sc._get_conn()
         cursor = await db.execute(
             "SELECT uw.sub_type, uw.value, u.telegram_chat_id AS chat_id, u.id AS user_id "
-            "FROM user_watches uw JOIN users u ON u.id = uw.user_id "
-            "WHERE u.telegram_chat_id IS NOT NULL OR u.discord_webhook_url IS NOT NULL"
+            "FROM user_watches uw JOIN users u ON u.id = uw.user_id"
         )
         rows = await cursor.fetchall()
         return [{"sub_type": r[0], "value": r[1], "chat_id": r[2], "user_id": r[3]} for r in rows]
@@ -137,8 +136,8 @@ async def _send_discord_for_user(user_id: int, title: str, body: str) -> None:
 
 
 _sweep_task: Optional[asyncio.Task] = None
-# Web WebSocket clients (browser dashboard)
-_web_clients: set["WebSocket"] = set()
+# Web WebSocket clients keyed by user_id → set of connections
+_web_clients: dict[int, set["WebSocket"]] = {}
 
 # ── Firebase Cloud Messaging (HTTP v1) ────────────────────────────────────────
 # Set FIREBASE_PROJECT_ID + FIREBASE_SERVICE_ACCOUNT_JSON (path to SA JSON) env vars
@@ -279,27 +278,31 @@ async def _push_fcm_to_watchers(
         logger.debug("[FCM] push_to_watchers error: %s", exc)
 
 
-def register_web_client(ws: "WebSocket") -> None:
-    """Register a new browser WebSocket client for push alerts."""
-    _web_clients.add(ws)
+def register_web_client(ws: "WebSocket", user_id: int) -> None:
+    """Register a browser/mobile WebSocket client for push alerts, scoped to *user_id*."""
+    _web_clients.setdefault(user_id, set()).add(ws)
 
 
 def unregister_web_client(ws: "WebSocket") -> None:
-    """Remove a disconnected browser WebSocket client."""
-    _web_clients.discard(ws)
+    """Remove a disconnected WebSocket client."""
+    for uid, clients in list(_web_clients.items()):
+        clients.discard(ws)
+        if not clients:
+            del _web_clients[uid]
 
 
-async def _broadcast_web_alert(payload: dict) -> None:
-    """Push *payload* to all connected browser web clients and Mobile FCM watchers."""
-    # ── 1. WebSocket broadcast
-    if _web_clients:
+async def _broadcast_web_alert(payload: dict, user_id: int | None = None) -> None:
+    """Push *payload* to the WebSocket connections of *user_id* and FCM watchers."""
+    # ── 1. WebSocket broadcast (scoped to user)
+    target = _web_clients.get(user_id, set()) if user_id else set()
+    if target:
         dead: set["WebSocket"] = set()
-        for ws in list(_web_clients):
+        for ws in list(target):
             try:
                 await ws.send_json(payload)
             except Exception:
                 dead.add(ws)
-        _web_clients.difference_update(dead)
+        target.difference_update(dead)
 
     # ── 2. FCM mobile push (fire-and-forget)
     mint = payload.get("mint")
@@ -380,7 +383,7 @@ async def _run_alert_sweep() -> int:
                     "title": f"{sub_type.upper()} alert",
                     "body": name,
                     "mint": row.get("mint"),
-                })
+                }, user_id=user_id)
                 count += 1
 
         except Exception as exc:
