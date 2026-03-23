@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
 import {
   Bot,
   Shield,
@@ -25,8 +26,9 @@ import {
   Info,
   Settings,
   ChevronRight,
+  Activity,
 } from 'lucide-react-native';
-import Animated, { FadeInDown } from 'react-native-reanimated';
+import Animated, { FadeInDown, FadeIn } from 'react-native-reanimated';
 import { AuroraBackground } from '../../src/components/ui/AuroraBackground';
 import { GlassCard } from '../../src/components/ui/GlassCard';
 import { useAgentPrefsStore } from '../../src/store/agent-prefs';
@@ -40,6 +42,7 @@ const BASE_URL = (process.env.EXPO_PUBLIC_API_URL ?? 'https://lineage-agent.fly.
 function timeAgoShort(ts: number): string {
   const diff = Date.now() - ts;
   const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'now';
   if (mins < 60) return `${mins}m`;
   const hrs = Math.floor(mins / 60);
   if (hrs < 24) return `${hrs}h`;
@@ -113,10 +116,8 @@ export default function AgentScreen() {
     setRefreshing(false);
   };
 
-  // Unified feed: merge investigations + alerts + flags, sort by time
   const feedItems = useMemo(() => {
     const items: { id: string; icon: any; text: string; sub?: string; time: number; color: string; route?: string }[] = [];
-
     for (const inv of investigations.slice(0, 5)) {
       items.push({
         id: `inv-${inv.mint}`,
@@ -127,7 +128,6 @@ export default function AgentScreen() {
         route: `/token/${inv.mint}`,
       });
     }
-
     for (const alert of alerts.slice(0, 3)) {
       const ts = new Date(alert.timestamp ?? alert.created_at ?? '').getTime();
       if (isNaN(ts)) continue;
@@ -140,7 +140,6 @@ export default function AgentScreen() {
         route: alert.mint ? `/token/${alert.mint}` : undefined,
       });
     }
-
     for (const flag of sweepFlags.slice(0, 5)) {
       items.push({
         id: `flag-${flag.id}`,
@@ -152,16 +151,14 @@ export default function AgentScreen() {
         route: `/token/${flag.mint}`,
       });
     }
-
     return items.sort((a, b) => b.time - a.time).slice(0, 10);
   }, [investigations, alerts, sweepFlags]);
 
   const watchCount = serverStatus?.watching ?? watches.length;
-  const todayInvestigations = serverStatus?.investigations_today ?? investigations.filter(
+  const todayCount = serverStatus?.investigations_today ?? investigations.filter(
     (i) => Date.now() - i.timestamp < 24 * 3600 * 1000,
   ).length;
-
-  // Accuracy inline
+  const totalCount = serverStatus?.total_investigations ?? investigations.length;
   const withFeedback = investigations.filter((i) => i.feedback);
   const accuratePct = withFeedback.length > 0
     ? Math.round((withFeedback.filter((i) => i.feedback === 'accurate').length / withFeedback.length) * 100)
@@ -176,157 +173,151 @@ export default function AgentScreen() {
           contentContainerStyle={styles.content}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={tokens.secondary} />}
         >
-          {/* ── Header ── */}
-          <View style={styles.header}>
-            <Bot size={22} color={tokens.secondary} strokeWidth={2.5} />
-            <Text style={styles.headerTitle}>Agent</Text>
-            <View style={{ flex: 1 }} />
-            <View style={[styles.statusPill, { borderColor: wsConnected ? `${tokens.success}40` : tokens.borderSubtle }]}>
-              <View style={[styles.dot, { backgroundColor: wsConnected ? tokens.success : tokens.white35 }]} />
-              <Text style={styles.statusPillText}>{wsConnected ? 'Live' : 'Offline'}</Text>
-            </View>
-          </View>
-
-          {/* ── Stats bar ── */}
-          <View style={styles.statsBar}>
-            <View style={styles.statItem}>
-              <Text style={styles.statNum}>{watchCount}</Text>
-              <Text style={styles.statLabel}>Watching</Text>
-            </View>
-            <View style={styles.statDivider} />
-            <View style={styles.statItem}>
-              <Text style={styles.statNum}>{todayInvestigations}</Text>
-              <Text style={styles.statLabel}>Today</Text>
-            </View>
-            <View style={styles.statDivider} />
-            <View style={styles.statItem}>
-              <Text style={styles.statNum}>{serverStatus?.total_investigations ?? investigations.length}</Text>
-              <Text style={styles.statLabel}>Total</Text>
-            </View>
-            {accuratePct != null && (
-              <>
-                <View style={styles.statDivider} />
-                <View style={styles.statItem}>
-                  <Text style={[styles.statNum, { color: accuratePct >= 70 ? tokens.success : tokens.warning }]}>{accuratePct}%</Text>
-                  <Text style={styles.statLabel}>Accuracy</Text>
+          {/* ── Hero header with gradient ── */}
+          <Animated.View entering={FadeIn.duration(400)}>
+            <LinearGradient
+              colors={['rgba(139,92,246,0.12)', 'rgba(99,102,241,0.06)', 'transparent']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.heroGradient}
+            >
+              <View style={styles.heroRow}>
+                <View style={styles.heroAvatarWrap}>
+                  <LinearGradient
+                    colors={[tokens.violet, tokens.indigo]}
+                    style={styles.heroAvatar}
+                  >
+                    <Bot size={24} color={tokens.white100} strokeWidth={2} />
+                  </LinearGradient>
                 </View>
-              </>
-            )}
-          </View>
-
-          {/* ── Tab switcher ── */}
-          <View style={styles.tabRow}>
-            {(['feed', 'settings'] as TabId[]).map((tab) => (
-              <TouchableOpacity
-                key={tab}
-                onPress={() => setActiveTab(tab)}
-                style={[styles.tab, activeTab === tab && styles.tabActive]}
-                activeOpacity={0.7}
-              >
-                {tab === 'feed'
-                  ? <Zap size={14} color={activeTab === tab ? tokens.secondary : tokens.white35} />
-                  : <Settings size={14} color={activeTab === tab ? tokens.secondary : tokens.white35} />
-                }
-                <Text style={[styles.tabText, activeTab === tab && styles.tabTextActive]}>
-                  {tab === 'feed' ? 'Feed' : 'Settings'}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-
-          {/* ── FEED TAB ── */}
-          {activeTab === 'feed' && (
-            <Animated.View entering={FadeInDown.duration(250)}>
-              {feedItems.length === 0 ? (
-                <GlassCard>
-                  <View style={styles.emptyFeed}>
-                    <Eye size={24} color={tokens.white20} />
-                    <Text style={styles.emptyTitle}>No activity yet</Text>
-                    <Text style={styles.emptySubtitle}>Scan a token or add to watchlist to get started.</Text>
-                    <TouchableOpacity onPress={() => router.push('/(tabs)/scan' as any)} style={styles.emptyCta} activeOpacity={0.75}>
-                      <Search size={14} color={tokens.secondary} />
-                      <Text style={styles.emptyCtaText}>Scan a token</Text>
-                    </TouchableOpacity>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.heroTitle}>Lineage Agent</Text>
+                  <View style={styles.heroStatusRow}>
+                    <View style={[styles.heroDot, { backgroundColor: wsConnected ? tokens.success : tokens.white35 }]} />
+                    <Text style={styles.heroStatusText}>
+                      {wsConnected ? 'Monitoring your watchlist' : 'Offline — reconnecting'}
+                    </Text>
                   </View>
-                </GlassCard>
-              ) : (
-                <GlassCard>
-                  {feedItems.map((item, i) => {
-                    const Icon = item.icon;
-                    return (
-                      <TouchableOpacity
-                        key={item.id}
-                        onPress={() => item.route && router.push(item.route as any)}
-                        activeOpacity={item.route ? 0.75 : 1}
-                        style={[styles.feedRow, i === feedItems.length - 1 && { borderBottomWidth: 0 }]}
-                      >
-                        <View style={[styles.feedIconWrap, { backgroundColor: `${item.color}12` }]}>
-                          <Icon size={13} color={item.color} strokeWidth={2.5} />
-                        </View>
-                        <View style={{ flex: 1 }}>
-                          <Text style={styles.feedText} numberOfLines={1}>{item.text}</Text>
-                          {item.sub && <Text style={styles.feedSub} numberOfLines={1}>{item.sub}</Text>}
-                        </View>
-                        <Text style={styles.feedTime}>{timeAgoShort(item.time)}</Text>
-                        <ChevronRight size={12} color={tokens.white20} />
-                      </TouchableOpacity>
-                    );
-                  })}
-                </GlassCard>
-              )}
+                </View>
+              </View>
 
-              {/* Sweep info */}
+              {/* Compact stats */}
+              <View style={styles.heroStats}>
+                <StatPill icon={Eye} value={watchCount} label="Watching" />
+                <StatPill icon={Search} value={todayCount} label="Today" />
+                <StatPill icon={Activity} value={totalCount} label="Total" />
+                {accuratePct != null && (
+                  <StatPill icon={Shield} value={`${accuratePct}%`} label="Accuracy" color={accuratePct >= 70 ? tokens.success : tokens.warning} />
+                )}
+              </View>
+
               {serverStatus?.last_sweep && (
-                <Text style={styles.sweepInfo}>
-                  Sweep {new Date(serverStatus.last_sweep).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                <Text style={styles.sweepMeta}>
+                  Last sweep {new Date(serverStatus.last_sweep).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   {' · next ~'}
                   {new Date(new Date(serverStatus.last_sweep).getTime() + 2 * 3600_000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                 </Text>
               )}
+            </LinearGradient>
+          </Animated.View>
+
+          {/* ── Tab bar ── */}
+          <Animated.View entering={FadeInDown.delay(100).duration(300)}>
+            <View style={styles.tabBar}>
+              {(['feed', 'settings'] as TabId[]).map((tab) => {
+                const isActive = activeTab === tab;
+                return (
+                  <TouchableOpacity
+                    key={tab}
+                    onPress={() => setActiveTab(tab)}
+                    style={styles.tabTouch}
+                    activeOpacity={0.7}
+                  >
+                    <View style={[styles.tabInner, isActive && styles.tabInnerActive]}>
+                      {tab === 'feed'
+                        ? <Zap size={13} color={isActive ? tokens.white100 : tokens.white35} strokeWidth={2.5} />
+                        : <Settings size={13} color={isActive ? tokens.white100 : tokens.white35} strokeWidth={2} />
+                      }
+                      <Text style={[styles.tabLabel, isActive && styles.tabLabelActive]}>
+                        {tab === 'feed' ? 'Activity' : 'Settings'}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </Animated.View>
+
+          {/* ── FEED ── */}
+          {activeTab === 'feed' && (
+            <Animated.View entering={FadeInDown.delay(150).duration(300).springify()}>
+              {feedItems.length === 0 ? (
+                <View style={styles.emptyWrap}>
+                  <View style={styles.emptyIconCircle}>
+                    <Eye size={28} color={tokens.white20} />
+                  </View>
+                  <Text style={styles.emptyTitle}>No activity yet</Text>
+                  <Text style={styles.emptySub}>Scan a token or add to watchlist.</Text>
+                  <TouchableOpacity
+                    onPress={() => router.push('/(tabs)/scan' as any)}
+                    style={styles.emptyCta}
+                    activeOpacity={0.75}
+                  >
+                    <Search size={14} color={tokens.secondary} />
+                    <Text style={styles.emptyCtaText}>Scan a token</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                feedItems.map((item, i) => {
+                  const Icon = item.icon;
+                  return (
+                    <Animated.View
+                      key={item.id}
+                      entering={FadeInDown.delay(i * 40).duration(250).springify()}
+                    >
+                      <TouchableOpacity
+                        onPress={() => item.route && router.push(item.route as any)}
+                        activeOpacity={0.75}
+                        style={styles.feedCard}
+                      >
+                        <View style={[styles.feedDot, { backgroundColor: item.color }]} />
+                        <View style={[styles.feedIconCircle, { backgroundColor: `${item.color}10`, borderColor: `${item.color}25` }]}>
+                          <Icon size={14} color={item.color} strokeWidth={2.5} />
+                        </View>
+                        <View style={styles.feedBody}>
+                          <Text style={styles.feedText} numberOfLines={1}>{item.text}</Text>
+                          {item.sub && <Text style={styles.feedSub}>{item.sub}</Text>}
+                        </View>
+                        <View style={styles.feedRight}>
+                          <Text style={styles.feedTime}>{timeAgoShort(item.time)}</Text>
+                          <ChevronRight size={11} color={tokens.white20} />
+                        </View>
+                      </TouchableOpacity>
+                    </Animated.View>
+                  );
+                })
+              )}
             </Animated.View>
           )}
 
-          {/* ── SETTINGS TAB ── */}
+          {/* ── SETTINGS ── */}
           {activeTab === 'settings' && (
-            <Animated.View entering={FadeInDown.duration(250)}>
+            <Animated.View entering={FadeInDown.delay(150).duration(300).springify()}>
               <GlassCard>
-                <PrefToggle
-                  icon={Bell}
-                  label="Alert on deployer launches"
-                  value={prefs.alertOnDeployerLaunch}
-                  onToggle={() => prefs.toggle('alertOnDeployerLaunch')}
-                />
-                <PrefToggle
-                  icon={Shield}
-                  label="Alert when risk > 70"
-                  value={prefs.alertOnHighRisk}
-                  onToggle={() => prefs.toggle('alertOnHighRisk')}
-                />
-                <PrefToggle
-                  icon={Zap}
-                  label="Auto-investigate alerts"
-                  value={prefs.autoInvestigate}
-                  onToggle={() => prefs.toggle('autoInvestigate')}
-                />
-                <PrefToggle
-                  icon={Clock}
-                  label={`Daily briefing at ${prefs.briefingHour}:00`}
-                  value={prefs.dailyBriefing}
-                  onToggle={() => prefs.toggle('dailyBriefing')}
-                  isLast={!prefs.dailyBriefing}
-                />
+                <PrefRow icon={Bell} label="Deployer launch alerts" value={prefs.alertOnDeployerLaunch} onToggle={() => prefs.toggle('alertOnDeployerLaunch')} />
+                <PrefRow icon={Shield} label="High risk alerts (>70)" value={prefs.alertOnHighRisk} onToggle={() => prefs.toggle('alertOnHighRisk')} />
+                <PrefRow icon={Zap} label="Auto-investigate" value={prefs.autoInvestigate} onToggle={() => prefs.toggle('autoInvestigate')} />
+                <PrefRow icon={Clock} label={`Briefing at ${prefs.briefingHour}:00`} value={prefs.dailyBriefing} onToggle={() => prefs.toggle('dailyBriefing')} isLast={!prefs.dailyBriefing} />
                 {prefs.dailyBriefing && (
-                  <View style={styles.hourPicker}>
+                  <View style={styles.hourRow}>
                     {[6, 7, 8, 9, 10, 12].map((h) => (
                       <TouchableOpacity
                         key={h}
-                        style={[styles.hourChip, prefs.briefingHour === h && styles.hourChipActive]}
                         onPress={() => prefs.setBriefingHour(h)}
+                        style={[styles.hourChip, prefs.briefingHour === h && styles.hourChipOn]}
                         activeOpacity={0.7}
                       >
-                        <Text style={[styles.hourChipText, prefs.briefingHour === h && styles.hourChipTextActive]}>
-                          {h}:00
-                        </Text>
+                        <Text style={[styles.hourText, prefs.briefingHour === h && styles.hourTextOn]}>{h}:00</Text>
                       </TouchableOpacity>
                     ))}
                   </View>
@@ -340,29 +331,31 @@ export default function AgentScreen() {
   );
 }
 
-// ── Preference toggle row ──────────────────────────────────────────────────
+// ── Stat pill ────────────────────────────────────────────────────────────────
 
-function PrefToggle({
-  icon: Icon,
-  label,
-  value,
-  onToggle,
-  isLast,
-}: {
-  icon: any;
-  label: string;
-  value: boolean;
-  onToggle: () => void;
-  isLast?: boolean;
-}) {
+function StatPill({ icon: Icon, value, label, color }: { icon: any; value: number | string; label: string; color?: string }) {
+  return (
+    <View style={styles.statPill}>
+      <Icon size={11} color={color ?? tokens.white35} strokeWidth={2} />
+      <Text style={[styles.statValue, color ? { color } : undefined]}>{value}</Text>
+      <Text style={styles.statLabel}>{label}</Text>
+    </View>
+  );
+}
+
+// ── Preference row ───────────────────────────────────────────────────────────
+
+function PrefRow({ icon: Icon, label, value, onToggle, isLast }: { icon: any; label: string; value: boolean; onToggle: () => void; isLast?: boolean }) {
   return (
     <View style={[styles.prefRow, isLast && { borderBottomWidth: 0 }]}>
-      <Icon size={16} color={value ? tokens.secondary : tokens.white35} />
+      <View style={[styles.prefIconWrap, { backgroundColor: value ? `${tokens.secondary}12` : tokens.bgGlass8 }]}>
+        <Icon size={14} color={value ? tokens.secondary : tokens.white35} strokeWidth={2} />
+      </View>
       <Text style={[styles.prefLabel, !value && { color: tokens.white35 }]}>{label}</Text>
       <Switch
         value={value}
         onValueChange={onToggle}
-        trackColor={{ false: tokens.bgGlass12, true: `${tokens.secondary}40` }}
+        trackColor={{ false: tokens.bgGlass12, true: `${tokens.violet}50` }}
         thumbColor={value ? tokens.secondary : tokens.white35}
         ios_backgroundColor={tokens.bgGlass12}
       />
@@ -370,121 +363,142 @@ function PrefToggle({
   );
 }
 
-// ── Styles ──────────────────────────────────────────────────────────────────
+// ── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: tokens.bgMain },
   safe: { flex: 1 },
-  content: {
-    paddingHorizontal: tokens.spacing.screenPadding,
-    paddingBottom: 32,
-    gap: 12,
-  },
+  content: { paddingHorizontal: tokens.spacing.screenPadding, paddingBottom: 32, gap: 10 },
 
-  // Header
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    paddingVertical: 8,
+  // Hero
+  heroGradient: {
+    borderRadius: tokens.radius.lg,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: tokens.borderViolet,
   },
-  headerTitle: {
+  heroRow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  heroAvatarWrap: {
+    borderRadius: 22,
+    overflow: 'hidden',
+    ...tokens.shadow.violet,
+  },
+  heroAvatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  heroTitle: {
     fontFamily: 'Lexend-Bold',
     fontSize: tokens.font.sectionHeader,
     color: tokens.white100,
+    letterSpacing: -0.3,
   },
-  statusPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: tokens.radius.pill,
-    borderWidth: 1,
-  },
-  dot: { width: 6, height: 6, borderRadius: 3 },
-  statusPillText: {
-    fontFamily: 'Lexend-Medium',
+  heroStatusRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 3 },
+  heroDot: { width: 6, height: 6, borderRadius: 3 },
+  heroStatusText: {
+    fontFamily: 'Lexend-Regular',
     fontSize: tokens.font.tiny,
-    color: tokens.white60,
+    color: tokens.white35,
   },
 
-  // Stats bar
-  statsBar: {
+  // Hero stats
+  heroStats: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 16,
+    gap: 6,
+  },
+  statPill: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-around',
-    backgroundColor: tokens.bgGlass8,
-    borderRadius: tokens.radius.md,
-    borderWidth: 1,
-    borderColor: tokens.borderSubtle,
-    paddingVertical: 14,
+    justifyContent: 'center',
+    gap: 4,
+    paddingVertical: 8,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderRadius: tokens.radius.sm,
   },
-  statItem: { alignItems: 'center', flex: 1 },
-  statNum: {
+  statValue: {
     fontFamily: 'Lexend-Bold',
-    fontSize: tokens.font.subheading,
+    fontSize: tokens.font.small,
     color: tokens.white80,
   },
   statLabel: {
     fontFamily: 'Lexend-Regular',
-    fontSize: tokens.font.tiny,
+    fontSize: 9,
     color: tokens.white35,
-    marginTop: 2,
+    letterSpacing: 0.3,
   },
-  statDivider: {
-    width: 1,
-    height: 28,
-    backgroundColor: tokens.borderSubtle,
+  sweepMeta: {
+    fontFamily: 'Lexend-Regular',
+    fontSize: 9,
+    color: tokens.white20,
+    textAlign: 'center',
+    marginTop: 12,
+    letterSpacing: 0.5,
   },
 
-  // Tab switcher
-  tabRow: {
+  // Tabs
+  tabBar: {
     flexDirection: 'row',
-    gap: 8,
+    backgroundColor: tokens.bgGlass8,
+    borderRadius: tokens.radius.md,
+    padding: 3,
+    borderWidth: 1,
+    borderColor: tokens.borderSubtle,
   },
-  tab: {
-    flex: 1,
+  tabTouch: { flex: 1 },
+  tabInner: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
     paddingVertical: 10,
-    borderRadius: tokens.radius.sm,
-    backgroundColor: tokens.bgGlass8,
-    borderWidth: 1,
-    borderColor: tokens.borderSubtle,
+    borderRadius: tokens.radius.sm + 2,
   },
-  tabActive: {
-    backgroundColor: `${tokens.secondary}12`,
-    borderColor: `${tokens.secondary}40`,
+  tabInnerActive: {
+    backgroundColor: `${tokens.violet}20`,
   },
-  tabText: {
+  tabLabel: {
     fontFamily: 'Lexend-SemiBold',
     fontSize: tokens.font.small,
     color: tokens.white35,
   },
-  tabTextActive: {
-    color: tokens.secondary,
-  },
+  tabLabelActive: { color: tokens.white100 },
 
   // Feed
-  feedRow: {
+  feedCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: tokens.borderSubtle,
-    minHeight: tokens.minTouchSize,
+    gap: 12,
+    paddingVertical: 13,
+    paddingHorizontal: 14,
+    backgroundColor: tokens.bgGlass,
+    borderRadius: tokens.radius.sm,
+    borderWidth: 1,
+    borderColor: tokens.borderSubtle,
   },
-  feedIconWrap: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+  feedDot: {
+    width: 3,
+    height: 24,
+    borderRadius: 2,
+    position: 'absolute',
+    left: 0,
+    top: '50%',
+    marginTop: -12,
+  },
+  feedIconCircle: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
   },
+  feedBody: { flex: 1 },
   feedText: {
     fontFamily: 'Lexend-Medium',
     fontSize: tokens.font.small,
@@ -494,42 +508,53 @@ const styles = StyleSheet.create({
     fontFamily: 'Lexend-Regular',
     fontSize: tokens.font.tiny,
     color: tokens.white35,
-    marginTop: 1,
+    marginTop: 2,
   },
+  feedRight: { alignItems: 'flex-end', gap: 2 },
   feedTime: {
     fontFamily: 'Lexend-Regular',
-    fontSize: tokens.font.tiny,
+    fontSize: 9,
     color: tokens.white35,
   },
 
-  // Empty feed
-  emptyFeed: {
+  // Empty
+  emptyWrap: {
     alignItems: 'center',
-    gap: 8,
-    paddingVertical: 28,
+    paddingVertical: 48,
+    gap: 10,
+  },
+  emptyIconCircle: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: tokens.bgGlass8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: tokens.borderSubtle,
+    marginBottom: 4,
   },
   emptyTitle: {
     fontFamily: 'Lexend-SemiBold',
     fontSize: tokens.font.body,
     color: tokens.white60,
   },
-  emptySubtitle: {
+  emptySub: {
     fontFamily: 'Lexend-Regular',
     fontSize: tokens.font.small,
     color: tokens.white35,
-    textAlign: 'center',
   },
   emptyCta: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
     marginTop: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
     borderRadius: tokens.radius.pill,
     borderWidth: 1,
     borderColor: `${tokens.secondary}40`,
-    backgroundColor: `${tokens.secondary}10`,
+    backgroundColor: `${tokens.secondary}08`,
   },
   emptyCtaText: {
     fontFamily: 'Lexend-SemiBold',
@@ -537,23 +562,21 @@ const styles = StyleSheet.create({
     color: tokens.secondary,
   },
 
-  // Sweep info
-  sweepInfo: {
-    fontFamily: 'Lexend-Regular',
-    fontSize: tokens.font.tiny,
-    color: tokens.white35,
-    textAlign: 'center',
-    marginTop: 4,
-  },
-
   // Settings
   prefRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 12,
     paddingVertical: 14,
     borderBottomWidth: 1,
     borderBottomColor: tokens.borderSubtle,
+  },
+  prefIconWrap: {
+    width: 30,
+    height: 30,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   prefLabel: {
     flex: 1,
@@ -561,32 +584,28 @@ const styles = StyleSheet.create({
     fontSize: tokens.font.small,
     color: tokens.white80,
   },
-  hourPicker: {
+  hourRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
     paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: tokens.borderSubtle,
   },
   hourChip: {
     paddingHorizontal: 14,
     paddingVertical: 7,
     borderRadius: tokens.radius.pill,
+    backgroundColor: tokens.bgGlass8,
     borderWidth: 1,
     borderColor: tokens.borderSubtle,
-    backgroundColor: tokens.bgGlass8,
   },
-  hourChipActive: {
-    borderColor: `${tokens.secondary}60`,
-    backgroundColor: `${tokens.secondary}15`,
+  hourChipOn: {
+    backgroundColor: `${tokens.violet}18`,
+    borderColor: `${tokens.violet}50`,
   },
-  hourChipText: {
+  hourText: {
     fontFamily: 'Lexend-Medium',
     fontSize: tokens.font.tiny,
     color: tokens.white35,
   },
-  hourChipTextActive: {
-    color: tokens.secondary,
-  },
+  hourTextOn: { color: tokens.lavender },
 });
