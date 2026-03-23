@@ -26,7 +26,18 @@ logger = logging.getLogger(__name__)
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 
-_HELIUS_API_KEY = os.environ.get("HELIUS_API_KEY", "")
+def _resolve_helius_key() -> str:
+    """Extract Helius API key from HELIUS_API_KEY or SOLANA_RPC_ENDPOINT."""
+    key = os.environ.get("HELIUS_API_KEY", "")
+    if key:
+        return key
+    # Fallback: extract from SOLANA_RPC_ENDPOINT if it's a Helius URL
+    rpc = os.environ.get("SOLANA_RPC_ENDPOINT", "")
+    if "helius" in rpc and "api-key=" in rpc:
+        return rpc.split("api-key=")[-1].split("&")[0]
+    return ""
+
+_HELIUS_API_KEY = _resolve_helius_key()
 _HELIUS_WS_URL = os.environ.get(
     "HELIUS_WS_URL",
     f"wss://mainnet.helius-rpc.com/?api-key={_HELIUS_API_KEY}" if _HELIUS_API_KEY else "",
