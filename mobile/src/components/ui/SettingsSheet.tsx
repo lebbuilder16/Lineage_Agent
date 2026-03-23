@@ -184,13 +184,25 @@ export function SettingsSheet({ visible, onClose }: SettingsSheetProps) {
     const { useAlertPrefsStore } = await import('../../store/alert-prefs');
     useAlertPrefsStore.persist.clearStorage();
 
+    const { useAgentPrefsStore } = await import('../../store/agent-prefs');
+    useAgentPrefsStore.setState({
+      alertOnDeployerLaunch: true, alertOnHighRisk: true, autoInvestigate: false,
+      dailyBriefing: true, briefingHour: 8, riskThreshold: 70,
+      alertTypes: ['deployer_exit', 'bundle', 'sol_extraction', 'price_crash', 'cartel', 'operator_match', 'deployer_rug'],
+      solExtractionMin: 20, sweepInterval: 7200, investigationDepth: 'standard',
+      quietHoursStart: null, quietHoursEnd: null, hydrated: false,
+    });
+
+    const { resetNotificationDedup } = await import('../../lib/notifications');
+    resetNotificationDedup();
+
     // Clear persisted data from AsyncStorage
     const AsyncStorage = (await import('@react-native-async-storage/async-storage')).default;
 
     // Remove known fixed keys
     await Promise.all([
       AsyncStorage.removeItem('lineage-alerts'),
-      AsyncStorage.removeItem('lineage-history'),
+      AsyncStorage.removeItem('lineage_investigation_history'),
       AsyncStorage.removeItem('lineage_agent_prefs'),
       AsyncStorage.removeItem('lineage-alert-dedup'),
       AsyncStorage.removeItem('lineage-openclaw'),

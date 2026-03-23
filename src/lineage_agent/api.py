@@ -710,20 +710,24 @@ async def ws_lineage(websocket: WebSocket):
 
 @app.websocket("/ws/alerts")
 async def ws_alerts(websocket: WebSocket):
-    """Push deployer/narrative alerts to browser dashboard clients.
+    """Push deployer/narrative alerts to authenticated clients only.
 
-    The client connects and keeps the connection open. The server pushes
-    JSON events whenever a watched deployer or narrative produces a new token::
-
-        {"event": "alert", "type": "deployer|narrative", "title": "...",
-         "body": "...", "mint": "<address>"}
-
-    The client should send periodic pings (plain text ``"ping"``) to keep
-    the connection alive through proxies.
+    The client must pass ``?key=<API_KEY>`` in the query string.
+    Connections without a valid key are rejected with close code 4001.
     """
+    api_key = websocket.query_params.get("key", "")
+    if not api_key:
+        await websocket.close(code=4001, reason="Missing API key")
+        return
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+    user = await verify_api_key(_cache, api_key)
+    if user is None:
+        await websocket.close(code=4001, reason="Invalid API key")
+        return
+    user_id: int = user["id"]
     await websocket.accept()
-    register_web_client(websocket)
-    logger.info("Browser alert client connected")
+    register_web_client(websocket, user_id)
+    logger.info("Alert client connected (user=%s)", user_id)
     try:
         while True:
             # Wait for client keepalive pings; timeout = 90s
