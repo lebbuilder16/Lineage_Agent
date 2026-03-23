@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -44,7 +44,7 @@ import { GlassCard } from '../../src/components/ui/GlassCard';
 import { ScreenHeader } from '../../src/components/ui/ScreenHeader';
 import { SkeletonLoader, SkeletonBlock } from '../../src/components/ui/SkeletonLoader';
 import { useGlobalStats, useTopTokens, useAddWatch } from '../../src/lib/query';
-import { connectAlertsWS } from '../../src/lib/api';
+
 import { Swipeable } from 'react-native-gesture-handler';
 import { useAlertsStore } from '../../src/store/alerts';
 import { useAuthStore } from '../../src/store/auth';
@@ -441,7 +441,7 @@ export default function RadarScreen() {
   const user = useAuthStore((s) => s.user);
 
   const [wsStatus, setWsStatus] = useState<'connected' | 'reconnecting' | 'offline'>('offline');
-  const wsCleanup = useRef<(() => void) | null>(null);
+
   const insets = useSafeAreaInsets();
 
   const briefing = useBriefingStore((s) => s.latest);
@@ -450,19 +450,14 @@ export default function RadarScreen() {
   const markBriefingRead = useBriefingStore((s) => s.markRead);
   const [briefingExpanded, setBriefingExpanded] = useState(false);
 
+  // WebSocket is managed globally in _layout.tsx — no duplicate connection here.
+  // Alerts arrive via useAlertsStore which is populated by the global WS.
   useEffect(() => {
-    wsCleanup.current = connectAlertsWS(
-      addAlert,
-      undefined,
-      setWsConnected,
-      setWsStatus,
-    );
     const unsubBriefing = startBriefingListener(apiKey ?? undefined);
     return () => {
-      wsCleanup.current?.();
       unsubBriefing();
     };
-  }, []);
+  }, [apiKey]);
 
   const refreshing = statsLoading || topLoading;
   const onRefresh = () => { refetchStats(); refetchTopTokens(); };
