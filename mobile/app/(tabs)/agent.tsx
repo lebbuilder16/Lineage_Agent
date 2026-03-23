@@ -31,7 +31,7 @@ import {
 import Animated, { FadeInDown, FadeIn } from 'react-native-reanimated';
 import { AuroraBackground } from '../../src/components/ui/AuroraBackground';
 import { GlassCard } from '../../src/components/ui/GlassCard';
-import { useAgentPrefsStore } from '../../src/store/agent-prefs';
+import { useAgentPrefsStore, ALERT_TYPE_OPTIONS, SWEEP_INTERVAL_OPTIONS, DEPTH_OPTIONS } from '../../src/store/agent-prefs';
 import { useHistoryStore } from '../../src/store/history';
 import { useAlertsStore } from '../../src/store/alerts';
 import { useAuthStore } from '../../src/store/auth';
@@ -391,12 +391,86 @@ export default function AgentScreen() {
 
           {/* ── SETTINGS ── */}
           {activeTab === 'settings' && (
-            <Animated.View entering={FadeInDown.delay(150).duration(300).springify()}>
+            <Animated.View entering={FadeInDown.delay(150).duration(300).springify()} style={{ gap: 10 }}>
+              {/* Section: Alert sensitivity */}
               <GlassCard>
-                <PrefRow icon={Bell} label="Deployer launch alerts" value={prefs.alertOnDeployerLaunch} onToggle={() => prefs.toggle('alertOnDeployerLaunch')} />
-                <PrefRow icon={Shield} label="High risk alerts (>70)" value={prefs.alertOnHighRisk} onToggle={() => prefs.toggle('alertOnHighRisk')} />
-                <PrefRow icon={Zap} label="Auto-investigate" value={prefs.autoInvestigate} onToggle={() => prefs.toggle('autoInvestigate')} />
-                <PrefRow icon={Clock} label={`Briefing at ${prefs.briefingHour}:00`} value={prefs.dailyBriefing} onToggle={() => prefs.toggle('dailyBriefing')} isLast={!prefs.dailyBriefing} />
+                <Text style={styles.settingsSection}>ALERT SENSITIVITY</Text>
+                <View style={styles.sliderRow}>
+                  <Text style={styles.sliderLabel}>Risk threshold</Text>
+                  <View style={styles.sliderValueWrap}>
+                    {[30, 50, 70, 80, 90].map((v) => (
+                      <TouchableOpacity
+                        key={v}
+                        onPress={() => prefs.setRiskThreshold(v)}
+                        style={[styles.hourChip, prefs.riskThreshold === v && styles.hourChipOn]}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={[styles.hourText, prefs.riskThreshold === v && styles.hourTextOn]}>{v}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+                <Text style={styles.settingsSub}>Alert types</Text>
+                <View style={styles.chipWrap}>
+                  {ALERT_TYPE_OPTIONS.map((opt) => {
+                    const on = prefs.alertTypes.includes(opt.key);
+                    return (
+                      <TouchableOpacity
+                        key={opt.key}
+                        onPress={() => prefs.toggleAlertType(opt.key)}
+                        style={[styles.alertChip, on && styles.alertChipOn]}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={[styles.alertChipText, on && styles.alertChipTextOn]}>{opt.label}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </GlassCard>
+
+              {/* Section: Automation */}
+              <GlassCard>
+                <Text style={styles.settingsSection}>AUTOMATION</Text>
+                <PrefRow icon={Zap} label="Auto-investigate alerts" value={prefs.autoInvestigate} onToggle={() => prefs.toggle('autoInvestigate')} />
+                <Text style={styles.settingsSub}>Investigation depth</Text>
+                <View style={styles.chipWrap}>
+                  {DEPTH_OPTIONS.map((opt) => {
+                    const on = prefs.investigationDepth === opt.value;
+                    return (
+                      <TouchableOpacity
+                        key={opt.value}
+                        onPress={() => prefs.setInvestigationDepth(opt.value)}
+                        style={[styles.depthChip, on && styles.depthChipOn]}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={[styles.depthLabel, on && styles.depthLabelOn]}>{opt.label}</Text>
+                        <Text style={styles.depthDesc}>{opt.desc}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </GlassCard>
+
+              {/* Section: Monitoring */}
+              <GlassCard>
+                <Text style={styles.settingsSection}>MONITORING</Text>
+                <Text style={styles.settingsSub}>Sweep frequency</Text>
+                <View style={styles.chipWrap}>
+                  {SWEEP_INTERVAL_OPTIONS.map((opt) => {
+                    const on = prefs.sweepInterval === opt.value;
+                    return (
+                      <TouchableOpacity
+                        key={opt.value}
+                        onPress={() => prefs.setSweepInterval(opt.value)}
+                        style={[styles.hourChip, on && styles.hourChipOn]}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={[styles.hourText, on && styles.hourTextOn]}>{opt.label}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+                <PrefRow icon={Clock} label={`Daily briefing at ${prefs.briefingHour}:00`} value={prefs.dailyBriefing} onToggle={() => prefs.toggle('dailyBriefing')} isLast={!prefs.dailyBriefing} />
                 {prefs.dailyBriefing && (
                   <View style={styles.hourRow}>
                     {[6, 7, 8, 9, 10, 12].map((h) => (
@@ -741,6 +815,86 @@ const styles = StyleSheet.create({
     fontFamily: 'Lexend-Medium',
     fontSize: tokens.font.small,
     color: tokens.white80,
+  },
+  settingsSection: {
+    fontFamily: 'Lexend-SemiBold',
+    fontSize: 10,
+    color: tokens.white35,
+    letterSpacing: 1.2,
+    marginBottom: 10,
+  },
+  settingsSub: {
+    fontFamily: 'Lexend-Medium',
+    fontSize: tokens.font.tiny,
+    color: tokens.white60,
+    marginTop: 12,
+    marginBottom: 8,
+  },
+  sliderRow: {
+    gap: 8,
+  },
+  sliderLabel: {
+    fontFamily: 'Lexend-Medium',
+    fontSize: tokens.font.small,
+    color: tokens.white80,
+    marginBottom: 6,
+  },
+  sliderValueWrap: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  chipWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  alertChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: tokens.radius.pill,
+    backgroundColor: tokens.bgGlass8,
+    borderWidth: 1,
+    borderColor: tokens.borderSubtle,
+  },
+  alertChipOn: {
+    backgroundColor: `${tokens.secondary}12`,
+    borderColor: `${tokens.secondary}40`,
+  },
+  alertChipText: {
+    fontFamily: 'Lexend-Medium',
+    fontSize: 10,
+    color: tokens.white35,
+  },
+  alertChipTextOn: {
+    color: tokens.secondary,
+  },
+  depthChip: {
+    flex: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 10,
+    borderRadius: tokens.radius.sm,
+    backgroundColor: tokens.bgGlass8,
+    borderWidth: 1,
+    borderColor: tokens.borderSubtle,
+    alignItems: 'center',
+  },
+  depthChipOn: {
+    backgroundColor: `${tokens.violet}12`,
+    borderColor: `${tokens.violet}40`,
+  },
+  depthLabel: {
+    fontFamily: 'Lexend-SemiBold',
+    fontSize: tokens.font.small,
+    color: tokens.white35,
+  },
+  depthLabelOn: {
+    color: tokens.lavender,
+  },
+  depthDesc: {
+    fontFamily: 'Lexend-Regular',
+    fontSize: 9,
+    color: tokens.white20,
+    marginTop: 2,
   },
   hourRow: {
     flexDirection: 'row',

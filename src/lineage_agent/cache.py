@@ -712,10 +712,31 @@ class SQLiteCache:
                 auto_investigate INTEGER NOT NULL DEFAULT 0,
                 daily_briefing INTEGER NOT NULL DEFAULT 1,
                 briefing_hour INTEGER NOT NULL DEFAULT 8,
+                risk_threshold INTEGER NOT NULL DEFAULT 70,
+                alert_types TEXT NOT NULL DEFAULT '["deployer_exit","bundle","sol_extraction","price_crash","cartel","operator_match","deployer_rug"]',
+                sol_extraction_min REAL NOT NULL DEFAULT 20.0,
+                sweep_interval INTEGER NOT NULL DEFAULT 7200,
+                investigation_depth TEXT NOT NULL DEFAULT 'standard',
+                quiet_hours_start INTEGER DEFAULT NULL,
+                quiet_hours_end INTEGER DEFAULT NULL,
                 updated_at REAL
             )
             """
         )
+        # Migrate existing agent_prefs tables (add new columns if missing)
+        for col, defn in [
+            ("risk_threshold", "INTEGER NOT NULL DEFAULT 70"),
+            ("alert_types", "TEXT NOT NULL DEFAULT '[]'"),
+            ("sol_extraction_min", "REAL NOT NULL DEFAULT 20.0"),
+            ("sweep_interval", "INTEGER NOT NULL DEFAULT 7200"),
+            ("investigation_depth", "TEXT NOT NULL DEFAULT 'standard'"),
+            ("quiet_hours_start", "INTEGER DEFAULT NULL"),
+            ("quiet_hours_end", "INTEGER DEFAULT NULL"),
+        ]:
+            try:
+                await db.execute(f"ALTER TABLE agent_prefs ADD COLUMN {col} {defn}")
+            except Exception:
+                pass  # column already exists
 
         # Phase 6 — investigation history (server-side memory)
         await db.execute(

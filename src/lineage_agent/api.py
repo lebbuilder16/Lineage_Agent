@@ -2734,6 +2734,13 @@ class _AgentPrefsBody(BaseModel):
     autoInvestigate: bool = False
     dailyBriefing: bool = True
     briefingHour: int = 8
+    riskThreshold: int = 70
+    alertTypes: list[str] = ["deployer_exit", "bundle", "sol_extraction", "price_crash", "cartel", "operator_match", "deployer_rug"]
+    solExtractionMin: float = 20.0
+    sweepInterval: int = 7200
+    investigationDepth: str = "standard"
+    quietHoursStart: Optional[int] = None
+    quietHoursEnd: Optional[int] = None
 
 
 @app.post("/agent/prefs", tags=["agent"])
@@ -2745,10 +2752,16 @@ async def set_agent_prefs(request: Request, body: _AgentPrefsBody):
     await db.execute(
         """INSERT OR REPLACE INTO agent_prefs
            (user_id, alert_deployer_launch, alert_high_risk,
-            auto_investigate, daily_briefing, briefing_hour, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            auto_investigate, daily_briefing, briefing_hour,
+            risk_threshold, alert_types, sol_extraction_min,
+            sweep_interval, investigation_depth,
+            quiet_hours_start, quiet_hours_end, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (user["id"], int(body.alertOnDeployerLaunch), int(body.alertOnHighRisk),
          int(body.autoInvestigate), int(body.dailyBriefing), body.briefingHour,
+         body.riskThreshold, json.dumps(body.alertTypes), body.solExtractionMin,
+         body.sweepInterval, body.investigationDepth,
+         body.quietHoursStart, body.quietHoursEnd,
          time.time()),
     )
     await db.commit()
@@ -2763,19 +2776,42 @@ async def get_agent_prefs(request: Request):
     db = await _cache._get_conn()
     cursor = await db.execute(
         "SELECT alert_deployer_launch, alert_high_risk, auto_investigate, "
-        "daily_briefing, briefing_hour FROM agent_prefs WHERE user_id = ?",
+        "daily_briefing, briefing_hour, risk_threshold, alert_types, "
+        "sol_extraction_min, sweep_interval, investigation_depth, "
+        "quiet_hours_start, quiet_hours_end "
+        "FROM agent_prefs WHERE user_id = ?",
         (user["id"],),
     )
     row = await cursor.fetchone()
+    defaults = {
+        "alertOnDeployerLaunch": True, "alertOnHighRisk": True,
+        "autoInvestigate": False, "dailyBriefing": True, "briefingHour": 8,
+        "riskThreshold": 70,
+        "alertTypes": ["deployer_exit", "bundle", "sol_extraction", "price_crash", "cartel", "operator_match", "deployer_rug"],
+        "solExtractionMin": 20.0,
+        "sweepInterval": 7200,
+        "investigationDepth": "standard",
+        "quietHoursStart": None,
+        "quietHoursEnd": None,
+    }
     if not row:
-        return {
-            "alertOnDeployerLaunch": True, "alertOnHighRisk": True,
-            "autoInvestigate": False, "dailyBriefing": True, "briefingHour": 8,
-        }
+        return defaults
+    alert_types = defaults["alertTypes"]
+    try:
+        alert_types = json.loads(row[6]) if row[6] else defaults["alertTypes"]
+    except Exception:
+        pass
     return {
         "alertOnDeployerLaunch": bool(row[0]), "alertOnHighRisk": bool(row[1]),
         "autoInvestigate": bool(row[2]), "dailyBriefing": bool(row[3]),
         "briefingHour": row[4],
+        "riskThreshold": row[5] if row[5] is not None else 70,
+        "alertTypes": alert_types,
+        "solExtractionMin": row[7] if row[7] is not None else 20.0,
+        "sweepInterval": row[8] if row[8] is not None else 7200,
+        "investigationDepth": row[9] or "standard",
+        "quietHoursStart": row[10],
+        "quietHoursEnd": row[11],
     }
 
 
@@ -2958,16 +2994,36 @@ async def _watchlist_sweep_loop():
     """Rescan watched tokens every 2 hours and alert on risk escalation."""
     from .watchlist_monitor_service import run_single_rescan, SWEEP_INTERVAL_SECONDS
     from .data_sources._clients import cache as _cache  # noqa: PLC0415
-    # First sweep after 60s startup delay, then every 2h
+    # Sweep loop runs every 30min. Per-user sweep_interval is respected
+    # by checking when each user's last sweep was.
+    _LOOP_INTERVAL = 1800  # 30 min check cycle
     first_run = True
     while True:
-        await asyncio.sleep(60 if first_run else SWEEP_INTERVAL_SECONDS)
+        await asyncio.sleep(60 if first_run else _LOOP_INTERVAL)
         first_run = False
         try:
             db = await _cache._get_conn()
-            cursor = await db.execute("SELECT id, user_id FROM user_watches WHERE sub_type = 'mint'")
+            cursor = await db.execute(
+                "SELECT uw.id, uw.user_id, uw.value, "
+                "COALESCE(ap.sweep_interval, 7200) as sweep_interval "
+                "FROM user_watches uw "
+                "LEFT JOIN agent_prefs ap ON uw.user_id = ap.user_id "
+                "WHERE uw.sub_type = 'mint'"
+            )
             watches = await cursor.fetchall()
-            for _wi, (watch_id, user_id) in enumerate(watches):
+
+            # Filter: only sweep users whose last sweep was > sweep_interval ago
+            now = time.time()
+            for _wi, (watch_id, user_id, _mint_val, user_sweep_interval) in enumerate(watches):
+                # Check last sweep for this specific watch
+                cursor2 = await db.execute(
+                    "SELECT MAX(scanned_at) FROM watch_snapshots WHERE watch_id = ?",
+                    (watch_id,),
+                )
+                last_sweep_row = await cursor2.fetchone()
+                last_sweep = last_sweep_row[0] if last_sweep_row and last_sweep_row[0] else 0
+                if now - last_sweep < user_sweep_interval:
+                    continue  # too soon for this user's preference
                 if _wi > 0:
                     await asyncio.sleep(5)  # stagger rescans to avoid DB contention
                 try:
