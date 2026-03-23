@@ -23,7 +23,12 @@ import { useSubscriptionStore } from '../../src/store/subscription';
 import { tierLabel, tierColor, TIER_LIMITS } from '../../src/lib/tier-limits';
 import { updateProfile } from '../../src/lib/api';
 import { tokens } from '../../src/theme/tokens';
-import { Transaction } from '@solana/web3.js';
+import { Connection, Transaction } from '@solana/web3.js';
+import { useEmbeddedSolanaWallet } from '@privy-io/expo';
+import { useSolBalance } from '../../src/hooks/useSolBalance';
+import { queryClient } from '../../src/lib/query-client';
+
+const RPC_URL = process.env.EXPO_PUBLIC_SOLANA_RPC_URL ?? 'https://api.mainnet-beta.solana.com';
 
 // ── Gradient avatar from privy_id hash ───────────────────────────────────────
 const AVATAR_COLORS = [
@@ -64,6 +69,8 @@ export default function AccountScreen() {
   const subPlan = useSubscriptionStore((s) => s.plan);
   const expiresAt = useSubscriptionStore((s) => s.expiresAt);
   const usage = useSubscriptionStore((s) => s.usage);
+
+  const embeddedWallet = useEmbeddedSolanaWallet();
 
   const [editVisible, setEditVisible] = useState(false);
   const [sendVisible, setSendVisible] = useState(false);
@@ -132,10 +139,24 @@ export default function AccountScreen() {
     ]);
   };
 
-  // Placeholder signAndSend — will be wired to Privy embedded wallet
+  const { balance: solBalance, refetch: refetchBalance } = useSolBalance(walletAddr);
+
   const handleSignAndSend = async (tx: Transaction): Promise<string> => {
-    // TODO: wire to useEmbeddedSolanaWallet().getProvider().request()
-    throw new Error('Embedded wallet signing not yet connected');
+    if (!embeddedWallet || embeddedWallet.status !== 'connected' || !embeddedWallet.wallets?.length) {
+      throw new Error('Wallet not connected');
+    }
+    const provider = await embeddedWallet.wallets[0].getProvider();
+    const connection = new Connection(RPC_URL, 'confirmed');
+    const { signature } = await provider.request({
+      method: 'signAndSendTransaction',
+      params: { transaction: tx, connection },
+    });
+    return signature;
+  };
+
+  const handleSendSuccess = () => {
+    refetchBalance();
+    queryClient.invalidateQueries({ queryKey: ['sol-balance'] });
   };
 
   if (!isAuthenticated) {
@@ -312,8 +333,9 @@ export default function AccountScreen() {
             visible={sendVisible}
             onClose={() => setSendVisible(false)}
             walletAddress={walletAddr}
-            balance={null}
+            balance={solBalance}
             signAndSend={handleSignAndSend}
+            onSuccess={handleSendSuccess}
           />
         </>
       )}
