@@ -131,7 +131,8 @@ async def verify_api_key(cache, api_key: str) -> dict | None:
         try:
             db = await cache._get_conn()
             cursor = await db.execute(
-                "SELECT id, privy_id, email, wallet_address, plan, api_key, created_at "
+                "SELECT id, privy_id, email, wallet_address, plan, api_key, created_at, "
+                "username, display_name, avatar_url "
                 "FROM users WHERE api_key = ?",
                 (api_key,),
             )
@@ -146,6 +147,9 @@ async def verify_api_key(cache, api_key: str) -> dict | None:
                 "plan": row[4],
                 "api_key": row[5],
                 "created_at": row[6],
+                "username": row[7],
+                "display_name": row[8],
+                "avatar_url": row[9],
             }
         except Exception as exc:
             if "locked" in str(exc).lower() and _attempt < 4:
@@ -155,6 +159,68 @@ async def verify_api_key(cache, api_key: str) -> dict | None:
             logger.warning("verify_api_key failed: %s", exc, exc_info=True)
             return None
     return None
+
+
+import re as _re
+
+_USERNAME_RE = _re.compile(r"^[a-zA-Z0-9_]{3,20}$")
+
+
+async def update_user_profile(cache, user_id: int, updates: dict) -> dict | None:
+    """Update username, display_name, avatar_url for a user. Returns updated user dict."""
+    allowed = {}
+    if "username" in updates and updates["username"] is not None:
+        uname = str(updates["username"]).strip()
+        if not _USERNAME_RE.match(uname):
+            raise ValueError("username must be 3-20 alphanumeric/underscore characters")
+        allowed["username"] = uname
+    if "display_name" in updates and updates["display_name"] is not None:
+        dname = str(updates["display_name"]).strip()[:50]
+        if len(dname) < 1:
+            raise ValueError("display_name must be at least 1 character")
+        allowed["display_name"] = dname
+    if "avatar_url" in updates and updates["avatar_url"] is not None:
+        aurl = str(updates["avatar_url"])[:2000]
+        allowed["avatar_url"] = aurl
+
+    if not allowed:
+        return None
+
+    try:
+        db = await cache._get_conn()
+        # Username uniqueness check
+        if "username" in allowed:
+            cursor = await db.execute(
+                "SELECT id FROM users WHERE LOWER(username) = LOWER(?) AND id != ?",
+                (allowed["username"], user_id),
+            )
+            if await cursor.fetchone():
+                raise ValueError("username already taken")
+
+        sets = ", ".join(f"{k} = ?" for k in allowed)
+        vals = list(allowed.values()) + [user_id]
+        await db.execute(f"UPDATE users SET {sets} WHERE id = ?", vals)
+        await db.commit()
+
+        cursor = await db.execute(
+            "SELECT id, privy_id, email, wallet_address, plan, api_key, created_at, "
+            "username, display_name, avatar_url FROM users WHERE id = ?",
+            (user_id,),
+        )
+        row = await cursor.fetchone()
+        if not row:
+            return None
+        return {
+            "id": row[0], "privy_id": row[1], "email": row[2],
+            "wallet_address": row[3], "plan": row[4], "api_key": row[5],
+            "created_at": row[6], "username": row[7],
+            "display_name": row[8], "avatar_url": row[9],
+        }
+    except ValueError:
+        raise
+    except Exception:
+        logger.warning("update_user_profile failed for user_id=%s", user_id, exc_info=True)
+        return None
 
 
 async def register_fcm_token(cache, user_id: int, fcm_token: str) -> bool:

@@ -44,6 +44,8 @@ export interface User {
   id: string;
   privy_id: string;
   username?: string;
+  display_name?: string;
+  avatar_url?: string;
   wallet_address?: string;
   email?: string;
   plan?: string;

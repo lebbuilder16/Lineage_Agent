@@ -1996,6 +1996,36 @@ async def auth_me(request: Request):
         "wallet_address": user["wallet_address"],
         "email": user["email"],
         "plan": user["plan"],
+        "username": user.get("username"),
+        "display_name": user.get("display_name"),
+        "avatar_url": user.get("avatar_url"),
+        "created_at": user.get("created_at"),
+    }
+
+
+@app.patch("/auth/profile", tags=["auth"])
+async def auth_update_profile(request: Request):
+    """Update user profile (username, display_name, avatar_url). Requires X-API-Key."""
+    user = await _get_current_user(request)
+    body = await request.json()
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+    from .auth_service import update_user_profile  # noqa: PLC0415
+    try:
+        updated = await update_user_profile(_cache, user["id"], body)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if updated is None:
+        raise HTTPException(status_code=400, detail="No valid fields to update")
+    return {
+        "id": updated["id"],
+        "privy_id": updated["privy_id"],
+        "wallet_address": updated["wallet_address"],
+        "email": updated["email"],
+        "plan": updated["plan"],
+        "username": updated.get("username"),
+        "display_name": updated.get("display_name"),
+        "avatar_url": updated.get("avatar_url"),
+        "created_at": updated.get("created_at"),
     }
 
 

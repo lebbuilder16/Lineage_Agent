@@ -186,6 +186,34 @@ export async function deleteWatch(apiKey: string, id: string): Promise<void> {
   });
 }
 
+export async function updateProfile(
+  apiKey: string,
+  updates: { username?: string; display_name?: string; avatar_url?: string },
+): Promise<User> {
+  const BASE = (process.env.EXPO_PUBLIC_API_URL ?? 'https://lineage-agent.fly.dev').replace(/\/$/, '');
+  const res = await fetch(`${BASE}/auth/profile`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
+    body: JSON.stringify(updates),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: 'Update failed' }));
+    throw new Error(err.detail ?? 'Update failed');
+  }
+  return res.json() as Promise<User>;
+}
+
+export async function regenerateApiKey(apiKey: string): Promise<string> {
+  const BASE = (process.env.EXPO_PUBLIC_API_URL ?? 'https://lineage-agent.fly.dev').replace(/\/$/, '');
+  const res = await fetch(`${BASE}/auth/regenerate-key`, {
+    method: 'POST',
+    headers: { 'X-API-Key': apiKey },
+  });
+  if (!res.ok) throw new Error('Key rotation failed');
+  const data = await res.json();
+  return data.api_key;
+}
+
 export async function getTopTokens(limit = 10): Promise<TopToken[]> {
   const BASE_URL = (process.env.EXPO_PUBLIC_API_URL ?? 'https://lineage-agent.fly.dev').replace(/\/$/, '');
   const res = await fetch(`${BASE_URL}/stats/top-tokens?limit=${limit}`);
