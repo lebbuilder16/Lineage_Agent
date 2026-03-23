@@ -130,4 +130,5 @@ export interface TopToken {
   mcap_usd?: number | null;
   event_count: number;
   created_at?: string | null;
+  image_uri?: string | null;
 }

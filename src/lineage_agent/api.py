@@ -2564,14 +2564,14 @@ async def get_top_tokens(
         col_names = [d[0] for d in cursor.description]
         results = [dict(zip(col_names, row)) for row in rows]
 
-        # Enrich with LIVE mcap from DexScreener (single batch call, <200ms)
+        # Enrich with LIVE mcap + image from DexScreener (single batch call, <200ms)
         live_mcap_map: dict[str, float] = {}
+        live_image_map: dict[str, str] = {}
         try:
             from .data_sources._clients import get_dex_client
             dex = get_dex_client()
             mints_csv = ",".join(r["mint"] for r in results[:30])
             pairs = await asyncio.wait_for(dex.get_token_pairs(mints_csv), timeout=5.0)
-            # Build mint → best mcap map (highest liquidity pair wins)
             for pair in pairs:
                 ba = pair.get("baseToken", {}).get("address", "")
                 mc = pair.get("marketCap") or pair.get("fdv")
@@ -2579,6 +2579,15 @@ async def get_top_tokens(
                     existing = live_mcap_map.get(ba, 0)
                     if mc > existing:
                         live_mcap_map[ba] = mc
+                # Extract image URI from DexScreener info
+                if ba and ba not in live_image_map:
+                    info = pair.get("info", {}) or {}
+                    img_url = info.get("imageUrl") or ""
+                    if not img_url:
+                        # Fallback: header image or token icon
+                        img_url = (info.get("header") or info.get("icon") or "")
+                    if img_url:
+                        live_image_map[ba] = img_url
         except Exception:
             pass  # best-effort — fall back to DB values
 
@@ -2594,6 +2603,7 @@ async def get_top_tokens(
                 mcap_usd=mcap,
                 event_count=r.get("event_count", 1),
                 created_at=r.get("created_at"),
+                image_uri=live_image_map.get(mint_addr),
             ))
 
         _top_tokens_cache = (now_mono, tokens_list)

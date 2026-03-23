@@ -1054,6 +1054,7 @@ class TopToken(BaseModel):
     mcap_usd: Optional[float] = Field(None, description="Market cap USD at last event")
     event_count: int = Field(1, description="Number of intelligence events in 24 h")
     created_at: Optional[str] = Field(None, description="ISO timestamp of first detection")
+    image_uri: Optional[str] = Field(None, description="Token logo URL from DexScreener")
 
 
 class GlobalStats(BaseModel):
