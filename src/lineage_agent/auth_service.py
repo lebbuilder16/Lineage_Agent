@@ -33,7 +33,7 @@ async def create_or_get_user(
     - If the user already exists → return stored record (+ update wallet/email).
     - If new → generate an API key, insert and return.
     """
-    for _attempt in range(5):
+    for _attempt in range(8):
         try:
             db = await cache._get_conn()
 
@@ -96,9 +96,9 @@ async def create_or_get_user(
             }
 
         except Exception as exc:
-            if "locked" in str(exc).lower() and _attempt < 4:
+            if "locked" in str(exc).lower() and _attempt < 7:
                 import asyncio as _aio
-                await _aio.sleep(0.5 * (_attempt + 1))
+                await _aio.sleep(1.0 * (_attempt + 1))  # 1s, 2s, 3s... up to 7s
                 continue
             logger.error(
                 "create_or_get_user failed for privy_id=%s: %s",
