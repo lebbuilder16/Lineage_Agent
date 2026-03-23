@@ -155,9 +155,13 @@ export function SettingsSheet({ visible, onClose }: SettingsSheetProps) {
     // Wait for Privy SDK to fully clear internal session state
     await new Promise((r) => setTimeout(r, 1000));
     setApiKey(null);
-    // Clear cached query data so next user starts fresh
+    // Reset all user-specific stores so next user starts fresh
     const { queryClient } = await import('../../lib/query-client');
     queryClient.clear();
+    const { useSubscriptionStore } = await import('../../store/subscription');
+    useSubscriptionStore.getState().reset();
+    const { useAgentPrefsStore } = await import('../../store/agent-prefs');
+    useAgentPrefsStore.getState().hydrate(); // will reset to defaults since apiKey is null
     onClose();
   };
 
