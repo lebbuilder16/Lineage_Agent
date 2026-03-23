@@ -294,34 +294,35 @@ async def _process_graduated_token(token_info: dict) -> None:
             mint[:16], ", ".join(triage["risk_signals"]),
         )
 
-        # Alert users who watch this deployer
+        # Alert ALL connected users (global broadcast) + targeted deployer watchers
         try:
-            from .alert_service import _broadcast_web_alert
-            from .data_sources._clients import cache as _cache
-            from .cache import SQLiteCache
-            if isinstance(_cache, SQLiteCache):
-                db = await _cache._get_conn()
-                cur = await db.execute(
-                    "SELECT uw.user_id FROM user_watches uw "
-                    "WHERE uw.sub_type = 'deployer' AND uw.value = ?",
-                    (deployer,),
-                )
-                dp = triage.get("deployer_profile")
-                rug_info = (
-                    f"{dp.rug_count}/{dp.total_tokens_launched} rugs"
-                    if dp else "unknown history"
-                )
-                payload = {
-                    "event": "alert",
-                    "type": "token_graduated",
-                    "title": "Watched deployer launched on DEX",
-                    "body": f"Deployer ({rug_info}) — token now live on Raydium",
-                    "mint": mint,
-                    "deployer": deployer,
-                    "risk_signals": triage["risk_signals"],
-                }
-                for (uid,) in await cur.fetchall():
+            from .alert_service import _broadcast_web_alert, _web_clients
+
+            dp = triage.get("deployer_profile")
+            signals = triage["risk_signals"]
+            has_risk = any(s != "graduated_no_prior_signals" for s in signals)
+            rug_info = (
+                f"{dp.rug_count}/{dp.total_tokens_launched} rugs"
+                if dp else "new deployer"
+            )
+
+            payload = {
+                "event": "alert",
+                "type": "token_graduated",
+                "title": f"🎓 New DEX graduation" + (f" ⚠️" if has_risk else ""),
+                "body": f"Deployer ({rug_info}) — {', '.join(signals[:2])}",
+                "mint": mint,
+                "deployer": deployer,
+                "risk_signals": signals,
+            }
+
+            # Broadcast to ALL connected WebSocket users
+            for uid in list(_web_clients.keys()):
+                try:
                     await _broadcast_web_alert(payload, user_id=uid)
+                except Exception:
+                    pass
+
         except Exception as exc:
             logger.debug("[listener] alert dispatch error: %s", exc)
 
