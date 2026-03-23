@@ -118,10 +118,21 @@ def _extract_graduated_token(tx: dict) -> Optional[dict]:
 # ── Triage ────────────────────────────────────────────────────────────────────
 
 async def _triage_token(mint: str, deployer: str) -> dict:
-    """Quick risk assessment: deployer history + DNA fingerprint."""
+    """Quick risk assessment with 6 independent signals.
+
+    Designed to catch factory-deployed scam tokens where the visible deployer
+    is a fresh wallet with no history.  Signals:
+    1. Deployer rug history (classic — fails against factories)
+    2. Operator DNA fingerprint (metadata pattern matching)
+    3. Deployer wallet age < 24h (fresh wallet = disposable)
+    4. Deployer SOL funding trace (funded by known scammer?)
+    5. Factory rhythm (deployer launched many tokens recently)
+    6. Always escalate → run pipeline on EVERY graduated token
+    """
     risk_signals: list[str] = []
     deployer_profile = None
 
+    # ── Signal 1: Deployer rug history ────────────────────────────────────
     try:
         from .deployer_service import compute_deployer_profile
         dp = await asyncio.wait_for(compute_deployer_profile(deployer), timeout=5.0)
@@ -138,10 +149,13 @@ async def _triage_token(mint: str, deployer: str) -> dict:
     except Exception:
         pass
 
+    # ── Signal 2: Operator DNA fingerprint (catches factory operators) ────
+    dna_fingerprint = None
     try:
         from .metadata_dna_service import compute_dna_fingerprint
         fp = await asyncio.wait_for(compute_dna_fingerprint(mint), timeout=3.0)
         if fp:
+            dna_fingerprint = fp
             from .data_sources._clients import cache as _cache
             from .cache import SQLiteCache
             if isinstance(_cache, SQLiteCache):
@@ -155,10 +169,67 @@ async def _triage_token(mint: str, deployer: str) -> dict:
     except Exception:
         pass
 
+    # ── Signal 3: Fresh deployer wallet (< 24h old) ──────────────────────
+    try:
+        from .data_sources._clients import get_rpc_client
+        rpc = get_rpc_client()
+        sigs = await asyncio.wait_for(
+            rpc.get_signatures_for_address(deployer, limit=1, sort_order="asc"),
+            timeout=5.0,
+        )
+        if sigs:
+            first_ts = sigs[0].get("blockTime", 0)
+            if first_ts:
+                age_hours = (time.time() - first_ts) / 3600
+                if age_hours < 24:
+                    risk_signals.append(f"fresh_wallet:{age_hours:.0f}h")
+                if age_hours < 2:
+                    risk_signals.append("disposable_wallet")
+    except Exception:
+        pass
+
+    # ── Signal 4: Deployer funded by known scammer ───────────────────────
+    try:
+        from .data_sources._clients import cache as _cache
+        from .cache import SQLiteCache
+        if isinstance(_cache, SQLiteCache):
+            db = await _cache._get_conn()
+            # Check if deployer received SOL from any wallet in operator_mappings
+            cur = await db.execute(
+                "SELECT DISTINCT sf.from_address FROM sol_flows sf "
+                "INNER JOIN operator_mappings om ON sf.from_address = om.wallet "
+                "WHERE sf.to_address = ? LIMIT 3",
+                (deployer,),
+            )
+            funders = await cur.fetchall()
+            if funders:
+                risk_signals.append(f"funded_by_operator:{funders[0][0][:12]}")
+    except Exception:
+        pass
+
+    # ── Signal 5: Factory rhythm (many tokens from same deployer recently) ─
+    try:
+        from .data_sources._clients import event_query
+        recent = await event_query(
+            where="deployer = ? AND event_type = 'token_created' AND recorded_at > ?",
+            params=(deployer, time.time() - 7 * 86400),  # last 7 days
+            limit=50,
+        )
+        if len(recent) >= 3:
+            risk_signals.append(f"factory_rhythm:{len(recent)}_tokens_7d")
+    except Exception:
+        pass
+
+    # ── Decision: ALWAYS escalate graduated tokens ────────────────────────
+    # Every token that graduates to a DEX has real liquidity and real traders
+    # at risk. The full forensic pipeline is the only way to catch factory-
+    # deployed scams where the deployer is a fresh, clean wallet.
+    # The triage signals above determine PRIORITY, not whether to escalate.
     return {
-        "escalate": len(risk_signals) > 0,
-        "risk_signals": risk_signals,
+        "escalate": True,  # Always run full pipeline on graduated tokens
+        "risk_signals": risk_signals if risk_signals else ["graduated_no_prior_signals"],
         "deployer_profile": deployer_profile,
+        "dna_fingerprint": dna_fingerprint,
     }
 
 
