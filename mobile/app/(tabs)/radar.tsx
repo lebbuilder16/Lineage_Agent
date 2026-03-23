@@ -459,7 +459,7 @@ export default function RadarScreen() {
     ? `${stats.rug_rate_24h_pct.toFixed(1)}%`
     : null;
 
-  const displayedTokens = (topTokens ?? []).slice(0, 5);
+  const displayedTokens = (topTokens ?? []).slice(0, 3);
 
   // Greeting based on time of day
   const hour = new Date().getHours();
@@ -620,7 +620,7 @@ export default function RadarScreen() {
                         />
                       </Animated.View>
                     ))}
-                    {displayedTokens.length >= 5 && (
+                    {displayedTokens.length >= 3 && (
                       <TouchableOpacity
                         onPress={() => router.push('/(tabs)/scan' as any)}
                         style={styles.feedSeeAll}
@@ -899,17 +899,18 @@ const styles = StyleSheet.create({
   tokenCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 8,
     backgroundColor: tokens.bgGlass,
     borderRadius: tokens.radius.sm,
     borderWidth: 1,
     borderColor: tokens.borderSubtle,
-    padding: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
     overflow: 'hidden',
   },
   rankBadge: { width: 20, alignItems: 'center' },
   rankText: { fontFamily: 'Lexend-Bold', fontSize: 11, color: tokens.white35 },
-  tokenImage: { width: 38, height: 38, borderRadius: 10 },
+  tokenImage: { width: 32, height: 32, borderRadius: 8 },
   tokenImageFallback: { backgroundColor: tokens.bgGlass12, alignItems: 'center', justifyContent: 'center' },
   tokenImageFallbackText: { fontFamily: 'Lexend-Bold', fontSize: 13, color: tokens.white60 },
   tokenInfo: { flex: 1, gap: 3 },
