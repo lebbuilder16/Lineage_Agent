@@ -1,0 +1,40 @@
+{
+  "manifest_version": 3,
+  "name": "Lineage Agent — Solana Token Scanner",
+  "description": "Instant forensic risk scores for Solana tokens on DexScreener, Birdeye & Photon. Powered by AI.",
+  "version": "1.0.0",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "permissions": ["storage", "activeTab"],
+  "host_permissions": [
+    "https://dexscreener.com/*",
+    "https://birdeye.so/*",
+    "https://photon-sol.tinyastro.io/*",
+    "https://lineage-agent.fly.dev/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://dexscreener.com/solana/*",
+        "https://birdeye.so/token/*",
+        "https://photon-sol.tinyastro.io/en/lp/*"
+      ],
+      "js": ["content/inject.js"],
+      "css": ["content/overlay.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png"
+    }
+  }
+}
