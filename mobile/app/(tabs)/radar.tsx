@@ -48,6 +48,7 @@ import { connectAlertsWS } from '../../src/lib/api';
 import { Swipeable } from 'react-native-gesture-handler';
 import { useAlertsStore } from '../../src/store/alerts';
 import { useAuthStore } from '../../src/store/auth';
+import { useHistoryStore } from '../../src/store/history';
 import { useBriefingStore, startBriefingListener } from '../../src/lib/openclaw-briefing';
 import { maybeAutoInvestigate } from '../../src/lib/auto-investigate';
 import { isOpenClawAvailable } from '../../src/lib/openclaw';
@@ -263,7 +264,9 @@ function TokenCard({
   const isNew = token.pair_created_at
     ? Date.now() - new Date(token.pair_created_at).getTime() < 24 * 60 * 60 * 1000
     : false;
-  const risk = deriveMarketRisk(token);
+  // Use forensic score from investigation history if available
+  const forensic = useHistoryStore.getState().getByMint(token.mint);
+  const risk = deriveMarketRisk(token, forensic ? { riskScore: forensic.riskScore } : undefined);
 
   const riskAccent =
     risk === 'critical' ? tokens.risk.critical
