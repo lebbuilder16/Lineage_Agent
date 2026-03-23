@@ -22,12 +22,12 @@ import {
   Smartphone,
   Wallet,
 } from 'lucide-react-native';
-import { useLoginWithEmail, usePrivy, useEmbeddedSolanaWallet } from '@privy-io/expo';
+import { useLoginWithEmail, usePrivy } from '@privy-io/expo';
 import type { User } from '@privy-io/api-types';
 import { AuroraBackground } from '../../src/components/ui/AuroraBackground';
 import { HapticButton } from '../../src/components/ui/HapticButton';
 import { tokens } from '../../src/theme/tokens';
-import { syncPrivyUser, updateWalletAddress } from '../../src/lib/privy-auth';
+import { syncPrivyUser } from '../../src/lib/privy-auth';
 import {
   useExternalWalletAuth,
   type WalletBrandId,
@@ -51,18 +51,10 @@ function extractFromLinkedAccounts(user: User) {
   return { walletAddress, emailAddress };
 }
 
-// Track whether we need to create an embedded wallet post-login
-let _pendingWalletCreate = false;
-
 async function handlePrivyLoginSuccess(user: User) {
   const { walletAddress, emailAddress } = extractFromLinkedAccounts(user);
   console.log('[login] handlePrivyLoginSuccess:', JSON.stringify({ id: user.id, walletAddress, emailAddress }));
-
-  // If no wallet yet, flag for creation (createOnLogin is 'off' to avoid session conflicts)
-  if (!walletAddress) {
-    _pendingWalletCreate = true;
-  }
-
+  // Wallet creation is handled by WalletAutoCreate in _layout.tsx (global, after login)
   try {
     const ok = await syncPrivyUser({
       id: user.id,
@@ -126,58 +118,27 @@ export default function LoginScreen() {
     },
   });
 
-  // ── Embedded wallet — created manually post-login (createOnLogin is 'off') ──
+  // ── Privy hooks (wallet creation handled by WalletAutoCreate in _layout.tsx) ──
   const { user: privyUser, logout: privyLogout, isReady: privyReady } = usePrivy();
-  const embeddedWallet = useEmbeddedSolanaWallet();
-  const walletSyncedRef = useRef(false);
-
-  useEffect(() => {
-    // Create embedded wallet if login succeeded without one
-    if (
-      _pendingWalletCreate &&
-      privyUser &&
-      embeddedWallet.status === 'not-created'
-    ) {
-      _pendingWalletCreate = false;
-      embeddedWallet.create?.().catch(() => {});
-    }
-    // Sync wallet address once connected
-    if (
-      embeddedWallet.status === 'connected' &&
-      embeddedWallet.wallets.length > 0 &&
-      !walletSyncedRef.current &&
-      privyUser
-    ) {
-      walletSyncedRef.current = true;
-      updateWalletAddress(privyUser.id, embeddedWallet.wallets[0].address);
-    }
-  }, [embeddedWallet.status, privyUser]);
 
   // ── External wallet auth (state machine) ──────────────────────────────────
   const { state: walletState, connect: connectWallet, cancel: cancelWallet } = useExternalWalletAuth();
 
-  // ── Force-clear Privy session on EVERY mount + when privyUser changes ────
-  // The PrivyProvider wraps the entire app, so session persists across navigation.
-  // We must aggressively clear it every time the login screen appears.
-  const [sessionCleared, setSessionCleared] = useState(false);
+  // ── Force-clear Privy session on EVERY mount ──────────────────────────────
   useEffect(() => {
-    let cancelled = false;
     const clearSession = async () => {
       try {
-        // Always attempt logout, even if privyUser appears null (stale state)
         await privyLogout();
       } catch {
         // Privy throws if not logged in — that's fine
       }
-      // Wait for Privy SDK internal state to fully settle
-      // With createOnLogin:'off', this should be faster but we keep a safe margin
+      // Wait for Privy SDK to fully settle (createOnLogin:'off' = faster)
       await new Promise((r) => setTimeout(r, 1500));
-      if (!cancelled) setSessionCleared(true);
     };
     if (privyReady) {
       clearSession();
     }
-    return () => { cancelled = true; };
+    return () => {};
   }, [privyReady, privyLogout]);
 
   // ── Email OTP state ─────────────────────────────────────────────────────
