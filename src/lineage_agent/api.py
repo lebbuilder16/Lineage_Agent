@@ -2569,7 +2569,10 @@ async def get_top_tokens(
         results = [dict(zip(col_names, row)) for row in rows]
 
         # Enrich with LIVE mcap + image from DexScreener (single batch call, <200ms)
+        # Pick the pair with the HIGHEST LIQUIDITY for each token — avoids
+        # dead/fake pairs with inflated mcap but zero liquidity.
         live_mcap_map: dict[str, float] = {}
+        _best_liq: dict[str, float] = {}           # track best liquidity per mint
         live_image_map: dict[str, str] = {}
         try:
             from .data_sources._clients import get_dex_client
@@ -2579,10 +2582,12 @@ async def get_top_tokens(
             for pair in pairs:
                 ba = pair.get("baseToken", {}).get("address", "")
                 mc = pair.get("marketCap") or pair.get("fdv")
+                liq = (pair.get("liquidity") or {}).get("usd") or 0
                 if ba and mc and isinstance(mc, (int, float)):
-                    existing = live_mcap_map.get(ba, 0)
-                    if mc > existing:
+                    prev_liq = _best_liq.get(ba, -1)
+                    if liq > prev_liq:
                         live_mcap_map[ba] = mc
+                        _best_liq[ba] = liq
                 # Extract image URI from DexScreener info
                 if ba and ba not in live_image_map:
                     info = pair.get("info", {}) or {}
