@@ -237,13 +237,15 @@ def _classify_pre_dex_extraction(
     # Only classify as rug if extraction_context confirms it's suspicious.
     if total_extracted_sol > 0:
         extraction_ctx = str(getattr(sol_flow_report, "extraction_context", "") or "")
-        if extraction_ctx in ("confirmed_extraction", "suspicious_outflow"):
+        # Only confirmed_extraction (CEX detected) is strong enough for rug
+        # classification.  suspicious_outflow alone is too noisy — normal
+        # deployer wallet activity (funding, transfers) triggers it.
+        if extraction_ctx == "confirmed_extraction":
             reason_codes.extend([
                 "sol_flow_only_extraction_detected",
                 "team_link_unproven",
             ])
             return EvidenceLevel.WEAK.value, list(dict.fromkeys(reason_codes))
-        # protocol_fees_only or deployer_operational = NOT a rug
         return None
 
     return None

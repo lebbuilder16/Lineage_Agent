@@ -255,13 +255,14 @@ async def run_forensic_pipeline(
                     return
                 if deployer:
                     results["sol_flow"] = await asyncio.wait_for(
-                        trace_sol_flow(mint, deployer), timeout=25.0,
+                        trace_sol_flow(mint, deployer, token_created_at=identity.created_at),
+                        timeout=25.0,
                     )
                 _sub_step("sol_flow", "done", ms=int((time.monotonic() - t) * 1000))
             except asyncio.TimeoutError:
                 logger.info("[pipeline] sol_flow timeout at 15s for %s — continuing in background", mint[:12])
                 asyncio.create_task(
-                    _safe_background(trace_sol_flow(mint, deployer), "sol_flow", mint),
+                    _safe_background(trace_sol_flow(mint, deployer, token_created_at=identity.created_at), "sol_flow", mint),
                 )
                 _sub_step("sol_flow", "done", ms=int((time.monotonic() - t) * 1000), ok=False)
             except Exception as e:
