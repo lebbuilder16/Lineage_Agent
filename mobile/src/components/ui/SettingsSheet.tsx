@@ -171,14 +171,40 @@ export function SettingsSheet({ visible, onClose }: SettingsSheetProps) {
     const { useBriefingStore } = await import('../../lib/openclaw-briefing');
     useBriefingStore.getState().clear();
 
+    // Reset remaining in-memory stores
+    const { useInvestigateStore } = await import('../../store/investigate');
+    useInvestigateStore.getState().reset();
+
+    const { useAgentStore } = await import('../../store/agent');
+    useAgentStore.getState().reset();
+
+    const { useOpenClawStore: ocs } = await import('../../store/openclaw');
+    ocs.getState().reset();
+
+    const { useAlertPrefsStore } = await import('../../store/alert-prefs');
+    useAlertPrefsStore.persist.clearStorage();
+
     // Clear persisted data from AsyncStorage
     const AsyncStorage = (await import('@react-native-async-storage/async-storage')).default;
+
+    // Remove known fixed keys
     await Promise.all([
       AsyncStorage.removeItem('lineage-alerts'),
       AsyncStorage.removeItem('lineage-history'),
       AsyncStorage.removeItem('lineage_agent_prefs'),
       AsyncStorage.removeItem('lineage-alert-dedup'),
+      AsyncStorage.removeItem('lineage-openclaw'),
+      AsyncStorage.removeItem('lineage-alert-prefs'),
     ]).catch(() => {});
+
+    // Remove dynamic per-mint cached verdicts (investigate-result:*, agent-result:*)
+    try {
+      const allKeys = await AsyncStorage.getAllKeys();
+      const userKeys = allKeys.filter(
+        (k) => k.startsWith('investigate-result:') || k.startsWith('agent-result:'),
+      );
+      if (userKeys.length > 0) await AsyncStorage.multiRemove(userKeys);
+    } catch { /* best-effort */ }
 
     onClose();
   };
