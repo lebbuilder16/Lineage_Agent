@@ -51,9 +51,18 @@ function extractFromLinkedAccounts(user: User) {
   return { walletAddress, emailAddress };
 }
 
+// Track whether we need to create an embedded wallet post-login
+let _pendingWalletCreate = false;
+
 async function handlePrivyLoginSuccess(user: User) {
   const { walletAddress, emailAddress } = extractFromLinkedAccounts(user);
   console.log('[login] handlePrivyLoginSuccess:', JSON.stringify({ id: user.id, walletAddress, emailAddress }));
+
+  // If no wallet yet, flag for creation (createOnLogin is 'off' to avoid session conflicts)
+  if (!walletAddress) {
+    _pendingWalletCreate = true;
+  }
+
   try {
     const ok = await syncPrivyUser({
       id: user.id,
@@ -117,12 +126,22 @@ export default function LoginScreen() {
     },
   });
 
-  // ── Embedded wallet — auto-created on email login ─────────────────────────
+  // ── Embedded wallet — created manually post-login (createOnLogin is 'off') ──
   const { user: privyUser, logout: privyLogout, isReady: privyReady } = usePrivy();
   const embeddedWallet = useEmbeddedSolanaWallet();
   const walletSyncedRef = useRef(false);
 
   useEffect(() => {
+    // Create embedded wallet if login succeeded without one
+    if (
+      _pendingWalletCreate &&
+      privyUser &&
+      embeddedWallet.status === 'not-created'
+    ) {
+      _pendingWalletCreate = false;
+      embeddedWallet.create?.().catch(() => {});
+    }
+    // Sync wallet address once connected
     if (
       embeddedWallet.status === 'connected' &&
       embeddedWallet.wallets.length > 0 &&
@@ -132,7 +151,7 @@ export default function LoginScreen() {
       walletSyncedRef.current = true;
       updateWalletAddress(privyUser.id, embeddedWallet.wallets[0].address);
     }
-  }, [embeddedWallet.status]);
+  }, [embeddedWallet.status, privyUser]);
 
   // ── External wallet auth (state machine) ──────────────────────────────────
   const { state: walletState, connect: connectWallet, cancel: cancelWallet } = useExternalWalletAuth();
