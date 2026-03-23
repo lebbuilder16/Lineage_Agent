@@ -152,6 +152,8 @@ export function SettingsSheet({ visible, onClose }: SettingsSheetProps) {
 
   const handleRemove = async () => {
     try { await privyLogout(); } catch { /* best-effort */ }
+    // Wait for Privy SDK to fully clear internal session state
+    await new Promise((r) => setTimeout(r, 1000));
     setApiKey(null);
     // Clear cached query data so next user starts fresh
     const { queryClient } = await import('../../lib/query-client');

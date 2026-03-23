@@ -151,7 +151,8 @@ export default function LoginScreen() {
         // Privy throws if not logged in — that's fine
       }
       // Wait for Privy SDK internal state to fully settle
-      await new Promise((r) => setTimeout(r, 800));
+      // With createOnLogin:'off', this should be faster but we keep a safe margin
+      await new Promise((r) => setTimeout(r, 1500));
       if (!cancelled) setSessionCleared(true);
     };
     if (privyReady) {
@@ -181,7 +182,7 @@ export default function LoginScreen() {
       // Not logged in — that's the desired state
     }
     // Critical: wait for Privy SDK to fully process the logout
-    await new Promise((r) => setTimeout(r, 500));
+    await new Promise((r) => setTimeout(r, 1500));
 
     // Attempt to send code with up to 3 retries
     for (let attempt = 0; attempt < 3; attempt++) {
