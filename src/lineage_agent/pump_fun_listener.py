@@ -1,20 +1,24 @@
 """
-Real-time Pump.fun token listener via Solana logsSubscribe WebSocket.
+Real-time Pump.fun DEX graduation detector.
 
-Uses standard Solana RPC `logsSubscribe` (works on ALL endpoints including
-Helius, QuickNode, etc.) to detect Pump.fun program activity. When a new
-token creation is detected:
+Polls Helius RPC every 10 seconds for new Raydium pool initializations
+that involve Pump.fun tokens (= tokens that just graduated to DEX).
 
-1. **Triage** (<3s): Check deployer history + DNA fingerprint
-2. **Escalate** if suspicious: Trigger full forensic pipeline (~22s)
-3. **Alert**: Push to WebSocket/FCM/Telegram for users watching the deployer
+Only processes GRADUATED tokens — not every Pump.fun token creation.
+This is the high-signal, low-noise approach:
+- ~50-200 graduations/day vs ~5000+ creations/day
+- Graduated tokens have real liquidity and real traders at risk
 
-Architecture follows the same background-task pattern as rug_detector.py.
+Flow:
+1. Poll getSignaturesForAddress on Raydium AMM program
+2. Filter for pool initialization transactions
+3. Extract the token mint from the new pool
+4. Triage: check deployer history + DNA fingerprint
+5. Escalate if suspicious → full forensic pipeline + alerts
 """
 from __future__ import annotations
 
 import asyncio
-import base64
 import json
 import logging
 import os
@@ -28,137 +32,129 @@ logger = logging.getLogger(__name__)
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 
-def _resolve_helius_key() -> str:
-    key = os.environ.get("HELIUS_API_KEY", "")
-    if key:
-        return key
-    rpc = os.environ.get("SOLANA_RPC_ENDPOINT", "")
-    if "helius" in rpc and "api-key=" in rpc:
-        return rpc.split("api-key=")[-1].split("&")[0]
-    return ""
-
-def _build_ws_url() -> str:
-    """Build WebSocket URL from SOLANA_RPC_ENDPOINT (https → wss)."""
-    rpc = os.environ.get("SOLANA_RPC_ENDPOINT", "")
-    if rpc.startswith("https://"):
-        return "wss://" + rpc[len("https://"):]
-    if rpc.startswith("http://"):
-        return "ws://" + rpc[len("http://"):]
-    return ""
-
-_HELIUS_API_KEY = _resolve_helius_key()
-_WS_URL = os.environ.get("HELIUS_WS_URL", _build_ws_url())
 _RPC_URL = os.environ.get("SOLANA_RPC_ENDPOINT", "")
 _PUMP_PROGRAM_ID = "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBymtzbm"
+_RAYDIUM_AMM = "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8"
 
-# Reconnect backoff
-_RECONNECT_BASE = 2.0
-_RECONNECT_MAX = 60.0
-_RECONNECT_MULTIPLIER = 2.0
-
-# Triage thresholds
+# Poll interval
+_POLL_INTERVAL = 10  # seconds
 _HIGH_RISK_RUG_RATE = 0.5
 _MIN_TOKENS_FOR_TRIAGE = 2
+_MAX_TOKENS_PER_MINUTE = 20
 
-# Rate limiter
-_MAX_TOKENS_PER_MINUTE = 30
-_token_timestamps: list[float] = []
-
-# Dedup: avoid processing same signature twice
-_seen_sigs: dict[str, float] = {}
-_DEDUP_TTL = 300  # 5 min
-
-# Background task
+# State
 _listener_task: Optional[asyncio.Task] = None
+_last_signature: Optional[str] = None
+_token_timestamps: list[float] = []
+_seen_mints: dict[str, float] = {}
 
-# Base58 alphabet for validation
 _B58_RE = re.compile(r"^[1-9A-HJ-NP-Za-km-z]{32,44}$")
 
 
-# ── Extract mint from Pump.fun logs ──────────────────────────────────────────
+# ── RPC helpers ───────────────────────────────────────────────────────────────
 
-async def _resolve_tx_accounts(signature: str) -> Optional[dict]:
-    """Fetch transaction details via RPC to extract mint and deployer."""
+async def _rpc_call(method: str, params: list, timeout: float = 10) -> dict | None:
+    """Make a JSON-RPC call to the Solana RPC endpoint."""
     if not _RPC_URL:
         return None
     try:
-        async with httpx.AsyncClient(timeout=10) as client:
+        async with httpx.AsyncClient(timeout=timeout) as client:
             resp = await client.post(_RPC_URL, json={
                 "jsonrpc": "2.0", "id": 1,
-                "method": "getTransaction",
-                "params": [signature, {
-                    "encoding": "jsonParsed",
-                    "maxSupportedTransactionVersion": 0,
-                    "commitment": "confirmed",
-                }],
+                "method": method, "params": params,
             })
             data = resp.json()
-            result = data.get("result")
-            if not result:
-                return None
-
-            tx = result.get("transaction", {})
-            msg = tx.get("message", {})
-            account_keys = msg.get("accountKeys", [])
-            instructions = msg.get("instructions", [])
-
-            # Fee payer = deployer (first account key)
-            deployer = ""
-            if account_keys:
-                ak0 = account_keys[0]
-                deployer = ak0.get("pubkey", ak0) if isinstance(ak0, dict) else str(ak0)
-
-            # Find the Pump.fun instruction and extract the mint
-            for ix in instructions:
-                prog = ix.get("programId", "")
-                if prog == _PUMP_PROGRAM_ID:
-                    accounts = ix.get("accounts", [])
-                    # Pump.fun create: mint is account index 0 in the instruction
-                    # The exact index depends on the instruction variant, but typically:
-                    # accounts[0] = mint, accounts[1] = mintAuthority/curve, accounts[2] = bondingCurve
-                    for acc in accounts[:4]:
-                        acc_str = acc.get("pubkey", acc) if isinstance(acc, dict) else str(acc)
-                        if _B58_RE.match(acc_str) and acc_str != deployer and acc_str != _PUMP_PROGRAM_ID:
-                            # Likely the mint — verify it's not a known system program
-                            if not acc_str.startswith("1111") and not acc_str.startswith("Token"):
-                                return {
-                                    "mint": acc_str,
-                                    "deployer": deployer,
-                                    "signature": signature,
-                                    "name": "",
-                                    "symbol": "",
-                                }
-            return None
+            return data.get("result")
     except Exception as exc:
-        logger.debug("[listener] getTransaction error for %s: %s", signature[:12], exc)
+        logger.debug("[listener] RPC error (%s): %s", method, exc)
         return None
 
 
-_log_sample_count = 0
+async def _get_recent_signatures(limit: int = 20) -> list[dict]:
+    """Get recent transaction signatures for Raydium AMM."""
+    params: list = [_RAYDIUM_AMM, {"limit": limit, "commitment": "confirmed"}]
+    if _last_signature:
+        params[1]["until"] = _last_signature
+    result = await _rpc_call("getSignaturesForAddress", params, timeout=15)
+    return result or []
 
-def _is_create_log(logs: list[str]) -> bool:
-    """Check if logs indicate a Pump.fun token creation (not a swap/buy/sell)."""
-    global _log_sample_count
-    log_text = " ".join(logs)
 
-    # Debug: log first 5 messages to understand the format
-    if _log_sample_count < 5:
-        _log_sample_count += 1
-        # Log a compact sample of the log lines
-        sample = [l for l in logs if "Program" in l or "Instruction" in l][:5]
-        logger.info("[listener] LOG SAMPLE #%d: %s", _log_sample_count, " | ".join(sample))
+async def _get_transaction(signature: str) -> dict | None:
+    """Fetch a parsed transaction."""
+    result = await _rpc_call("getTransaction", [
+        signature,
+        {"encoding": "jsonParsed", "maxSupportedTransactionVersion": 0, "commitment": "confirmed"},
+    ], timeout=10)
+    return result
 
-    # Pump.fun create instructions produce specific log patterns
-    if "InitializeMint" in log_text:
+
+# ── Transaction analysis ──────────────────────────────────────────────────────
+
+def _is_pool_init(tx: dict) -> bool:
+    """Check if a transaction is a Raydium pool initialization (not a swap)."""
+    meta = tx.get("meta", {})
+    log_messages = meta.get("logMessages", [])
+    log_text = " ".join(log_messages)
+
+    # Pool init has "Instruction: Initialize2" or "Program log: initialize2" in Raydium context
+    if "initialize2" in log_text.lower():
         return True
-    if "Instruction: Create" in log_text:
-        return True
-    if "Instruction: Initialize" in log_text:
-        return True
-    # Some Pump.fun creates log "Program log: create" (lowercase)
-    if "program log: create" in log_text.lower():
+    # Alternative: check for multiple InitializeMint + InitializeAccount in same tx
+    init_count = log_text.lower().count("initializeaccount")
+    if init_count >= 3 and _RAYDIUM_AMM in log_text:
         return True
     return False
+
+
+def _extract_mint_from_pool_init(tx: dict) -> Optional[dict]:
+    """Extract the token mint and deployer from a Raydium pool init transaction."""
+    try:
+        message = tx.get("transaction", {}).get("message", {})
+        account_keys = message.get("accountKeys", [])
+        instructions = message.get("instructions", [])
+        inner_instructions = tx.get("meta", {}).get("innerInstructions", [])
+
+        fee_payer = ""
+        if account_keys:
+            ak0 = account_keys[0]
+            fee_payer = ak0.get("pubkey", ak0) if isinstance(ak0, dict) else str(ak0)
+
+        # Look for the token mint in the instruction accounts
+        # In a Raydium pool init, the mint is one of the first accounts
+        all_accounts: set[str] = set()
+        for ix in instructions:
+            for acc in ix.get("accounts", []):
+                acc_str = acc.get("pubkey", acc) if isinstance(acc, dict) else str(acc)
+                all_accounts.add(acc_str)
+
+        # Also check inner instructions for InitializeMint
+        for inner_group in inner_instructions:
+            for ix in inner_group.get("instructions", []):
+                parsed = ix.get("parsed", {})
+                if isinstance(parsed, dict):
+                    ix_type = parsed.get("type", "")
+                    info = parsed.get("info", {})
+                    # InitializeMint tells us the mint address
+                    if ix_type == "initializeAccount3" or ix_type == "initializeAccount":
+                        mint = info.get("mint", "")
+                        if mint and _B58_RE.match(mint):
+                            # Skip SOL (WSOL) — we want the token, not SOL
+                            if mint != "So11111111111111111111111111111111111111112":
+                                return {"mint": mint, "deployer": fee_payer, "name": "", "symbol": ""}
+
+        # Fallback: look for token accounts that aren't SOL or known programs
+        known = {_RAYDIUM_AMM, _PUMP_PROGRAM_ID, "11111111111111111111111111111111",
+                 "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+                 "So11111111111111111111111111111111111111112",
+                 "SysvarRent111111111111111111111111111111111"}
+        for acc in all_accounts:
+            if acc not in known and _B58_RE.match(acc) and acc != fee_payer:
+                if acc.endswith("pump"):  # Pump.fun mints end with "pump"
+                    return {"mint": acc, "deployer": fee_payer, "name": "", "symbol": ""}
+
+    except Exception as exc:
+        logger.debug("[listener] extraction error: %s", exc)
+    return None
 
 
 # ── Rate limiter ──────────────────────────────────────────────────────────────
@@ -168,13 +164,6 @@ def _rate_limited() -> bool:
     while _token_timestamps and now - _token_timestamps[0] > 60:
         _token_timestamps.pop(0)
     return len(_token_timestamps) >= _MAX_TOKENS_PER_MINUTE
-
-
-def _prune_seen():
-    now = time.monotonic()
-    stale = [k for k, v in _seen_sigs.items() if now - v > _DEDUP_TTL]
-    for k in stale:
-        del _seen_sigs[k]
 
 
 # ── Triage ────────────────────────────────────────────────────────────────────
@@ -217,12 +206,12 @@ async def _triage_token(mint: str, deployer: str) -> dict:
     return {"escalate": len(risk_signals) > 0, "risk_signals": risk_signals, "deployer_profile": deployer_profile}
 
 
-# ── Process detected token ────────────────────────────────────────────────────
+# ── Process graduated token ───────────────────────────────────────────────────
 
-async def _process_new_token(token_info: dict) -> None:
+async def _process_graduated_token(token_info: dict) -> None:
     mint = token_info["mint"]
     deployer = token_info["deployer"]
-    logger.info("[listener] NEW TOKEN: %s (deployer=%s)", mint[:12], deployer[:12])
+    logger.info("[listener] GRADUATED TOKEN: %s (deployer=%s)", mint, deployer[:12])
 
     # Record event
     try:
@@ -230,8 +219,8 @@ async def _process_new_token(token_info: dict) -> None:
         await event_insert(
             event_type="token_created", mint=mint, deployer=deployer,
             name=token_info.get("name", ""), symbol=token_info.get("symbol", ""),
-            launch_platform="pump_fun", lifecycle_stage="launchpad_curve_only",
-            market_surface="launchpad_curve_only", recorded_at=time.time(),
+            launch_platform="pump_fun", lifecycle_stage="dex_live",
+            market_surface="dex_active", recorded_at=time.time(),
         )
     except Exception:
         pass
@@ -263,15 +252,15 @@ async def _process_new_token(token_info: dict) -> None:
                 rug_info = f"{dp.rug_count}/{dp.total_tokens_launched} rugs" if dp else "unknown"
                 for (uid,) in await cur.fetchall():
                     await _broadcast_web_alert({
-                        "event": "alert", "type": "deployer_launch",
-                        "title": "New token from watched deployer",
-                        "body": f"Deployer ({rug_info}) launched a new token",
+                        "event": "alert", "type": "token_graduated",
+                        "title": f"Token graduated to DEX",
+                        "body": f"Deployer ({rug_info}) token now trading on Raydium",
                         "mint": mint, "deployer": deployer,
                     }, user_id=uid)
         except Exception:
             pass
 
-        # Full pipeline (background)
+        # Full pipeline
         async def _pipeline():
             try:
                 from .forensic_pipeline import run_forensic_pipeline
@@ -282,116 +271,106 @@ async def _process_new_token(token_info: dict) -> None:
                 logger.warning("[listener] pipeline failed for %s: %s", mint[:12], e)
         asyncio.create_task(_pipeline(), name=f"pipeline_{mint[:8]}")
     else:
-        logger.debug("[listener] %s — triage clean, no escalation", mint[:12])
+        logger.debug("[listener] %s — triage clean", mint[:12])
 
 
-# ── WebSocket listener (logsSubscribe) ────────────────────────────────────────
+# ── Polling loop ──────────────────────────────────────────────────────────────
 
-async def _ws_listener_loop() -> None:
-    """Listen for Pump.fun logs via standard Solana RPC logsSubscribe."""
-    import websockets
+async def _poll_loop() -> None:
+    """Poll Raydium AMM for new pool initializations every 10 seconds."""
+    global _last_signature
 
-    retry_delay = _RECONNECT_BASE
+    logger.info("[listener] starting graduation poll loop (interval=%ds)", _POLL_INTERVAL)
+
+    # Warm up: get the latest signature to start from
+    sigs = await _get_recent_signatures(limit=1)
+    if sigs:
+        _last_signature = sigs[0].get("signature")
+        logger.info("[listener] starting from signature %s", _last_signature[:20] if _last_signature else "none")
+
     total_detected = 0
 
     while True:
-        if not _WS_URL:
-            logger.warning("[listener] no WebSocket URL — listener disabled")
-            return
-
         try:
-            logger.info("[listener] connecting to %s...", _WS_URL[:40])
-            async with websockets.connect(_WS_URL, ping_interval=30, ping_timeout=10, close_timeout=5) as ws:
-                # Subscribe to Pump.fun program logs
-                sub = json.dumps({
-                    "jsonrpc": "2.0", "id": 1,
-                    "method": "logsSubscribe",
-                    "params": [
-                        {"mentions": [_PUMP_PROGRAM_ID]},
-                        {"commitment": "confirmed"},
-                    ],
-                })
-                await ws.send(sub)
-                logger.info("[listener] subscribed to Pump.fun logs (logsSubscribe)")
-                retry_delay = _RECONNECT_BASE
+            # Get new signatures since last check
+            new_sigs = await _get_recent_signatures(limit=30)
+            if not new_sigs:
+                await asyncio.sleep(_POLL_INTERVAL)
+                continue
 
-                async for raw_msg in ws:
-                    try:
-                        msg = json.loads(raw_msg)
+            # Update last_signature to the most recent
+            _last_signature = new_sigs[0].get("signature")
 
-                        # Subscription confirmation
-                        if "result" in msg and "id" in msg:
-                            logger.info("[listener] subscription confirmed (id=%s)", msg.get("result"))
-                            continue
+            # Process each new transaction
+            for sig_info in reversed(new_sigs):  # oldest first
+                sig = sig_info.get("signature", "")
+                if not sig or sig_info.get("err"):
+                    continue
 
-                        # Extract log notification
-                        params = msg.get("params", {})
-                        result = params.get("result", {})
-                        value = result.get("value", {})
+                # Dedup
+                if sig in _seen_mints:
+                    continue
+                _seen_mints[sig] = time.monotonic()
 
-                        signature = value.get("signature", "")
-                        logs = value.get("logs", [])
-                        err = value.get("err")
+                # Rate limit
+                if _rate_limited():
+                    continue
 
-                        # Skip failed transactions
-                        if err is not None:
-                            continue
-                        if not signature or not logs:
-                            continue
+                # Fetch full transaction
+                tx = await _get_transaction(sig)
+                if not tx:
+                    continue
 
-                        # Dedup
-                        if signature in _seen_sigs:
-                            continue
-                        _seen_sigs[signature] = time.monotonic()
+                # Check if this is a pool initialization
+                if not _is_pool_init(tx):
+                    continue
 
-                        # Periodically prune dedup cache
-                        if len(_seen_sigs) > 1000:
-                            _prune_seen()
+                # Extract token info
+                token_info = _extract_mint_from_pool_init(tx)
+                if not token_info:
+                    continue
 
-                        # Only process token CREATION logs (not swaps/buys/sells)
-                        if not _is_create_log(logs):
-                            continue
+                mint = token_info["mint"]
+                if mint in _seen_mints:
+                    continue
+                _seen_mints[mint] = time.monotonic()
 
-                        # Rate limit
-                        if _rate_limited():
-                            continue
+                _token_timestamps.append(time.monotonic())
+                total_detected += 1
 
-                        _token_timestamps.append(time.monotonic())
+                # Process in background
+                asyncio.create_task(
+                    _process_graduated_token(token_info),
+                    name=f"grad_{mint[:8]}",
+                )
 
-                        # Resolve tx details in background
-                        async def _handle(sig: str):
-                            token_info = await _resolve_tx_accounts(sig)
-                            if token_info:
-                                total_detected_local = total_detected  # capture for logging
-                                await _process_new_token(token_info)
-
-                        asyncio.create_task(_handle(signature), name=f"resolve_{signature[:8]}")
-
-                    except json.JSONDecodeError:
-                        continue
-                    except Exception as exc:
-                        logger.debug("[listener] msg error: %s", exc)
+            # Prune dedup cache
+            if len(_seen_mints) > 500:
+                now = time.monotonic()
+                stale = [k for k, v in _seen_mints.items() if now - v > 600]
+                for k in stale:
+                    del _seen_mints[k]
 
         except asyncio.CancelledError:
-            logger.info("[listener] cancelled (total detected: %d)", total_detected)
+            logger.info("[listener] cancelled (detected %d graduations)", total_detected)
             return
         except Exception as exc:
-            logger.warning("[listener] WS error: %s — reconnecting in %.0fs", exc, retry_delay)
-            await asyncio.sleep(retry_delay)
-            retry_delay = min(retry_delay * _RECONNECT_MULTIPLIER, _RECONNECT_MAX)
+            logger.warning("[listener] poll error: %s", exc)
+
+        await asyncio.sleep(_POLL_INTERVAL)
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
 def schedule_pump_fun_listener() -> Optional[asyncio.Task]:
     global _listener_task
-    if not _WS_URL:
-        logger.info("[listener] no WS URL — Pump.fun listener disabled")
+    if not _RPC_URL:
+        logger.info("[listener] no SOLANA_RPC_ENDPOINT — listener disabled")
         return None
     if _listener_task is not None and not _listener_task.done():
         return _listener_task
-    _listener_task = asyncio.create_task(_ws_listener_loop(), name="pump_fun_listener")
-    logger.info("[listener] Pump.fun real-time listener started")
+    _listener_task = asyncio.create_task(_poll_loop(), name="pump_fun_listener")
+    logger.info("[listener] Pump.fun graduation listener started")
     return _listener_task
 
 def cancel_pump_fun_listener() -> None:
