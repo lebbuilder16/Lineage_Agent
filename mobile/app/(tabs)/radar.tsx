@@ -424,7 +424,15 @@ export default function RadarScreen() {
   const wsConnected = useAlertsStore((s) => s.wsConnected);
   const markRead = useAlertsStore((s) => s.markRead);
   const allAlerts = useAlertsStore((s) => s.alerts);
-  const recentAlerts = useMemo(() => allAlerts.filter((a) => !a.read).slice(0, 3), [allAlerts]);
+  const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set());
+  const recentAlerts = useMemo(() =>
+    allAlerts.filter((a) => !dismissedIds.has(a.id)).slice(0, 3),
+    [allAlerts, dismissedIds],
+  );
+  const handleDismissAlert = (id: string) => {
+    markRead(id);
+    setDismissedIds((prev) => new Set(prev).add(id));
+  };
 
   const apiKey = useAuthStore((s) => s.apiKey);
   const user = useAuthStore((s) => s.user);
@@ -654,17 +662,17 @@ export default function RadarScreen() {
                       overshootRight={false}
                       renderRightActions={() => (
                         <TouchableOpacity
-                          onPress={() => markRead(alert.id)}
+                          onPress={() => handleDismissAlert(alert.id)}
                           style={styles.swipeDismiss}
                         >
                           <Text style={styles.swipeDismissText}>Dismiss</Text>
                         </TouchableOpacity>
                       )}
-                      onSwipeableOpen={() => markRead(alert.id)}
+                      onSwipeableOpen={() => handleDismissAlert(alert.id)}
                     >
                       <TouchableOpacity
                         onPress={() => {
-                          markRead(alert.id);
+                          markRead(alert.id);  // mark read but don't dismiss on tap
                           if (alert.mint) router.push(`/token/${alert.mint}` as any);
                         }}
                         activeOpacity={0.75}
