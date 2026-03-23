@@ -513,13 +513,13 @@ async def admin_health() -> dict:
     except Exception:
         cache_info = {"backend": type(cache).__name__}
 
-    from .pump_fun_listener import is_listener_active
+    from .pump_fun_listener import get_listener_stats
     return {
         "status": "ok",
         "uptime_seconds": uptime_s,
         "cache": cache_info,
         "circuit_breakers": cb_statuses(),
-        "pump_fun_listener": "active" if is_listener_active() else "disabled",
+        "pump_fun_listener": get_listener_stats(),
     }
 
 
