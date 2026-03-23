@@ -123,8 +123,9 @@ function AgentSuggestions({ data, mint }: { data: any; mint: string }) {
 
     if (ins?.deployer_exited)
       s.push({ Icon: AlertTriangle, text: 'Deployer has fully exited', why: 'All deployer tokens sold — classic rug exit pattern', route: `/investigate/${mint}`, priority: 0 });
-    if (dp?.rug_rate_pct != null && dp.rug_rate_pct > 30)
-      s.push({ Icon: ShieldAlert, text: `Deployer rugged ${dp.confirmed_rug_count ?? '?'} tokens (${dp.rug_rate_pct.toFixed(0)}%)`, why: `Rug rate is ${dp.rug_rate_pct.toFixed(0)}% — well above the 15% average`, route: `/investigate/${mint}`, priority: 1 });
+    const confirmedRate = dp?.confirmed_rug_rate_pct ?? dp?.rug_rate_pct;
+    if (confirmedRate != null && confirmedRate > 30)
+      s.push({ Icon: ShieldAlert, text: `Deployer rugged ${dp.confirmed_rug_count ?? '?'} tokens (${confirmedRate.toFixed(0)}%)`, why: `Rug rate is ${confirmedRate.toFixed(0)}% — well above the 15% average`, route: `/investigate/${mint}`, priority: 1 });
     if (br?.overall_verdict?.includes('confirmed'))
       s.push({ Icon: Zap, text: 'Bundle extraction confirmed', why: 'Coordinated wallets extracted SOL post-launch', route: `/sol-trace/${mint}`, priority: 1 });
     if ((cr?.deployer_community?.wallets?.length ?? 0) > 2)
@@ -309,8 +310,8 @@ export default function TokenScreen() {
     if (ins?.flags?.includes('PRICE_CRASH') && (ins?.sell_pressure_24h ?? 0) > 0.4) return 'high';
     if (ins?.deployer_exited) return 'high';
     if (ins?.verdict === 'suspicious') return 'medium';
-    // 6. deployer rug rate
-    const rugRate = data?.deployer_profile?.rug_rate_pct;
+    // 6. deployer rug rate (use confirmed only — unconfirmed/weak evidence is too noisy)
+    const rugRate = data?.deployer_profile?.confirmed_rug_rate_pct ?? data?.deployer_profile?.rug_rate_pct;
     if (rugRate != null && rugRate > 70) return 'critical';
     if (rugRate != null && rugRate > 40) return 'high';
     if (rugRate != null && rugRate > 15) return 'medium';

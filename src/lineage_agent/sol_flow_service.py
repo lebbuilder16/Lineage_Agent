@@ -57,6 +57,7 @@ async def trace_sol_flow(
     max_hops: int = _MAX_HOPS,
     max_txn_per_wallet: int = _MAX_TXN_PER_WALLET,
     extra_seed_wallets: Optional[list[str]] = None,
+    token_created_at: Optional[datetime] = None,
 ) -> Optional[SolFlowReport]:
     """Trace SOL flows from a deployer wallet after a rug (BFS, max 3 hops).
 
@@ -88,6 +89,7 @@ async def trace_sol_flow(
                 max_txn_per_wallet=max_txn_per_wallet,
                 extra_seed_wallets=extra_seed_wallets or [],
                 _collected=collected_flows,
+                token_created_at=token_created_at,
             ),
             timeout=_TRACE_TIMEOUT,
         )
@@ -114,12 +116,13 @@ async def trace_sol_flow(
                 mint, deployer, collected_flows,
                 cross_chain_exits=exits, sol_price_usd=sol_price,
                 dynamic_labels=dyn,
+                token_created_at=token_created_at,
             )
         return None
     except Exception:
         logger.exception("trace_sol_flow failed for mint=%s", mint)
         if collected_flows:
-            return _flows_to_report(mint, deployer, collected_flows)
+            return _flows_to_report(mint, deployer, collected_flows, token_created_at=token_created_at)
         return None
 
 
@@ -157,6 +160,7 @@ async def _run_trace(
     max_txn_per_wallet: int,
     extra_seed_wallets: list[str],
     _collected: list[dict],
+    token_created_at: Optional[datetime] = None,
 ) -> Optional[SolFlowReport]:
     rpc = get_rpc_client()
     sem = asyncio.Semaphore(_HOP_SEM_CONCURRENCY)
@@ -254,6 +258,7 @@ async def _run_trace(
         cross_chain_exits=exits,
         sol_price_usd=sol_price,
         dynamic_labels=dynamic_labels,
+        token_created_at=token_created_at,
     )
 
 
@@ -458,6 +463,7 @@ def _flows_to_report(
     cross_chain_exits: Optional[list[CrossChainExit]] = None,
     sol_price_usd: Optional[float] = None,
     dynamic_labels: Optional[dict] = None,
+    token_created_at: Optional[datetime] = None,
 ) -> SolFlowReport:
     """Convert raw flow dicts to a SolFlowReport model."""
     from .constants import LAUNCHPAD_PROGRAMS  # noqa: PLC0415
@@ -498,10 +504,13 @@ def _flows_to_report(
         ))
 
     # Total extracted = deployer outflows at hop 0, EXCLUDING protocol fees
-    # Protocol fees (bonding curve, launchpad rewards) are legitimate income.
+    # and flows that occurred BEFORE the token was created (normal wallet
+    # activity like funding, transfers between personal wallets).
     total_sol = sum(
         e.amount_sol for e in edges
-        if e.hop == 0 and e.flow_context != "protocol_fee"
+        if e.hop == 0
+        and e.flow_context != "protocol_fee"
+        and (token_created_at is None or e.block_time is None or e.block_time >= token_created_at)
     )
 
     # Compute USD value if SOL price is available
@@ -523,9 +532,13 @@ def _flows_to_report(
     hop0_times = [e.block_time for e in edges if e.hop == 0 and e.block_time is not None]
     rug_ts: Optional[datetime] = min(hop0_times) if hop0_times else None
 
-    # Determine extraction context from flow labels
-    protocol_only = all(e.flow_context == "protocol_fee" for e in edges) if edges else True
-    deployer_outflows = [e for e in edges if e.flow_context == "deployer_outflow"]
+    # Determine extraction context from flow labels (only post-token flows)
+    post_token_edges = [
+        e for e in edges
+        if token_created_at is None or e.block_time is None or e.block_time >= token_created_at
+    ] if token_created_at else edges
+    protocol_only = all(e.flow_context == "protocol_fee" for e in post_token_edges) if post_token_edges else True
+    deployer_outflows = [e for e in post_token_edges if e.flow_context == "deployer_outflow"]
     has_deployer_outflows = len(deployer_outflows) > 0
 
     if protocol_only and not has_deployer_outflows:
