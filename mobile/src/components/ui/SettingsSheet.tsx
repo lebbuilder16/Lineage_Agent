@@ -152,16 +152,34 @@ export function SettingsSheet({ visible, onClose }: SettingsSheetProps) {
 
   const handleRemove = async () => {
     try { await privyLogout(); } catch { /* best-effort */ }
-    // Wait for Privy SDK to fully clear internal session state
     await new Promise((r) => setTimeout(r, 1000));
     setApiKey(null);
-    // Reset all user-specific stores so next user starts fresh
+
+    // Reset ALL user-specific stores — prevent data leaking between accounts
     const { queryClient } = await import('../../lib/query-client');
     queryClient.clear();
+
     const { useSubscriptionStore } = await import('../../store/subscription');
     useSubscriptionStore.getState().reset();
-    const { useAgentPrefsStore } = await import('../../store/agent-prefs');
-    useAgentPrefsStore.getState().hydrate(); // will reset to defaults since apiKey is null
+
+    const { useAlertsStore } = await import('../../store/alerts');
+    useAlertsStore.setState({ alerts: [], wsConnected: false });
+
+    const { useHistoryStore } = await import('../../store/history');
+    useHistoryStore.setState({ investigations: [] });
+
+    const { useBriefingStore } = await import('../../lib/openclaw-briefing');
+    useBriefingStore.getState().clear();
+
+    // Clear persisted data from AsyncStorage
+    const AsyncStorage = (await import('@react-native-async-storage/async-storage')).default;
+    await Promise.all([
+      AsyncStorage.removeItem('lineage-alerts'),
+      AsyncStorage.removeItem('lineage-history'),
+      AsyncStorage.removeItem('lineage_agent_prefs'),
+      AsyncStorage.removeItem('lineage-alert-dedup'),
+    ]).catch(() => {});
+
     onClose();
   };
 
