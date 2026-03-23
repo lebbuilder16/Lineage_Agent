@@ -116,43 +116,77 @@ export default function AgentScreen() {
     setRefreshing(false);
   };
 
+  type FeedCategory = 'investigation' | 'alert' | 'flag';
+  interface FeedItem {
+    id: string;
+    category: FeedCategory;
+    categoryLabel: string;
+    icon: any;
+    tokenName: string;
+    tokenSymbol: string;
+    mint: string;
+    summary: string;
+    detail?: string;
+    riskScore?: number;
+    time: number;
+    color: string;
+  }
+
   const feedItems = useMemo(() => {
-    const items: { id: string; icon: any; text: string; sub?: string; time: number; color: string; route?: string }[] = [];
+    const items: FeedItem[] = [];
     for (const inv of investigations.slice(0, 5)) {
+      const name = inv.name ?? inv.mint.slice(0, 8);
+      const symbol = inv.symbol ?? '';
       items.push({
-        id: `inv-${inv.mint}`,
+        id: `inv-${inv.mint}-${inv.timestamp}`,
+        category: 'investigation',
+        categoryLabel: 'Investigation',
         icon: Search,
-        text: `${inv.name ?? inv.symbol ?? inv.mint.slice(0, 8)} — ${inv.riskScore}/100`,
+        tokenName: name,
+        tokenSymbol: symbol,
+        mint: inv.mint,
+        summary: inv.verdict ?? `Risk score: ${inv.riskScore}/100`,
+        detail: inv.keyFindings?.[0] ?? undefined,
+        riskScore: inv.riskScore,
         time: inv.timestamp,
         color: inv.riskScore >= 75 ? tokens.risk.critical : inv.riskScore >= 50 ? tokens.risk.high : tokens.secondary,
-        route: `/token/${inv.mint}`,
       });
     }
-    for (const alert of alerts.slice(0, 3)) {
+    for (const alert of alerts.slice(0, 5)) {
       const ts = new Date(alert.timestamp ?? alert.created_at ?? '').getTime();
       if (isNaN(ts)) continue;
       items.push({
         id: `alert-${alert.id}`,
+        category: 'alert',
+        categoryLabel: 'Alert',
         icon: alert.type === 'rug' ? AlertTriangle : Bell,
-        text: alert.title ?? alert.message ?? `${alert.type} alert`,
+        tokenName: alert.token_name ?? alert.mint?.slice(0, 8) ?? 'Unknown',
+        tokenSymbol: '',
+        mint: alert.mint ?? '',
+        summary: alert.message ?? `${alert.type} alert`,
+        riskScore: alert.risk_score ?? undefined,
         time: ts,
-        color: (alert.risk_score ?? 0) >= 75 ? tokens.risk.critical : tokens.white60,
-        route: alert.mint ? `/token/${alert.mint}` : undefined,
+        color: (alert.risk_score ?? 0) >= 75 ? tokens.risk.critical : tokens.risk.high,
       });
     }
     for (const flag of sweepFlags.slice(0, 5)) {
       items.push({
         id: `flag-${flag.id}`,
+        category: 'flag',
+        categoryLabel: 'Sweep Flag',
         icon: flag.severity === 'critical' ? XOctagon : flag.severity === 'warning' ? AlertTriangle : Info,
-        text: flag.title,
-        sub: `${flag.mint.slice(0, 6)}…${flag.mint.slice(-4)}`,
+        tokenName: flag.mint.slice(0, 8),
+        tokenSymbol: '',
+        mint: flag.mint,
+        summary: flag.title,
         time: flag.createdAt * 1000,
         color: flag.severity === 'critical' ? tokens.risk.critical : flag.severity === 'warning' ? tokens.risk.high : tokens.white60,
-        route: `/token/${flag.mint}`,
       });
     }
-    return items.sort((a, b) => b.time - a.time).slice(0, 10);
+    return items.sort((a, b) => b.time - a.time).slice(0, 12);
   }, [investigations, alerts, sweepFlags]);
+
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const watchCount = serverStatus?.watching ?? watches.length;
   const todayCount = serverStatus?.investigations_today ?? investigations.filter(
@@ -270,28 +304,83 @@ export default function AgentScreen() {
               ) : (
                 feedItems.map((item, i) => {
                   const Icon = item.icon;
+                  const isExpanded = expandedId === item.id;
+                  const catColor = item.category === 'investigation' ? tokens.violet
+                    : item.category === 'alert' ? tokens.risk.high
+                    : tokens.cyan;
                   return (
                     <Animated.View
                       key={item.id}
                       entering={FadeInDown.delay(i * 40).duration(250).springify()}
                     >
                       <TouchableOpacity
-                        onPress={() => item.route && router.push(item.route as any)}
+                        onPress={() => setExpandedId(isExpanded ? null : item.id)}
                         activeOpacity={0.75}
-                        style={styles.feedCard}
+                        style={[styles.feedCard, isExpanded && { borderColor: `${item.color}30` }]}
                       >
                         <View style={[styles.feedDot, { backgroundColor: item.color }]} />
-                        <View style={[styles.feedIconCircle, { backgroundColor: `${item.color}10`, borderColor: `${item.color}25` }]}>
-                          <Icon size={14} color={item.color} strokeWidth={2.5} />
-                        </View>
-                        <View style={styles.feedBody}>
-                          <Text style={styles.feedText} numberOfLines={1}>{item.text}</Text>
-                          {item.sub && <Text style={styles.feedSub}>{item.sub}</Text>}
-                        </View>
-                        <View style={styles.feedRight}>
+
+                        {/* Category tag + time */}
+                        <View style={styles.feedHeader}>
+                          <View style={[styles.catTag, { backgroundColor: `${catColor}15` }]}>
+                            <Icon size={10} color={catColor} strokeWidth={2.5} />
+                            <Text style={[styles.catLabel, { color: catColor }]}>{item.categoryLabel}</Text>
+                          </View>
                           <Text style={styles.feedTime}>{timeAgoShort(item.time)}</Text>
-                          <ChevronRight size={11} color={tokens.white20} />
                         </View>
+
+                        {/* Token identity */}
+                        <View style={styles.feedTokenRow}>
+                          <Text style={styles.feedTokenName} numberOfLines={1}>
+                            {item.tokenName}
+                          </Text>
+                          {item.tokenSymbol !== '' && (
+                            <Text style={styles.feedTokenSymbol}>{item.tokenSymbol}</Text>
+                          )}
+                          {item.riskScore != null && (
+                            <View style={[styles.feedScorePill, {
+                              backgroundColor: `${item.color}15`,
+                              borderColor: `${item.color}30`,
+                            }]}>
+                              <Text style={[styles.feedScoreText, { color: item.color }]}>{item.riskScore}</Text>
+                            </View>
+                          )}
+                        </View>
+
+                        {/* Summary */}
+                        <Text style={styles.feedSummary} numberOfLines={isExpanded ? 4 : 1}>{item.summary}</Text>
+
+                        {/* Expanded: detail + actions */}
+                        {isExpanded && (
+                          <View style={styles.feedExpanded}>
+                            {item.detail && (
+                              <Text style={styles.feedDetail} numberOfLines={2}>{item.detail}</Text>
+                            )}
+                            <Text style={styles.feedMint}>{item.mint.slice(0, 12)}…{item.mint.slice(-6)}</Text>
+                            <View style={styles.feedActions}>
+                              {item.mint && (
+                                <TouchableOpacity
+                                  onPress={() => router.push(`/investigate/${item.mint}` as any)}
+                                  style={styles.feedActionBtn}
+                                  activeOpacity={0.7}
+                                >
+                                  <Search size={12} color={tokens.secondary} strokeWidth={2.5} />
+                                  <Text style={styles.feedActionText}>Investigate</Text>
+                                </TouchableOpacity>
+                              )}
+                              {item.mint && (
+                                <TouchableOpacity
+                                  onPress={() => router.push(`/token/${item.mint}` as any)}
+                                  style={[styles.feedActionBtn, { borderColor: tokens.borderSubtle, backgroundColor: tokens.bgGlass8 }]}
+                                  activeOpacity={0.7}
+                                >
+                                  <Eye size={12} color={tokens.white60} strokeWidth={2} />
+                                  <Text style={[styles.feedActionText, { color: tokens.white60 }]}>View Token</Text>
+                                </TouchableOpacity>
+                              )}
+                            </View>
+                          </View>
+                        )}
                       </TouchableOpacity>
                     </Animated.View>
                   );
@@ -471,50 +560,119 @@ const styles = StyleSheet.create({
 
   // Feed
   feedCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    paddingVertical: 13,
+    paddingVertical: 12,
     paddingHorizontal: 14,
+    paddingLeft: 18,
     backgroundColor: tokens.bgGlass,
     borderRadius: tokens.radius.sm,
     borderWidth: 1,
     borderColor: tokens.borderSubtle,
+    gap: 6,
+    overflow: 'hidden',
   },
   feedDot: {
     width: 3,
-    height: 24,
+    height: '100%',
     borderRadius: 2,
     position: 'absolute',
     left: 0,
-    top: '50%',
-    marginTop: -12,
+    top: 0,
+    bottom: 0,
   },
-  feedIconCircle: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+  feedHeader: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
+    justifyContent: 'space-between',
   },
-  feedBody: { flex: 1 },
-  feedText: {
-    fontFamily: 'Lexend-Medium',
-    fontSize: tokens.font.small,
-    color: tokens.white80,
+  catTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: tokens.radius.pill,
   },
-  feedSub: {
-    fontFamily: 'Lexend-Regular',
-    fontSize: tokens.font.tiny,
-    color: tokens.white35,
-    marginTop: 2,
+  catLabel: {
+    fontFamily: 'Lexend-SemiBold',
+    fontSize: 9,
+    letterSpacing: 0.5,
   },
-  feedRight: { alignItems: 'flex-end', gap: 2 },
   feedTime: {
     fontFamily: 'Lexend-Regular',
     fontSize: 9,
     color: tokens.white35,
+  },
+  feedTokenRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  feedTokenName: {
+    fontFamily: 'Lexend-SemiBold',
+    fontSize: tokens.font.body,
+    color: tokens.white100,
+    flexShrink: 1,
+  },
+  feedTokenSymbol: {
+    fontFamily: 'Lexend-Regular',
+    fontSize: tokens.font.small,
+    color: tokens.white35,
+  },
+  feedScorePill: {
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: tokens.radius.pill,
+    borderWidth: 1,
+    marginLeft: 'auto',
+  },
+  feedScoreText: {
+    fontFamily: 'Lexend-Bold',
+    fontSize: tokens.font.tiny,
+  },
+  feedSummary: {
+    fontFamily: 'Lexend-Regular',
+    fontSize: tokens.font.small,
+    color: tokens.white60,
+    lineHeight: 17,
+  },
+  feedExpanded: {
+    gap: 8,
+    paddingTop: 6,
+    borderTopWidth: 1,
+    borderTopColor: tokens.borderSubtle,
+    marginTop: 4,
+  },
+  feedDetail: {
+    fontFamily: 'Lexend-Regular',
+    fontSize: tokens.font.tiny,
+    color: tokens.white35,
+    lineHeight: 15,
+  },
+  feedMint: {
+    fontFamily: 'Lexend-Regular',
+    fontSize: 9,
+    color: tokens.white20,
+    letterSpacing: 0.3,
+  },
+  feedActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  feedActionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: tokens.radius.pill,
+    borderWidth: 1,
+    borderColor: `${tokens.secondary}40`,
+    backgroundColor: `${tokens.secondary}08`,
+  },
+  feedActionText: {
+    fontFamily: 'Lexend-SemiBold',
+    fontSize: tokens.font.tiny,
+    color: tokens.secondary,
   },
 
   // Empty
