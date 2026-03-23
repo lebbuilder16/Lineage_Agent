@@ -27,6 +27,8 @@ import {
   Settings,
   ChevronRight,
   Activity,
+  Lock,
+  Crown,
 } from 'lucide-react-native';
 import Animated, { FadeInDown, FadeIn } from 'react-native-reanimated';
 import { AuroraBackground } from '../../src/components/ui/AuroraBackground';
@@ -35,6 +37,8 @@ import { useAgentPrefsStore, ALERT_TYPE_OPTIONS, SWEEP_INTERVAL_OPTIONS, DEPTH_O
 import { useHistoryStore } from '../../src/store/history';
 import { useAlertsStore } from '../../src/store/alerts';
 import { useAuthStore } from '../../src/store/auth';
+import { useSubscriptionStore } from '../../src/store/subscription';
+import { canAccess, tierLabel, tierColor, type PlanTier } from '../../src/lib/tier-limits';
 import { tokens } from '../../src/theme/tokens';
 
 const BASE_URL = (process.env.EXPO_PUBLIC_API_URL ?? 'https://lineage-agent.fly.dev').replace(/\/$/, '');
@@ -81,6 +85,7 @@ export default function AgentScreen() {
   const [sweepFlags, setSweepFlags] = useState<SweepFlag[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState<TabId>('feed');
+  const plan = useSubscriptionStore((s) => s.plan);
 
   const fetchStatus = async () => {
     if (!apiKey) return;
@@ -392,9 +397,27 @@ export default function AgentScreen() {
           {/* ── SETTINGS ── */}
           {activeTab === 'settings' && (
             <Animated.View entering={FadeInDown.delay(150).duration(300).springify()} style={{ gap: 10 }}>
-              {/* Section: Alert sensitivity */}
+              {/* Tier badge */}
+              <View style={styles.tierRow}>
+                <Crown size={14} color={tierColor(plan)} strokeWidth={2.5} />
+                <Text style={[styles.tierLabel, { color: tierColor(plan) }]}>{tierLabel(plan)}</Text>
+                {plan === 'free' && (
+                  <TouchableOpacity
+                    onPress={() => router.push('/paywall' as any)}
+                    style={styles.upgradeBtn}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.upgradeBtnText}>Upgrade</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+
+              {/* Section: Alert sensitivity — Pro+ */}
               <GlassCard>
-                <Text style={styles.settingsSection}>ALERT SENSITIVITY</Text>
+                <View style={styles.sectionHeaderRow}>
+                  <Text style={styles.settingsSection}>ALERT SENSITIVITY</Text>
+                  {!canAccess(plan, 'pro') && <TierLock required="pro" />}
+                </View>
                 <View style={styles.sliderRow}>
                   <Text style={styles.sliderLabel}>Risk threshold</Text>
                   <View style={styles.sliderValueWrap}>
@@ -414,13 +437,15 @@ export default function AgentScreen() {
                 <View style={styles.chipWrap}>
                   {ALERT_TYPE_OPTIONS.map((opt) => {
                     const on = prefs.alertTypes.includes(opt.key);
+                    const proPlus = opt.key === 'cartel' || opt.key === 'operator_match';
                     return (
                       <TouchableOpacity
                         key={opt.key}
                         onPress={() => prefs.toggleAlertType(opt.key)}
-                        style={[styles.alertChip, on && styles.alertChipOn]}
+                        style={[styles.alertChip, on && styles.alertChipOn, proPlus && !canAccess(plan, 'pro_plus') && styles.lockedChip]}
                         activeOpacity={0.7}
                       >
+                        {proPlus && !canAccess(plan, 'pro_plus') && <Lock size={8} color={tokens.white20} />}
                         <Text style={[styles.alertChipText, on && styles.alertChipTextOn]}>{opt.label}</Text>
                       </TouchableOpacity>
                     );
@@ -428,21 +453,26 @@ export default function AgentScreen() {
                 </View>
               </GlassCard>
 
-              {/* Section: Automation */}
+              {/* Section: Automation — Pro+ */}
               <GlassCard>
-                <Text style={styles.settingsSection}>AUTOMATION</Text>
+                <View style={styles.sectionHeaderRow}>
+                  <Text style={styles.settingsSection}>AUTOMATION</Text>
+                  {!canAccess(plan, 'pro_plus') && <TierLock required="pro_plus" />}
+                </View>
                 <PrefRow icon={Zap} label="Auto-investigate alerts" value={prefs.autoInvestigate} onToggle={() => prefs.toggle('autoInvestigate')} />
                 <Text style={styles.settingsSub}>Investigation depth</Text>
                 <View style={styles.chipWrap}>
                   {DEPTH_OPTIONS.map((opt) => {
                     const on = prefs.investigationDepth === opt.value;
+                    const needsWhale = opt.value === 'deep';
                     return (
                       <TouchableOpacity
                         key={opt.value}
                         onPress={() => prefs.setInvestigationDepth(opt.value)}
-                        style={[styles.depthChip, on && styles.depthChipOn]}
+                        style={[styles.depthChip, on && styles.depthChipOn, needsWhale && !canAccess(plan, 'whale') && styles.lockedChip]}
                         activeOpacity={0.7}
                       >
+                        {needsWhale && !canAccess(plan, 'whale') && <Lock size={9} color={tokens.white20} />}
                         <Text style={[styles.depthLabel, on && styles.depthLabelOn]}>{opt.label}</Text>
                         <Text style={styles.depthDesc}>{opt.desc}</Text>
                       </TouchableOpacity>
@@ -451,20 +481,25 @@ export default function AgentScreen() {
                 </View>
               </GlassCard>
 
-              {/* Section: Monitoring */}
+              {/* Section: Monitoring — Pro */}
               <GlassCard>
-                <Text style={styles.settingsSection}>MONITORING</Text>
+                <View style={styles.sectionHeaderRow}>
+                  <Text style={styles.settingsSection}>MONITORING</Text>
+                  {!canAccess(plan, 'pro') && <TierLock required="pro" />}
+                </View>
                 <Text style={styles.settingsSub}>Sweep frequency</Text>
                 <View style={styles.chipWrap}>
                   {SWEEP_INTERVAL_OPTIONS.map((opt) => {
                     const on = prefs.sweepInterval === opt.value;
+                    const needsProPlus = opt.value <= 1800;
                     return (
                       <TouchableOpacity
                         key={opt.value}
                         onPress={() => prefs.setSweepInterval(opt.value)}
-                        style={[styles.hourChip, on && styles.hourChipOn]}
+                        style={[styles.hourChip, on && styles.hourChipOn, needsProPlus && !canAccess(plan, 'pro_plus') && styles.lockedChip]}
                         activeOpacity={0.7}
                       >
+                        {needsProPlus && !canAccess(plan, 'pro_plus') && <Lock size={8} color={tokens.white20} />}
                         <Text style={[styles.hourText, on && styles.hourTextOn]}>{opt.label}</Text>
                       </TouchableOpacity>
                     );
@@ -503,6 +538,21 @@ function StatPill({ icon: Icon, value, label, color }: { icon: any; value: numbe
       <Text style={[styles.statValue, color ? { color } : undefined]}>{value}</Text>
       <Text style={styles.statLabel}>{label}</Text>
     </View>
+  );
+}
+
+// ── Tier lock badge ──────────────────────────────────────────────────────────
+
+function TierLock({ required }: { required: PlanTier }) {
+  return (
+    <TouchableOpacity
+      onPress={() => router.push('/paywall' as any)}
+      style={styles.tierLockBadge}
+      activeOpacity={0.7}
+    >
+      <Lock size={9} color={tokens.gold} strokeWidth={2.5} />
+      <Text style={styles.tierLockText}>{tierLabel(required)}+</Text>
+    </TouchableOpacity>
   );
 }
 
@@ -816,12 +866,61 @@ const styles = StyleSheet.create({
     fontSize: tokens.font.small,
     color: tokens.white80,
   },
+  tierRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 4,
+  },
+  tierLabel: {
+    fontFamily: 'Lexend-Bold',
+    fontSize: tokens.font.small,
+    flex: 1,
+  },
+  upgradeBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: tokens.radius.pill,
+    backgroundColor: `${tokens.gold}15`,
+    borderWidth: 1,
+    borderColor: `${tokens.gold}40`,
+  },
+  upgradeBtnText: {
+    fontFamily: 'Lexend-SemiBold',
+    fontSize: tokens.font.tiny,
+    color: tokens.gold,
+  },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  tierLockBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: tokens.radius.pill,
+    backgroundColor: `${tokens.gold}10`,
+    borderWidth: 1,
+    borderColor: `${tokens.gold}25`,
+  },
+  tierLockText: {
+    fontFamily: 'Lexend-SemiBold',
+    fontSize: 9,
+    color: tokens.gold,
+  },
+  lockedChip: {
+    opacity: 0.5,
+    borderStyle: 'dashed' as any,
+  },
   settingsSection: {
     fontFamily: 'Lexend-SemiBold',
     fontSize: 10,
     color: tokens.white35,
     letterSpacing: 1.2,
-    marginBottom: 10,
   },
   settingsSub: {
     fontFamily: 'Lexend-Medium',
