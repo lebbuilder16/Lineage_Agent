@@ -243,6 +243,12 @@ async def lifespan(application: FastAPI):
         )
     logger.info("Starting up – initialising HTTP clients …")
     await init_clients()
+
+    # Initialize database backend (SQLite or PostgreSQL based on DATABASE_URL)
+    from .db import init_backend as _init_db
+    _db = await _init_db()
+    logger.info("Database backend: %s", _db.dialect)
+
     await _purge_legacy_forensic_cache_namespaces()
     schedule_rug_sweep()
     _schedule_alert_sweep()
@@ -275,6 +281,8 @@ async def lifespan(application: FastAPI):
     # Shutdown
     # -----------------------------------------------------------------------
     logger.info("Shutting down \u2013 closing HTTP clients \u2026")
+    from .db import close_backend as _close_db
+    await _close_db()
     cancel_rug_sweep()
     cancel_alert_sweep()
     _cancel_cartel_sweep()
@@ -445,9 +453,15 @@ async def root():
 async def health() -> dict:
     """Lightweight public health check."""
     uptime_s = round(time.monotonic() - _start_time, 1)
+    try:
+        from .db import get_backend
+        db_dialect = get_backend().dialect
+    except Exception:
+        db_dialect = "unknown"
     return {
         "status": "ok",
         "uptime_seconds": uptime_s,
+        "db": db_dialect,
     }
 
 
