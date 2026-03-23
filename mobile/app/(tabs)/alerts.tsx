@@ -8,7 +8,7 @@ import {
 } from 'react-native';
 import { router } from 'expo-router';
 import Animated, { FadeInDown, LinearTransition } from 'react-native-reanimated';
-import { Bell, CheckCheck, AlertTriangle, Zap, Skull, BookMarked, Trash2, ChevronDown, ChevronUp, Bot, Search, Bookmark } from 'lucide-react-native';
+import { Bell, CheckCheck, AlertTriangle, Zap, Skull, BookMarked, Trash2, ChevronDown, ChevronUp, Bot, Search, Bookmark, Rocket } from 'lucide-react-native';
 import { Swipeable } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AuroraBackground } from '../../src/components/ui/AuroraBackground';
@@ -36,11 +36,14 @@ const ALERT_ICONS: Record<string, React.ReactNode> = {
   death_clock: <Skull size={18} color={tokens.risk.critical} />,
   deployer: <BookMarked size={18} color={tokens.secondary} />,
   narrative: <Bell size={18} color={tokens.secondary} />,
+  token_graduated: <Rocket size={18} color={tokens.success} />,
+  deployer_launch: <Rocket size={18} color={tokens.warning} />,
 };
 
-type QuickFilter = 'all' | 'critical' | 'unread';
+type QuickFilter = 'all' | 'critical' | 'unread' | 'live';
 const QUICK_FILTERS: { label: string; value: QuickFilter }[] = [
   { label: 'All', value: 'all' },
+  { label: 'Live', value: 'live' },
   { label: 'Critical', value: 'critical' },
   { label: 'Unread', value: 'unread' },
 ];
@@ -69,6 +72,7 @@ export default function AlertsScreen() {
     let list = alerts;
     if (activeFilter === 'critical') list = alerts.filter((a) => CRITICAL_TYPES.has(a.type));
     else if (activeFilter === 'unread') list = alerts.filter((a) => !a.read);
+    else if (activeFilter === 'live') list = alerts.filter((a) => a.type === 'token_graduated' || a.type === 'deployer_launch');
     // Smart triage: sort by mint (group), then risk score descending, unread first
     return [...list].sort((a, b) => {
       // Group by mint first (alerts for same token stay together)
@@ -165,7 +169,7 @@ export default function AlertsScreen() {
                 <Bell size={36} color={tokens.white60} />
               </View>
               <Text style={styles.emptyTitle}>
-                {activeFilter === 'critical' ? 'No critical alerts' : activeFilter === 'unread' ? 'All caught up' : 'All clear for now'}
+                {activeFilter === 'critical' ? 'No critical alerts' : activeFilter === 'unread' ? 'All caught up' : activeFilter === 'live' ? 'No live graduations yet' : 'All clear for now'}
               </Text>
               <Text style={styles.emptySubtitle}>
                 Your radar is silent. We will notify you when action happens.
