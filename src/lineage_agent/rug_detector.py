@@ -231,12 +231,20 @@ def _classify_pre_dex_extraction(
         ])
         return EvidenceLevel.MODERATE.value, list(dict.fromkeys(reason_codes))
 
+    # SOL flow alone is NOT sufficient evidence for rug classification.
+    # Protocol fees (bonding curve rewards, pool creation costs) produce
+    # legitimate SOL outflows that must not be misclassified as extraction.
+    # Only classify as rug if extraction_context confirms it's suspicious.
     if total_extracted_sol > 0:
-        reason_codes.extend([
-            "sol_flow_only_extraction_detected",
-            "team_link_unproven",
-        ])
-        return EvidenceLevel.MODERATE.value, list(dict.fromkeys(reason_codes))
+        extraction_ctx = str(getattr(sol_flow_report, "extraction_context", "") or "")
+        if extraction_ctx in ("confirmed_extraction", "suspicious_outflow"):
+            reason_codes.extend([
+                "sol_flow_only_extraction_detected",
+                "team_link_unproven",
+            ])
+            return EvidenceLevel.WEAK.value, list(dict.fromkeys(reason_codes))
+        # protocol_fees_only or deployer_operational = NOT a rug
+        return None
 
     return None
 
