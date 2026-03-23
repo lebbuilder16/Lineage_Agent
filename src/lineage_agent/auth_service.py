@@ -33,73 +33,78 @@ async def create_or_get_user(
     - If the user already exists → return stored record (+ update wallet/email).
     - If new → generate an API key, insert and return.
     """
-    try:
-        db = await cache._get_conn()
+    for _attempt in range(5):
+        try:
+            db = await cache._get_conn()
 
-        # Try to find existing user
-        cursor = await db.execute(
-            "SELECT id, privy_id, email, wallet_address, plan, api_key, created_at "
-            "FROM users WHERE privy_id = ?",
-            (privy_id,),
-        )
-        row = await cursor.fetchone()
+            # Try to find existing user
+            cursor = await db.execute(
+                "SELECT id, privy_id, email, wallet_address, plan, api_key, created_at "
+                "FROM users WHERE privy_id = ?",
+                (privy_id,),
+            )
+            row = await cursor.fetchone()
 
-        if row:
-            user = {
+            if row:
+                user = {
+                    "id": row[0],
+                    "privy_id": row[1],
+                    "email": row[2],
+                    "wallet_address": row[3],
+                    "plan": row[4],
+                    "api_key": row[5],
+                    "created_at": row[6],
+                }
+                # Update mutable fields if provided
+                updates: list[tuple] = []
+                if wallet_address and wallet_address != user["wallet_address"]:
+                    updates.append(("wallet_address", wallet_address))
+                if email and email != user["email"]:
+                    updates.append(("email", email))
+                for field, val in updates:
+                    await db.execute(
+                        f"UPDATE users SET {field} = ? WHERE privy_id = ?",
+                        (val, privy_id),
+                    )
+                    user[field] = val
+                if updates:
+                    await db.commit()
+                return user
+
+            # New user
+            api_key = generate_api_key()
+            now = time.time()
+            await db.execute(
+                "INSERT INTO users (privy_id, email, wallet_address, plan, api_key, created_at) "
+                "VALUES (?, ?, ?, 'free', ?, ?)",
+                (privy_id, email, wallet_address, api_key, now),
+            )
+            await db.commit()
+
+            cursor = await db.execute(
+                "SELECT id FROM users WHERE privy_id = ?", (privy_id,)
+            )
+            row = await cursor.fetchone()
+            return {
                 "id": row[0],
-                "privy_id": row[1],
-                "email": row[2],
-                "wallet_address": row[3],
-                "plan": row[4],
-                "api_key": row[5],
-                "created_at": row[6],
+                "privy_id": privy_id,
+                "email": email,
+                "wallet_address": wallet_address,
+                "plan": "free",
+                "api_key": api_key,
+                "created_at": now,
             }
-            # Update mutable fields if provided
-            updates: list[tuple] = []
-            if wallet_address and wallet_address != user["wallet_address"]:
-                updates.append(("wallet_address", wallet_address))
-            if email and email != user["email"]:
-                updates.append(("email", email))
-            for field, val in updates:
-                await db.execute(
-                    f"UPDATE users SET {field} = ? WHERE privy_id = ?",
-                    (val, privy_id),
-                )
-                user[field] = val
-            if updates:
-                await db.commit()
-            return user
 
-        # New user
-        api_key = generate_api_key()
-        now = time.time()
-        await db.execute(
-            "INSERT INTO users (privy_id, email, wallet_address, plan, api_key, created_at) "
-            "VALUES (?, ?, ?, 'free', ?, ?)",
-            (privy_id, email, wallet_address, api_key, now),
-        )
-        await db.commit()
-
-        cursor = await db.execute(
-            "SELECT id FROM users WHERE privy_id = ?", (privy_id,)
-        )
-        row = await cursor.fetchone()
-        return {
-            "id": row[0],
-            "privy_id": privy_id,
-            "email": email,
-            "wallet_address": wallet_address,
-            "plan": "free",
-            "api_key": api_key,
-            "created_at": now,
-        }
-
-    except Exception as exc:  # pragma: no cover
-        logger.error(
-            "create_or_get_user failed for privy_id=%s: %s",
-            privy_id, exc, exc_info=True,
-        )
-        raise
+        except Exception as exc:
+            if "locked" in str(exc).lower() and _attempt < 4:
+                import asyncio as _aio
+                await _aio.sleep(0.5 * (_attempt + 1))
+                continue
+            logger.error(
+                "create_or_get_user failed for privy_id=%s: %s",
+                privy_id, exc, exc_info=True,
+            )
+            raise
 
 
 async def regenerate_api_key(cache, user_id: int) -> str | None:
