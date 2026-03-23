@@ -280,11 +280,12 @@ export function connectAlertsWS(
   }
 
   const connect = () => {
+    if (!apiKey) {
+      onStatusDetailed?.('offline');
+      return;
+    }
     onStatusDetailed?.('reconnecting');
-    const wsUrl = apiKey
-      ? `${WS_BASE}/ws/alerts?key=${encodeURIComponent(apiKey)}`
-      : `${WS_BASE}/ws/alerts`;
-    ws = new WebSocket(wsUrl);
+    ws = new WebSocket(`${WS_BASE}/ws/alerts?key=${encodeURIComponent(apiKey)}`);
 
     ws.onopen = () => {
       retryCount = 0;
