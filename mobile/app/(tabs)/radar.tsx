@@ -515,67 +515,40 @@ export default function RadarScreen() {
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={tokens.secondary} />
           }
         >
-          {/* Stats row */}
-          <Animated.View entering={FadeInDown.duration(400)} style={styles.statsRow}>
-            <StatPill
-              label="Scanned 24h"
-              value={statsLoading ? null : stats?.tokens_scanned_24h ?? 0}
-              icon={<Activity size={14} color={tokens.secondary} />}
-              accentColor={tokens.secondary}
-              onPress={() => router.push('/(tabs)/scan' as any)}
-            />
-            <StatPill
-              label="Rugs 24h"
-              value={statsLoading ? null : stats?.tokens_rugged_24h ?? 0}
-              icon={<AlertTriangle size={14} color={tokens.accent} />}
-              accentColor={tokens.accent}
-              onPress={() => router.push('/(tabs)/alerts' as any)}
-            />
+          {/* ── Section 1: Stats bar (compact single row) ── */}
+          <Animated.View entering={FadeInDown.duration(300)}>
+            <View style={styles.statsBar}>
+              <View style={styles.statItem}>
+                <Text style={styles.statValue}>{statsLoading ? '—' : stats?.tokens_scanned_24h ?? 0}</Text>
+                <Text style={styles.statLabel}>Scanned</Text>
+              </View>
+              <View style={styles.statDivider} />
+              <View style={styles.statItem}>
+                <Text style={[styles.statValue, { color: (stats?.tokens_rugged_24h ?? 0) > 0 ? tokens.accent : tokens.white80 }]}>
+                  {statsLoading ? '—' : stats?.tokens_rugged_24h ?? 0}
+                </Text>
+                <Text style={styles.statLabel}>Rugs</Text>
+              </View>
+              <View style={styles.statDivider} />
+              <View style={styles.statItem}>
+                <Text style={[styles.statValue, { color: rugRate ? tokens.accent : tokens.white80 }]}>
+                  {rugRate ?? '0%'}
+                </Text>
+                <Text style={styles.statLabel}>Rate</Text>
+              </View>
+              <View style={styles.statDivider} />
+              <View style={styles.statItem}>
+                <Text style={[styles.statValue, { color: stats?.active_deployers_24h ? tokens.secondary : tokens.white80 }]}>
+                  {statsLoading ? '—' : stats?.active_deployers_24h ?? 0}
+                </Text>
+                <Text style={styles.statLabel}>Deployers</Text>
+              </View>
+            </View>
           </Animated.View>
 
-          {/* Rug rate */}
-          {rugRate && (
-            <Animated.View entering={FadeInDown.delay(60).duration(400)}>
-              <View style={styles.rugRatePill}>
-                <View style={styles.rugRateDot} />
-                <Text style={styles.rugRateText}>
-                  Rug rate 24h —{' '}
-                  <Text style={{ color: tokens.accent }}>{rugRate}</Text>
-                </Text>
-              </View>
-            </Animated.View>
-          )}
-
-          {/* Agent Intelligence Summary */}
-          {(() => {
-            const recent = allAlerts.filter(a => Date.now() - new Date(a.timestamp ?? a.created_at ?? '').getTime() < 24 * 3600 * 1000);
-            const criticalCount = recent.filter(a => (a.risk_score ?? 0) >= 75).length;
-            const rugCount = recent.filter(a => a.type === 'rug').length;
-            if (recent.length === 0) return null;
-            const summary = criticalCount > 0
-              ? `${criticalCount} critical event${criticalCount > 1 ? 's' : ''} in the last 24h — tap Alerts for details`
-              : rugCount > 0
-                ? `${rugCount} rug event${rugCount > 1 ? 's' : ''} detected today`
-                : `${recent.length} event${recent.length > 1 ? 's' : ''} monitored — all clear`;
-            return (
-              <Animated.View entering={FadeInDown.delay(80).duration(350)} style={styles.section}>
-                <TouchableOpacity onPress={() => router.push('/(tabs)/alerts' as any)} activeOpacity={0.75}>
-                  <GlassCard style={[styles.briefingCard, criticalCount > 0 && { borderColor: `${tokens.risk?.critical ?? tokens.accent}30`, borderWidth: 1 }]} noPadding={false}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                      <Shield size={14} color={criticalCount > 0 ? (tokens.risk?.critical ?? tokens.accent) : tokens.secondary} />
-                      <Text style={[styles.briefingTitle, { flex: 1 }]}>AGENT INTEL</Text>
-                      <ChevronRight size={14} color={tokens.white35} />
-                    </View>
-                    <Text style={[styles.briefingPreview, { marginTop: 6 }]}>{summary}</Text>
-                  </GlassCard>
-                </TouchableOpacity>
-              </Animated.View>
-            );
-          })()}
-
-          {/* Daily Briefing (OpenClaw) */}
-          {briefing ? (
-            <Animated.View entering={FadeInDown.delay(100).duration(400)} style={styles.section}>
+          {/* ── Section 2: Briefing (intel + daily merged) ── */}
+          {briefing && (
+            <Animated.View entering={FadeInDown.delay(60).duration(300)}>
               <TouchableOpacity
                 onPress={() => {
                   setBriefingExpanded((v) => !v);
@@ -585,14 +558,13 @@ export default function RadarScreen() {
               >
                 <GlassCard style={styles.briefingCard} noPadding={false}>
                   <View style={styles.briefingHeader}>
-                    <View style={styles.briefingTitleRow}>
-                      <View style={styles.briefingDot} />
-                      <Text style={styles.briefingTitle}>DAILY BRIEFING</Text>
-                      {briefingUnread && <View style={styles.briefingUnread} />}
-                    </View>
+                    <Shield size={13} color={tokens.secondary} />
+                    <Text style={styles.briefingTitle}>BRIEFING</Text>
+                    {briefingUnread && <View style={styles.briefingUnread} />}
+                    <View style={{ flex: 1 }} />
                     <ChevronRight
                       size={14}
-                      color={tokens.secondary}
+                      color={tokens.white35}
                       style={briefingExpanded ? { transform: [{ rotate: '90deg' }] } : undefined}
                     />
                   </View>
@@ -605,46 +577,77 @@ export default function RadarScreen() {
                   </Text>
                   {briefingGeneratedAt && briefingExpanded && (
                     <Text style={styles.briefingMeta}>
-                      Generated {new Date(briefingGeneratedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                      {' · '}Updates every 5 min
+                      {new Date(briefingGeneratedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     </Text>
                   )}
                 </GlassCard>
               </TouchableOpacity>
             </Animated.View>
-          ) : isOpenClawAvailable() && (
-            <Animated.View entering={FadeInDown.delay(100).duration(400)} style={styles.section}>
-              <GlassCard style={styles.briefingCard} noPadding={false}>
-                <View style={styles.briefingHeader}>
-                  <View style={styles.briefingTitleRow}>
-                    <Zap size={12} color={tokens.secondary} />
-                    <Text style={styles.briefingTitle}>DAILY BRIEFING</Text>
-                  </View>
-                </View>
-                <Text style={styles.briefingPreview}>
-                  Briefing en preparation — next generation scheduled. Data will appear here automatically.
-                </Text>
-              </GlassCard>
-            </Animated.View>
           )}
 
-          {/* Live Alerts */}
-          <Animated.View entering={FadeInDown.delay(120).duration(400)} style={styles.section}>
+          {/* ── Section 3: Trending tokens ── */}
+          <Animated.View entering={FadeInDown.delay(120).duration(300)}>
             <SectionTitle
-              icon={<Bell size={13} color={tokens.secondary} />}
-              title="LIVE ALERTS"
-              liveDot={wsConnected}
-              onSeeAll={() => router.push('/(tabs)/alerts' as any)}
+              icon={<TrendingUp size={13} color={tokens.secondary} />}
+              title="TRENDING"
+              badge={!topLoading && displayedTokens.length > 0 ? `${displayedTokens.length}` : undefined}
             />
 
-            {recentAlerts.length === 0 ? (
-              <EmptyFeed />
-            ) : (
+            {topLoading
+              ? Array.from({ length: 3 }).map((_, i) => (
+                  <View key={i} style={styles.tokenCard}>
+                    <SkeletonBlock lines={2} />
+                  </View>
+                ))
+              : displayedTokens.length === 0
+                ? (
+                  <View style={styles.emptyFeedCard}>
+                    <Text style={styles.emptyFeedText}>No activity yet — pull to refresh</Text>
+                  </View>
+                )
+                : <>
+                    {displayedTokens.map((token: TopToken, index: number) => (
+                      <Animated.View
+                        key={token.mint}
+                        entering={FadeInDown.delay(index * 30).duration(250).springify()}
+                      >
+                        <TokenCard
+                          token={topTokenToSearchResult(token)}
+                          apiKey={apiKey}
+                          onPress={() => router.push(`/token/${token.mint}` as any)}
+                          rank={index + 1}
+                          scanCount={token.event_count}
+                        />
+                      </Animated.View>
+                    ))}
+                    {displayedTokens.length >= 5 && (
+                      <TouchableOpacity
+                        onPress={() => router.push('/(tabs)/scan' as any)}
+                        style={styles.feedSeeAll}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={styles.feedSeeAllText}>See all</Text>
+                        <ChevronRight size={14} color={tokens.secondary} strokeWidth={2} />
+                      </TouchableOpacity>
+                    )}
+                  </>
+            }
+          </Animated.View>
+
+          {/* ── Section 4: Latest alerts (only if any exist) ── */}
+          {recentAlerts.length > 0 && (
+            <Animated.View entering={FadeInDown.delay(180).duration(300)}>
+              <SectionTitle
+                icon={<Bell size={13} color={tokens.secondary} />}
+                title="LATEST ALERTS"
+                liveDot={wsConnected}
+                onSeeAll={() => router.push('/(tabs)/alerts' as any)}
+              />
               <View style={styles.alertList}>
-                {recentAlerts.map((alert, i) => (
+                {recentAlerts.slice(0, 3).map((alert, i) => (
                   <Animated.View
                     key={alert.id}
-                    entering={FadeInDown.delay(i * 50).duration(300).springify()}
+                    entering={FadeInDown.delay(i * 40).duration(250).springify()}
                   >
                     <TouchableOpacity
                       onPress={() => {
@@ -665,68 +668,16 @@ export default function RadarScreen() {
                             {alert.message}
                           </Text>
                         </View>
-                        <View style={styles.alertMetaCol}>
-                          <Text style={styles.alertTime}>
-                            {timeAgo(alert.timestamp ?? alert.created_at ?? '')}
-                          </Text>
-                          {!alert.read && <View style={styles.alertUnreadDot} />}
-                        </View>
+                        <Text style={styles.alertTime}>
+                          {timeAgo(alert.timestamp ?? alert.created_at ?? '')}
+                        </Text>
                       </View>
                     </TouchableOpacity>
                   </Animated.View>
                 ))}
               </View>
-            )}
-          </Animated.View>
-
-          {/* Most Scanned */}
-          <Animated.View entering={FadeInDown.delay(180).duration(400)} style={styles.section}>
-            <SectionTitle
-              icon={<TrendingUp size={13} color={tokens.secondary} />}
-              title="MOST SCANNED 24H"
-              badge={!topLoading && displayedTokens.length > 0 ? `${displayedTokens.length}` : undefined}
-            />
-
-            {topLoading
-              ? Array.from({ length: 3 }).map((_, i) => (
-                  <View key={i} style={styles.tokenCard}>
-                    <SkeletonBlock lines={2} />
-                  </View>
-                ))
-              : displayedTokens.length === 0
-                ? (
-                  <View style={styles.emptyFeedCard}>
-                    <Text style={styles.emptyFeedText}>No activity in 24h — pull to refresh</Text>
-                  </View>
-                )
-                : <>
-                    {displayedTokens.map((token: TopToken, index: number) => (
-                      <Animated.View
-                        key={token.mint}
-                        entering={FadeInDown.delay(index * 30).duration(280).springify()}
-                      >
-                        <TokenCard
-                          token={topTokenToSearchResult(token)}
-                          apiKey={apiKey}
-                          onPress={() => router.push(`/token/${token.mint}` as any)}
-                          rank={index + 1}
-                          scanCount={token.event_count}
-                        />
-                      </Animated.View>
-                    ))}
-                    {displayedTokens.length >= 5 && (
-                      <TouchableOpacity
-                        onPress={() => router.push('/(tabs)/scan' as any)}
-                        style={styles.feedSeeAll}
-                        activeOpacity={0.7}
-                      >
-                        <Text style={styles.feedSeeAllText}>See all tokens</Text>
-                        <ChevronRight size={14} color={tokens.secondary} strokeWidth={2} />
-                      </TouchableOpacity>
-                    )}
-                  </>
-            }
-          </Animated.View>
+            </Animated.View>
+          )}
         </ScrollView>
       </View>
     </View>
@@ -795,6 +746,36 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
+  // Stats bar (compact)
+  statsBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-around',
+    backgroundColor: tokens.bgGlass8,
+    borderRadius: tokens.radius.md,
+    borderWidth: 1,
+    borderColor: tokens.borderSubtle,
+    paddingVertical: 14,
+    paddingHorizontal: 8,
+  },
+  statItem: { alignItems: 'center', flex: 1 },
+  statValue: {
+    fontFamily: 'Lexend-Bold',
+    fontSize: tokens.font.subheading,
+    color: tokens.white80,
+  },
+  statLabel: {
+    fontFamily: 'Lexend-Regular',
+    fontSize: tokens.font.tiny,
+    color: tokens.white35,
+    marginTop: 2,
+  },
+  statDivider: {
+    width: 1,
+    height: 28,
+    backgroundColor: tokens.borderSubtle,
+  },
+
   // WS banner
   wsBanner: {
     flexDirection: 'row',
@@ -839,7 +820,7 @@ const styles = StyleSheet.create({
     color: tokens.white35,
     marginTop: 1,
   },
-  statValue: {
+  statPillValue: {
     fontFamily: 'Lexend-Bold',
     fontSize: tokens.font.subheading,
     lineHeight: 22,
