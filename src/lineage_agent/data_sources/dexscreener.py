@@ -64,6 +64,28 @@ class DexScreenerClient:
             return []
         return data.get("pairs") or []
 
+    async def get_token_pairs_with_fallback(self, mint: str) -> list[dict[str, Any]]:
+        """Try DexScreener first, fall back to Birdeye if unavailable."""
+        try:
+            pairs = await self.get_token_pairs(mint)
+            if pairs:
+                return pairs
+        except (CircuitOpenError, Exception) as exc:
+            logger.info("[dex] primary failed for %s (%s), trying birdeye", mint[:12], type(exc).__name__)
+
+        # Fallback: Birdeye
+        try:
+            from ._clients import get_birdeye_client
+            birdeye = get_birdeye_client()
+            pairs = await birdeye.get_token_pairs_normalized(mint)
+            if pairs:
+                logger.info("[dex] birdeye fallback succeeded for %s", mint[:12])
+                return pairs
+        except Exception as exc:
+            logger.debug("[dex] birdeye fallback failed: %s", exc)
+
+        return []
+
     async def search_tokens(self, query: str) -> list[dict[str, Any]]:
         """Search tokens by name or symbol."""
         url = f"{self._base_url}/latest/dex/search"
