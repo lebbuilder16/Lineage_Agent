@@ -23,6 +23,9 @@ import { tokens } from '../../src/theme/tokens';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import type { TokenSearchResult } from '../../src/types/api';
 
+/** Solana addresses are 32–44 chars of Base58 (no 0, O, I, l). */
+const BASE58_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+
 function TokenImage({ uri, symbol }: { uri?: string | null; symbol?: string }) {
   const [errored, setErrored] = useState(false);
   const hasUri = !!uri && uri.trim() !== '' && !errored;
@@ -55,26 +58,43 @@ export default function ScanScreen() {
   const handleChange = useCallback((text: string) => {
     setQuery(text);
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
-    if (text.length < 2) { setResults([]); return; }
+    const trimmed = text.trim();
+    if (trimmed.length < 2) { setResults([]); return; }
+
+    // If it looks like a full Solana mint address, navigate directly
+    if (BASE58_RE.test(trimmed) && trimmed.length >= 32) {
+      addRecentSearch(trimmed);
+      router.push(`/token/${trimmed}` as any);
+      return;
+    }
 
     debounceTimer.current = setTimeout(async () => {
       setLoading(true);
       try {
-        const data = await searchTokens(text);
+        const data = await searchTokens(trimmed);
         setResults(data);
       } catch { /* ignore */ } finally {
         setLoading(false);
       }
     }, 250);
-  }, []);
+  }, [addRecentSearch]);
 
   const handleClear = () => { setQuery(''); setResults([]); };
 
   const runSearch = useCallback((text: string) => {
-    if (text.trim().length < 2) return;
+    const trimmed = text.trim();
+    if (trimmed.length < 2) return;
+
+    // Direct mint address → navigate immediately
+    if (BASE58_RE.test(trimmed) && trimmed.length >= 32) {
+      addRecentSearch(trimmed);
+      router.push(`/token/${trimmed}` as any);
+      return;
+    }
+
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
     setLoading(true);
-    searchTokens(text.trim())
+    searchTokens(trimmed)
       .then((data) => {
         setResults(data);
         if (data.length > 0) addRecentSearch(data[0].mint, data[0].name, data[0].symbol);
