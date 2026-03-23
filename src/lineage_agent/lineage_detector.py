@@ -697,7 +697,7 @@ async def _detect_lineage_impl(
 
     async def _search_name() -> list:
         try:
-            return await dex.search_tokens(search_query)
+            return await dex.search_tokens_with_fallback(search_query)
         except Exception as _e:
             logger.debug("Name search failed: %s", _e)
             return []
@@ -706,7 +706,7 @@ async def _detect_lineage_impl(
         if not _sym_differs:
             return []
         try:
-            return await dex.search_tokens(_sym_query)
+            return await dex.search_tokens_with_fallback(_sym_query)
         except Exception as _e:
             logger.debug("Symbol search failed: %s", _e)
             return []
@@ -1600,7 +1600,7 @@ async def search_tokens(query: str) -> list[TokenSearchResult]:
         return cached
 
     dex = _get_dex_client()
-    pairs = await dex.search_tokens(query)
+    pairs = await dex.search_tokens_with_fallback(query)
     results = dex.pairs_to_search_results(pairs)
     await _cache_set(f"search:{query}", results)
     return results

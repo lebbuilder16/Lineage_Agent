@@ -2608,7 +2608,7 @@ async def get_top_tokens(
             from .data_sources._clients import get_dex_client
             dex = get_dex_client()
             mints_csv = ",".join(r["mint"] for r in results[:30])
-            pairs = await asyncio.wait_for(dex.get_token_pairs(mints_csv), timeout=5.0)
+            pairs = await asyncio.wait_for(dex.get_token_pairs_with_fallback(mints_csv), timeout=8.0)
             for pair in pairs:
                 ba = pair.get("baseToken", {}).get("address", "")
                 mc = pair.get("marketCap") or pair.get("fdv")

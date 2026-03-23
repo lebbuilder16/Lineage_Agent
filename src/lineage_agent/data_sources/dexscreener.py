@@ -94,6 +94,38 @@ class DexScreenerClient:
             return []
         return data.get("pairs") or []
 
+    async def search_tokens_with_fallback(self, query: str) -> list[dict[str, Any]]:
+        """Try DexScreener search first, fall back to Jupiter verified list."""
+        try:
+            pairs = await self.search_tokens(query)
+            if pairs:
+                return pairs
+        except (CircuitOpenError, Exception) as exc:
+            logger.info("[dex] search failed (%s), trying Jupiter fallback", type(exc).__name__)
+
+        # Fallback: Jupiter verified token list (local filter, ~2k tokens)
+        try:
+            from ._clients import get_jup_client
+            jup = get_jup_client()
+            tokens = await jup.search_verified_tokens(query)
+            # Convert Jupiter format to DexScreener pair format for compatibility
+            return [{
+                "chainId": "solana",
+                "baseToken": {"address": t.get("address", ""), "name": t.get("name", ""), "symbol": t.get("symbol", "")},
+                "quoteToken": {"address": "", "name": "", "symbol": ""},
+                "priceUsd": None,
+                "marketCap": None,
+                "fdv": None,
+                "liquidity": {},
+                "info": {"imageUrl": t.get("logoURI", "")},
+                "pairCreatedAt": None,
+                "url": "",
+            } for t in tokens[:20]]
+        except Exception as exc:
+            logger.debug("[dex] Jupiter search fallback failed: %s", exc)
+
+        return []
+
     # ------------------------------------------------------------------
     # Conversion helpers (sync – pure data transforms)
     # ------------------------------------------------------------------
