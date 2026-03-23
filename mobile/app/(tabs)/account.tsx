@@ -1,38 +1,57 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  Alert,
+  View, Text, StyleSheet, ScrollView, Alert, Pressable, Image,
 } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeInDown } from 'react-native-reanimated';
-import { User, Shield, Key, Zap, LogOut, ChevronRight, Activity, Crown, Wallet } from 'lucide-react-native';
+import {
+  User, Crown, ChevronRight, LogOut, Key, Bell, RefreshCw, Shield, Scan, Eye, Award,
+} from 'lucide-react-native';
+import * as ImagePicker from 'expo-image-picker';
 import { AuroraBackground } from '../../src/components/ui/AuroraBackground';
 import { GlassCard } from '../../src/components/ui/GlassCard';
 import { HapticButton } from '../../src/components/ui/HapticButton';
 import { ScreenHeader } from '../../src/components/ui/ScreenHeader';
+import { WalletCard } from '../../src/components/ui/WalletCard';
+import { UsageBar } from '../../src/components/ui/UsageBar';
+import { EditProfileSheet } from '../../src/components/ui/EditProfileSheet';
+import { ReceiveSheet } from '../../src/components/ui/ReceiveSheet';
+import { SendSheet } from '../../src/components/ui/SendSheet';
 import { useAuthStore } from '../../src/store/auth';
 import { useSubscriptionStore } from '../../src/store/subscription';
-import { useOpenClawStore } from '../../src/store/openclaw';
-import { isOpenClawAvailable } from '../../src/lib/openclaw';
-import { tierLabel, tierColor } from '../../src/lib/tier-limits';
+import { tierLabel, tierColor, TIER_LIMITS } from '../../src/lib/tier-limits';
+import { updateProfile } from '../../src/lib/api';
 import { tokens } from '../../src/theme/tokens';
+import { Transaction } from '@solana/web3.js';
 
-function InfoRow({ label, value, icon }: { label: string; value: string; icon: React.ReactNode }) {
+// ── Gradient avatar from privy_id hash ───────────────────────────────────────
+const AVATAR_COLORS = [
+  ['#6366F1', '#8B5CF6'], ['#EC4899', '#F97316'], ['#06B6D4', '#3B82F6'],
+  ['#10B981', '#06B6D4'], ['#F59E0B', '#EF4444'], ['#8B5CF6', '#EC4899'],
+];
+
+function hashCode(s: string): number {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+
+// ── Settings Row ─────────────────────────────────────────────────────────────
+function SettingsRow({ icon, label, value, onPress }: {
+  icon: React.ReactNode; label: string; value?: string; onPress?: () => void;
+}) {
   return (
-    <View style={styles.infoRow}>
-      <View style={styles.infoIcon}>{icon}</View>
-      <View style={styles.infoBody}>
-        <Text style={styles.infoLabel}>{label}</Text>
-        <Text style={styles.infoValue} numberOfLines={1}>{value}</Text>
-      </View>
-    </View>
+    <Pressable style={styles.settingsRow} onPress={onPress} disabled={!onPress}>
+      <View style={styles.settingsIcon}>{icon}</View>
+      <Text style={styles.settingsLabel}>{label}</Text>
+      {value && <Text style={styles.settingsValue} numberOfLines={1}>{value}</Text>}
+      {onPress && <ChevronRight size={14} color={tokens.white20} />}
+    </Pressable>
   );
 }
 
+// ── Main ─────────────────────────────────────────────────────────────────────
 export default function AccountScreen() {
   const insets = useSafeAreaInsets();
   const apiKey = useAuthStore((s) => s.apiKey);
@@ -41,338 +60,343 @@ export default function AccountScreen() {
   const scanCount = useAuthStore((s) => s.scanCount);
   const setApiKey = useAuthStore((s) => s.setApiKey);
   const setUser = useAuthStore((s) => s.setUser);
-  const ocConnected = useOpenClawStore((s) => s.connected);
-  const ocHost = useOpenClawStore((s) => s.host);
+  const recentSearches = useAuthStore((s) => s.recentSearches);
   const subPlan = useSubscriptionStore((s) => s.plan);
   const expiresAt = useSubscriptionStore((s) => s.expiresAt);
+  const usage = useSubscriptionStore((s) => s.usage);
 
+  const [editVisible, setEditVisible] = useState(false);
+  const [sendVisible, setSendVisible] = useState(false);
+  const [receiveVisible, setReceiveVisible] = useState(false);
+  const [avatarUploading, setAvatarUploading] = useState(false);
+
+  const isAuthenticated = !!apiKey;
+  const displayName = user?.display_name ?? user?.username ?? user?.email?.split('@')[0] ?? 'Agent';
+  const username = user?.username;
+  const walletAddr = user?.wallet_address;
+  const memberSince = user?.created_at
+    ? new Date(Number(user.created_at) * 1000).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+    : undefined;
+  const colorIdx = hashCode(user?.privy_id ?? 'a') % AVATAR_COLORS.length;
+  const [bg1] = AVATAR_COLORS[colorIdx];
+
+  // Tier limits for usage bars
+  const limits = TIER_LIMITS[subPlan] ?? TIER_LIMITS.free;
+
+  // Reputation score (client-side)
+  const repScore = Math.min(999, scanCount * 2 + watches.length * 5);
+
+  // ── Handlers ─────────────────────────────────────────────────────────────
   const handleLogout = () => {
     Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
       { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Sign Out',
-        style: 'destructive',
-        onPress: () => {
-          setApiKey(null);
-          setUser(null);
-          router.replace('/(auth)/welcome');
-        },
-      },
+      { text: 'Sign Out', style: 'destructive', onPress: async () => {
+        const { purgeUserData } = await import('../../src/lib/purge-user-data');
+        await purgeUserData();
+        setApiKey(null);
+        router.replace('/(auth)/welcome');
+      }},
     ]);
   };
 
-  const isAuthenticated = !!apiKey;
-  const displayName = user?.username ?? user?.email ?? user?.privy_id ?? 'Agent';
-  const walletAddr = user?.wallet_address;
-  const memberSince = user?.created_at
-    ? new Date(user.created_at).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
-    : 'Unknown';
+  const handlePickAvatar = async () => {
+    if (!apiKey) return;
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.7,
+      base64: true,
+    });
+    if (result.canceled || !result.assets?.[0]?.base64) return;
+    setAvatarUploading(true);
+    try {
+      const dataUri = `data:image/jpeg;base64,${result.assets[0].base64}`;
+      const updated = await updateProfile(apiKey, { avatar_url: dataUri });
+      setUser(updated);
+    } catch { /* best-effort */ }
+    setAvatarUploading(false);
+  };
+
+  const handleRotateKey = () => {
+    Alert.alert('Rotate API Key', 'This will invalidate your current key. You will need to re-authenticate.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Rotate', style: 'destructive', onPress: async () => {
+        try {
+          const { regenerateApiKey } = await import('../../src/lib/api');
+          const newKey = await regenerateApiKey(apiKey!);
+          setApiKey(newKey);
+          Alert.alert('Done', 'Your API key has been rotated.');
+        } catch { Alert.alert('Error', 'Could not rotate key.'); }
+      }},
+    ]);
+  };
+
+  // Placeholder signAndSend — will be wired to Privy embedded wallet
+  const handleSignAndSend = async (tx: Transaction): Promise<string> => {
+    // TODO: wire to useEmbeddedSolanaWallet().getProvider().request()
+    throw new Error('Embedded wallet signing not yet connected');
+  };
+
+  if (!isAuthenticated) {
+    return (
+      <View style={styles.container}>
+        <AuroraBackground />
+        <View style={[styles.safe, { paddingTop: Math.max(insets.top, 16) }]}>
+          <ScreenHeader icon={<User size={26} color={tokens.secondary} strokeWidth={2.5} />} title="Account" style={{ paddingHorizontal: 0 }} />
+          <Animated.View entering={FadeInDown.duration(400)} style={styles.centerContent}>
+            <GlassCard style={styles.noAuthCard}>
+              <View style={styles.noAuthIconWrap}>
+                <Shield size={40} color={tokens.white35} strokeWidth={1.5} />
+              </View>
+              <Text style={styles.noAuthTitle}>Not Signed In</Text>
+              <Text style={styles.noAuthSub}>Sign in to sync your watchlist, receive alerts, and unlock all features.</Text>
+              <HapticButton variant="primary" size="md" fullWidth onPress={() => router.push('/(auth)/login')} style={{ marginTop: 16 }}>
+                <Text style={styles.btnTextWhite}>Sign In</Text>
+              </HapticButton>
+            </GlassCard>
+          </Animated.View>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
       <AuroraBackground />
       <View style={[styles.safe, { paddingTop: Math.max(insets.top, 16) }]}>
-        <ScreenHeader
-          icon={<User size={26} color={tokens.secondary} strokeWidth={2.5} />}
-          title="Account"
-          style={{ paddingHorizontal: 0 }}
-        />
+        <ScreenHeader icon={<User size={26} color={tokens.secondary} strokeWidth={2.5} />} title="Account" style={{ paddingHorizontal: 0 }} />
 
-        <ScrollView
-          contentContainerStyle={[styles.content, { paddingBottom: Math.max(insets.bottom + 100, 120) }]}
-          showsVerticalScrollIndicator={false}
-        >
-          {isAuthenticated ? (
-            <>
-              {/* Profile card */}
-              <Animated.View entering={FadeInDown.duration(400)}>
-                <GlassCard style={styles.profileCard}>
-                  <View style={styles.avatar}>
-                    <Text style={styles.avatarText}>{displayName[0]?.toUpperCase() ?? 'A'}</Text>
+        <ScrollView contentContainerStyle={[styles.content, { paddingBottom: Math.max(insets.bottom + 100, 120) }]} showsVerticalScrollIndicator={false}>
+
+          {/* ── Section 1: Profile Hero ──────────────────────────────────────── */}
+          <Animated.View entering={FadeInDown.duration(400)}>
+            <GlassCard style={styles.profileCard}>
+              <Pressable onPress={handlePickAvatar} disabled={avatarUploading}>
+                {user?.avatar_url ? (
+                  <Image source={{ uri: user.avatar_url }} style={styles.avatarImg} />
+                ) : (
+                  <View style={[styles.avatar, { backgroundColor: `${bg1}25`, borderColor: `${bg1}50` }]}>
+                    <Text style={[styles.avatarText, { color: bg1 }]}>{displayName[0]?.toUpperCase() ?? 'A'}</Text>
                   </View>
-                  <Text style={styles.profileName}>{displayName}</Text>
-                  <Text style={styles.profileSince}>Member since {memberSince}</Text>
-                </GlassCard>
-              </Animated.View>
+                )}
+              </Pressable>
 
-              {/* Plan */}
-              <Animated.View entering={FadeInDown.delay(50).duration(400)}>
-                <GlassCard style={styles.planCard}>
-                  <View style={styles.planRow}>
-                    <Crown size={18} color={tierColor(subPlan)} />
-                    <View style={[styles.planBadge, { backgroundColor: `${tierColor(subPlan)}20`, borderColor: `${tierColor(subPlan)}40` }]}>
-                      <Text style={[styles.planBadgeText, { color: tierColor(subPlan) }]}>
-                        {tierLabel(subPlan)}
-                      </Text>
-                    </View>
-                    <View style={{ flex: 1 }} />
-                    <HapticButton
-                      variant="ghost"
-                      size="sm"
-                      onPress={() => router.push('/paywall' as any)}
-                    >
-                      <Text style={styles.managePlanText}>Manage Plan</Text>
-                      <ChevronRight size={14} color={tokens.secondary} />
-                    </HapticButton>
-                  </View>
-                  {expiresAt && subPlan !== 'free' && (
-                    <Text style={styles.planExpiry}>
-                      Expires {new Date(expiresAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                    </Text>
-                  )}
-                </GlassCard>
-              </Animated.View>
+              <Pressable onPress={() => setEditVisible(true)} style={styles.nameRow}>
+                <Text style={styles.profileName}>{displayName}</Text>
+                {username && <Text style={styles.profileHandle}>@{username}</Text>}
+              </Pressable>
 
-              {/* Stats */}
-              <Animated.View entering={FadeInDown.delay(100).duration(400)} style={styles.statsRow}>
-                <View style={styles.statCard}>
-                  <Text style={styles.statValue}>{scanCount}</Text>
-                  <Text style={styles.statLabel}>Scans</Text>
+              <View style={styles.profileMeta}>
+                <View style={[styles.planPill, { backgroundColor: `${tierColor(subPlan)}20`, borderColor: `${tierColor(subPlan)}40` }]}>
+                  <Text style={[styles.planPillText, { color: tierColor(subPlan) }]}>{tierLabel(subPlan)}</Text>
                 </View>
-                <View style={styles.statCard}>
-                  <Text style={styles.statValue}>{watches.length}</Text>
-                  <Text style={styles.statLabel}>Watching</Text>
-                </View>
-                <View style={styles.statCard}>
-                  <View style={[styles.statusDot, { backgroundColor: ocConnected ? tokens.success : tokens.white35 }]} />
-                  <Text style={styles.statLabel}>{ocConnected ? 'Online' : 'Offline'}</Text>
-                </View>
-              </Animated.View>
+                {memberSince && <Text style={styles.memberSince}>Since {memberSince}</Text>}
+              </View>
+            </GlassCard>
+          </Animated.View>
 
-              {/* Info rows */}
-              <Animated.View entering={FadeInDown.delay(200).duration(400)}>
-                <GlassCard>
-                  {walletAddr && (
-                    <>
-                      <InfoRow
-                        label="Wallet"
-                        value={`${walletAddr.slice(0, 6)}...${walletAddr.slice(-4)}`}
-                        icon={<Wallet size={16} color={tokens.secondary} />}
-                      />
-                      <View style={styles.divider} />
-                    </>
-                  )}
-                  <InfoRow
-                    label="API Key"
-                    value={apiKey ? `${apiKey.slice(0, 8)}••••${apiKey.slice(-4)}` : 'Not set'}
-                    icon={<Key size={16} color={tokens.secondary} />}
-                  />
-                  <View style={styles.divider} />
-                  <InfoRow
-                    label="OpenClaw"
-                    value={ocConnected ? (ocHost ?? 'Connected') : 'Not connected'}
-                    icon={<Zap size={16} color={ocConnected ? tokens.success : tokens.white35} />}
-                  />
-                  <View style={styles.divider} />
-                  <InfoRow
-                    label="Node Status"
-                    value={isOpenClawAvailable() ? 'Active' : 'Standby'}
-                    icon={<Activity size={16} color={isOpenClawAvailable() ? tokens.success : tokens.white35} />}
-                  />
-                </GlassCard>
-              </Animated.View>
+          {/* ── Section 2: Wallet ────────────────────────────────────────────── */}
+          <Animated.View entering={FadeInDown.delay(60).duration(400)}>
+            <WalletCard
+              address={walletAddr}
+              onSend={() => setSendVisible(true)}
+              onReceive={() => setReceiveVisible(true)}
+            />
+          </Animated.View>
 
-              {/* Sign out */}
-              <Animated.View entering={FadeInDown.delay(300).duration(400)} style={{ marginTop: 8 }}>
-                <HapticButton variant="ghost" size="md" fullWidth onPress={handleLogout}>
-                  <LogOut size={16} color={tokens.accent} />
-                  <Text style={styles.logoutText}>Sign Out</Text>
+          {/* ── Section 3: Plan & Usage ──────────────────────────────────────── */}
+          <Animated.View entering={FadeInDown.delay(120).duration(400)}>
+            <GlassCard style={styles.usageCard}>
+              <View style={styles.usageHeader}>
+                <Crown size={16} color={tierColor(subPlan)} />
+                <Text style={styles.usageTitle}>{tierLabel(subPlan)} Plan</Text>
+                <View style={{ flex: 1 }} />
+                <HapticButton variant="ghost" size="sm" onPress={() => router.push('/paywall' as any)}>
+                  <Text style={styles.managePlanText}>Upgrade</Text>
+                  <ChevronRight size={14} color={tokens.secondary} />
                 </HapticButton>
-              </Animated.View>
-            </>
-          ) : (
-            /* Not authenticated */
-            <Animated.View entering={FadeInDown.duration(400)}>
-              <GlassCard style={styles.noAuthCard}>
-                <View style={styles.noAuthIconWrap}>
-                  <Shield size={40} color={tokens.white35} strokeWidth={1.5} />
-                </View>
-                <Text style={styles.noAuthTitle}>Not Signed In</Text>
-                <Text style={styles.noAuthSub}>
-                  Sign in to sync your watchlist, receive alerts, and unlock all features.
+              </View>
+              {expiresAt && subPlan !== 'free' && (
+                <Text style={styles.planExpiry}>
+                  Expires {new Date(expiresAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                 </Text>
-                <HapticButton
-                  variant="primary"
-                  size="md"
-                  fullWidth
-                  onPress={() => router.push('/(auth)/login')}
-                  style={{ marginTop: 16 }}
-                >
-                  <Text style={styles.signInBtnText}>Sign In</Text>
-                </HapticButton>
-              </GlassCard>
-            </Animated.View>
-          )}
+              )}
+              <View style={styles.usageBars}>
+                <UsageBar label="Scans" used={usage?.scans ?? scanCount} total={limits.scansPerDay === -1 ? Infinity : limits.scansPerDay} />
+                <UsageBar label="AI Chats" used={usage?.ai_chat ?? 0} total={limits.aiChatDailyLimit === -1 ? Infinity : limits.aiChatDailyLimit} />
+                <UsageBar label="Watchlist" used={watches.length} total={limits.maxWatchlist} />
+              </View>
+            </GlassCard>
+          </Animated.View>
+
+          {/* ── Section 4: Forensic Reputation ───────────────────────────────── */}
+          <Animated.View entering={FadeInDown.delay(180).duration(400)}>
+            <GlassCard style={styles.repCard}>
+              <View style={styles.repHeader}>
+                <Award size={18} color={tokens.gold} />
+                <Text style={styles.repTitle}>Forensic Reputation</Text>
+              </View>
+              <View style={styles.repStatsRow}>
+                <View style={styles.repStat}>
+                  <Text style={styles.repStatVal}>{repScore}</Text>
+                  <Text style={styles.repStatLabel}>Score</Text>
+                </View>
+                <View style={styles.repStat}>
+                  <Scan size={16} color={tokens.secondary} />
+                  <Text style={styles.repStatVal}>{scanCount}</Text>
+                  <Text style={styles.repStatLabel}>Scans</Text>
+                </View>
+                <View style={styles.repStat}>
+                  <Eye size={16} color={tokens.secondary} />
+                  <Text style={styles.repStatVal}>{watches.length}</Text>
+                  <Text style={styles.repStatLabel}>Watching</Text>
+                </View>
+              </View>
+              {recentSearches.length > 0 && (
+                <View style={styles.recentSection}>
+                  <Text style={styles.recentTitle}>Recent Scans</Text>
+                  {recentSearches.slice(0, 3).map((s) => (
+                    <Pressable key={s.mint} style={styles.recentRow} onPress={() => router.push(`/token/${s.mint}` as any)}>
+                      <Text style={styles.recentName} numberOfLines={1}>{s.name || s.symbol || s.mint.slice(0, 8)}</Text>
+                      <ChevronRight size={12} color={tokens.white20} />
+                    </Pressable>
+                  ))}
+                </View>
+              )}
+            </GlassCard>
+          </Animated.View>
+
+          {/* ── Section 5: Settings & Security ───────────────────────────────── */}
+          <Animated.View entering={FadeInDown.delay(240).duration(400)}>
+            <GlassCard>
+              <SettingsRow
+                icon={<Bell size={16} color={tokens.secondary} />}
+                label="Notifications"
+                onPress={() => {/* TODO: open AlertPrefsSheet */}}
+              />
+              <View style={styles.divider} />
+              <SettingsRow
+                icon={<Key size={16} color={tokens.secondary} />}
+                label="API Key"
+                value={apiKey ? `${apiKey.slice(0, 8)}••••${apiKey.slice(-4)}` : 'Not set'}
+              />
+              <View style={styles.divider} />
+              <SettingsRow
+                icon={<RefreshCw size={16} color={tokens.warning} />}
+                label="Rotate API Key"
+                onPress={handleRotateKey}
+              />
+            </GlassCard>
+          </Animated.View>
+
+          {/* Sign Out */}
+          <Animated.View entering={FadeInDown.delay(300).duration(400)} style={{ marginTop: 4 }}>
+            <HapticButton variant="ghost" size="md" fullWidth onPress={handleLogout}>
+              <LogOut size={16} color={tokens.accent} />
+              <Text style={styles.logoutText}>Sign Out</Text>
+            </HapticButton>
+          </Animated.View>
+
+          <Text style={styles.appVersion}>Lineage Agent v1.0.0</Text>
+
         </ScrollView>
       </View>
+
+      {/* Sheets */}
+      <EditProfileSheet visible={editVisible} onClose={() => setEditVisible(false)} />
+      {walletAddr && (
+        <>
+          <ReceiveSheet visible={receiveVisible} onClose={() => setReceiveVisible(false)} address={walletAddr} />
+          <SendSheet
+            visible={sendVisible}
+            onClose={() => setSendVisible(false)}
+            walletAddress={walletAddr}
+            balance={null}
+            signAndSend={handleSignAndSend}
+          />
+        </>
+      )}
     </View>
   );
 }
 
+// ── Styles ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: tokens.bgMain },
   safe: { flex: 1, paddingHorizontal: tokens.spacing.screenPadding },
   content: { gap: 12 },
+  centerContent: { flex: 1, justifyContent: 'center' },
 
-  // Profile
+  // Profile Hero
   profileCard: { alignItems: 'center', paddingVertical: 24 },
   avatar: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: `${tokens.secondary}20`,
-    borderWidth: 2,
-    borderColor: `${tokens.secondary}40`,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 12,
+    width: 80, height: 80, borderRadius: 40,
+    borderWidth: 2, alignItems: 'center', justifyContent: 'center', marginBottom: 12,
   },
-  avatarText: {
-    fontFamily: 'Lexend-Bold',
-    fontSize: 24,
-    color: tokens.secondary,
-  },
-  profileName: {
-    fontFamily: 'Lexend-SemiBold',
-    fontSize: tokens.font.sectionHeader,
-    color: tokens.white100,
-    marginBottom: 4,
-  },
-  profileSince: {
-    fontFamily: 'Lexend-Regular',
-    fontSize: tokens.font.small,
-    color: tokens.white35,
-  },
+  avatarImg: { width: 80, height: 80, borderRadius: 40, marginBottom: 12 },
+  avatarText: { fontFamily: 'Lexend-Bold', fontSize: 28 },
+  nameRow: { alignItems: 'center', gap: 2 },
+  profileName: { fontFamily: 'Lexend-Bold', fontSize: tokens.font.sectionHeader, color: tokens.white100 },
+  profileHandle: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.small, color: tokens.white35 },
+  profileMeta: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 10 },
+  planPill: { paddingHorizontal: 10, paddingVertical: 3, borderRadius: tokens.radius.pill, borderWidth: 1 },
+  planPillText: { fontFamily: 'Lexend-Bold', fontSize: tokens.font.tiny, letterSpacing: 0.5 },
+  memberSince: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny, color: tokens.white35 },
 
-  // Plan
-  planCard: { paddingVertical: 14 },
-  planRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  planBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: tokens.radius.pill,
-    borderWidth: 1,
-  },
-  planBadgeText: {
-    fontFamily: 'Lexend-Bold',
-    fontSize: tokens.font.small,
-    letterSpacing: 0.5,
-  },
-  managePlanText: {
-    fontFamily: 'Lexend-SemiBold',
-    fontSize: tokens.font.small,
-    color: tokens.secondary,
-  },
-  planExpiry: {
-    fontFamily: 'Lexend-Regular',
-    fontSize: tokens.font.tiny,
-    color: tokens.white35,
-    marginTop: 8,
-  },
+  // Usage
+  usageCard: { gap: 12 },
+  usageHeader: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  usageTitle: { fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.subheading, color: tokens.white80 },
+  managePlanText: { fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.small, color: tokens.secondary },
+  planExpiry: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny, color: tokens.white35 },
+  usageBars: { gap: 10 },
 
-  // Stats
-  statsRow: {
-    flexDirection: 'row',
-    gap: 8,
+  // Reputation
+  repCard: { gap: 12 },
+  repHeader: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  repTitle: { fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.subheading, color: tokens.white80 },
+  repStatsRow: { flexDirection: 'row', gap: 8 },
+  repStat: {
+    flex: 1, alignItems: 'center', gap: 4,
+    backgroundColor: tokens.bgGlass8, borderRadius: tokens.radius.sm,
+    borderWidth: 1, borderColor: tokens.borderSubtle, paddingVertical: 12,
   },
-  statCard: {
-    flex: 1,
-    backgroundColor: tokens.bgGlass8,
-    borderRadius: tokens.radius.sm,
-    borderWidth: 1,
-    borderColor: tokens.borderSubtle,
-    paddingVertical: 14,
-    alignItems: 'center',
-    gap: 4,
+  repStatVal: { fontFamily: 'Lexend-Bold', fontSize: tokens.font.sectionHeader, color: tokens.white100 },
+  repStatLabel: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny, color: tokens.white35, letterSpacing: 0.5 },
+  recentSection: { gap: 6, marginTop: 4 },
+  recentTitle: { fontFamily: 'Lexend-Medium', fontSize: tokens.font.small, color: tokens.white35 },
+  recentRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingVertical: 8, paddingHorizontal: 4,
   },
-  statValue: {
-    fontFamily: 'Lexend-Bold',
-    fontSize: tokens.font.sectionHeader,
-    color: tokens.white100,
-  },
-  statLabel: {
-    fontFamily: 'Lexend-Regular',
-    fontSize: tokens.font.tiny,
-    color: tokens.white35,
-    letterSpacing: 0.5,
-  },
-  statusDot: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    marginBottom: 2,
-  },
+  recentName: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.body, color: tokens.white60, flex: 1 },
 
-  // Info rows
-  infoRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    paddingVertical: 4,
+  // Settings
+  settingsRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 6 },
+  settingsIcon: {
+    width: 32, height: 32, borderRadius: 8, backgroundColor: tokens.bgGlass8,
+    alignItems: 'center', justifyContent: 'center',
   },
-  infoIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
-    backgroundColor: tokens.bgGlass8,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  infoBody: { flex: 1 },
-  infoLabel: {
-    fontFamily: 'Lexend-Regular',
-    fontSize: tokens.font.tiny,
-    color: tokens.white35,
-    marginBottom: 2,
-  },
-  infoValue: {
-    fontFamily: 'Lexend-SemiBold',
-    fontSize: tokens.font.body,
-    color: tokens.white100,
-  },
-  divider: {
-    height: 1,
-    backgroundColor: tokens.borderSubtle,
-    marginVertical: 8,
-  },
+  settingsLabel: { fontFamily: 'Lexend-Medium', fontSize: tokens.font.body, color: tokens.white80, flex: 1 },
+  settingsValue: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.small, color: tokens.white35, maxWidth: 140 },
+  divider: { height: 1, backgroundColor: tokens.borderSubtle, marginVertical: 6 },
 
   // Logout
-  logoutText: {
-    fontFamily: 'Lexend-Regular',
-    fontSize: tokens.font.body,
-    color: tokens.accent,
+  logoutText: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.body, color: tokens.accent },
+  appVersion: {
+    fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny,
+    color: tokens.white20, textAlign: 'center', marginTop: 8,
   },
 
   // Not authenticated
   noAuthCard: { alignItems: 'center', paddingVertical: 32 },
   noAuthIconWrap: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: `${tokens.white100}08`,
-    borderWidth: 1,
-    borderColor: tokens.borderSubtle,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 16,
+    width: 72, height: 72, borderRadius: 36,
+    backgroundColor: `${tokens.white100}08`, borderWidth: 1, borderColor: tokens.borderSubtle,
+    alignItems: 'center', justifyContent: 'center', marginBottom: 16,
   },
-  noAuthTitle: {
-    fontFamily: 'Lexend-SemiBold',
-    fontSize: tokens.font.subheading,
-    color: tokens.white60,
-    marginBottom: 8,
-  },
-  noAuthSub: {
-    fontFamily: 'Lexend-Regular',
-    fontSize: tokens.font.body,
-    color: tokens.white35,
-    textAlign: 'center',
-    lineHeight: 22,
-    paddingHorizontal: 16,
-  },
-  signInBtnText: {
-    fontFamily: 'Lexend-Bold',
-    fontSize: tokens.font.body,
-    color: tokens.white100,
-  },
+  noAuthTitle: { fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.subheading, color: tokens.white60, marginBottom: 8 },
+  noAuthSub: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.body, color: tokens.white35, textAlign: 'center', lineHeight: 22, paddingHorizontal: 16 },
+  btnTextWhite: { fontFamily: 'Lexend-Bold', fontSize: tokens.font.body, color: tokens.white100 },
 });

@@ -786,6 +786,10 @@ class SQLiteCache:
         for col_sql in [
             "ALTER TABLE users ADD COLUMN rc_customer_id TEXT",
             "ALTER TABLE users ADD COLUMN discord_webhook_url TEXT",
+            "ALTER TABLE users ADD COLUMN username TEXT",
+            "ALTER TABLE users ADD COLUMN display_name TEXT",
+            "ALTER TABLE users ADD COLUMN avatar_url TEXT",
+            "ALTER TABLE users ADD COLUMN fcm_token TEXT",
         ]:
             try:
                 await db.execute(col_sql)
