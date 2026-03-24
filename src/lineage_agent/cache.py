@@ -782,6 +782,92 @@ class SQLiteCache:
             "CREATE INDEX IF NOT EXISTS idx_fb_mint ON investigation_feedback(mint)"
         )
 
+        # ── Agent Memory System (4 layers) ────────────────────────────────
+        # Layer 1: Episodic memory — full verdict + signal snapshot per investigation
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS investigation_episodes (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                mint             TEXT NOT NULL,
+                deployer         TEXT,
+                operator_fp      TEXT,
+                campaign_id      TEXT,
+                community_id     TEXT,
+                risk_score       INTEGER NOT NULL,
+                confidence       TEXT NOT NULL DEFAULT 'medium',
+                rug_pattern      TEXT,
+                verdict_summary  TEXT NOT NULL,
+                conviction_chain TEXT,
+                key_findings     TEXT,
+                signals_json     TEXT NOT NULL DEFAULT '{}',
+                user_rating      TEXT,
+                user_note        TEXT,
+                model            TEXT,
+                created_at       REAL NOT NULL
+            )
+        """)
+        await db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_ep_mint ON investigation_episodes(mint)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_ep_deployer ON investigation_episodes(deployer)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_ep_operator ON investigation_episodes(operator_fp)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_ep_campaign ON investigation_episodes(campaign_id)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_ep_community ON investigation_episodes(community_id)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_ep_created ON investigation_episodes(created_at)")
+
+        # Layer 2: Semantic memory — cumulative entity profiles
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS entity_knowledge (
+                id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                entity_type         TEXT NOT NULL,
+                entity_id           TEXT NOT NULL,
+                total_tokens        INTEGER NOT NULL DEFAULT 0,
+                total_rugs          INTEGER NOT NULL DEFAULT 0,
+                total_extracted_sol REAL DEFAULT 0,
+                avg_risk_score      REAL DEFAULT 0,
+                preferred_narratives TEXT,
+                typical_rug_pattern  TEXT,
+                launch_velocity     REAL,
+                acceleration        REAL,
+                first_seen          REAL,
+                last_seen           REAL,
+                sample_count        INTEGER NOT NULL DEFAULT 0,
+                confidence          TEXT DEFAULT 'low',
+                updated_at          REAL NOT NULL
+            )
+        """)
+        await db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_ek_type_id ON entity_knowledge(entity_type, entity_id)")
+
+        # Layer 3: Procedural memory — learned calibration rules from feedback
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS calibration_rules (
+                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                rule_type      TEXT NOT NULL,
+                condition_json TEXT NOT NULL,
+                adjustment     REAL NOT NULL,
+                sample_count   INTEGER NOT NULL DEFAULT 1,
+                confidence     REAL NOT NULL DEFAULT 0.5,
+                source_episodes TEXT,
+                active         INTEGER NOT NULL DEFAULT 1,
+                created_at     REAL NOT NULL,
+                updated_at     REAL NOT NULL
+            )
+        """)
+        await db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_cr_type_cond ON calibration_rules(rule_type, condition_json)")
+
+        # Layer 4: Temporal memory — campaign event timeline
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS campaign_timelines (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                entity_type   TEXT NOT NULL,
+                entity_id     TEXT NOT NULL,
+                event_type    TEXT NOT NULL,
+                mint          TEXT,
+                event_at      REAL NOT NULL,
+                risk_score    INTEGER,
+                extracted_sol REAL
+            )
+        """)
+        await db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_ct_unique ON campaign_timelines(entity_type, entity_id, event_type, mint)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_ct_entity ON campaign_timelines(entity_type, entity_id)")
+
         # Safe column migrations
         for col_sql in [
             "ALTER TABLE users ADD COLUMN rc_customer_id TEXT",
