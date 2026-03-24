@@ -548,6 +548,10 @@ async def get_lineage(
         _deployer = getattr(getattr(result, "root", None), "deployer", "") or ""
         if _deployer and not force_refresh:
             asyncio.create_task(_warm_heavy_analyses(mint, _deployer))
+
+        # Record memory episode from scan data (enriches agent memory on every scan)
+        asyncio.create_task(_record_scan_episode(mint, result))
+
         return result
     except asyncio.TimeoutError:
         raise HTTPException(
@@ -608,6 +612,75 @@ async def _warm_heavy_analyses(mint: str, deployer: str):
         logger.info("[warm] pre-computed bundle/sol_flow/cartel for %s", mint[:12])
     except Exception as exc:
         logger.debug("[warm] failed for %s: %s", mint[:12], exc)
+
+
+async def _record_scan_episode(mint: str, result: Any) -> None:
+    """Record a memory episode from a /lineage scan (fire-and-forget).
+
+    Builds a heuristic verdict from the scan data so the agent memory
+    accumulates intelligence on every scan, not just full investigations.
+    """
+    try:
+        from .memory_service import record_episode
+        from .ai_analyst import _heuristic_score
+
+        # Convert LineageResult to dict for signal extraction
+        scan_dict = result.model_dump(mode="json") if hasattr(result, "model_dump") else {}
+
+        # Compute heuristic risk score from available signals
+        hscore = 0
+        try:
+            hscore = _heuristic_score(
+                scan_dict,
+                scan_dict.get("bundle_report"),
+                scan_dict.get("sol_flow"),
+            )
+        except Exception:
+            pass
+
+        # Determine risk pattern from signals
+        pattern = "minimal_risk"
+        if hscore >= 75:
+            pattern = "high_risk_signals"
+        elif hscore >= 50:
+            pattern = "moderate_risk_signals"
+        elif hscore >= 25:
+            pattern = "low_risk_signals"
+
+        # Build a synthetic verdict dict
+        deployer = ""
+        root = scan_dict.get("root") or scan_dict.get("query_token") or {}
+        deployer = root.get("deployer", "")
+
+        # Operator fingerprint
+        op = scan_dict.get("operator_fingerprint") or {}
+        operator_fp = op.get("fingerprint", "") if isinstance(op, dict) else ""
+
+        # Cartel community
+        cr = scan_dict.get("cartel_report") or {}
+        dc = cr.get("deployer_community") or {}
+        community_id = dc.get("community_id", "") if isinstance(dc, dict) else ""
+
+        verdict = {
+            "risk_score": hscore,
+            "confidence": "low",  # heuristic-only, not AI-verified
+            "rug_pattern": pattern,
+            "verdict_summary": f"Heuristic scan: {hscore}/100 ({pattern})",
+            "conviction_chain": "",
+            "key_findings": [],
+            "model": "heuristic",
+        }
+
+        await record_episode(
+            mint=mint,
+            verdict=verdict,
+            scan_data=scan_dict,
+            deployer=deployer or None,
+            operator_fp=operator_fp or None,
+            community_id=community_id or None,
+        )
+    except Exception as exc:
+        logger.debug("[memory] scan episode failed for %s: %s", mint[:12], exc)
 
 
 async def _record_scan_event(mint: str, token_meta: Any) -> None:
