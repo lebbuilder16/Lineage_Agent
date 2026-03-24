@@ -115,10 +115,41 @@ def _extract_signals(scan_data: dict) -> dict:
         signals["insider_verdict"] = ins.get("verdict", "")
         signals["deployer_exited"] = ins.get("deployer_exited", False)
 
+        # Insider details
+        signals["sell_pressure_24h"] = ins.get("sell_pressure_24h", 0)
+        signals["insider_sell_count"] = ins.get("insider_sell_count", 0)
+
+        # Bundle details
+        signals["bundle_extracted_sol"] = br.get("total_extracted_sol", 0)
+
         # Cartel
         cr = scan_data.get("cartel_report") or {}
         dc_community = cr.get("deployer_community") or {}
         signals["cartel_member_count"] = len(dc_community.get("wallets", []))
+        signals["cartel_community_id"] = dc_community.get("community_id", "")
+        signals["cartel_total_rugs"] = dc_community.get("total_rugs", 0)
+
+        # Factory rhythm
+        fr = scan_data.get("factory_rhythm") or {}
+        signals["factory_is_factory"] = fr.get("is_factory", False) if isinstance(fr, dict) else False
+        signals["factory_token_count"] = fr.get("total_tokens", 0) if isinstance(fr, dict) else 0
+        signals["factory_avg_lifespan_h"] = fr.get("avg_lifespan_hours", 0) if isinstance(fr, dict) else 0
+
+        # Rug mechanism (from death_clock)
+        signals["rug_mechanism"] = dc.get("rug_mechanism", "")
+        signals["rug_probability_pct"] = dc.get("rug_probability_pct")
+
+        # Zombie alert
+        za = scan_data.get("zombie_alert") or {}
+        signals["is_zombie"] = bool(za) if isinstance(za, dict) and za.get("original_mint") else False
+        signals["zombie_original"] = za.get("original_mint", "") if isinstance(za, dict) else ""
+
+        # Liquidity architecture
+        la = scan_data.get("liquidity_arch") or {}
+        signals["liquidity_usd"] = la.get("total_liquidity_usd", 0) if isinstance(la, dict) else 0
+        signals["liquidity_concentration_hhi"] = la.get("concentration_hhi", 0) if isinstance(la, dict) else 0
+        signals["liquidity_authenticity"] = la.get("authenticity_score", 0) if isinstance(la, dict) else 0
+        signals["liquidity_flags"] = la.get("flags", []) if isinstance(la, dict) else []
 
         # Family size
         signals["family_size"] = len(scan_data.get("derivatives", []))
@@ -126,6 +157,14 @@ def _extract_signals(scan_data: dict) -> dict:
         # Operator
         op = scan_data.get("operator_fingerprint") or {}
         signals["operator_rug_rate"] = op.get("rug_rate_pct", 0) if isinstance(op, dict) else 0
+        signals["operator_linked_wallets"] = len(op.get("linked_wallets", [])) if isinstance(op, dict) else 0
+        signals["operator_total_tokens"] = op.get("total_tokens", 0) if isinstance(op, dict) else 0
+
+        # Lifecycle
+        qt = scan_data.get("query_token") or scan_data.get("root") or {}
+        signals["lifecycle_stage"] = qt.get("lifecycle_stage", "")
+        signals["market_surface"] = qt.get("market_surface", "")
+        signals["launch_platform"] = qt.get("launch_platform", "")
 
     except Exception:
         pass
@@ -170,6 +209,20 @@ async def _update_entity_knowledge(db, entity_type: str, entity_id: str) -> None
         # Count rugs (risk >= 70)
         rug_count = sum(1 for s in risk_scores if s >= 70)
 
+        # Aggregate extraction SOL + narrative preferences from signals_json
+        total_extracted = 0.0
+        narratives: list[str] = []
+        for r in rows:
+            try:
+                sigs = json.loads(r[2]) if r[2] else {}
+                total_extracted += sigs.get("sol_extracted", 0) or 0
+                total_extracted += sigs.get("bundle_extracted_sol", 0) or 0
+                platform = sigs.get("launch_platform", "")
+                if platform:
+                    narratives.append(platform)
+            except Exception:
+                pass
+
         # Velocity: tokens in last 24h
         now = time.time()
         recent_24h = sum(1 for r in rows if now - r[3] < 86400)
@@ -183,15 +236,23 @@ async def _update_entity_knowledge(db, entity_type: str, entity_id: str) -> None
 
         confidence = "high" if total >= 5 else "medium" if total >= 2 else "low"
 
+        # Top narratives/platforms
+        narrative_counts = {}
+        for n in narratives:
+            narrative_counts[n] = narrative_counts.get(n, 0) + 1
+        top_narratives = sorted(narrative_counts, key=narrative_counts.get, reverse=True)[:3]
+
         await db.execute(
             "INSERT OR REPLACE INTO entity_knowledge "
-            "(entity_type, entity_id, total_tokens, total_rugs, avg_risk_score, "
-            " typical_rug_pattern, launch_velocity, acceleration, "
-            " first_seen, last_seen, sample_count, confidence, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "(entity_type, entity_id, total_tokens, total_rugs, total_extracted_sol, "
+            " avg_risk_score, preferred_narratives, typical_rug_pattern, "
+            " launch_velocity, acceleration, first_seen, last_seen, "
+            " sample_count, confidence, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
-                entity_type, entity_id, total, rug_count, round(avg_score, 1),
-                typical_pattern, recent_24h, acceleration,
+                entity_type, entity_id, total, rug_count, round(total_extracted, 2),
+                round(avg_score, 1), json.dumps(top_narratives), typical_pattern,
+                recent_24h, acceleration,
                 first_seen, last_seen, total, confidence, now,
             ),
         )
