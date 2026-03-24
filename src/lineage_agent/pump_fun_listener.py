@@ -351,8 +351,10 @@ async def _poll_loop() -> None:
         logger.warning("[listener] no Helius API key — listener disabled")
         return
 
-    logger.info(
-        "[listener] started — polling Pump.fun graduations every %ds (key=%s...)",
+    import sys
+    print(f"[LISTENER] Starting pump_fun graduation listener (key={_HELIUS_API_KEY[:8]}...)", flush=True)
+    logger.warning(
+        "[listener] STARTED — polling Pump.fun graduations every %ds (key=%s...)",
         _POLL_INTERVAL, _HELIUS_API_KEY[:8],
     )
 
@@ -360,10 +362,12 @@ async def _poll_loop() -> None:
     initial = await _fetch_recent_graduations()
     if initial:
         _last_tx_sig = initial[0].get("signature")
-        logger.info(
+        logger.warning(
             "[listener] warm-up: %d recent graduations, starting from %s",
             len(initial), _last_tx_sig[:16] if _last_tx_sig else "none",
         )
+    else:
+        logger.warning("[listener] warm-up: no recent graduations found — API may be failing")
 
     while True:
         try:
@@ -372,14 +376,16 @@ async def _poll_loop() -> None:
                 await asyncio.sleep(_POLL_INTERVAL)
                 continue
 
-            # Process only NEW transactions (ones we haven't seen)
+            # Process only NEW transactions (after _last_tx_sig)
             new_txs = []
             for tx in txs:
                 sig = tx.get("signature", "")
                 if sig == _last_tx_sig:
                     break  # Reached the last known tx
-                if sig not in _seen_mints:
-                    new_txs.append(tx)
+                new_txs.append(tx)
+
+            if new_txs:
+                logger.info("[listener] poll: %d new graduations found", len(new_txs))
 
             # Update last known signature
             if txs:
@@ -388,10 +394,13 @@ async def _poll_loop() -> None:
             # Process new graduations (oldest first)
             for tx in reversed(new_txs):
                 sig = tx.get("signature", "")
+                if sig in _seen_mints:
+                    continue
                 _seen_mints[sig] = time.monotonic()
 
                 token_info = _extract_graduated_token(tx)
                 if not token_info:
+                    logger.debug("[listener] no token extracted from %s", sig[:16])
                     continue
 
                 mint = token_info["mint"]
