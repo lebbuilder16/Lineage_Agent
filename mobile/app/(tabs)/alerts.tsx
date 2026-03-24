@@ -5,6 +5,7 @@ import {
   TouchableOpacity,
   StyleSheet,
   Alert,
+  Image,
 } from 'react-native';
 import { router } from 'expo-router';
 import Animated, { FadeInDown, LinearTransition } from 'react-native-reanimated';
@@ -259,7 +260,11 @@ export default function AlertsScreen() {
                   {/* Main row */}
                   <View style={styles.alertInner}>
                     <View style={styles.alertIcon}>
-                      {ALERT_ICONS[item.type] ?? <Bell size={18} color={tokens.primary} />}
+                      {item.image_uri ? (
+                        <Image source={{ uri: item.image_uri }} style={styles.alertTokenImg} />
+                      ) : (
+                        ALERT_ICONS[item.type] ?? <Bell size={18} color={tokens.primary} />
+                      )}
                     </View>
                     <View style={styles.alertBody}>
                       <Text style={styles.alertTitle} numberOfLines={1}>
@@ -496,6 +501,12 @@ const styles = StyleSheet.create({
     backgroundColor: tokens.bgGlass8,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  alertTokenImg: {
+    width: 36,
+    height: 36,
+    borderRadius: tokens.radius.sm,
   },
   alertBody: { flex: 1 },
   alertTitle: {

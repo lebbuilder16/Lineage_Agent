@@ -70,6 +70,8 @@ export interface AlertItem {
   title?: string;
   token_name?: string;
   mint?: string;
+  image_uri?: string;
+  deployer?: string;
   message: string;
   risk_score?: number;
   timestamp: string;

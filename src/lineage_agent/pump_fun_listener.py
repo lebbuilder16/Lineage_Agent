@@ -274,6 +274,9 @@ async def _process_graduated_token(token_info: dict) -> None:
         "deployer": deployer,
         "timestamp": time.time(),
         "signature": token_info.get("signature", ""),
+        "name": "",
+        "symbol": "",
+        "image_uri": "",
     })
     if len(_recent_graduations) > _MAX_RECENT:
         _recent_graduations[:] = _recent_graduations[:_MAX_RECENT]
@@ -308,7 +311,23 @@ async def _process_graduated_token(token_info: dict) -> None:
             mint[:16], ", ".join(triage["risk_signals"]),
         )
 
-        # Alert ALL connected users (global broadcast) + targeted deployer watchers
+        # Enrich with token metadata (name, symbol, image) from DexScreener
+        token_name = ""
+        token_symbol = ""
+        token_image = ""
+        try:
+            from .data_sources._clients import get_dex_client
+            dex = get_dex_client()
+            pairs = await asyncio.wait_for(dex.get_token_pairs(mint), timeout=5.0)
+            if pairs:
+                meta = dex.pairs_to_metadata(mint, pairs)
+                token_name = meta.name or ""
+                token_symbol = meta.symbol or ""
+                token_image = meta.image_uri or ""
+        except Exception:
+            pass
+
+        # Alert ALL connected users (global broadcast)
         try:
             from .alert_service import _broadcast_web_alert, _web_clients
 
@@ -319,14 +338,18 @@ async def _process_graduated_token(token_info: dict) -> None:
                 f"{dp.rug_count}/{dp.total_tokens_launched} rugs"
                 if dp else "new deployer"
             )
+            display_name = token_name or token_symbol or mint[:8]
 
             payload = {
                 "event": "alert",
                 "type": "token_graduated",
-                "title": f"🎓 New DEX graduation" + (f" ⚠️" if has_risk else ""),
-                "body": f"Deployer ({rug_info}) — {', '.join(signals[:2])}",
+                "title": f"{display_name}" + (f" ⚠️" if has_risk else " 🎓"),
+                "body": f"Graduated to DEX — deployer ({rug_info})",
+                "message": f"Graduated to DEX — deployer ({rug_info})",
+                "token_name": display_name,
                 "mint": mint,
                 "deployer": deployer,
+                "image_uri": token_image,
                 "risk_signals": signals,
             }
 
