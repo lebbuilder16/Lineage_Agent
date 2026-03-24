@@ -18,10 +18,10 @@ primary_region = 'ams'
   LOG_FORMAT = "json"
   CACHE_BACKEND = "sqlite"
   CACHE_SQLITE_PATH = "/data/cache.db"
-  UVICORN_WORKERS = "3"
+  UVICORN_WORKERS = "1"
 
 [processes]
-  app = "python -m uvicorn lineage_agent.api:app --host 0.0.0.0 --port 8080 --app-dir src"
+  app = "python -m uvicorn lineage_agent.api:app --host 0.0.0.0 --port 8080 --app-dir src --workers 1"
 
 [http_service]
   internal_port = 8080
