@@ -132,7 +132,7 @@ export default function WelcomeScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: 'transparent' },
+  container: { flex: 1, backgroundColor: tokens.bgMain },
   content: {
     flex: 1,
     paddingHorizontal: tokens.spacing.screenPadding + 4,

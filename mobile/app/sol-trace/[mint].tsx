@@ -201,7 +201,7 @@ export default function SolTraceScreen() {
 
 // ── Styles ──────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: 'transparent' },
+  container: { flex: 1, backgroundColor: tokens.bgMain },
   safe: { flex: 1 },
   navbar: {
     flexDirection: 'row',

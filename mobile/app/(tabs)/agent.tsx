@@ -237,7 +237,7 @@ export default function AgentScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: 'transparent' },
+  container: { flex: 1, backgroundColor: tokens.bgMain },
   safe: { flex: 1 },
   content: { paddingHorizontal: tokens.spacing.screenPadding, paddingBottom: 32, gap: 10 },
   tabBar: {

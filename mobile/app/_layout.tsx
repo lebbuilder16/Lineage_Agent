@@ -249,9 +249,9 @@ export default function RootLayout() {
     <GestureHandlerRootView style={styles.root}>
       <AuroraBackground />
       <QueryClientProvider client={queryClient}>
-        <View style={[styles.root, { backgroundColor: 'transparent' }]}>
+        <View style={styles.root}>
           <StatusBar style="light" />
-          <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: 'transparent' } }}>
+          <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: tokens.bgMain } }}>
             <Stack.Screen name="index" options={{ headerShown: false }} />
             <Stack.Screen name="(auth)" options={{ headerShown: false, animation: 'fade' }} />
             <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
