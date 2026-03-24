@@ -291,14 +291,16 @@ export function connectAlertsWS(
       retryCount = 0;
       onStatusChange?.(true);
       onStatusDetailed?.('connected');
-      // Keep-alive: send ping every 30s to prevent proxy/Fly.io timeout
+      // Keep-alive: send ping every 15s to prevent Fly.io proxy timeout (~30s)
+      // First ping fires immediately to establish the keepalive channel
+      if (ws?.readyState === WebSocket.OPEN) ws.send('ping');
       const pingTimer = setInterval(() => {
         if (ws?.readyState === WebSocket.OPEN) {
           ws.send('ping');
         } else {
           clearInterval(pingTimer);
         }
-      }, 30_000);
+      }, 15_000);
       // Store for cleanup
       (ws as any).__pingTimer = pingTimer;
     };
