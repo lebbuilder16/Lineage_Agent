@@ -251,6 +251,57 @@ async def run_single_rescan(watch_id: int, user_id: int, cache) -> dict | None:
                         len(flags), mint[:12],
                         ", ".join(f["flag_type"] for f in flags))
 
+        # Record memory episode from sweep (enriches agent memory passively)
+        try:
+            from .memory_service import record_episode
+            from .ai_analyst import _heuristic_score
+
+            scan_dict = lin.model_dump(mode="json") if hasattr(lin, "model_dump") else {}
+            hscore = 0
+            try:
+                hscore = _heuristic_score(
+                    scan_dict,
+                    scan_dict.get("bundle_report"),
+                    scan_dict.get("sol_flow"),
+                )
+            except Exception:
+                pass
+
+            pattern = "minimal_risk"
+            if hscore >= 75:
+                pattern = "high_risk_signals"
+            elif hscore >= 50:
+                pattern = "moderate_risk_signals"
+            elif hscore >= 25:
+                pattern = "low_risk_signals"
+
+            root = scan_dict.get("root") or scan_dict.get("query_token") or {}
+            _deployer = root.get("deployer", "")
+            op = scan_dict.get("operator_fingerprint") or {}
+            _operator_fp = op.get("fingerprint", "") if isinstance(op, dict) else ""
+            cr = scan_dict.get("cartel_report") or {}
+            dc_comm = cr.get("deployer_community") or {}
+            _community_id = dc_comm.get("community_id", "") if isinstance(dc_comm, dict) else ""
+
+            await record_episode(
+                mint=mint,
+                verdict={
+                    "risk_score": hscore,
+                    "confidence": "low",
+                    "rug_pattern": pattern,
+                    "verdict_summary": f"Sweep rescan: {hscore}/100 ({pattern})",
+                    "conviction_chain": "",
+                    "key_findings": [f["title"] for f in flags] if flags else [],
+                    "model": "heuristic_sweep",
+                },
+                scan_data=scan_dict,
+                deployer=_deployer or None,
+                operator_fp=_operator_fp or None,
+                community_id=_community_id or None,
+            )
+        except Exception as _mem_exc:
+            logger.debug("[sweep] episode record failed for %s: %s", mint[:12], _mem_exc)
+
         # Check for escalation
         risk_levels = ["unknown", "insufficient_data", "low", "medium", "high", "critical"]
         old_idx = risk_levels.index(old_risk) if old_risk in risk_levels else 0

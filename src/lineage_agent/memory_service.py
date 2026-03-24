@@ -491,3 +491,170 @@ async def get_calibration_offset(context: dict) -> float:
 
     except Exception:
         return 0.0
+
+
+# ── Calibration Rule Generation ──────────────────────────────────────────────
+
+async def generate_calibration_rules() -> int:
+    """Analyse feedback-rated episodes and generate score_offset calibration rules.
+
+    Looks for systematic over/under-estimation patterns across signal dimensions:
+    - Per rug_pattern (e.g. "high_risk_signals" rated accurate → no adjustment)
+    - Per deployer_rug_rate bucket (0%, 1-30%, 30-70%, 70%+)
+    - Per launch_platform (pump.fun, raydium, etc.)
+
+    Rules are only created/activated when sample_count >= 3 and agreement >= 70%.
+    Returns the number of rules created or updated.
+    """
+    try:
+        from .data_sources._clients import cache as _cache
+        from .cache import SQLiteCache
+        if not isinstance(_cache, SQLiteCache):
+            return 0
+
+        db = await _cache._get_conn()
+
+        # Fetch all episodes that have user feedback
+        cursor = await db.execute(
+            "SELECT risk_score, rug_pattern, signals_json, user_rating "
+            "FROM investigation_episodes WHERE user_rating IS NOT NULL"
+        )
+        rated = await cursor.fetchall()
+        if len(rated) < 3:
+            return 0  # Not enough feedback to learn from
+
+        rules_written = 0
+        now = time.time()
+
+        # ── Dimension 1: per rug_pattern ──────────────────────────────────
+        pattern_buckets: dict[str, list[tuple[int, str]]] = {}
+        for risk_score, pattern, _sigs_json, rating in rated:
+            if not pattern:
+                continue
+            pattern_buckets.setdefault(pattern, []).append((risk_score, rating))
+
+        for pattern, entries in pattern_buckets.items():
+            if len(entries) < 3:
+                continue
+            incorrect = [e for e in entries if e[1] == "incorrect"]
+            accurate = [e for e in entries if e[1] == "accurate"]
+            total = len(entries)
+            incorrect_rate = len(incorrect) / total
+
+            if incorrect_rate >= 0.5 and len(incorrect) >= 2:
+                # Systematic over- or under-estimation for this pattern
+                avg_incorrect_score = sum(e[0] for e in incorrect) / len(incorrect)
+                avg_accurate_score = sum(e[0] for e in accurate) / len(accurate) if accurate else 50
+                # If incorrect verdicts had high scores → we over-estimate → negative offset
+                # If incorrect verdicts had low scores → we under-estimate → positive offset
+                adjustment = round((avg_accurate_score - avg_incorrect_score) * 0.5)
+                adjustment = max(-30, min(30, adjustment))
+                if abs(adjustment) >= 3:  # Only create rule if meaningful
+                    confidence = round(1 - incorrect_rate, 2)
+                    cond = json.dumps({"rug_pattern": pattern})
+                    await db.execute(
+                        "INSERT OR REPLACE INTO calibration_rules "
+                        "(rule_type, condition_json, adjustment, sample_count, confidence, "
+                        " source_episodes, active, created_at, updated_at) "
+                        "VALUES ('score_offset', ?, ?, ?, ?, ?, 1, ?, ?)",
+                        (cond, adjustment, total, max(0.5, confidence),
+                         json.dumps([e[0] for e in entries]), now, now),
+                    )
+                    rules_written += 1
+
+        # ── Dimension 2: per deployer rug_rate bucket ─────────────────────
+        rate_buckets: dict[str, list[tuple[int, str]]] = {}
+        for risk_score, _pattern, sigs_json, rating in rated:
+            try:
+                sigs = json.loads(sigs_json) if sigs_json else {}
+            except Exception:
+                sigs = {}
+            rug_rate = sigs.get("deployer_rug_rate", 0) or 0
+            if rug_rate == 0:
+                bucket = "deployer_clean"
+            elif rug_rate <= 30:
+                bucket = "deployer_low_rug"
+            elif rug_rate <= 70:
+                bucket = "deployer_mid_rug"
+            else:
+                bucket = "deployer_serial"
+            rate_buckets.setdefault(bucket, []).append((risk_score, rating))
+
+        for bucket, entries in rate_buckets.items():
+            if len(entries) < 3:
+                continue
+            incorrect = [e for e in entries if e[1] == "incorrect"]
+            accurate = [e for e in entries if e[1] == "accurate"]
+            total = len(entries)
+            incorrect_rate = len(incorrect) / total
+
+            if incorrect_rate >= 0.5 and len(incorrect) >= 2:
+                avg_incorrect_score = sum(e[0] for e in incorrect) / len(incorrect)
+                avg_accurate_score = sum(e[0] for e in accurate) / len(accurate) if accurate else 50
+                adjustment = round((avg_accurate_score - avg_incorrect_score) * 0.5)
+                adjustment = max(-30, min(30, adjustment))
+                if abs(adjustment) >= 3:
+                    confidence = round(1 - incorrect_rate, 2)
+                    cond = json.dumps({"deployer_bucket": bucket})
+                    await db.execute(
+                        "INSERT OR REPLACE INTO calibration_rules "
+                        "(rule_type, condition_json, adjustment, sample_count, confidence, "
+                        " source_episodes, active, created_at, updated_at) "
+                        "VALUES ('score_offset', ?, ?, ?, ?, ?, 1, ?, ?)",
+                        (cond, adjustment, total, max(0.5, confidence),
+                         json.dumps([e[0] for e in entries]), now, now),
+                    )
+                    rules_written += 1
+
+        # ── Dimension 3: per launch_platform ──────────────────────────────
+        platform_buckets: dict[str, list[tuple[int, str]]] = {}
+        for risk_score, _pattern, sigs_json, rating in rated:
+            try:
+                sigs = json.loads(sigs_json) if sigs_json else {}
+            except Exception:
+                sigs = {}
+            platform = sigs.get("launch_platform", "") or "unknown"
+            platform_buckets.setdefault(platform, []).append((risk_score, rating))
+
+        for platform, entries in platform_buckets.items():
+            if len(entries) < 3:
+                continue
+            incorrect = [e for e in entries if e[1] == "incorrect"]
+            accurate = [e for e in entries if e[1] == "accurate"]
+            total = len(entries)
+            incorrect_rate = len(incorrect) / total
+
+            if incorrect_rate >= 0.5 and len(incorrect) >= 2:
+                avg_incorrect_score = sum(e[0] for e in incorrect) / len(incorrect)
+                avg_accurate_score = sum(e[0] for e in accurate) / len(accurate) if accurate else 50
+                adjustment = round((avg_accurate_score - avg_incorrect_score) * 0.5)
+                adjustment = max(-30, min(30, adjustment))
+                if abs(adjustment) >= 3:
+                    confidence = round(1 - incorrect_rate, 2)
+                    cond = json.dumps({"launch_platform": platform})
+                    await db.execute(
+                        "INSERT OR REPLACE INTO calibration_rules "
+                        "(rule_type, condition_json, adjustment, sample_count, confidence, "
+                        " source_episodes, active, created_at, updated_at) "
+                        "VALUES ('score_offset', ?, ?, ?, ?, ?, 1, ?, ?)",
+                        (cond, adjustment, total, max(0.5, confidence),
+                         json.dumps([e[0] for e in entries]), now, now),
+                    )
+                    rules_written += 1
+
+        # Deactivate stale rules (no matching rated episodes)
+        if rules_written > 0:
+            await db.execute(
+                "UPDATE calibration_rules SET active = 0 "
+                "WHERE updated_at < ? AND rule_type = 'score_offset'",
+                (now - 1,),
+            )
+
+        await db.commit()
+        logger.info("[memory] calibration: %d rule(s) generated from %d rated episodes",
+                     rules_written, len(rated))
+        return rules_written
+
+    except Exception as exc:
+        logger.debug("[memory] generate_calibration_rules error: %s", exc)
+        return 0
