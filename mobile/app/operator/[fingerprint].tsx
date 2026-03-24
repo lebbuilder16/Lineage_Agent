@@ -19,7 +19,6 @@ import {
   Clock,
   Shield,
 } from 'lucide-react-native';
-import { AuroraBackground } from '../../src/components/ui/AuroraBackground';
 import { FeatureGate } from '../../src/components/ui/FeatureGate';
 import { GlassCard } from '../../src/components/ui/GlassCard';
 import { GaugeRing } from '../../src/components/ui/GaugeRing';
@@ -28,6 +27,7 @@ import { SkeletonBlock } from '../../src/components/ui/SkeletonLoader';
 import { useOperatorImpact } from '../../src/lib/query';
 import { tokens } from '../../src/theme/tokens';
 import Animated, { FadeInDown } from 'react-native-reanimated';
+import { Breadcrumbs } from '../../src/components/investigate/Breadcrumbs';
 
 function riskFromRugRate(rate: number): 'low' | 'medium' | 'high' | 'critical' {
   if (rate >= 60) return 'critical';
@@ -60,7 +60,6 @@ export default function OperatorScreen() {
 
   return (
     <View style={styles.container}>
-      <AuroraBackground />
       <Stack.Screen options={{ headerShown: false }} />
       <View style={[styles.safe, { paddingTop: Math.max(insets.top, 16) }]}>
         {/* Navbar */}
@@ -76,6 +75,10 @@ export default function OperatorScreen() {
           <Text style={styles.navTitle}>OPERATOR FINGERPRINT</Text>
           <View style={{ width: 24 }} />
         </View>
+
+        <Breadcrumbs trail={[
+          { label: `Operator ${fingerprint?.slice(0, 8) ?? ''}…`, active: true },
+        ]} />
 
         <ScrollView
           contentContainerStyle={styles.content}
@@ -218,11 +221,11 @@ export default function OperatorScreen() {
                     activeOpacity={0.75}
                   >
                     <View style={styles.walletRow}>
-                      <Wallet size={14} color={tokens.white35} />
+                      <Wallet size={14} color={tokens.textTertiary} />
                       <Text style={styles.walletAddr} numberOfLines={1}>
                         {addr}
                       </Text>
-                      <ChevronRight size={16} color={tokens.white35} />
+                      <ChevronRight size={16} color={tokens.textTertiary} />
                     </View>
                   </TouchableOpacity>
                 ))}
@@ -245,7 +248,7 @@ export default function OperatorScreen() {
                         <Text style={styles.walletAddr} numberOfLines={1}>
                           {mint}
                         </Text>
-                        <ChevronRight size={16} color={tokens.white35} />
+                        <ChevronRight size={16} color={tokens.textTertiary} />
                       </View>
                     </TouchableOpacity>
                   ))}
@@ -273,7 +276,7 @@ function StatLine({
 }) {
   return (
     <View style={styles.statLine}>
-      <Icon size={14} color={tokens.white35} />
+      <Icon size={14} color={tokens.textTertiary} />
       <Text style={styles.statLabel}>{label}</Text>
       <Text style={[styles.statValue, color ? { color } : undefined]}>{value}</Text>
     </View>
@@ -281,7 +284,7 @@ function StatLine({
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: tokens.bgMain },
+  container: { flex: 1, backgroundColor: 'transparent' },
   safe: { flex: 1 },
   navbar: {
     flexDirection: 'row',
@@ -320,7 +323,7 @@ const styles = StyleSheet.create({
   fpLabel: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny, color: tokens.white60 },
   fpValue: { fontFamily: 'Lexend-Bold', fontSize: tokens.font.body, color: tokens.white100 },
   confidenceRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  confidenceText: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny, color: tokens.white35, marginLeft: 'auto' },
+  confidenceText: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny, color: tokens.textTertiary, marginLeft: 'auto' },
   campaignBadge: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -334,7 +337,7 @@ const styles = StyleSheet.create({
   campaignText: { fontFamily: 'Lexend-Bold', fontSize: 9, color: tokens.accent, letterSpacing: 0.5 },
   gaugeRow: { flexDirection: 'row', alignItems: 'center', gap: 16 },
   statsCol: { flex: 1, gap: 8 },
-  estimateNote: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny, color: tokens.white35, marginTop: 8, fontStyle: 'italic' },
+  estimateNote: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny, color: tokens.textTertiary, marginTop: 8, fontStyle: 'italic' },
   mechRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -356,7 +359,7 @@ const styles = StyleSheet.create({
     borderRadius: tokens.radius.pill,
     overflow: 'hidden',
   },
-  narrativeArrow: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.small, color: tokens.white35 },
+  narrativeArrow: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.small, color: tokens.textTertiary },
   walletRow: {
     flexDirection: 'row',
     alignItems: 'center',

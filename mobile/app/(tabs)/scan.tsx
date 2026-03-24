@@ -14,9 +14,9 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { Search, X, Network, Clock } from 'lucide-react-native';
-import { AuroraBackground } from '../../src/components/ui/AuroraBackground';
 import { GlassCard } from '../../src/components/ui/GlassCard';
 import { ScreenHeader } from '../../src/components/ui/ScreenHeader';
+import { ScanOnboarding } from '../../src/components/scan/ScanOnboarding';
 import { searchTokens } from '../../src/lib/api';
 import { useAuthStore } from '../../src/store/auth';
 import { tokens } from '../../src/theme/tokens';
@@ -110,7 +110,6 @@ export default function ScanScreen() {
 
   return (
     <View style={styles.container}>
-      <AuroraBackground />
       <View style={[styles.safe, { paddingTop: Math.max(insets.top, 16) }]}>
         <KeyboardAvoidingView
           style={styles.kav}
@@ -126,14 +125,14 @@ export default function ScanScreen() {
           {/* Search input — pill shaped */}
           <View style={styles.inputPill}>
             <View style={styles.inputLeft}>
-              <Search size={20} color={tokens.white35} />
+              <Search size={20} color={tokens.textTertiary} />
             </View>
             <TextInput
               style={styles.input}
               value={query}
               onChangeText={handleChange}
               placeholder="Paste token address…"
-              placeholderTextColor={tokens.white35}
+              placeholderTextColor={tokens.textPlaceholder}
               autoCapitalize="none"
               autoCorrect={false}
               returnKeyType="search"
@@ -142,12 +141,12 @@ export default function ScanScreen() {
             {query.length > 0 && (
               <TouchableOpacity
                 onPress={handleClear}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                style={styles.clearBtn}
+                hitSlop={tokens.hitSlop}
+                style={[styles.clearBtn, { minWidth: tokens.minTouchSize, minHeight: tokens.minTouchSize, justifyContent: 'center', alignItems: 'center' }]}
                 accessibilityRole="button"
                 accessibilityLabel="Clear search"
               >
-                <X size={16} color={tokens.white35} />
+                <X size={16} color={tokens.textTertiary} />
               </TouchableOpacity>
             )}
             {loading && <ActivityIndicator size="small" color={tokens.secondary} style={styles.clearBtn} />}
@@ -160,13 +159,18 @@ export default function ScanScreen() {
             </TouchableOpacity>
           </View>
 
+          {/* Onboarding — visible when no search history and no active query */}
+          {query.length === 0 && results.length === 0 && recentSearches.length === 0 && (
+            <ScanOnboarding />
+          )}
+
           {/* Recent searches — visible when query is empty and results are empty */}
           {query.length === 0 && results.length === 0 && recentSearches.length > 0 && (
             <View style={styles.recentWrap}>
               <View style={styles.recentHeader}>
-                <Clock size={12} color={tokens.white35} />
+                <Clock size={12} color={tokens.textTertiary} />
                 <Text style={styles.recentTitle}>Recent</Text>
-                <TouchableOpacity onPress={clearRecentSearches} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <TouchableOpacity onPress={clearRecentSearches} hitSlop={tokens.hitSlop} style={{ minHeight: tokens.minTouchSize, justifyContent: 'center' }}>
                   <Text style={styles.recentClear}>Clear</Text>
                 </TouchableOpacity>
               </View>
@@ -176,7 +180,7 @@ export default function ScanScreen() {
                   onPress={() => { handleSelect(item.mint, item.name, item.symbol); }}
                   style={styles.recentItem}
                 >
-                  <Search size={14} color={tokens.white35} />
+                  <Search size={14} color={tokens.textTertiary} />
                   <View style={{ flex: 1 }}>
                     <Text style={styles.recentName} numberOfLines={1}>
                       {item.name || item.mint}
@@ -201,7 +205,7 @@ export default function ScanScreen() {
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
             renderItem={({ item, index }) => (
-              <Animated.View entering={FadeInDown.delay(index * 30).duration(300).springify()}>
+              <Animated.View entering={FadeInDown.delay(index * tokens.timing.listItem).duration(300).springify()}>
               <TouchableOpacity
                 onPress={() => handleSelect(item.mint, item.name, item.symbol)}
                 accessibilityRole="button"
@@ -246,7 +250,7 @@ export default function ScanScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: tokens.bgMain },
+  container: { flex: 1, backgroundColor: 'transparent' },
   safe: { flex: 1 },
   kav: { flex: 1, paddingHorizontal: tokens.spacing.screenPadding },
 
@@ -326,7 +330,7 @@ const styles = StyleSheet.create({
   emptyText: {
     fontFamily: 'Lexend-Regular',
     fontSize: tokens.font.body,
-    color: tokens.white35,
+    color: tokens.textTertiary,
   },
 
   recentWrap: { marginBottom: 12, gap: 4 },
@@ -339,7 +343,7 @@ const styles = StyleSheet.create({
   recentTitle: {
     fontFamily: 'Lexend-SemiBold',
     fontSize: tokens.font.small,
-    color: tokens.white35,
+    color: tokens.textTertiary,
     flex: 1,
   },
   recentClear: {
@@ -366,7 +370,7 @@ const styles = StyleSheet.create({
   recentAddr: {
     fontFamily: 'Lexend-Regular',
     fontSize: tokens.font.tiny,
-    color: tokens.white35,
+    color: tokens.textTertiary,
     marginTop: 1,
   },
 });

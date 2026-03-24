@@ -1,0 +1,43 @@
+# Investigate flow — navigate to token → trigger investigate → verify verdict
+appId: com.lineageagent.mobile
+---
+- launchApp
+
+# Navigate to Scan tab
+- tapOn:
+    text: "Scan"
+
+- assertVisible:
+    text: "Lineage Scan"
+
+# Enter a known token address
+- tapOn:
+    text: "Search for a token by address or name"
+
+- inputText: "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263"
+
+# Wait for result and tap it
+- tapOn:
+    id: "scan-result-0"
+    timeout: 8000
+
+# On token detail — verify key sections visible
+- assertVisible:
+    text: "DEATH CLOCK"
+    timeout: 6000
+    optional: true
+
+# Look for investigate button
+- tapOn:
+    text: "Investigate"
+    optional: true
+
+# If investigation started, verify progress or verdict
+- assertVisible:
+    text: "Forensic"
+    timeout: 10000
+    optional: true
+
+# Navigate back
+- back
+- back

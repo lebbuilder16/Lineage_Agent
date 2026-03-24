@@ -5,7 +5,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import Animated, { FadeInDown, FadeIn, FadeInUp } from 'react-native-reanimated';
 import { Shield, Radar, GitBranch, Zap, ChevronRight, Fingerprint } from 'lucide-react-native';
-import { AuroraBackground } from '../../src/components/ui/AuroraBackground';
 import { HapticButton } from '../../src/components/ui/HapticButton';
 import { GlassCard } from '../../src/components/ui/GlassCard';
 import { tokens } from '../../src/theme/tokens';
@@ -38,7 +37,6 @@ export default function WelcomeScreen() {
 
   return (
     <View style={styles.container}>
-      <AuroraBackground />
       <View
         style={[
           styles.content,
@@ -112,7 +110,7 @@ export default function WelcomeScreen() {
         {/* Bottom CTA */}
         <Animated.View entering={FadeInUp.delay(1000).duration(600)} style={styles.ctaBlock}>
           <View style={styles.trustRow}>
-            <Fingerprint size={12} color={tokens.white35} strokeWidth={1.5} />
+            <Fingerprint size={12} color={tokens.textTertiary} strokeWidth={1.5} />
             <Text style={styles.trustText}>Encrypted & non-custodial</Text>
           </View>
 
@@ -134,7 +132,7 @@ export default function WelcomeScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: tokens.bgMain },
+  container: { flex: 1, backgroundColor: 'transparent' },
   content: {
     flex: 1,
     paddingHorizontal: tokens.spacing.screenPadding + 4,
@@ -202,7 +200,7 @@ const styles = StyleSheet.create({
   tagline: {
     fontFamily: 'Lexend-Regular',
     fontSize: tokens.font.body,
-    color: tokens.white35,
+    color: tokens.textTertiary,
     textAlign: 'center',
     letterSpacing: 0.5,
     marginTop: 4,
@@ -241,7 +239,7 @@ const styles = StyleSheet.create({
   featureDesc: {
     fontFamily: 'Lexend-Regular',
     fontSize: tokens.font.small,
-    color: tokens.white35,
+    color: tokens.textTertiary,
   },
 
   // CTA
@@ -257,7 +255,7 @@ const styles = StyleSheet.create({
   trustText: {
     fontFamily: 'Lexend-Regular',
     fontSize: tokens.font.tiny,
-    color: tokens.white35,
+    color: tokens.textTertiary,
     letterSpacing: 0.3,
   },
   ctaBtnText: {

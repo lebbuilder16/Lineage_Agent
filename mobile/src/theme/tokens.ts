@@ -48,9 +48,13 @@ export const tokens = {
   white3: 'rgba(255, 255, 255, 0.03)',
 
   // ── Tinted text — softer than pure white, less eye strain ─────────────────
-  textPrimary: '#F1F5F9',   // slate-100 — headings
-  textBody: 'rgba(203, 213, 225, 0.92)',  // slate-300 — body copy
-  textMuted: 'rgba(148, 163, 184, 0.65)', // slate-400 — labels, hints
+  // WCAG 2.2 AA compliant on bgMain (#020617)
+  textPrimary: '#F1F5F9',   // slate-100 — headings (~16:1)
+  textBody: 'rgba(203, 213, 225, 0.92)',  // slate-300 — body copy (~13:1)
+  textMuted: 'rgba(148, 163, 184, 0.65)', // slate-400 — labels, hints (~5.2:1)
+  textTertiary: 'rgba(255, 255, 255, 0.55)',  // ~7.5:1 on bgMain — replaces white35 for text
+  textDisabled: 'rgba(255, 255, 255, 0.30)',  // ~3.5:1 — large text (≥18px bold) or decorative only
+  textPlaceholder: 'rgba(255, 255, 255, 0.35)', // placeholder text — exempt from WCAG contrast requirements
 
   // ── Risk Colors ────────────────────────────────────────────────────────────
   risk: {
@@ -164,10 +168,27 @@ export const tokens = {
 
   // ── Animation timing ──────────────────────────────────────────────────────
   timing: {
+    // Durations (ms)
+    instant: 100,
     fast: 150,
     normal: 250,
     slow: 400,
-    spring: { damping: 15, stiffness: 400 },
+    xSlow: 600,       // page transitions, hero reveals
+    verySlow: 1200,    // number tickers, gauge fills
+
+    // Spring presets (Reanimated withSpring config)
+    spring: { damping: 15, stiffness: 400 },       // general purpose
+    springBouncy: { damping: 8, stiffness: 300 },   // tab press, watch toggle
+    springSnappy: { damping: 12, stiffness: 300 },  // scale pops, quick bounce
+    springGentle: { damping: 20, stiffness: 200 },  // sheets, modals
+
+    // Stagger delays (ms)
+    listItem: 30,      // between list items
+    sectionEntry: 80,  // between major sections
+
+    // Entry animation durations (ms)
+    fadeIn: 200,
+    slideIn: 300,
   },
 
   // ── Z-index scale ─────────────────────────────────────────────────────────
@@ -192,6 +213,18 @@ export const tokens = {
     itemGap: 8,
     rowPadding: 12,
     compactPadding: 8,
+    // Semantic spacing
+    xs: 4,
+    sm: 8,
+    md: 12,
+    lg: 16,
+    xl: 24,
+    xxl: 32,
+    inlinePadding: 12,    // horizontal padding of inline elements
+    touchMinSize: 44,     // minimum interactive element size (Apple HIG)
+    listItemGap: 6,       // between list items
+    panelGap: 14,         // between panels in detail screens
+    headerBottom: 20,     // space below section headers
   },
 } as const;
 

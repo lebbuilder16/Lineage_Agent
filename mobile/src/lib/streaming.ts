@@ -281,9 +281,11 @@ export function connectAlertsWS(
 
   const connect = () => {
     if (!apiKey) {
+      console.log('[WS] connect skipped — no apiKey');
       onStatusDetailed?.('offline');
       return;
     }
+    console.log(`[WS] connecting to ${WS_BASE}/ws/alerts (key=${apiKey.slice(0, 8)}...)`);
     onStatusDetailed?.('reconnecting');
     ws = new WebSocket(`${WS_BASE}/ws/alerts?key=${encodeURIComponent(apiKey)}`);
 

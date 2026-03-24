@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { StyleSheet, StyleProp, View, ViewStyle, LayoutChangeEvent } from 'react-native';
+import { StyleSheet, StyleProp, View, ViewStyle, LayoutChangeEvent, Dimensions } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Canvas, RoundedRect, LinearGradient as SkiaLinearGradient, vec } from '@shopify/react-native-skia';
@@ -12,8 +12,13 @@ interface GlassCardProps {
   noPadding?: boolean;
 }
 
+const windowWidth = Dimensions.get('window').width;
+
 export function GlassCard({ children, style, intensity = 24, noPadding }: GlassCardProps) {
-  const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
+  const [dimensions, setDimensions] = useState({
+    width: windowWidth - (tokens.spacing.screenPadding * 2),
+    height: 100,
+  });
 
   const onLayout = (event: LayoutChangeEvent) => {
     setDimensions({

@@ -35,7 +35,7 @@ export function FeatureGate({ feature, requiredPlan, children, compact }: Featur
   if (compact) {
     return (
       <View style={styles.compactWrap}>
-        <Lock size={14} color={tokens.white35} />
+        <Lock size={14} color={tokens.textTertiary} />
         <Text style={styles.compactText}>
           {feature} requires {tierLabel(requiredPlan)}
         </Text>
@@ -97,7 +97,7 @@ const styles = StyleSheet.create({
   compactText: {
     fontFamily: 'Lexend-Regular',
     fontSize: tokens.font.small,
-    color: tokens.white35,
+    color: tokens.textTertiary,
     flex: 1,
   },
   upgradeLink: {

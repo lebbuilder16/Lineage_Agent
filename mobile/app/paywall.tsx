@@ -11,7 +11,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router, Stack } from 'expo-router';
 import { X, Check, Lock } from 'lucide-react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
-import { AuroraBackground } from '../src/components/ui/AuroraBackground';
 import { GlassCard } from '../src/components/ui/GlassCard';
 import { HapticButton } from '../src/components/ui/HapticButton';
 import { useToast } from '../src/components/ui/Toast';
@@ -123,7 +122,6 @@ export default function PaywallScreen() {
 
   return (
     <View style={styles.container}>
-      <AuroraBackground />
       <Stack.Screen options={{ headerShown: false }} />
 
       {/* ── Header ─────────────────────────────────────────────────────── */}
@@ -204,7 +202,7 @@ export default function PaywallScreen() {
                     {feat.included ? (
                       <Check size={14} color={tokens.success} />
                     ) : (
-                      <Lock size={14} color={tokens.white35} />
+                      <Lock size={14} color={tokens.textTertiary} />
                     )}
                     <Text
                       style={[
@@ -278,7 +276,7 @@ export default function PaywallScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: tokens.bgMain,
+    backgroundColor: 'transparent',
   },
 
   // Header
@@ -327,7 +325,7 @@ const styles = StyleSheet.create({
   toggleText: {
     fontFamily: 'Lexend-SemiBold',
     fontSize: tokens.font.small,
-    color: tokens.white35,
+    color: tokens.textTertiary,
   },
   toggleTextActive: {
     color: tokens.white100,
@@ -377,7 +375,7 @@ const styles = StyleSheet.create({
   planMonthly: {
     fontFamily: 'Lexend-Regular',
     fontSize: tokens.font.small,
-    color: tokens.white35,
+    color: tokens.textTertiary,
     marginTop: -6,
   },
 
@@ -398,7 +396,7 @@ const styles = StyleSheet.create({
     color: tokens.white80,
   },
   featureTextLocked: {
-    color: tokens.white35,
+    color: tokens.textTertiary,
   },
 
   // CTA
@@ -453,11 +451,11 @@ const styles = StyleSheet.create({
   footerLegalText: {
     fontFamily: 'Lexend-Regular',
     fontSize: tokens.font.tiny,
-    color: tokens.white35,
+    color: tokens.textTertiary,
   },
   footerDot: {
     fontFamily: 'Lexend-Regular',
     fontSize: tokens.font.tiny,
-    color: tokens.white35,
+    color: tokens.textTertiary,
   },
 });

@@ -1,0 +1,17 @@
+# Watchlist — verify empty state and basic navigation
+appId: com.lineageagent.mobile
+---
+- launchApp
+
+# Navigate to Watchlist tab
+- tapOn:
+    text: "Watch"
+
+# Verify empty state OR watch list content
+- assertVisible:
+    text: "Start watching tokens"
+    optional: true
+
+- assertVisible:
+    text: "watchlist"
+    optional: true

@@ -1,0 +1,34 @@
+# Radar screen — verify core layout and navigation
+appId: com.lineageagent.mobile
+---
+- launchApp
+
+# Verify radar screen loads with greeting
+- assertVisible:
+    text: "Good"
+    timeout: 5000
+
+# Verify stats bar is visible
+- assertVisible:
+    text: "Scanned"
+
+- assertVisible:
+    text: "Rugs"
+
+# Verify trending section
+- assertVisible:
+    text: "TRENDING"
+
+# Pull to refresh
+- scroll:
+    direction: DOWN
+    duration: 500
+
+# Tap first token card if visible
+- tapOn:
+    index: 0
+    id: "token-card"
+    optional: true
+
+# If navigated to token detail, go back
+- back

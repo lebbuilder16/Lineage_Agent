@@ -13,6 +13,7 @@ import Animated, {
   useSharedValue,
   useAnimatedStyle,
   withSpring,
+  withTiming,
 } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import {
@@ -24,6 +25,7 @@ import {
   type LucideIcon,
 } from 'lucide-react-native';
 import { tokens } from '../../theme/tokens';
+import { useReducedMotion } from '../../hooks/useReducedMotion';
 
 export type TabName = 'radar' | 'scan' | 'agent' | 'alerts' | 'watchlist';
 
@@ -100,15 +102,23 @@ interface TabButtonProps {
 
 function TabButton({ tab, isActive, badge, onPress }: TabButtonProps) {
   const scale = useSharedValue(1);
+  const reducedMotion = useReducedMotion();
 
   const animStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
   }));
 
   const handlePress = () => {
-    scale.value = withSpring(0.88, { damping: 8, stiffness: 300 }, () => {
-      scale.value = withSpring(1, { damping: 12, stiffness: 300 });
-    });
+    if (reducedMotion) {
+      // Skip spring animation — instant visual feedback only
+      scale.value = withTiming(0.95, { duration: 0 }, () => {
+        scale.value = withTiming(1, { duration: 0 });
+      });
+    } else {
+      scale.value = withSpring(0.88, tokens.timing.springBouncy, () => {
+        scale.value = withSpring(1, tokens.timing.springSnappy);
+      });
+    }
     onPress();
   };
 
@@ -122,7 +132,7 @@ function TabButton({ tab, isActive, badge, onPress }: TabButtonProps) {
         <View style={styles.iconWrap}>
           <Icon
             size={isActive ? 22 : 20}
-            color={isActive ? tokens.secondary : tokens.white35}
+            color={isActive ? tokens.secondary : tokens.textTertiary}
             strokeWidth={isActive ? 2.5 : 1.8}
           />
           {/* Icon glow — Figma: bg-secondary blur-md opacity-30 */}

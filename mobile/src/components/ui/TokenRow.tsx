@@ -2,11 +2,11 @@ import React from 'react';
 import {
   View,
   Text,
-  Image,
   StyleSheet,
   TouchableOpacity,
   ViewStyle,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { ChevronRight } from 'lucide-react-native';
 import { GlassCard } from './GlassCard';
 import { tokens } from '../../theme/tokens';
@@ -34,8 +34,10 @@ export function TokenRow({
       <View style={styles.inner}>
         {token.image_uri ? (
           <Image
-            source={{ uri: token.image_uri }}
+            source={token.image_uri}
             style={styles.img}
+            contentFit="cover"
+            transition={200}
             accessibilityLabel={`${token.name} logo`}
           />
         ) : (
@@ -60,7 +62,7 @@ export function TokenRow({
               {showPrice && token.price_usd != null && (
                 <Text style={styles.price}>${token.price_usd.toFixed(6)}</Text>
               )}
-              {onPress && <ChevronRight size={14} color={tokens.white35} />}
+              {onPress && <ChevronRight size={14} color={tokens.textTertiary} />}
             </>
           )}
         </View>

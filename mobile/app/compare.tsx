@@ -11,7 +11,6 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router, Stack } from 'expo-router';
 import { ChevronLeft, ArrowLeftRight } from 'lucide-react-native';
-import { AuroraBackground } from '../src/components/ui/AuroraBackground';
 import { GlassCard } from '../src/components/ui/GlassCard';
 import { GaugeRing } from '../src/components/ui/GaugeRing';
 import { HapticButton } from '../src/components/ui/HapticButton';
@@ -49,7 +48,6 @@ export default function CompareScreen() {
 
   return (
     <View style={styles.container}>
-      <AuroraBackground />
       <Stack.Screen options={{ headerShown: false }} />
       <View style={styles.safe}>
         <View style={styles.navbar}>
@@ -74,7 +72,7 @@ export default function CompareScreen() {
               value={mintA}
               onChangeText={setMintA}
               placeholder="Mint address…"
-              placeholderTextColor={tokens.white35}
+              placeholderTextColor={tokens.textPlaceholder}
               autoCapitalize="none"
               autoCorrect={false}
             />
@@ -85,7 +83,7 @@ export default function CompareScreen() {
               value={mintB}
               onChangeText={setMintB}
               placeholder="Mint address…"
-              placeholderTextColor={tokens.white35}
+              placeholderTextColor={tokens.textPlaceholder}
               autoCapitalize="none"
               autoCorrect={false}
             />
@@ -211,7 +209,7 @@ function GaugeRingItem({ label, value, color }: { label: string; value: number; 
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: tokens.bgMain },
+  container: { flex: 1, backgroundColor: 'transparent' },
   safe: { flex: 1 },
   navbar: {
     flexDirection: 'row',
@@ -279,7 +277,7 @@ const styles = StyleSheet.create({
   tokenPairLabel: {
     fontFamily: 'Lexend-Bold',
     fontSize: tokens.font.tiny,
-    color: tokens.white35,
+    color: tokens.textTertiary,
     letterSpacing: 1,
     marginBottom: 8,
   },

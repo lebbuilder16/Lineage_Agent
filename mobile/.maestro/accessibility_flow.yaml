@@ -1,0 +1,36 @@
+# Accessibility — verify key elements have labels and tabs are navigable
+appId: com.lineageagent.mobile
+---
+- launchApp
+
+# Verify tab bar labels exist
+- assertVisible:
+    text: "Radar"
+    timeout: 5000
+
+- assertVisible:
+    text: "Scan"
+
+- assertVisible:
+    text: "Agent"
+
+- assertVisible:
+    text: "Alerts"
+
+- assertVisible:
+    text: "Watch"
+
+# Navigate to Scan tab — verify search input accessibility
+- tapOn:
+    text: "Scan"
+
+- assertVisible:
+    text: "Paste any Solana token address"
+    timeout: 3000
+
+# Navigate back to Radar
+- tapOn:
+    text: "Radar"
+
+- assertVisible:
+    text: "Good"

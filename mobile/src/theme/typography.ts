@@ -77,7 +77,7 @@ export const typography = {
     fontSize: tokens.font.tiny, // 10
     lineHeight: Math.round(tokens.font.tiny * 1.4), // 14px
     letterSpacing: 0.5,
-    color: tokens.white35,
+    color: tokens.textTertiary,
   } as TextStyle,
 
   // Values in rows/tables (clean numbers)

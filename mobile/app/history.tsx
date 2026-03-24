@@ -12,7 +12,6 @@ import { router, Stack } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ChevronLeft, Search, CheckCircle, XOctagon } from 'lucide-react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
-import { AuroraBackground } from '../src/components/ui/AuroraBackground';
 import { GlassCard } from '../src/components/ui/GlassCard';
 import { RiskBadge } from '../src/components/ui/RiskBadge';
 import { useHistoryStore, type InvestigationRecord } from '../src/store/history';
@@ -39,7 +38,7 @@ export default function HistoryScreen() {
   const investigations = useHistoryStore((s) => s.investigations);
 
   const renderItem = ({ item, index }: { item: InvestigationRecord; index: number }) => (
-    <Animated.View entering={FadeInDown.delay(index * 40).duration(250).springify()}>
+    <Animated.View entering={FadeInDown.delay(index * tokens.timing.listItem).duration(250).springify()}>
       <TouchableOpacity
         onPress={() => router.push(`/token/${item.mint}` as any)}
         activeOpacity={0.75}
@@ -71,7 +70,6 @@ export default function HistoryScreen() {
 
   return (
     <View style={styles.container}>
-      <AuroraBackground />
       <Stack.Screen options={{ headerShown: false }} />
       <View style={[styles.safe, { paddingTop: Math.max(insets.top, Platform.OS === 'android' ? (StatusBar.currentHeight ?? 24) + 8 : 16) }]}>
         {/* Navbar */}
@@ -91,7 +89,7 @@ export default function HistoryScreen() {
           showsVerticalScrollIndicator={false}
           ListEmptyComponent={
             <View style={styles.empty}>
-              <Search size={32} color={tokens.white35} />
+              <Search size={32} color={tokens.textTertiary} />
               <Text style={styles.emptyText}>No investigations yet</Text>
               <Text style={styles.emptySubtext}>Scan a token and tap Investigate to get started</Text>
             </View>
@@ -103,7 +101,7 @@ export default function HistoryScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: tokens.bgMain },
+  container: { flex: 1, backgroundColor: 'transparent' },
   safe: { flex: 1 },
 
   navbar: {
@@ -134,7 +132,7 @@ const styles = StyleSheet.create({
   },
   time: {
     fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny,
-    color: tokens.white35, marginTop: 2,
+    color: tokens.textTertiary, marginTop: 2,
   },
   cardRight: { alignItems: 'center', gap: 4 },
   score: {
@@ -151,6 +149,6 @@ const styles = StyleSheet.create({
   },
   emptySubtext: {
     fontFamily: 'Lexend-Regular', fontSize: tokens.font.small,
-    color: tokens.white35, textAlign: 'center', paddingHorizontal: 40,
+    color: tokens.textTertiary, textAlign: 'center', paddingHorizontal: 40,
   },
 });
