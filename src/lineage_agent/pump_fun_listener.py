@@ -45,7 +45,7 @@ _HELIUS_API_BASE = "https://api.helius.xyz/v0"
 # Pump.fun migration authority — all graduations flow through this address
 _PUMP_MIGRATION_AUTHORITY = "39azUYFWPz3VHgKCf3VChUwbpURdCHRxjWVowf5jUJjg"
 
-_POLL_INTERVAL = 10        # seconds
+_POLL_INTERVAL = 30        # seconds (reduced from 10 to avoid saturating Helius RPC quota)
 _MAX_PER_POLL = 20         # max transactions to fetch per poll
 _HIGH_RISK_RUG_RATE = 0.5
 _MIN_TOKENS_FOR_TRIAGE = 2
@@ -451,13 +451,32 @@ async def _poll_loop() -> None:
 # ── Public API ────────────────────────────────────────────────────────────────
 
 def schedule_pump_fun_listener() -> Optional[asyncio.Task]:
-    """Start the background graduation listener."""
+    """Start the background graduation listener.
+
+    Uses a file lock to ensure only ONE worker runs the listener across
+    all uvicorn workers (multi-process safe).
+    """
     global _listener_task
     if not _HELIUS_API_KEY:
         logger.info("[listener] no Helius API key found — listener disabled")
         return None
     if _listener_task is not None and not _listener_task.done():
         return _listener_task
+
+    # File-based lock: only one worker gets the lock
+    import fcntl
+    lock_path = "/tmp/lineage_listener.lock"
+    try:
+        lock_fd = open(lock_path, "w")
+        fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        # Got the lock — this worker runs the listener
+        lock_fd.write(str(os.getpid()))
+        lock_fd.flush()
+    except (BlockingIOError, OSError):
+        # Another worker already has the lock — skip
+        logger.info("[listener] another worker holds the lock — skipping")
+        return None
+
     _listener_task = asyncio.create_task(_poll_loop(), name="pump_fun_listener")
     return _listener_task
 
