@@ -1791,6 +1791,8 @@ async def investigate_token(
         try:
             async for event in run_investigation(
                 mint, tier=tier, cache=_cache, user_id=user_id,
+                is_disconnected=request.is_disconnected,
+                session_id=request.headers.get("X-Session-ID") or None,
             ):
                 yield event
                 # Record scan event with identity data from pipeline

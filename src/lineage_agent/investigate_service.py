@@ -17,7 +17,7 @@ import asyncio
 import json
 import logging
 import time
-from typing import Any, AsyncGenerator, Optional
+from typing import Any, AsyncGenerator, Awaitable, Callable, Optional
 
 from .subscription_tiers import TierLimits
 
@@ -39,6 +39,8 @@ async def run_investigation(
     tier: TierLimits,
     cache: Any,
     user_id: Optional[int] = None,
+    is_disconnected: Optional[Callable[[], Awaitable[bool]]] = None,
+    session_id: Optional[str] = None,
 ) -> AsyncGenerator[dict, None]:
     """Tier-adaptive investigation. Yields SSE event dicts.
 
@@ -65,16 +67,26 @@ async def run_investigation(
 
     tier_name = _tier_name(tier)
 
+    # Sequential event IDs for SSE — backwards-compatible (sse-starlette uses "id" key)
+    _seq = 0
+
+    def _evtN(event: str, data: dict) -> dict:
+        nonlocal _seq
+        _seq += 1
+        return {"event": event, "data": json.dumps(data, default=str), "id": str(_seq)}
+
     # ── Phase 1: Forensic Pipeline (all tiers) ──────────────────────
     report: Optional[ForensicReport] = None
     async for event in run_forensic_pipeline(mint):
         if event["event"] == "_report":
             report = event["data"]
         else:
+            _seq += 1
+            event["id"] = str(_seq)
             yield event
 
     if report is None:
-        yield _evt("error", {"detail": "Forensic pipeline produced no report", "recoverable": False})
+        yield _evtN("error", {"detail": "Forensic pipeline produced no report", "recoverable": False})
         return
 
     lineage_res = report_to_lineage_result(report)
@@ -86,8 +98,8 @@ async def run_investigation(
 
     # ── Free tier: stop after heuristic ─────────────────────────────
     if not tier.has_ai_verdict:
-        yield _evt("heuristic_complete", {"heuristic_score": hscore, "tier": tier_name})
-        yield _evt("done", {
+        yield _evtN("heuristic_complete", {"heuristic_score": hscore, "tier": tier_name})
+        yield _evtN("done", {
             "tier": tier_name,
             "turns_used": 0,
             "tokens_used": 0,
@@ -97,7 +109,7 @@ async def run_investigation(
 
     # ── Pro+ / Whale: agent investigation ───────────────────────────
     if tier.has_agent:
-        yield _evt("phase", {"phase": "agent", "status": "started"})
+        yield _evtN("phase", {"phase": "agent", "status": "started"})
 
         from .agent_service import run_agent  # noqa: PLC0415
 
@@ -112,7 +124,7 @@ async def run_investigation(
         tokens_used = 0
 
         try:
-            async for agent_event in run_agent(mint, cache=cache, pre_scan=pre_scan):
+            async for agent_event in run_agent(mint, cache=cache, pre_scan=pre_scan, is_disconnected=is_disconnected, session_id=session_id):
                 ev_type = agent_event["event"]
                 ev_data = agent_event["data"]
 
@@ -121,9 +133,9 @@ async def run_investigation(
                     turns_used = ev_data.get("turns_used", 0)
                     tokens_used = ev_data.get("tokens_used", 0)
                     if verdict:
-                        yield _evt("verdict", verdict)
+                        yield _evtN("verdict", verdict)
                 else:
-                    yield _evt(ev_type, ev_data)
+                    yield _evtN(ev_type, ev_data)
         except Exception as exc:
             logger.exception("[investigate] agent error for %s", mint[:12])
             detail = str(exc)
@@ -134,24 +146,24 @@ async def run_investigation(
                 # Fallback: deliver heuristic-based verdict instead of failing
                 logger.info("[investigate] overload/credit fallback → heuristic verdict for %s", mint[:12])
                 fallback_verdict = _build_heuristic_verdict(hscore, mint)
-                yield _evt("verdict", fallback_verdict)
+                yield _evtN("verdict", fallback_verdict)
                 verdict = fallback_verdict
             else:
-                yield _evt("error", {"detail": f"Agent error: {type(exc).__name__}", "recoverable": True})
+                yield _evtN("error", {"detail": f"Agent error: {type(exc).__name__}", "recoverable": True})
 
         # Safety net: if agent completed but produced no verdict, deliver heuristic
         if not verdict:
             logger.warning("[investigate] agent produced no verdict for %s — heuristic fallback", mint[:12])
             verdict = _build_heuristic_verdict(hscore, mint)
-            yield _evt("verdict", verdict)
+            yield _evtN("verdict", verdict)
 
-        yield _evt("phase", {"phase": "agent", "status": "done"})
+        yield _evtN("phase", {"phase": "agent", "status": "done"})
 
         # Record episode in memory system (fire-and-forget)
         if verdict:
             asyncio.create_task(_record_memory_episode(mint, verdict, lineage_res))
 
-        yield _evt("done", {
+        yield _evtN("done", {
             "tier": tier_name,
             "turns_used": turns_used,
             "tokens_used": tokens_used,
@@ -160,8 +172,8 @@ async def run_investigation(
         return
 
     # ── Pro: single-shot AI verdict ─────────────────────────────────
-    yield _evt("phase", {"phase": "ai_verdict", "status": "started"})
-    yield _evt("step", {"step": "ai", "status": "running", "heuristic": hscore})
+    yield _evtN("phase", {"phase": "ai_verdict", "status": "started"})
+    yield _evtN("step", {"step": "ai", "status": "running", "heuristic": hscore})
 
     t2 = time.monotonic()
     try:
@@ -178,30 +190,30 @@ async def run_investigation(
             timeout=55.0,
         )
     except asyncio.TimeoutError:
-        yield _evt("error", {"detail": "AI analysis timed out", "recoverable": True})
-        yield _evt("phase", {"phase": "ai_verdict", "status": "done"})
+        yield _evtN("error", {"detail": "AI analysis timed out", "recoverable": True})
+        yield _evtN("phase", {"phase": "ai_verdict", "status": "done"})
         return
     except Exception as exc:
         logger.exception("[investigate] AI failed for %s", mint[:12])
-        yield _evt("error", {"detail": f"AI analysis failed: {type(exc).__name__}", "recoverable": True})
-        yield _evt("phase", {"phase": "ai_verdict", "status": "done"})
+        yield _evtN("error", {"detail": f"AI analysis failed: {type(exc).__name__}", "recoverable": True})
+        yield _evtN("phase", {"phase": "ai_verdict", "status": "done"})
         return
 
     ai_ms = int((time.monotonic() - t2) * 1000)
-    yield _evt("step", {"step": "ai", "status": "done", "ms": ai_ms})
+    yield _evtN("step", {"step": "ai", "status": "done", "ms": ai_ms})
 
     if ai_result is None:
-        yield _evt("error", {"detail": "AI analysis unavailable — check ANTHROPIC_API_KEY", "recoverable": False})
-        yield _evt("phase", {"phase": "ai_verdict", "status": "done"})
+        yield _evtN("error", {"detail": "AI analysis unavailable — check ANTHROPIC_API_KEY", "recoverable": False})
+        yield _evtN("phase", {"phase": "ai_verdict", "status": "done"})
         return
 
-    yield _evt("verdict", ai_result)
-    yield _evt("phase", {"phase": "ai_verdict", "status": "done"})
+    yield _evtN("verdict", ai_result)
+    yield _evtN("phase", {"phase": "ai_verdict", "status": "done"})
 
     # Record episode in memory system (fire-and-forget)
     asyncio.create_task(_record_memory_episode(mint, ai_result, lineage_res))
 
-    yield _evt("done", {
+    yield _evtN("done", {
         "tier": tier_name,
         "turns_used": 0,
         "tokens_used": 0,
