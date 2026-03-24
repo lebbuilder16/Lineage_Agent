@@ -3225,7 +3225,13 @@ async def mark_flag_read(flag_id: int, request: Request):
 
 @app.post("/agent/feedback", tags=["agent"])
 async def submit_feedback(request: Request):
-    """Store verdict feedback (accurate/incorrect) for learning."""
+    """Store verdict feedback (accurate/incorrect) for learning.
+
+    This is the entry point for the calibration loop:
+    1. Store feedback in investigation_feedback
+    2. Propagate user_rating back to the investigation_episodes row
+    3. Trigger calibration rule generation from accumulated feedback
+    """
     user = await _get_current_user(request)
     body = await request.json()
     mint = body.get("mint", "")
@@ -3239,7 +3245,17 @@ async def submit_feedback(request: Request):
         "VALUES (?, ?, ?, ?, ?, ?)",
         (user["id"], mint, body.get("risk_score"), rating, body.get("note", ""), time.time()),
     )
+    # Propagate rating back to the episode so build_memory_brief() can use it
+    await db.execute(
+        "UPDATE investigation_episodes SET user_rating = ?, user_note = ? WHERE mint = ?",
+        (rating, body.get("note", ""), mint),
+    )
     await db.commit()
+
+    # Trigger calibration rule generation in background (fire-and-forget)
+    from .memory_service import generate_calibration_rules
+    asyncio.create_task(generate_calibration_rules())
+
     return {"ok": True}
 
 
