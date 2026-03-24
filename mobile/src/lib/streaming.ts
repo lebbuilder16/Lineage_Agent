@@ -291,10 +291,22 @@ export function connectAlertsWS(
       retryCount = 0;
       onStatusChange?.(true);
       onStatusDetailed?.('connected');
+      // Keep-alive: send ping every 30s to prevent proxy/Fly.io timeout
+      const pingTimer = setInterval(() => {
+        if (ws?.readyState === WebSocket.OPEN) {
+          ws.send('ping');
+        } else {
+          clearInterval(pingTimer);
+        }
+      }, 30_000);
+      // Store for cleanup
+      (ws as any).__pingTimer = pingTimer;
     };
 
     ws.onmessage = (event) => {
       try {
+        // Ignore keep-alive pong responses
+        if (event.data === 'pong' || event.data === 'ping') return;
         const raw = JSON.parse(event.data as string);
         // Normalize: backend sends `body`, mobile expects `message`
         if (raw.body && !raw.message) raw.message = raw.body;
@@ -336,6 +348,8 @@ export function connectAlertsWS(
     };
 
     ws.onclose = () => {
+      // Clean up ping timer
+      if ((ws as any)?.__pingTimer) clearInterval((ws as any).__pingTimer);
       onStatusChange?.(false);
       if (!closed) {
         const delay = Math.min(BACKOFF_BASE * Math.pow(2, retryCount), BACKOFF_MAX);
