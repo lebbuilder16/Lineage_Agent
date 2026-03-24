@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, Pressable } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
@@ -17,20 +17,24 @@ interface Props {
 export function WalletCard({ address, onSend, onReceive }: Props) {
   const { balance, isLoading } = useSolBalance(address);
   const [copied, setCopied] = useState(false);
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  useEffect(() => () => clearTimeout(copyTimerRef.current), []);
 
   const handleCopy = async () => {
     if (!address) return;
     await Clipboard.setStringAsync(address);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    clearTimeout(copyTimerRef.current);
+    copyTimerRef.current = setTimeout(() => setCopied(false), 2000);
   };
 
   if (!address) {
     return (
       <GlassCard style={styles.card}>
         <View style={styles.emptyRow}>
-          <Wallet size={20} color={tokens.white35} />
+          <Wallet size={20} color={tokens.textTertiary} />
           <Text style={styles.emptyText}>No wallet connected</Text>
         </View>
       </GlassCard>
@@ -58,7 +62,7 @@ export function WalletCard({ address, onSend, onReceive }: Props) {
         <Text style={styles.addrText}>{truncated}</Text>
         {copied
           ? <Check size={14} color={tokens.success} />
-          : <Copy size={14} color={tokens.white35} />
+          : <Copy size={14} color={tokens.textTertiary} />
         }
       </Pressable>
 
@@ -80,7 +84,7 @@ export function WalletCard({ address, onSend, onReceive }: Props) {
 const styles = StyleSheet.create({
   card: { gap: 14 },
   emptyRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8 },
-  emptyText: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.body, color: tokens.white35 },
+  emptyText: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.body, color: tokens.textTertiary },
   balanceRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   balIcon: {
     width: 40, height: 40, borderRadius: 12,
@@ -88,9 +92,9 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
   balBody: { flex: 1 },
-  balLabel: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.small, color: tokens.white35 },
+  balLabel: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.small, color: tokens.textTertiary },
   balValue: { fontFamily: 'Lexend-Bold', fontSize: tokens.font.sectionHeader, color: tokens.white100 },
-  balUnit: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.body, color: tokens.white35 },
+  balUnit: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.body, color: tokens.textTertiary },
   addrRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     backgroundColor: tokens.bgGlass, borderRadius: tokens.radius.xs,

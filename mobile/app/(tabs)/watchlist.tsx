@@ -8,9 +8,6 @@ import {
   RefreshControl,
   Alert,
   TextInput,
-  Modal,
-  TouchableWithoutFeedback,
-  Image,
 } from 'react-native';
 import { router } from 'expo-router';
 import Animated, { FadeInDown, LinearTransition } from 'react-native-reanimated';
@@ -18,7 +15,6 @@ import { Bookmark, Trash2, Plus, Settings, Search } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Clipboard from 'expo-clipboard';
 import { Swipeable } from 'react-native-gesture-handler';
-import { AuroraBackground } from '../../src/components/ui/AuroraBackground';
 import { GlassCard } from '../../src/components/ui/GlassCard';
 import { HapticButton } from '../../src/components/ui/HapticButton';
 import { SkeletonBlock } from '../../src/components/ui/SkeletonLoader';
@@ -27,94 +23,12 @@ import { SettingsSheet } from '../../src/components/ui/SettingsSheet';
 import { useToast } from '../../src/components/ui/Toast';
 import { useWatches, useDeleteWatch, useAddWatch } from '../../src/lib/query';
 import { useAuthStore } from '../../src/store/auth';
-import { useHistoryStore } from '../../src/store/history';
-import { RiskBadge } from '../../src/components/ui/RiskBadge';
 import { syncWatchlistCrons } from '../../src/lib/openclaw-cron';
 import { isOpenClawAvailable } from '../../src/lib/openclaw';
-import { queryClient } from '../../src/lib/query-client';
-import { QK } from '../../src/lib/query';
-import type { LineageResult } from '../../src/types/api';
 import { tokens } from '../../src/theme/tokens';
-import { isValidSolanaAddress } from '../../src/lib/risk';
 import { haptic } from '../../src/lib/haptics';
+import { WatchItemCard, AddWatchSheet } from '../../src/components/watchlist';
 import type { Watch } from '../../src/types/api';
-
-// ─── Watch item card with enriched display ──────────────────────────────────
-
-function WatchItemCard({ item, onPress, onCopy, flagCount = 0 }: { item: Watch; onPress: (w: Watch) => void; onCopy: (v: string) => void; flagCount?: number }) {
-  // Try to get token name/symbol from react-query lineage cache
-  const cached = item.sub_type === 'mint'
-    ? queryClient.getQueryData<LineageResult>(QK.lineage(item.value))
-    : undefined;
-  const qt = (cached as Record<string, unknown> | undefined)?.query_token as Record<string, unknown> | undefined;
-  const tokenName = (qt?.name as string) || item.label || item.identifier || null;
-  const tokenSymbol = (qt?.symbol as string) || null;
-  const imageUri = (qt?.image_uri as string) || null;
-
-  // Risk badge from investigation history
-  const prev = useHistoryStore.getState().getByMint(item.value);
-  const riskLevel = prev
-    ? prev.riskScore >= 75 ? 'critical' : prev.riskScore >= 50 ? 'high' : prev.riskScore >= 25 ? 'medium' : 'low'
-    : null;
-
-  const isMint = item.sub_type === 'mint';
-  const accentColor = isMint ? tokens.secondary : tokens.accent;
-
-  return (
-    <GlassCard style={styles.watchCard} noPadding>
-      <TouchableOpacity
-        style={styles.watchInner}
-        onPress={() => onPress(item)}
-        onLongPress={() => onCopy(item.value)}
-        delayLongPress={400}
-        activeOpacity={0.75}
-      >
-        {/* Token image or type badge */}
-        {imageUri ? (
-          <View style={styles.tokenImgWrap}>
-            <Image source={{ uri: imageUri }} style={styles.tokenImg} />
-          </View>
-        ) : (
-          <View style={[styles.tokenImgWrap, { backgroundColor: `${accentColor}15` }]}>
-            <Text style={[styles.tokenImgFallback, { color: accentColor }]}>
-              {tokenSymbol?.[0]?.toUpperCase() ?? (isMint ? 'T' : 'D')}
-            </Text>
-          </View>
-        )}
-
-        {/* Name + address */}
-        <View style={styles.watchBody}>
-          <View style={styles.watchNameRow}>
-            <Text style={styles.watchLabel} numberOfLines={1}>
-              {tokenName ?? `${item.value.slice(0, 6)}…${item.value.slice(-4)}`}
-            </Text>
-            {tokenSymbol && (
-              <Text style={styles.watchSymbol}>{tokenSymbol}</Text>
-            )}
-            {!tokenSymbol && (
-              <View style={[styles.typeBadge, { backgroundColor: `${accentColor}18` }]}>
-                <Text style={[styles.typeText, { color: accentColor }]}>
-                  {isMint ? 'TOKEN' : 'DEPLOYER'}
-                </Text>
-              </View>
-            )}
-          </View>
-          <View style={styles.watchAddressRow}>
-            <Text style={styles.watchAddress} numberOfLines={1}>
-              {item.value.slice(0, 8)}…{item.value.slice(-6)}
-            </Text>
-            {riskLevel && <RiskBadge level={riskLevel} size="sm" />}
-            {flagCount > 0 && (
-              <View style={styles.flagBadge}>
-                <Text style={styles.flagBadgeText}>{flagCount} flag{flagCount > 1 ? 's' : ''}</Text>
-              </View>
-            )}
-          </View>
-        </View>
-      </TouchableOpacity>
-    </GlassCard>
-  );
-}
 
 export default function WatchlistScreen() {
   const insets = useSafeAreaInsets();
@@ -126,14 +40,10 @@ export default function WatchlistScreen() {
   const [pendingKey, setPendingKey] = useState('');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
-  const [addValue, setAddValue] = useState('');
-  const [addType, setAddType] = useState<'mint' | 'deployer'>('mint');
   const swipeableRefs = useRef<Map<string, Swipeable | null>>(new Map());
   const { showToast, toast } = useToast();
 
-  const [addError, setAddError] = useState('');
   const [sweeping, setSweeping] = useState(false);
-  const [sweepProgress, setSweepProgress] = useState(0);
   const [flagCounts, setFlagCounts] = useState<Record<string, number>>({});
 
   // Fetch flag counts for all watched tokens
@@ -157,19 +67,10 @@ export default function WatchlistScreen() {
     const mintWatches = (watches ?? []).filter((w) => w.sub_type === 'mint');
     if (mintWatches.length === 0 || sweeping) return;
     setSweeping(true);
-    setSweepProgress(0);
-    let completed = 0;
-    for (const w of mintWatches) {
-      try {
-        router.push(`/investigate/${w.value}` as any);
-        // Only navigate to first — user can sweep manually from there
-        break;
-      } catch { /* ignore */ }
-      completed++;
-      setSweepProgress(Math.round((completed / mintWatches.length) * 100));
-    }
+    try {
+      router.push(`/investigate/${mintWatches[0].value}` as any);
+    } catch { /* ignore */ }
     setSweeping(false);
-    setSweepProgress(0);
   };
 
   const handleDelete = (id: string) => {
@@ -202,20 +103,13 @@ export default function WatchlistScreen() {
     showToast('Address copied');
   };
 
-  const handleAddSubmit = () => {
-    const v = addValue.trim();
-    if (!v) return;
-    if (!isValidSolanaAddress(v)) {
-      setAddError('Invalid Solana address (32-44 base58 characters)');
-      return;
-    }
-    setAddError('');
-    addMutation.mutate({ sub_type: addType, value: v }, {
+  const handleAddSubmit = (type: 'mint' | 'deployer', value: string) => {
+    addMutation.mutate({ sub_type: type, value }, {
       onSuccess: () => {
         refetch().then(({ data }) => {
           if (isOpenClawAvailable() && data) syncWatchlistCrons(data).catch(() => {});
         });
-        setAddOpen(false); setAddValue(''); setAddError('');
+        setAddOpen(false);
       },
     });
   };
@@ -228,24 +122,23 @@ export default function WatchlistScreen() {
     }
   };
 
+  // ── No API key state ──────────────────────────────────────────────────────
+
   if (!apiKey) {
     return (
       <View style={styles.container}>
-        <AuroraBackground />
         <View style={[styles.safe, { paddingTop: Math.max(insets.top, 16) }]}>
           <View style={styles.lockout}>
             <Bookmark size={48} color={tokens.white20} />
             <Text style={styles.lockoutTitle}>API Key Required</Text>
-            <Text style={styles.lockoutSub}>
-              Enter your API key to unlock your watchlist.
-            </Text>
+            <Text style={styles.lockoutSub}>Enter your API key to unlock your watchlist.</Text>
             <View style={styles.keyInputRow}>
               <TextInput
                 style={styles.keyInput}
                 value={pendingKey}
                 onChangeText={setPendingKey}
                 placeholder="sk-…"
-                placeholderTextColor={tokens.white35}
+                placeholderTextColor={tokens.textPlaceholder}
                 autoCapitalize="none"
                 autoCorrect={false}
                 secureTextEntry
@@ -275,9 +168,10 @@ export default function WatchlistScreen() {
     );
   }
 
+  // ── Main render ───────────────────────────────────────────────────────────
+
   return (
     <View style={styles.container}>
-      <AuroraBackground />
       <View style={[styles.safe, { paddingTop: Math.max(insets.top, 16) }]}>
         <ScreenHeader
           icon={<Bookmark size={26} color={tokens.secondary} strokeWidth={2.5} />}
@@ -294,15 +188,16 @@ export default function WatchlistScreen() {
                   accessibilityRole="button"
                   accessibilityLabel="Investigate all watched tokens"
                 >
-                  <Search size={13} color={sweeping ? tokens.white35 : tokens.secondary} />
-                  <Text style={[styles.sweepBtnText, sweeping && { color: tokens.white35 }]}>
+                  <Search size={13} color={sweeping ? tokens.textTertiary : tokens.secondary} />
+                  <Text style={[styles.sweepBtnText, sweeping && { color: tokens.textTertiary }]}>
                     {sweeping ? 'Sweeping...' : 'Sweep'}
                   </Text>
                 </TouchableOpacity>
               )}
               <TouchableOpacity
                 onPress={() => setAddOpen(true)}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                hitSlop={tokens.hitSlop}
+                style={{ minWidth: tokens.minTouchSize, minHeight: tokens.minTouchSize, justifyContent: 'center', alignItems: 'center' }}
                 accessibilityRole="button"
                 accessibilityLabel="Add to watchlist"
               >
@@ -310,93 +205,49 @@ export default function WatchlistScreen() {
               </TouchableOpacity>
               <TouchableOpacity
                 onPress={() => setSettingsOpen(true)}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                hitSlop={tokens.hitSlop}
+                style={{ minWidth: tokens.minTouchSize, minHeight: tokens.minTouchSize, justifyContent: 'center', alignItems: 'center' }}
                 accessibilityRole="button"
                 accessibilityLabel="Open API key settings"
               >
-                <Settings size={18} color={tokens.white35} />
+                <Settings size={18} color={tokens.textTertiary} />
               </TouchableOpacity>
             </View>
           }
         />
         <SettingsSheet visible={settingsOpen} onClose={() => setSettingsOpen(false)} />
-
-        {/* Add watch modal */}
-        <Modal visible={addOpen} transparent animationType="slide" onRequestClose={() => setAddOpen(false)} statusBarTranslucent>
-          <TouchableWithoutFeedback onPress={() => setAddOpen(false)}>
-            <View style={styles.modalBackdrop} />
-          </TouchableWithoutFeedback>
-          <View style={styles.addSheet}>
-            <View style={styles.handle} />
-            <Text style={styles.addTitle}>Add to Watchlist</Text>
-
-            {/* Type selector */}
-            <View style={styles.typeRow}>
-              {(['mint', 'deployer'] as const).map((t) => (
-                <TouchableOpacity
-                  key={t}
-                  onPress={() => setAddType(t)}
-                  style={[styles.typeBtn, addType === t && styles.typeBtnActive]}
-                >
-                  <Text style={[styles.typeBtnText, addType === t && styles.typeBtnTextActive]}>
-                    {t === 'mint' ? 'Token Mint' : 'Deployer'}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-
-            <TextInput
-              style={styles.addInput}
-              value={addValue}
-              onChangeText={(t) => { setAddValue(t); setAddError(''); }}
-              placeholder={addType === 'mint' ? 'Token mint address…' : 'Deployer address…'}
-              placeholderTextColor={tokens.white35}
-              autoCapitalize="none"
-              autoCorrect={false}
-              returnKeyType="done"
-              onSubmitEditing={handleAddSubmit}
-              autoFocus
-            />
-            {addError !== '' && (
-              <Text style={styles.addErrorText}>{addError}</Text>
-            )}
-            <HapticButton
-              variant="secondary"
-              size="md"
-              fullWidth
-              loading={addMutation.isPending}
-              onPress={handleAddSubmit}
-              accessibilityRole="button"
-              accessibilityLabel="Confirm add to watchlist"
-            >
-              Add
-            </HapticButton>
-          </View>
-        </Modal>
+        <AddWatchSheet
+          visible={addOpen}
+          onClose={() => setAddOpen(false)}
+          onSubmit={handleAddSubmit}
+          loading={addMutation.isPending}
+        />
 
         {isLoading ? (
           <View style={{ gap: 8, paddingHorizontal: tokens.spacing.screenPadding }}>
             {Array.from({ length: 4 }).map((_, i) => (
-              <GlassCard key={i}>
-                <SkeletonBlock lines={2} />
-              </GlassCard>
+              <GlassCard key={i}><SkeletonBlock lines={2} /></GlassCard>
             ))}
           </View>
         ) : watches?.length === 0 ? (
           <Animated.View entering={FadeInDown.springify()} style={styles.empty}>
             <GlassCard style={styles.emptyCard} noPadding={false}>
               <View style={styles.emptyIconWrapper}>
-                <Bookmark size={36} color={tokens.secondary} />
+                <Bookmark size={40} color={`${tokens.secondary}4D`} />
               </View>
-              <Text style={styles.emptyTitle}>Watchlist is empty</Text>
+              <Text style={styles.emptyTitle}>Start watching tokens</Text>
               <Text style={styles.emptySub}>
-                Build your edge by tracking key tokens and deployers.
+                Add tokens to your watchlist to track their risk in real-time
               </Text>
               <View style={styles.emptyAction}>
-                <HapticButton 
-                  onPress={() => router.push('/(tabs)/scan')} 
+                <HapticButton
+                  onPress={() => router.push('/(tabs)/scan')}
                   variant="primary"
-                >  Discover Tokens  </HapticButton>
+                  accessibilityRole="button"
+                  accessibilityLabel="Go to scan tab to find tokens"
+                >
+                  Scan a Token
+                </HapticButton>
               </View>
             </GlassCard>
           </Animated.View>
@@ -406,29 +257,31 @@ export default function WatchlistScreen() {
             keyExtractor={(item) => item.id}
             contentContainerStyle={[styles.listContent, { paddingBottom: Math.max(insets.bottom + 100, 120) }]}
             showsVerticalScrollIndicator={false}
-            refreshControl={
-              <RefreshControl refreshing={isLoading} onRefresh={refetch} tintColor={tokens.secondary} />
-            }
+            refreshControl={<RefreshControl refreshing={isLoading} onRefresh={refetch} tintColor={tokens.secondary} />}
             renderItem={({ item, index }) => (
-              <Animated.View exiting={FadeInDown} entering={FadeInDown.delay(index * 50).springify()} layout={LinearTransition.springify()}>
-              <Swipeable
-                ref={(ref) => { swipeableRefs.current.set(item.id, ref); }}
-                overshootRight={false}
-                renderRightActions={() => (
-                  <TouchableOpacity
-                    onPress={() => {
-                      swipeableRefs.current.get(item.id)?.close();
-                      handleDelete(item.id);
-                    }}
-                    style={styles.swipeDeleteBtn}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Delete ${item.label ?? item.value}`}
-                  >
-                    <Trash2 size={20} color={tokens.white100} />
-                  </TouchableOpacity>
-                )}
+              <Animated.View
+                exiting={FadeInDown}
+                entering={FadeInDown.delay(index * tokens.timing.listItem).springify()}
+                layout={LinearTransition.springify()}
               >
-              <WatchItemCard item={item} onPress={handlePress} onCopy={handleCopy} flagCount={flagCounts[item.value] ?? 0} />
+                <Swipeable
+                  ref={(ref) => { swipeableRefs.current.set(item.id, ref); }}
+                  overshootRight={false}
+                  renderRightActions={() => (
+                    <TouchableOpacity
+                      onPress={() => {
+                        swipeableRefs.current.get(item.id)?.close();
+                        handleDelete(item.id);
+                      }}
+                      style={styles.swipeDeleteBtn}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Delete ${item.label ?? item.value}`}
+                    >
+                      <Trash2 size={20} color={tokens.white100} />
+                    </TouchableOpacity>
+                  )}
+                >
+                  <WatchItemCard item={item} onPress={handlePress} onCopy={handleCopy} flagCount={flagCounts[item.value] ?? 0} />
                 </Swipeable>
               </Animated.View>
             )}
@@ -441,14 +294,9 @@ export default function WatchlistScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: tokens.bgMain },
+  container: { flex: 1, backgroundColor: 'transparent' },
   safe: { flex: 1 },
-
-  count: {
-    fontFamily: 'Lexend-Regular',
-    fontSize: tokens.font.small,
-    color: tokens.white60,
-  },
+  count: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.small, color: tokens.white60 },
   sweepBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -461,115 +309,9 @@ const styles = StyleSheet.create({
     backgroundColor: `${tokens.secondary}10`,
     minHeight: tokens.minTouchSize,
   },
-  sweepBtnText: {
-    fontFamily: 'Lexend-SemiBold',
-    fontSize: tokens.font.tiny,
-    color: tokens.secondary,
-  },
-  headerActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-
-  listContent: {
-    gap: 8,
-    paddingHorizontal: tokens.spacing.screenPadding,
-     
-  },
-  watchCard: {},
-  watchInner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: tokens.spacing.cardPadding,
-    gap: 12,
-    flex: 1,
-  },
-  watchBody: { flex: 1, gap: 3 },
-  watchNameRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  watchSymbol: {
-    fontFamily: 'Lexend-Regular',
-    fontSize: tokens.font.small,
-    color: tokens.white35,
-  },
-  tokenImgWrap: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    overflow: 'hidden',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: tokens.borderSubtle,
-  },
-  tokenImg: { width: 40, height: 40 },
-  tokenImgFallback: {
-    fontFamily: 'Lexend-Bold',
-    fontSize: tokens.font.subheading,
-  },
-  flagBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: `${tokens.warning}18`,
-    borderRadius: tokens.radius.pill,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderWidth: 1,
-    borderColor: `${tokens.warning}35`,
-  },
-  flagBadgeText: {
-    fontFamily: 'Lexend-SemiBold',
-    fontSize: tokens.font.badge,
-    color: tokens.warning,
-  },
-  typeBadge: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: tokens.radius.pill,
-    marginBottom: 2,
-  },
-  typeText: {
-    fontFamily: 'Lexend-Bold',
-    fontSize: tokens.font.tiny,
-    letterSpacing: 0.5,
-  },
-  watchLabel: {
-    fontFamily: 'Lexend-SemiBold',
-    fontSize: tokens.font.body,
-    color: tokens.white100,
-  },
-  watchAddress: {
-    fontFamily: 'Lexend-Regular',
-    fontSize: tokens.font.tiny,
-    color: tokens.white35,
-    flex: 1,
-  },
-  watchAddressRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  monitorBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 3,
-    backgroundColor: `${tokens.secondary}15`,
-    borderRadius: tokens.radius.pill,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-  },
-  monitorText: {
-    fontFamily: 'Lexend-SemiBold',
-    fontSize: 9,
-    color: tokens.secondary,
-    letterSpacing: 0.3,
-  },
-
+  sweepBtnText: { fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.tiny, color: tokens.secondary },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  listContent: { gap: 8, paddingHorizontal: tokens.spacing.screenPadding },
   swipeDeleteBtn: {
     backgroundColor: tokens.risk.critical,
     justifyContent: 'center',
@@ -577,121 +319,13 @@ const styles = StyleSheet.create({
     width: 72,
     marginLeft: 8,
     borderRadius: tokens.radius.sm,
-    marginBottom: 0,
   },
-
-  modalBackdrop: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: tokens.bgOverlay, // Figma: rgba(0,0,0,0.7)
-  },
-  addSheet: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: tokens.bgApp, // Figma: --bg-app #040816
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingTop: 12,
-    paddingHorizontal: tokens.spacing.screenPadding,
-    paddingBottom: 48,
-    gap: 12,
-    borderTopWidth: 1,
-    borderColor: tokens.borderSubtle,
-  },
-  handle: {
-    width: 40,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: tokens.white20,
-    alignSelf: 'center',
-    marginBottom: 8,
-  },
-  addTitle: {
-    fontFamily: 'Lexend-SemiBold',
-    fontSize: tokens.font.subheading,
-    color: tokens.white100,
-    marginBottom: 4,
-  },
-  typeRow: { flexDirection: 'row', gap: 8 },
-  typeBtn: {
-    flex: 1,
-    paddingVertical: 8,
-    borderRadius: tokens.radius.sm,
-    backgroundColor: tokens.bgGlass8,
-    borderWidth: 1,
-    borderColor: tokens.borderSubtle,
-    alignItems: 'center',
-  },
-  typeBtnActive: {
-    backgroundColor: `${tokens.secondary}20`,
-    borderColor: tokens.secondary,
-  },
-  typeBtnText: {
-    fontFamily: 'Lexend-Regular',
-    fontSize: tokens.font.small,
-    color: tokens.white60,
-  },
-  typeBtnTextActive: {
-    color: tokens.secondary,
-    fontFamily: 'Lexend-SemiBold',
-  },
-  addInput: {
-    backgroundColor: tokens.bgGlass8,
-    borderRadius: tokens.radius.pill,
-    borderWidth: 1,
-    borderColor: tokens.borderSubtle,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    fontFamily: 'Lexend-Regular',
-    fontSize: tokens.font.body,
-    color: tokens.white100,
-  },
-  addErrorText: {
-    fontFamily: 'Lexend-Regular',
-    fontSize: tokens.font.tiny,
-    color: tokens.accent,
-    marginTop: -4,
-    paddingHorizontal: 16,
-  },
-
-  lockout: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 16,
-    paddingHorizontal: 32,
-  },
-  lockoutTitle: {
-    fontFamily: 'Lexend-SemiBold',
-    fontSize: tokens.font.subheading,
-    color: tokens.white60,
-  },
-  lockoutSub: {
-    fontFamily: 'Lexend-Regular',
-    fontSize: tokens.font.body,
-    color: tokens.white35,
-    textAlign: 'center',
-  },
-  lockoutHint: {
-    fontFamily: 'Lexend-Regular',
-    fontSize: tokens.font.tiny,
-    color: tokens.white35,
-    textAlign: 'center',
-    marginTop: 8,
-    lineHeight: 18,
-  },
-  lockoutHintLink: {
-    color: tokens.secondary,
-    fontFamily: 'Lexend-SemiBold',
-  },
-  keyInputRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    width: '100%',
-    paddingHorizontal: 8,
-  },
+  lockout: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 16, paddingHorizontal: 32 },
+  lockoutTitle: { fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.subheading, color: tokens.white60 },
+  lockoutSub: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.body, color: tokens.textTertiary, textAlign: 'center' },
+  lockoutHint: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny, color: tokens.textTertiary, textAlign: 'center', marginTop: 8, lineHeight: 18 },
+  lockoutHintLink: { color: tokens.secondary, fontFamily: 'Lexend-SemiBold' },
+  keyInputRow: { flexDirection: 'row', alignItems: 'center', gap: 8, width: '100%', paddingHorizontal: 8 },
   keyInput: {
     flex: 1,
     backgroundColor: tokens.bgGlass8,
@@ -704,45 +338,15 @@ const styles = StyleSheet.create({
     fontSize: tokens.font.body,
     color: tokens.white100,
   },
-
-  empty: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 16,
-    paddingHorizontal: 32,
-  },
-  emptyCard: {
-    alignItems: 'center',
-    padding: 32,
-    borderWidth: 1,
-    borderColor: tokens.borderSubtle,
-    width: '100%',
-  },
+  empty: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 16, paddingHorizontal: 32 },
+  emptyCard: { alignItems: 'center', padding: 32, borderWidth: 1, borderColor: tokens.borderSubtle, width: '100%' },
   emptyIconWrapper: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
+    width: 72, height: 72, borderRadius: 36,
     backgroundColor: `${tokens.secondary}15`,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: `${tokens.secondary}30`,
+    alignItems: 'center', justifyContent: 'center',
+    marginBottom: 16, borderWidth: 1, borderColor: `${tokens.secondary}30`,
   },
-  emptyAction: {
-    marginTop: 24,
-    width: '100%',
-  },
-  emptyTitle: {
-    fontFamily: 'Lexend-SemiBold',
-    fontSize: tokens.font.subheading,
-    color: tokens.white60,
-  },
-  emptySub: {
-    fontFamily: 'Lexend-Regular',
-    fontSize: tokens.font.body,
-    color: tokens.white35,
-    textAlign: 'center',
-  },
+  emptyAction: { marginTop: 24, width: '100%' },
+  emptyTitle: { fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.subheading, color: tokens.white60 },
+  emptySub: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.body, color: tokens.textTertiary, textAlign: 'center' },
 });

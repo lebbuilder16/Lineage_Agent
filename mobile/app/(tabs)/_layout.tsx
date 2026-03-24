@@ -68,6 +68,6 @@ export default function TabLayout() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: tokens.bgMain },
+  container: { flex: 1, backgroundColor: 'transparent' },
   screens: { flex: 1 },
 });

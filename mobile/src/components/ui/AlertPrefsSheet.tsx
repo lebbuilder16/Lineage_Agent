@@ -112,7 +112,7 @@ export function AlertPrefsSheet({ visible, onClose }: AlertPrefsSheetProps) {
           <View style={[styles.row, !ocConnected && styles.rowDisabled]}>
             <View style={styles.rowLeft}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <MessageCircle size={13} color={!ocConnected ? tokens.white35 : tokens.secondary} />
+                <MessageCircle size={13} color={!ocConnected ? tokens.textTertiary : tokens.secondary} />
                 <Text style={[styles.rowLabel, !ocConnected && styles.rowLabelDisabled]}>
                   AI context enrichment
                 </Text>
@@ -218,7 +218,7 @@ const styles = StyleSheet.create({
   sectionLabel: {
     fontFamily: 'Lexend-SemiBold',
     fontSize: tokens.font.tiny,
-    color: tokens.white35,
+    color: tokens.textTertiary,
     letterSpacing: 1,
     marginBottom: 8,
     marginTop: 4,
@@ -243,7 +243,7 @@ const styles = StyleSheet.create({
   rowDesc: {
     fontFamily: 'Lexend-Regular',
     fontSize: tokens.font.tiny,
-    color: tokens.white35,
+    color: tokens.textTertiary,
   },
   rulesCard: {
     backgroundColor: tokens.bgGlass8,
@@ -263,7 +263,7 @@ const styles = StyleSheet.create({
     fontSize: tokens.font.small,
   },
   ruleArrow: {
-    color: tokens.white35,
+    color: tokens.textTertiary,
     fontSize: tokens.font.small,
   },
   ruleChannels: {
@@ -274,7 +274,7 @@ const styles = StyleSheet.create({
   ruleHint: {
     fontFamily: 'Lexend-Regular',
     fontSize: tokens.font.tiny,
-    color: tokens.white35,
+    color: tokens.textTertiary,
     marginTop: 4,
   },
 });

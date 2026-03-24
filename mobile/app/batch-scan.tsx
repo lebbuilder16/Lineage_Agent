@@ -10,7 +10,6 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router, Stack } from 'expo-router';
 import { ChevronLeft, ChevronRight, AlertCircle } from 'lucide-react-native';
-import { AuroraBackground } from '../src/components/ui/AuroraBackground';
 import { GlassCard } from '../src/components/ui/GlassCard';
 import { HapticButton } from '../src/components/ui/HapticButton';
 import { RiskBadge } from '../src/components/ui/RiskBadge';
@@ -131,7 +130,6 @@ export default function BatchScanScreen() {
 
   return (
     <View style={styles.container}>
-      <AuroraBackground />
       <Stack.Screen options={{ headerShown: false }} />
       <View style={[styles.safe, { paddingTop: insets.top }]}>
         {/* Navbar */}
@@ -159,7 +157,7 @@ export default function BatchScanScreen() {
             <TextInput
               style={styles.textInput}
               placeholder="Paste mint addresses (one per line)"
-              placeholderTextColor={tokens.white35}
+              placeholderTextColor={tokens.textPlaceholder}
               multiline
               maxLength={5000}
               numberOfLines={6}
@@ -249,7 +247,7 @@ export default function BatchScanScreen() {
                           </View>
                           <View style={styles.resultRight}>
                             <RiskBadge level={risk} />
-                            <ChevronRight size={14} color={tokens.white35} />
+                            <ChevronRight size={14} color={tokens.textTertiary} />
                           </View>
                         </View>
                       </TouchableOpacity>
@@ -266,7 +264,7 @@ export default function BatchScanScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: tokens.bgMain },
+  container: { flex: 1, backgroundColor: 'transparent' },
   safe: { flex: 1 },
   navbar: {
     flexDirection: 'row',
@@ -308,7 +306,7 @@ const styles = StyleSheet.create({
   countHint: {
     fontFamily: 'Lexend-Regular',
     fontSize: tokens.font.tiny,
-    color: tokens.white35,
+    color: tokens.textTertiary,
     marginTop: 8,
     textAlign: 'right',
   },

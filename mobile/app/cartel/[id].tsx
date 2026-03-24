@@ -10,7 +10,6 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router, Stack } from 'expo-router';
 import { ChevronLeft, ChevronRight, Activity, ActivitySquare } from 'lucide-react-native';
-import { AuroraBackground } from '../../src/components/ui/AuroraBackground';
 import { FeatureGate } from '../../src/components/ui/FeatureGate';
 import { GlassCard } from '../../src/components/ui/GlassCard';
 import { SkeletonBlock } from '../../src/components/ui/SkeletonLoader';
@@ -20,6 +19,7 @@ import { isOpenClawAvailable } from '../../src/lib/openclaw';
 import { startCartelMonitor, stopCartelMonitor, isCartelMonitored } from '../../src/lib/openclaw-cartel-monitor';
 import { tokens } from '../../src/theme/tokens';
 import Animated, { FadeInDown } from 'react-native-reanimated';
+import { Breadcrumbs } from '../../src/components/investigate/Breadcrumbs';
 
 export default function CartelScreen() {
   const insets = useSafeAreaInsets();
@@ -53,7 +53,6 @@ export default function CartelScreen() {
 
   return (
     <View style={styles.container}>
-      <AuroraBackground />
       <Stack.Screen options={{ headerShown: false }} />
       <View style={styles.safe}>
         <View style={styles.navbar}>
@@ -84,6 +83,10 @@ export default function CartelScreen() {
             <View style={{ width: 36 }} />
           )}
         </View>
+
+        <Breadcrumbs trail={[
+          { label: `Cartel ${id?.slice(0, 6) ?? ''}…`, active: true },
+        ]} />
 
         <ScrollView
           contentContainerStyle={styles.content}
@@ -144,7 +147,7 @@ export default function CartelScreen() {
                           <View style={styles.deployerInfo}>
                             <Text style={styles.deployerAddr} numberOfLines={1}>{addr}</Text>
                           </View>
-                          <ChevronRight size={16} color={tokens.white35} />
+                          <ChevronRight size={16} color={tokens.textTertiary} />
                         </View>
                       </TouchableOpacity>
                     ))}
@@ -179,7 +182,7 @@ function SignalRow({ label, value, color }: { label: string; value: number; colo
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: tokens.bgMain },
+  container: { flex: 1, backgroundColor: 'transparent' },
   safe: { flex: 1 },
   navbar: {
     flexDirection: 'row',

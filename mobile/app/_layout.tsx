@@ -23,6 +23,7 @@ import { createBriefingCron } from '../src/lib/openclaw-cron';
 import { startBriefingListener } from '../src/lib/openclaw-briefing';
 import { tokens } from '../src/theme/tokens';
 import { ErrorBoundary } from '../src/components/ui/ErrorBoundary';
+import { AuroraBackground } from '../src/components/ui/AuroraBackground';
 import { useAuthStore } from '../src/store/auth';
 
 const PRIVY_APP_ID = process.env.EXPO_PUBLIC_PRIVY_APP_ID || '';
@@ -246,10 +247,11 @@ export default function RootLayout() {
 
   const appContent = (
     <GestureHandlerRootView style={styles.root}>
+      <AuroraBackground />
       <QueryClientProvider client={queryClient}>
-        <View style={styles.root}>
+        <View style={[styles.root, { backgroundColor: 'transparent' }]}>
           <StatusBar style="light" />
-          <Stack screenOptions={{ headerShown: false }}>
+          <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: 'transparent' } }}>
             <Stack.Screen name="index" options={{ headerShown: false }} />
             <Stack.Screen name="(auth)" options={{ headerShown: false, animation: 'fade' }} />
             <Stack.Screen name="(tabs)" options={{ headerShown: false }} />

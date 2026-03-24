@@ -12,7 +12,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router, Stack } from 'expo-router';
 import Svg, { Line, Rect, Text as SvgText, G } from 'react-native-svg';
 import { ChevronLeft, GitBranch } from 'lucide-react-native';
-import { AuroraBackground } from '../../src/components/ui/AuroraBackground';
 import { useLineageGraph } from '../../src/lib/query';
 import { tokens } from '../../src/theme/tokens';
 import type { GraphNode, GraphEdge } from '../../src/types/api';
@@ -126,7 +125,6 @@ export default function FamilyTreeScreen() {
 
   return (
     <View style={styles.container}>
-      <AuroraBackground />
       <Stack.Screen options={{ headerShown: false }} />
       <View style={styles.safe}>
         {/* Navbar */}
@@ -303,7 +301,7 @@ export default function FamilyTreeScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: tokens.bgMain },
+  container: { flex: 1, backgroundColor: 'transparent' },
   safe: { flex: 1 },
 
   navbar: {
@@ -343,14 +341,14 @@ const styles = StyleSheet.create({
   emptySubtitle: {
     fontFamily: 'Lexend-Regular',
     fontSize: tokens.font.small,
-    color: tokens.white35,
+    color: tokens.textTertiary,
     textAlign: 'center',
   },
 
   legend: {
     fontFamily: 'Lexend-Regular',
     fontSize: tokens.font.tiny,
-    color: tokens.white35,
+    color: tokens.textTertiary,
     textAlign: 'center',
     paddingVertical: 4,
     letterSpacing: 0.5,
@@ -370,6 +368,6 @@ const styles = StyleSheet.create({
   legendLabel: {
     fontFamily: 'Lexend-Regular',
     fontSize: tokens.font.tiny,
-    color: tokens.white35,
+    color: tokens.textTertiary,
   },
 });

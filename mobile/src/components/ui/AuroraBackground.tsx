@@ -17,14 +17,17 @@ import {
   withSequence,
   Easing,
   useDerivedValue,
+  cancelAnimation,
 } from 'react-native-reanimated';
 import { tokens } from '../../theme/tokens';
+import { useReducedMotion } from '../../hooks/useReducedMotion';
 
 // High-performance Aurora Background using Skia + Reanimated
 // Replaces opaque circles with True Gaussian Blurs + Grain effect
 
 export function AuroraBackground() {
   const { width, height } = useWindowDimensions();
+  const reducedMotion = useReducedMotion();
 
   // Shared values for animation physics (0 to 1)
   const drift1 = useSharedValue(0);
@@ -32,6 +35,17 @@ export function AuroraBackground() {
   const drift3 = useSharedValue(0);
 
   useEffect(() => {
+    if (reducedMotion) {
+      // Park blobs at midpoints for a pleasant static composition
+      cancelAnimation(drift1);
+      cancelAnimation(drift2);
+      cancelAnimation(drift3);
+      drift1.value = 0.5;
+      drift2.value = 0.5;
+      drift3.value = 0.5;
+      return;
+    }
+
     drift1.value = withRepeat(
       withTiming(1, { duration: 12000, easing: Easing.inOut(Easing.ease) }),
       -1,
@@ -49,7 +63,7 @@ export function AuroraBackground() {
       -1,
       true
     );
-  }, [drift1, drift2, drift3]);
+  }, [drift1, drift2, drift3, reducedMotion]);
 
   // Derived positions — match Figma DynamicBackground radial positions
   // Blob 1: upper-left 20%/30% → drifts right
@@ -75,7 +89,7 @@ export function AuroraBackground() {
   const icyBlueFaint = 'rgba(173, 200, 255, 0.08)';
 
   return (
-    <View style={styles.container} pointerEvents="none">
+    <View style={styles.container} pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
       <Canvas style={StyleSheet.absoluteFill}>
         <Group>
           {/* Blob 1: soft ice-blue upper-left — Figma "circle at 20% 30%" */}

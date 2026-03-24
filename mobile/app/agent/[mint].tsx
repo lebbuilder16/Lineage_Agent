@@ -45,7 +45,6 @@ import { useSubscriptionStore } from '../../src/store/subscription';
 import { useRemainingQuota } from '../../src/store/subscription';
 import { GlassCard } from '../../src/components/ui/GlassCard';
 import { RiskBadge } from '../../src/components/ui/RiskBadge';
-import { AuroraBackground } from '../../src/components/ui/AuroraBackground';
 import { HapticButton } from '../../src/components/ui/HapticButton';
 import { FeatureGate } from '../../src/components/ui/FeatureGate';
 import { tokens } from '../../src/theme/tokens';
@@ -316,7 +315,6 @@ export default function AgentScreen() {
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <Stack.Screen options={{ headerShown: false, animation: 'slide_from_right' }} />
-      <AuroraBackground />
 
       {/* Header */}
       <View style={styles.header}>
@@ -377,7 +375,7 @@ export default function AgentScreen() {
           {/* Running indicator */}
           {status === 'running' && steps.length > 0 && (
             <Animated.View entering={FadeIn.duration(200)} style={styles.runningRow}>
-              <Spinner size={16} color={tokens.white35} />
+              <Spinner size={16} color={tokens.textTertiary} />
               <Text style={styles.runningText}>Agent investigating...</Text>
             </Animated.View>
           )}
@@ -432,7 +430,7 @@ export default function AgentScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: tokens.bgMain,
+    backgroundColor: 'transparent',
   },
   header: {
     flexDirection: 'row',
@@ -450,14 +448,14 @@ const styles = StyleSheet.create({
   quota: {
     fontFamily: 'Lexend-Regular',
     fontSize: tokens.font.tiny,
-    color: tokens.white35,
+    color: tokens.textTertiary,
     textAlign: 'center',
     marginBottom: 4,
   },
   mintAddr: {
     fontFamily: 'Lexend-Regular',
     fontSize: tokens.font.tiny,
-    color: tokens.white35,
+    color: tokens.textTertiary,
     textAlign: 'center',
     paddingHorizontal: tokens.spacing.screenPadding,
     marginBottom: 12,
@@ -493,7 +491,7 @@ const styles = StyleSheet.create({
   stepMeta: {
     fontFamily: 'Lexend-Regular',
     fontSize: tokens.font.tiny,
-    color: tokens.white35,
+    color: tokens.textTertiary,
     marginTop: 2,
   },
   thinkingText: {
@@ -539,7 +537,7 @@ const styles = StyleSheet.create({
   runningText: {
     fontFamily: 'Lexend-Regular',
     fontSize: tokens.font.small,
-    color: tokens.white35,
+    color: tokens.textTertiary,
   },
 
   // Verdict card
@@ -556,7 +554,7 @@ const styles = StyleSheet.create({
   verdictScoreLabel: {
     fontFamily: 'Lexend-Regular',
     fontSize: tokens.font.body,
-    color: tokens.white35,
+    color: tokens.textTertiary,
     marginRight: 10,
   },
   verdictSummary: {

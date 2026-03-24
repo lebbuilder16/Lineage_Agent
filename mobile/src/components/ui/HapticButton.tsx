@@ -53,12 +53,12 @@ export function HapticButton({
   }));
 
   const handlePressIn = () => {
-    scale.value = withSpring(0.95, { damping: 15, stiffness: 400 });
+    scale.value = withSpring(0.95, tokens.timing.spring);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   };
 
   const handlePressOut = () => {
-    scale.value = withSpring(1, { damping: 15, stiffness: 400 });
+    scale.value = withSpring(1, tokens.timing.spring);
   };
 
   const handlePress = (e: any) => {

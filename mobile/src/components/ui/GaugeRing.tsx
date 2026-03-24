@@ -36,7 +36,7 @@ export function GaugeRing({
 
   useEffect(() => {
     progress.value = withTiming(Math.min(Math.max(value, 0), 1), {
-      duration: 900,
+      duration: tokens.timing.xSlow,
       easing: Easing.out(Easing.cubic),
     });
   }, [value]);
@@ -48,7 +48,12 @@ export function GaugeRing({
   const center = size / 2;
 
   return (
-    <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
+    <View
+      style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}
+      accessibilityRole="progressbar"
+      accessibilityValue={{ min: 0, max: 100, now: Math.round(value * 100) }}
+      accessibilityLabel={`${label ?? 'Progress'}: ${Math.round(value * 100)}%`}
+    >
       <Svg width={size} height={size} style={StyleSheet.absoluteFill}>
         {/* Track */}
         <Circle

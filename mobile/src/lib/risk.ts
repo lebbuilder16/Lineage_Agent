@@ -10,7 +10,7 @@ export const RISK_COLOR: Record<RiskLevel, string> = {
   high: tokens.risk.high,
   critical: tokens.risk.critical,
   first_rug: tokens.risk.high,
-  insufficient_data: tokens.white35,
+  insufficient_data: tokens.textTertiary,
 };
 
 /** Map risk level to a 0-1 score for GaugeRing display. */
@@ -28,7 +28,7 @@ export function riskLevelToScore(level: RiskLevel | undefined): number | null {
 
 /** Get risk color for a given level (with fallback). */
 export function riskColor(level: RiskLevel | undefined): string {
-  return level ? (RISK_COLOR[level] ?? tokens.white35) : tokens.white35;
+  return level ? (RISK_COLOR[level] ?? tokens.textTertiary) : tokens.textTertiary;
 }
 
 /**

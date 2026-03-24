@@ -1,0 +1,19 @@
+# Alerts — verify filter pills and basic layout
+appId: com.lineageagent.mobile
+---
+- launchApp
+
+# Navigate to Alerts tab
+- tapOn:
+    text: "Alerts"
+
+# Verify filter pills are visible
+- assertVisible:
+    text: "All"
+    timeout: 5000
+
+- assertVisible:
+    text: "Critical"
+
+- assertVisible:
+    text: "Unread"

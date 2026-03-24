@@ -9,7 +9,6 @@ import {
   User, Crown, ChevronRight, LogOut, Key, Bell, RefreshCw, Shield, Scan, Eye, Award,
 } from 'lucide-react-native';
 import * as ImagePicker from 'expo-image-picker';
-import { AuroraBackground } from '../../src/components/ui/AuroraBackground';
 import { GlassCard } from '../../src/components/ui/GlassCard';
 import { HapticButton } from '../../src/components/ui/HapticButton';
 import { ScreenHeader } from '../../src/components/ui/ScreenHeader';
@@ -162,13 +161,12 @@ export default function AccountScreen() {
   if (!isAuthenticated) {
     return (
       <View style={styles.container}>
-        <AuroraBackground />
         <View style={[styles.safe, { paddingTop: Math.max(insets.top, 16) }]}>
           <ScreenHeader icon={<User size={26} color={tokens.secondary} strokeWidth={2.5} />} title="Account" style={{ paddingHorizontal: 0 }} />
           <Animated.View entering={FadeInDown.duration(400)} style={styles.centerContent}>
             <GlassCard style={styles.noAuthCard}>
               <View style={styles.noAuthIconWrap}>
-                <Shield size={40} color={tokens.white35} strokeWidth={1.5} />
+                <Shield size={40} color={tokens.textTertiary} strokeWidth={1.5} />
               </View>
               <Text style={styles.noAuthTitle}>Not Signed In</Text>
               <Text style={styles.noAuthSub}>Sign in to sync your watchlist, receive alerts, and unlock all features.</Text>
@@ -184,7 +182,6 @@ export default function AccountScreen() {
 
   return (
     <View style={styles.container}>
-      <AuroraBackground />
       <View style={[styles.safe, { paddingTop: Math.max(insets.top, 16) }]}>
         <ScreenHeader icon={<User size={26} color={tokens.secondary} strokeWidth={2.5} />} title="Account" style={{ paddingHorizontal: 0 }} />
 
@@ -345,7 +342,7 @@ export default function AccountScreen() {
 
 // ── Styles ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: tokens.bgMain },
+  container: { flex: 1, backgroundColor: 'transparent' },
   safe: { flex: 1, paddingHorizontal: tokens.spacing.screenPadding },
   content: { gap: 12 },
   centerContent: { flex: 1, justifyContent: 'center' },
@@ -360,18 +357,18 @@ const styles = StyleSheet.create({
   avatarText: { fontFamily: 'Lexend-Bold', fontSize: 28 },
   nameRow: { alignItems: 'center', gap: 2 },
   profileName: { fontFamily: 'Lexend-Bold', fontSize: tokens.font.sectionHeader, color: tokens.white100 },
-  profileHandle: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.small, color: tokens.white35 },
+  profileHandle: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.small, color: tokens.textTertiary },
   profileMeta: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 10 },
   planPill: { paddingHorizontal: 10, paddingVertical: 3, borderRadius: tokens.radius.pill, borderWidth: 1 },
   planPillText: { fontFamily: 'Lexend-Bold', fontSize: tokens.font.tiny, letterSpacing: 0.5 },
-  memberSince: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny, color: tokens.white35 },
+  memberSince: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny, color: tokens.textTertiary },
 
   // Usage
   usageCard: { gap: 12 },
   usageHeader: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   usageTitle: { fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.subheading, color: tokens.white80 },
   managePlanText: { fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.small, color: tokens.secondary },
-  planExpiry: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny, color: tokens.white35 },
+  planExpiry: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny, color: tokens.textTertiary },
   usageBars: { gap: 10 },
 
   // Reputation
@@ -385,9 +382,9 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: tokens.borderSubtle, paddingVertical: 12,
   },
   repStatVal: { fontFamily: 'Lexend-Bold', fontSize: tokens.font.sectionHeader, color: tokens.white100 },
-  repStatLabel: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny, color: tokens.white35, letterSpacing: 0.5 },
+  repStatLabel: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny, color: tokens.textTertiary, letterSpacing: 0.5 },
   recentSection: { gap: 6, marginTop: 4 },
-  recentTitle: { fontFamily: 'Lexend-Medium', fontSize: tokens.font.small, color: tokens.white35 },
+  recentTitle: { fontFamily: 'Lexend-Medium', fontSize: tokens.font.small, color: tokens.textTertiary },
   recentRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingVertical: 8, paddingHorizontal: 4,
@@ -401,7 +398,7 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
   settingsLabel: { fontFamily: 'Lexend-Medium', fontSize: tokens.font.body, color: tokens.white80, flex: 1 },
-  settingsValue: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.small, color: tokens.white35, maxWidth: 140 },
+  settingsValue: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.small, color: tokens.textTertiary, maxWidth: 140 },
   divider: { height: 1, backgroundColor: tokens.borderSubtle, marginVertical: 6 },
 
   // Logout
@@ -419,6 +416,6 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center', marginBottom: 16,
   },
   noAuthTitle: { fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.subheading, color: tokens.white60, marginBottom: 8 },
-  noAuthSub: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.body, color: tokens.white35, textAlign: 'center', lineHeight: 22, paddingHorizontal: 16 },
+  noAuthSub: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.body, color: tokens.textTertiary, textAlign: 'center', lineHeight: 22, paddingHorizontal: 16 },
   btnTextWhite: { fontFamily: 'Lexend-Bold', fontSize: tokens.font.body, color: tokens.white100 },
 });

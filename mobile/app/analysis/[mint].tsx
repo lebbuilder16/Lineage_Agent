@@ -177,7 +177,7 @@ export default function AnalysisModal() {
             return (
               <Animated.View
                 key={key}
-                entering={FadeIn.delay(index * 40).duration(200)}
+                entering={FadeIn.delay(index * tokens.timing.listItem).duration(200)}
                 style={[styles.stepRow, isLast && { borderBottomWidth: 0 }]}
               >
                 {isDone ? (
@@ -286,7 +286,7 @@ const styles = StyleSheet.create({
   mintAddr: {
     fontFamily: 'Lexend-Regular',
     fontSize: tokens.font.tiny,
-    color: tokens.white35,
+    color: tokens.textTertiary,
     marginBottom: 16,
   },
 
@@ -333,12 +333,12 @@ const styles = StyleSheet.create({
     color: tokens.success,
   },
   stepLabelPending: {
-    color: tokens.white35,
+    color: tokens.textTertiary,
   },
   stepMeta: {
     fontFamily: 'Lexend-Regular',
     fontSize: tokens.font.tiny,
-    color: tokens.white35,
+    color: tokens.textTertiary,
   },
 
   // Done section

@@ -10,7 +10,6 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router, Stack } from 'expo-router';
 import { ChevronLeft, ChevronRight, AlertTriangle } from 'lucide-react-native';
-import { AuroraBackground } from '../../src/components/ui/AuroraBackground';
 import { GlassCard } from '../../src/components/ui/GlassCard';
 import { GaugeRing } from '../../src/components/ui/GaugeRing';
 import { HapticButton } from '../../src/components/ui/HapticButton';
@@ -20,6 +19,7 @@ import { addWatch } from '../../src/lib/api';
 import { useAuthStore } from '../../src/store/auth';
 import { tokens } from '../../src/theme/tokens';
 import Animated, { FadeInDown } from 'react-native-reanimated';
+import { Breadcrumbs } from '../../src/components/investigate/Breadcrumbs';
 
 export default function DeployerScreen() {
   const insets = useSafeAreaInsets();
@@ -44,7 +44,6 @@ export default function DeployerScreen() {
 
   return (
     <View style={styles.container}>
-      <AuroraBackground />
       <Stack.Screen options={{ headerShown: false }} />
       <View style={styles.safe}>
         <View style={styles.navbar}>
@@ -59,6 +58,10 @@ export default function DeployerScreen() {
           <Text style={styles.navTitle}>DEPLOYER PROFILE</Text>
           <View style={{ width: 24 }} />
         </View>
+
+        <Breadcrumbs trail={[
+          { label: `Deployer ${address?.slice(0, 6) ?? ''}…`, active: true },
+        ]} />
 
         <ScrollView
           contentContainerStyle={styles.content}
@@ -134,7 +137,7 @@ export default function DeployerScreen() {
                                 <Text style={styles.rugText}>RUG</Text>
                               </View>
                             )}
-                            <ChevronRight size={14} color={tokens.white35} />
+                            <ChevronRight size={14} color={tokens.textTertiary} />
                           </View>
                         </View>
                       </TouchableOpacity>
@@ -160,7 +163,7 @@ function StatItem({ label, value }: { label: string; value: string }) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: tokens.bgMain },
+  container: { flex: 1, backgroundColor: 'transparent' },
   safe: { flex: 1 },
   navbar: {
     flexDirection: 'row',

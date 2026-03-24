@@ -15,7 +15,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router, Stack } from 'expo-router';
 import { ChevronLeft, Send, Bot } from 'lucide-react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { AuroraBackground } from '../../src/components/ui/AuroraBackground';
 import { FeatureGate } from '../../src/components/ui/FeatureGate';
 import { smartChatStream, isChatOpenClawMode } from '../../src/lib/openclaw-chat';
 import { useSubscriptionStore } from '../../src/store/subscription';
@@ -196,7 +195,6 @@ export default function ChatScreen() {
 
   return (
     <View style={styles.container}>
-      <AuroraBackground />
       <Stack.Screen options={{ headerShown: false }} />
       <View style={styles.safe}>
         {/* Navbar */}
@@ -247,7 +245,7 @@ export default function ChatScreen() {
               <TextInput
                 style={styles.input}
                 placeholder="Ask about this token…"
-                placeholderTextColor={tokens.white35}
+                placeholderTextColor={tokens.textPlaceholder}
                 value={input}
                 onChangeText={setInput}
                 onSubmitEditing={sendMessage}
@@ -277,7 +275,7 @@ export default function ChatScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: tokens.bgMain },
+  container: { flex: 1, backgroundColor: 'transparent' },
   safe: { flex: 1 },
   kav: { flex: 1 },
 
@@ -404,7 +402,7 @@ const styles = StyleSheet.create({
   quotaCounter: {
     fontFamily: 'Lexend-Regular',
     fontSize: tokens.font.tiny,
-    color: tokens.white35,
+    color: tokens.textTertiary,
     textAlign: 'center',
     paddingVertical: 4,
     letterSpacing: 0.3,

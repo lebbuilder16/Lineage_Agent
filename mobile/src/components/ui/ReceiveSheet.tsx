@@ -92,7 +92,7 @@ const styles = StyleSheet.create({
   title: { fontFamily: 'Lexend-Bold', fontSize: tokens.font.sectionHeader, color: tokens.white100 },
   qrWrap: { alignSelf: 'center', marginBottom: 20 },
   qrBg: { backgroundColor: '#fff', borderRadius: 16, padding: 4, overflow: 'hidden' },
-  addrLabel: { fontFamily: 'Lexend-Medium', fontSize: tokens.font.small, color: tokens.white35, marginBottom: 6 },
+  addrLabel: { fontFamily: 'Lexend-Medium', fontSize: tokens.font.small, color: tokens.textTertiary, marginBottom: 6 },
   addrRow: {
     flexDirection: 'row', alignItems: 'center', gap: 10,
     backgroundColor: tokens.bgGlass, borderRadius: tokens.radius.sm,

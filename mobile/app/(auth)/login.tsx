@@ -24,7 +24,6 @@ import {
 } from 'lucide-react-native';
 import { useLoginWithEmail, usePrivy } from '@privy-io/expo';
 import type { User } from '@privy-io/api-types';
-import { AuroraBackground } from '../../src/components/ui/AuroraBackground';
 import { HapticButton } from '../../src/components/ui/HapticButton';
 import { tokens } from '../../src/theme/tokens';
 import { syncPrivyUser } from '../../src/lib/privy-auth';
@@ -232,7 +231,6 @@ export default function LoginScreen() {
 
   return (
     <View style={styles.container}>
-      <AuroraBackground />
       <KeyboardAvoidingView
         style={styles.kav}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -283,7 +281,7 @@ export default function LoginScreen() {
               <>
                 {/* Email input */}
                 <View style={styles.inputRow}>
-                  <Mail size={16} color={tokens.white35} strokeWidth={1.5} />
+                  <Mail size={16} color={tokens.textTertiary} strokeWidth={1.5} />
                   <TextInput
                     style={styles.input}
                     value={email}
@@ -321,7 +319,7 @@ export default function LoginScreen() {
 
                 {/* OTP code input */}
                 <View style={styles.inputRow}>
-                  <ShieldCheck size={16} color={tokens.white35} strokeWidth={1.5} />
+                  <ShieldCheck size={16} color={tokens.textTertiary} strokeWidth={1.5} />
                   <TextInput
                     style={[styles.input, styles.otpInput]}
                     value={otpCode}
@@ -366,7 +364,7 @@ export default function LoginScreen() {
           {/* ── External wallet options (secondary) ──────────────────────── */}
           <Animated.View entering={FadeInDown.delay(550).duration(500)} style={styles.walletSection}>
             <View style={styles.walletTitleRow}>
-              <Wallet size={14} color={tokens.white35} strokeWidth={2} />
+              <Wallet size={14} color={tokens.textTertiary} strokeWidth={2} />
               <Text style={styles.walletSectionTitle}>External Wallet</Text>
             </View>
 
@@ -429,7 +427,7 @@ export default function LoginScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: tokens.bgMain },
+  container: { flex: 1, backgroundColor: 'transparent' },
   kav: { flex: 1 },
   content: {
     paddingHorizontal: tokens.spacing.screenPadding + 4,
@@ -472,7 +470,7 @@ const styles = StyleSheet.create({
   headerSubtitle: {
     fontFamily: 'Lexend-Regular',
     fontSize: tokens.font.body,
-    color: tokens.white35,
+    color: tokens.textTertiary,
     lineHeight: 21,
   },
 
@@ -487,7 +485,7 @@ const styles = StyleSheet.create({
   emailSectionTitle: {
     fontFamily: 'Lexend-SemiBold',
     fontSize: tokens.font.small,
-    color: tokens.white35,
+    color: tokens.textTertiary,
     letterSpacing: 0.5,
   },
   inputRow: {
@@ -549,7 +547,7 @@ const styles = StyleSheet.create({
   resendText: {
     fontFamily: 'Lexend-Regular',
     fontSize: tokens.font.small,
-    color: tokens.white35,
+    color: tokens.textTertiary,
     textDecorationLine: 'underline',
     textDecorationColor: tokens.white10,
   },
@@ -584,7 +582,7 @@ const styles = StyleSheet.create({
   walletSectionTitle: {
     fontFamily: 'Lexend-SemiBold',
     fontSize: tokens.font.small,
-    color: tokens.white35,
+    color: tokens.textTertiary,
     letterSpacing: 0.5,
   },
   walletGrid: { gap: 8 },
@@ -630,7 +628,7 @@ const styles = StyleSheet.create({
   walletHint: {
     fontFamily: 'Lexend-Regular',
     fontSize: tokens.font.small,
-    color: tokens.white35,
+    color: tokens.textTertiary,
   },
   walletHintError: {
     color: tokens.error,

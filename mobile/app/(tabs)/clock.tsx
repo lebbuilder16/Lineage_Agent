@@ -11,7 +11,6 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { Skull, ChevronRight, X, Factory } from 'lucide-react-native';
-import { AuroraBackground } from '../../src/components/ui/AuroraBackground';
 import { GlassCard } from '../../src/components/ui/GlassCard';
 import { DeathClockCard } from '../../src/components/ui/DeathClockCard';
 import { HapticButton } from '../../src/components/ui/HapticButton';
@@ -20,33 +19,7 @@ import { ScreenHeader } from '../../src/components/ui/ScreenHeader';
 import { useLineage } from '../../src/lib/query';
 import { useAuthStore } from '../../src/store/auth';
 import { tokens } from '../../src/theme/tokens';
-
-// ─── Risk helpers (same cascade as token/[mint].tsx) ──────────────────────────
-
-type RiskLevel = 'low' | 'medium' | 'high' | 'critical' | 'first_rug' | 'insufficient_data';
-
-const RISK_COLOR: Record<RiskLevel, string> = {
-  low: tokens.risk.low,
-  medium: tokens.risk.medium,
-  high: tokens.risk.high,
-  critical: tokens.risk.critical,
-  first_rug: tokens.risk.high,
-  insufficient_data: tokens.white35,
-};
-
-function deriveRiskLevel(data: ReturnType<typeof useLineage>['data']): RiskLevel {
-  const dc = data?.death_clock;
-  if (dc?.risk_level && dc.risk_level !== 'insufficient_data') return dc.risk_level as RiskLevel;
-  const ins = data?.insider_sell;
-  if (ins?.verdict === 'insider_dump' && ins?.deployer_exited) return 'critical';
-  if (ins?.verdict === 'insider_dump') return 'high';
-  if (ins?.flags?.includes('PRICE_CRASH') && (ins?.sell_pressure_24h ?? 0) > 0.4) return 'high';
-  if (ins?.verdict === 'suspicious') return 'medium';
-  const verdict = data?.bundle_report?.overall_verdict;
-  if (verdict === 'confirmed_team_extraction') return 'critical';
-  if (verdict === 'suspected_team_extraction' || verdict === 'coordinated_dump_unknown_team') return 'high';
-  return 'insufficient_data';
-}
+import { RISK_COLOR, deriveRiskLevel, type RiskLevel } from '../../src/lib/risk';
 
 // ─── Factory Banner ────────────────────────────────────────────────────────────
 
@@ -95,7 +68,6 @@ export default function DeathClockScreen() {
 
   return (
     <View style={styles.container}>
-      <AuroraBackground />
       <View style={[styles.safe, { paddingTop: Math.max(insets.top, 16) }]}>
         <ScrollView
           contentContainerStyle={[styles.content, { paddingBottom: Math.max(insets.bottom + 100, 120) }]}
@@ -117,7 +89,7 @@ export default function DeathClockScreen() {
               value={mint}
               onChangeText={setMint}
               placeholder="Mint address…"
-              placeholderTextColor={tokens.white35}
+              placeholderTextColor={tokens.textPlaceholder}
               autoCapitalize="none"
               autoCorrect={false}
               accessibilityLabel="Token mint address"
@@ -130,7 +102,7 @@ export default function DeathClockScreen() {
                 accessibilityRole="button"
                 accessibilityLabel="Clear input"
               >
-                <X size={16} color={tokens.white35} />
+                <X size={16} color={tokens.textTertiary} />
               </TouchableOpacity>
             )}
           </View>
@@ -222,7 +194,7 @@ export default function DeathClockScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: tokens.bgMain },
+  container: { flex: 1, backgroundColor: 'transparent' },
   safe: { flex: 1 },
   content: {
     paddingHorizontal: tokens.spacing.screenPadding,

@@ -40,7 +40,7 @@ const styles = StyleSheet.create({
   labelRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   label: { fontFamily: 'Lexend-Medium', fontSize: tokens.font.small, color: tokens.white60 },
   count: { fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.small, color: tokens.white80 },
-  countDim: { color: tokens.white35 },
+  countDim: { color: tokens.textTertiary },
   track: {
     height: 6,
     borderRadius: 3,

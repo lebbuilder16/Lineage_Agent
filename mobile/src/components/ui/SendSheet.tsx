@@ -215,7 +215,7 @@ const styles = StyleSheet.create({
   handle: { width: 36, height: 4, borderRadius: 2, backgroundColor: tokens.white20, alignSelf: 'center', marginTop: 10, marginBottom: 16 },
   titleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
   title: { fontFamily: 'Lexend-Bold', fontSize: tokens.font.sectionHeader, color: tokens.white100 },
-  fieldLabel: { fontFamily: 'Lexend-Medium', fontSize: tokens.font.small, color: tokens.white35, marginBottom: 6, marginTop: 10 },
+  fieldLabel: { fontFamily: 'Lexend-Medium', fontSize: tokens.font.small, color: tokens.textTertiary, marginBottom: 6, marginTop: 10 },
   inputRow: {
     flexDirection: 'row', alignItems: 'center', gap: 10,
     backgroundColor: tokens.bgGlass, borderRadius: tokens.radius.sm,
@@ -224,10 +224,10 @@ const styles = StyleSheet.create({
   },
   input: { flex: 1, fontFamily: 'Lexend-Regular', fontSize: tokens.font.body, color: tokens.white100, padding: 0 },
   maxBtn: { fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.small, color: tokens.secondary },
-  balanceHint: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny, color: tokens.white35, marginTop: 4 },
+  balanceHint: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny, color: tokens.textTertiary, marginTop: 4 },
   sendBtnText: { fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.body, color: tokens.white100 },
   confirmCard: { backgroundColor: tokens.bgGlass8, borderRadius: tokens.radius.md, padding: 16, gap: 6 },
-  confirmLabel: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.small, color: tokens.white35 },
+  confirmLabel: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.small, color: tokens.textTertiary },
   confirmAmount: { fontFamily: 'Lexend-Bold', fontSize: tokens.font.heading, color: tokens.white100 },
   confirmAddr: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.small, color: tokens.white60 },
   confirmActions: { flexDirection: 'row', gap: 10, marginTop: 14 },
@@ -236,5 +236,5 @@ const styles = StyleSheet.create({
   statusText: { fontFamily: 'Lexend-Bold', fontSize: tokens.font.sectionHeader, color: tokens.white100 },
   txLink: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   txLinkText: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.small, color: tokens.secondary },
-  errorDetail: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.small, color: tokens.white35, textAlign: 'center' },
+  errorDetail: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.small, color: tokens.textTertiary, textAlign: 'center' },
 });
