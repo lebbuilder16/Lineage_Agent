@@ -179,11 +179,16 @@ export function investigateStream(
   const url = `${BASE_URL}/investigate/${encodeURIComponent(mint)}`;
   let stopped = false;
   const startedAt = Date.now();
+  const sessionId =
+    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 
   const xhr = new XMLHttpRequest();
   xhr.open('POST', url);
   xhr.setRequestHeader('Content-Type', 'application/json');
   xhr.setRequestHeader('Accept', 'text/event-stream');
+  xhr.setRequestHeader('X-Session-ID', sessionId);
   if (apiKey) xhr.setRequestHeader('X-API-Key', apiKey);
   xhr.responseType = 'text';
 

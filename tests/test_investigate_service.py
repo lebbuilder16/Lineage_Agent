@@ -213,7 +213,7 @@ class TestProPlusTier:
 
         verdict = _make_ai_result()
 
-        async def _fake_agent(mint, cache, pre_scan=None):
+        async def _fake_agent(mint, cache, pre_scan=None, is_disconnected=None, session_id=None):
             yield {"event": "thinking", "data": {"turn": 1, "text": "Scanning..."}}
             yield {"event": "tool_call", "data": {"turn": 1, "tool": "scan_token", "input": {"mint": mint}, "call_id": "c1"}}
             yield {"event": "tool_result", "data": {"turn": 1, "tool": "scan_token", "call_id": "c1", "result": {}, "error": None, "duration_ms": 500}}
@@ -268,7 +268,7 @@ class TestErrorSurfacing:
         report = _make_forensic_report(lineage)
         mock_pipeline.side_effect = _fake_pipeline_gen(report)
 
-        async def _failing_agent(mint, cache, pre_scan=None):
+        async def _failing_agent(mint, cache, pre_scan=None, is_disconnected=None, session_id=None):
             raise RuntimeError("Claude API down")
             yield  # make it a generator  # noqa: E501
 

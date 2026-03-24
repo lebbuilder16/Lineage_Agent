@@ -27,8 +27,13 @@ export function createSSEParser(cb: SSECallbacks) {
   let cursor = 0;
   let buffer = '';
   let pendingEvent = '';
+  let _lastEventId = '';
 
   return {
+    /** Last SSE `id:` value received from the server. */
+    get lastEventId() {
+      return _lastEventId;
+    },
     feed(responseText: string) {
       const newData = responseText.substring(cursor);
       cursor = responseText.length;
@@ -40,6 +45,8 @@ export function createSSEParser(cb: SSECallbacks) {
       for (const line of lines) {
         if (line.startsWith('event: ')) {
           pendingEvent = line.slice(7).trim();
+        } else if (line.startsWith('id: ')) {
+          _lastEventId = line.slice(4).trim();
         } else if (line === '') {
           pendingEvent = '';
         } else if (line.startsWith('data: ')) {
