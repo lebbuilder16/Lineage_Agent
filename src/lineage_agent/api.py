@@ -523,6 +523,97 @@ async def admin_health() -> dict:
     }
 
 
+@app.get("/admin/memory-stats", tags=["system"])
+async def admin_memory_stats() -> dict:
+    """Return enrichment state of the agent memory system."""
+    from .data_sources._clients import cache as _cache
+    from .cache import SQLiteCache
+
+    if not isinstance(_cache, SQLiteCache):
+        return {"error": "memory requires SQLiteCache backend"}
+
+    db = await _cache._get_conn()
+
+    # Episodes
+    cur = await db.execute("SELECT COUNT(*) FROM investigation_episodes")
+    episode_count = (await cur.fetchone())[0]
+
+    cur = await db.execute(
+        "SELECT MIN(created_at), MAX(created_at) FROM investigation_episodes"
+    )
+    row = await cur.fetchone()
+    oldest_ep = row[0]
+    newest_ep = row[1]
+
+    cur = await db.execute(
+        "SELECT COUNT(*) FROM investigation_episodes WHERE model != 'heuristic'"
+    )
+    ai_episodes = (await cur.fetchone())[0]
+
+    cur = await db.execute(
+        "SELECT COUNT(DISTINCT deployer) FROM investigation_episodes WHERE deployer IS NOT NULL"
+    )
+    unique_deployers_ep = (await cur.fetchone())[0]
+
+    cur = await db.execute(
+        "SELECT COUNT(DISTINCT operator_fp) FROM investigation_episodes WHERE operator_fp IS NOT NULL"
+    )
+    unique_operators_ep = (await cur.fetchone())[0]
+
+    # Entity knowledge
+    cur = await db.execute(
+        "SELECT entity_type, COUNT(*), ROUND(AVG(avg_risk_score),1), SUM(total_rugs) "
+        "FROM entity_knowledge GROUP BY entity_type"
+    )
+    ek_rows = await cur.fetchall()
+    entity_knowledge = {
+        r[0]: {"count": r[1], "avg_risk": r[2], "total_rugs": r[3]}
+        for r in ek_rows
+    }
+
+    # Campaign timelines
+    cur = await db.execute("SELECT COUNT(*) FROM campaign_timelines")
+    timeline_events = (await cur.fetchone())[0]
+
+    # Calibration rules
+    cur = await db.execute(
+        "SELECT COUNT(*), SUM(CASE WHEN active = 1 THEN 1 ELSE 0 END) FROM calibration_rules"
+    )
+    cal_row = await cur.fetchone()
+    calibration_total = cal_row[0]
+    calibration_active = cal_row[1] or 0
+
+    # Top deployers by episode count
+    cur = await db.execute(
+        "SELECT deployer, COUNT(*) as cnt, ROUND(AVG(risk_score),1) "
+        "FROM investigation_episodes WHERE deployer IS NOT NULL "
+        "GROUP BY deployer ORDER BY cnt DESC LIMIT 5"
+    )
+    top_deployers = [
+        {"deployer": r[0][:16] + "...", "episodes": r[1], "avg_risk": r[2]}
+        for r in await cur.fetchall()
+    ]
+
+    return {
+        "episodes": {
+            "total": episode_count,
+            "ai_verdicts": ai_episodes,
+            "heuristic_only": episode_count - ai_episodes,
+            "unique_deployers": unique_deployers_ep,
+            "unique_operators": unique_operators_ep,
+            "oldest": oldest_ep,
+            "newest": newest_ep,
+        },
+        "entity_knowledge": entity_knowledge,
+        "campaign_timelines": timeline_events,
+        "calibration_rules": {
+            "total": calibration_total,
+            "active": calibration_active,
+        },
+        "top_deployers": top_deployers,
+    }
+
+
 @app.get("/lineage", response_model=LineageResult, tags=["lineage"])
 @limiter.limit(RATE_LIMIT_LINEAGE)
 async def get_lineage(
