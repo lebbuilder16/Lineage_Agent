@@ -736,21 +736,18 @@ async def ws_lineage(websocket: WebSocket):
 
 @app.websocket("/ws/alerts")
 async def ws_alerts(websocket: WebSocket):
-    """Push deployer/narrative alerts to authenticated clients only.
+    """Push alerts to connected clients.
 
-    The client must pass ``?key=<API_KEY>`` in the query string.
-    Connections without a valid key are rejected with close code 4001.
+    If ``?key=<API_KEY>`` is provided, alerts are scoped to the user.
+    Without a key, the client receives global broadcasts (graduations, etc.).
     """
     api_key = websocket.query_params.get("key", "")
-    if not api_key:
-        await websocket.close(code=4001, reason="Missing API key")
-        return
-    from .data_sources._clients import cache as _cache  # noqa: PLC0415
-    user = await verify_api_key(_cache, api_key)
-    if user is None:
-        await websocket.close(code=4001, reason="Invalid API key")
-        return
-    user_id: int = user["id"]
+    user_id: int = 0  # 0 = anonymous / global broadcast receiver
+    if api_key:
+        from .data_sources._clients import cache as _cache  # noqa: PLC0415
+        user = await verify_api_key(_cache, api_key)
+        if user is not None:
+            user_id = user["id"]
     await websocket.accept()
     register_web_client(websocket, user_id)
     logger.info("Alert client connected (user=%s)", user_id)
