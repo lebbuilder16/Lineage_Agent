@@ -146,6 +146,11 @@ async def run_investigation(
             yield _evt("verdict", verdict)
 
         yield _evt("phase", {"phase": "agent", "status": "done"})
+
+        # Record episode in memory system (fire-and-forget)
+        if verdict:
+            asyncio.create_task(_record_memory_episode(mint, verdict, lineage_res))
+
         yield _evt("done", {
             "tier": tier_name,
             "turns_used": turns_used,
@@ -192,6 +197,10 @@ async def run_investigation(
 
     yield _evt("verdict", ai_result)
     yield _evt("phase", {"phase": "ai_verdict", "status": "done"})
+
+    # Record episode in memory system (fire-and-forget)
+    asyncio.create_task(_record_memory_episode(mint, ai_result, lineage_res))
+
     yield _evt("done", {
         "tier": tier_name,
         "turns_used": 0,
@@ -201,6 +210,36 @@ async def run_investigation(
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
+
+
+async def _record_memory_episode(mint: str, verdict: dict, lineage_res: Any) -> None:
+    """Fire-and-forget: persist verdict + signals as a memory episode."""
+    try:
+        from .memory_service import record_episode
+        scan_data = lineage_res.model_dump(mode="json") if hasattr(lineage_res, "model_dump") else {}
+        deployer = getattr(lineage_res, "query_token", None)
+        deployer_addr = getattr(deployer, "deployer", None) if deployer else None
+        operator_fp = None
+        community_id = None
+        if hasattr(lineage_res, "operator_fingerprint") and lineage_res.operator_fingerprint:
+            op = lineage_res.operator_fingerprint
+            operator_fp = getattr(op, "fingerprint", None) if hasattr(op, "fingerprint") else None
+        if hasattr(lineage_res, "cartel_report") and lineage_res.cartel_report:
+            cr = lineage_res.cartel_report
+            dc = getattr(cr, "deployer_community", None) if hasattr(cr, "deployer_community") else None
+            community_id = getattr(dc, "community_id", None) if dc else None
+
+        await record_episode(
+            mint=mint,
+            verdict=verdict,
+            scan_data=scan_data,
+            deployer=deployer_addr,
+            operator_fp=operator_fp,
+            community_id=community_id,
+        )
+    except Exception as exc:
+        import logging
+        logging.getLogger(__name__).debug("[memory] record failed: %s", exc)
 
 
 def _build_heuristic_verdict(hscore: int, mint: str) -> dict:

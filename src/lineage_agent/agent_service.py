@@ -185,6 +185,30 @@ AGENT_TOOLS: list[dict[str, Any]] = [
             "required": ["mint_a", "mint_b"],
         },
     },
+    {
+        "name": "recall_memory",
+        "description": (
+            "Query the investigation memory for intelligence about an entity. "
+            "Returns past verdicts, accumulated knowledge (rug rate, velocity, patterns), "
+            "temporal dynamics, and user feedback. Use when you discover a linked deployer "
+            "or operator and want to check if it has been investigated before."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "entity_type": {
+                    "type": "string",
+                    "enum": ["deployer", "operator", "campaign", "mint"],
+                    "description": "Type of entity to recall",
+                },
+                "entity_id": {
+                    "type": "string",
+                    "description": "Deployer address, operator fingerprint, campaign hash, or mint address",
+                },
+            },
+            "required": ["entity_type", "entity_id"],
+        },
+    },
 ]
 
 
@@ -486,6 +510,11 @@ async def _execute_tool(name: str, args: dict, *, cache: Any) -> dict:
                 "token_b": _summarize_scan_for_agent(b),
             }
 
+        elif name == "recall_memory":
+            from .memory_service import recall_entity  # noqa: PLC0415
+            result = await recall_entity(args["entity_type"], args["entity_id"])
+            return result
+
         else:
             return {"error": f"Unknown tool: {name}"}
 
@@ -614,29 +643,29 @@ async def run_agent(
         except Exception:
             pass
 
-    # ── Check for past feedback on this token ────────────────────────
-    feedback_note = ""
+    # ── Build memory brief (cross-investigation intelligence) ────────
+    memory_brief = ""
     try:
-        from .data_sources._clients import cache as _fb_cache  # noqa: PLC0415
-        _fb_db = await _fb_cache._get_conn()
-        _fb_cursor = await _fb_db.execute(
-            "SELECT rating, note FROM investigation_feedback WHERE mint = ? ORDER BY created_at DESC LIMIT 1",
-            (mint,),
-        )
-        _fb_row = await _fb_cursor.fetchone()
-        if _fb_row:
-            feedback_note = (
-                f"\n\nPREVIOUS USER FEEDBACK: A prior investigation of this token was rated "
-                f"'{_fb_row[0]}' by the user."
-            )
-            if _fb_row[1]:
-                feedback_note += f" User note: \"{_fb_row[1]}\""
-            feedback_note += " Adjust your analysis weight accordingly."
+        from .memory_service import build_memory_brief
+        _deployer = scan_summary.get("token", {}).get("deployer") if scan_summary else None
+        _op_fp = None
+        _community = None
+        if scan_summary:
+            _risk = scan_summary.get("risk_signals", {})
+            _op = _risk.get("operator") or {}
+            _op_fp = _op.get("fingerprint") if isinstance(_op, dict) else None
+            _cr = _risk.get("cartel") or {}
+            _community = _cr.get("community_id") if isinstance(_cr, dict) else None
+        memory_brief = await build_memory_brief(mint, _deployer, _op_fp, _community)
+        if memory_brief:
+            logger.info("[agent] memory brief: %d chars for %s", len(memory_brief), mint[:12])
     except Exception:
         pass
 
     # ── Build system prompt + conversation ───────────────────────────
-    system_prompt = _build_agent_system_prompt(hscore, scan_summary=scan_summary) + feedback_note
+    system_prompt = _build_agent_system_prompt(hscore, scan_summary=scan_summary)
+    if memory_brief:
+        system_prompt += "\n\n" + memory_brief
 
     if scan_summary:
         # Agent starts with pre-collected data — ask to interpret, not scan
