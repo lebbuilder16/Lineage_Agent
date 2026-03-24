@@ -758,14 +758,15 @@ async def ws_alerts(websocket: WebSocket):
     ping_alive = True
 
     async def _server_ping_loop():
+        # Send FIRST ping immediately (within 1s of connect) to establish
+        # bidirectional traffic before Fly.io proxy can timeout
+        await asyncio.sleep(1)
         while ping_alive:
-            await asyncio.sleep(15)
-            if not ping_alive:
-                break
             try:
                 await websocket.send_text("ping")
             except Exception:
                 break
+            await asyncio.sleep(10)  # every 10s to stay well under Fly's timeout
 
     ping_task = asyncio.create_task(_server_ping_loop())
 
