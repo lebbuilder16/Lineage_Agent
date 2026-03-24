@@ -755,7 +755,7 @@ async def ws_alerts(websocket: WebSocket):
         while True:
             # Wait for client keepalive pings; timeout = 90s
             try:
-                msg = await asyncio.wait_for(websocket.receive_text(), timeout=90)
+                msg = await asyncio.wait_for(websocket.receive_text(), timeout=20)
                 if msg.strip().lower() == "ping":
                     await websocket.send_text("pong")
             except asyncio.TimeoutError:
