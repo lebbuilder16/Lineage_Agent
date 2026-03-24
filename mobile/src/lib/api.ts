@@ -203,6 +203,20 @@ export async function updateProfile(
   return res.json() as Promise<User>;
 }
 
+export interface Graduation {
+  mint: string;
+  deployer: string;
+  timestamp: number;
+  signature: string;
+}
+
+export async function getGraduations(limit = 20): Promise<Graduation[]> {
+  const BASE = (process.env.EXPO_PUBLIC_API_URL ?? 'https://lineage-agent.fly.dev').replace(/\/$/, '');
+  const res = await fetch(`${BASE}/graduations?limit=${limit}`);
+  if (!res.ok) return [];
+  return res.json() as Promise<Graduation[]>;
+}
+
 export async function regenerateApiKey(apiKey: string): Promise<string> {
   const BASE = (process.env.EXPO_PUBLIC_API_URL ?? 'https://lineage-agent.fly.dev').replace(/\/$/, '');
   const res = await fetch(`${BASE}/auth/regenerate-key`, {

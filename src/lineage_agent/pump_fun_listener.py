@@ -64,6 +64,10 @@ _seen_mints: dict[str, float] = {}
 _last_tx_sig: Optional[str] = None
 _stats = {"total_detected": 0, "total_escalated": 0, "errors": 0}
 
+# Recent graduations buffer — serves the REST endpoint /graduations
+_recent_graduations: list[dict] = []
+_MAX_RECENT = 50
+
 
 # ── Helius Enhanced API ───────────────────────────────────────────────────────
 
@@ -263,6 +267,16 @@ async def _process_graduated_token(token_info: dict) -> None:
         mint[:16], deployer[:12],
     )
     _stats["total_detected"] += 1
+
+    # Add to recent graduations buffer (for REST endpoint)
+    _recent_graduations.insert(0, {
+        "mint": mint,
+        "deployer": deployer,
+        "timestamp": time.time(),
+        "signature": token_info.get("signature", ""),
+    })
+    if len(_recent_graduations) > _MAX_RECENT:
+        _recent_graduations[:] = _recent_graduations[:_MAX_RECENT]
 
     # Record event in intelligence DB
     try:
@@ -470,3 +484,8 @@ def get_listener_stats() -> dict:
         "errors": _stats["errors"],
         "seen_cache_size": len(_seen_mints),
     }
+
+
+def get_recent_graduations(limit: int = 20) -> list[dict]:
+    """Return the most recent graduated tokens (for REST polling)."""
+    return _recent_graduations[:limit]
