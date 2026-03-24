@@ -327,6 +327,14 @@ async def _process_graduated_token(token_info: dict) -> None:
         except Exception:
             pass
 
+        # Update the recent graduations buffer with enriched metadata
+        for g in _recent_graduations:
+            if g.get("mint") == mint:
+                g["name"] = token_name
+                g["symbol"] = token_symbol
+                g["image_uri"] = token_image
+                break
+
         # Alert ALL connected users (global broadcast)
         try:
             from .alert_service import _broadcast_web_alert, _web_clients

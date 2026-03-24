@@ -153,6 +153,7 @@ export default function RootLayout() {
 
   // User-scoped: WebSocket alerts + history hydration — reconnect on account change
   useEffect(() => {
+    console.log(`[_layout] apiKey effect fired — apiKey=${apiKey ? apiKey.slice(0, 8) + '...' : 'null'}`);
     if (!apiKey) return;
 
     // Hydrate investigation history for the current user
@@ -174,8 +175,41 @@ export default function RootLayout() {
       apiKey,
     );
 
+    // Polling fallback: fetch /graduations every 30s to catch alerts
+    // missed during WebSocket disconnections (mobile background, network switch)
+    const BASE_URL = (process.env.EXPO_PUBLIC_API_URL ?? 'https://lineage-agent.fly.dev').replace(/\/$/, '');
+    let lastGradTs = Date.now() / 1000;
+    const pollTimer = setInterval(async () => {
+      try {
+        const res = await fetch(`${BASE_URL}/graduations?limit=10`);
+        if (!res.ok) return;
+        const grads = await res.json();
+        for (const g of grads) {
+          if (g.timestamp && g.timestamp > lastGradTs && g.mint) {
+            const alert = {
+              id: `grad-${g.mint}-${g.timestamp}`,
+              type: 'token_graduated' as const,
+              title: g.name || g.symbol || g.mint?.slice(0, 8),
+              message: `Graduated to DEX`,
+              token_name: g.name || g.symbol || g.mint?.slice(0, 8),
+              mint: g.mint,
+              image_uri: g.image_uri,
+              deployer: g.deployer,
+              timestamp: new Date(g.timestamp * 1000).toISOString(),
+              read: false,
+            };
+            addAlertWithAutoInvestigate(alert as any);
+          }
+        }
+        if (grads.length > 0 && grads[0].timestamp) {
+          lastGradTs = grads[0].timestamp;
+        }
+      } catch { /* best-effort */ }
+    }, 30_000);
+
     return () => {
       wsCleanup();
+      clearInterval(pollTimer);
     };
   }, [apiKey]);
 
