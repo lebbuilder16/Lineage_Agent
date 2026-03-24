@@ -2590,6 +2590,24 @@ async def get_global_stats(request: Request) -> GlobalStats:
 
 
 # ---------------------------------------------------------------------------
+# /graduations  — recent Pump.fun DEX graduations (from listener)
+# ---------------------------------------------------------------------------
+
+@app.get("/graduations", tags=["intelligence"], summary="Recent Pump.fun tokens that graduated to DEX")
+@limiter.limit("60/minute")
+async def get_graduations(
+    request: Request,
+    limit: int = Query(20, ge=1, le=50),
+):
+    """Return the most recent Pump.fun tokens that graduated to a DEX pool.
+
+    Populated in real-time by the background graduation listener.
+    Useful for mobile apps that cannot maintain a persistent WebSocket.
+    """
+    from .pump_fun_listener import get_recent_graduations
+    return get_recent_graduations(limit)
+
+
 # /stats/top-tokens  — most scanned tokens in the last 24h
 # ---------------------------------------------------------------------------
 

@@ -16,6 +16,7 @@ import { GlassCard } from '../../src/components/ui/GlassCard';
 import { HapticButton } from '../../src/components/ui/HapticButton';
 import { ScreenHeader } from '../../src/components/ui/ScreenHeader';
 import { useAlertsStore } from '../../src/store/alerts';
+import { useGraduations } from '../../src/lib/query';
 import { tokens } from '../../src/theme/tokens';
 import { timeAgo } from '../../src/lib/format';
 import { haptic } from '../../src/lib/haptics';
@@ -50,6 +51,7 @@ const QUICK_FILTERS: { label: string; value: QuickFilter }[] = [
 
 export default function AlertsScreen() {
   const alerts = useAlertsStore((s) => s.alerts);
+  const addAlert = useAlertsStore((s) => s.addAlert);
   const markRead = useAlertsStore((s) => s.markRead);
   const markAllRead = useAlertsStore((s) => s.markAllRead);
   const deleteAlert = useAlertsStore((s) => s.deleteAlert);
@@ -58,6 +60,27 @@ export default function AlertsScreen() {
   const [activeFilter, setActiveFilter] = useState<QuickFilter>('all');
   const [expandedEnrichments, setExpandedEnrichments] = useState<Set<string>>(new Set());
   const insets = useSafeAreaInsets();
+
+  // Poll graduations via REST (doesn't depend on WebSocket)
+  const { data: graduations } = useGraduations(20);
+  const seenGradRef = React.useRef<Set<string>>(new Set());
+  React.useEffect(() => {
+    if (!graduations?.length) return;
+    for (const g of graduations) {
+      if (seenGradRef.current.has(g.mint)) continue;
+      seenGradRef.current.add(g.mint);
+      // Inject as alert into the store
+      addAlert({
+        id: `grad-${g.mint}-${g.timestamp}`,
+        type: 'token_graduated',
+        title: '🎓 New DEX graduation',
+        message: `Token graduated to Raydium`,
+        mint: g.mint,
+        timestamp: new Date(g.timestamp * 1000).toISOString(),
+        read: false,
+      } as any);
+    }
+  }, [graduations, addAlert]);
 
   const toggleEnrichment = useCallback((id: string) => {
     setExpandedEnrichments((prev) => {

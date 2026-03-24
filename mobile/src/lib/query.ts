@@ -139,6 +139,18 @@ export function useTopTokens(limit = 10) {
   });
 }
 
+export function useGraduations(limit = 20) {
+  return useQuery({
+    queryKey: ['graduations'],
+    queryFn: async () => {
+      const { getGraduations } = await import('./api');
+      return getGraduations(limit);
+    },
+    staleTime: 10_000,         // 10s — near real-time
+    refetchInterval: 15_000,   // poll every 15s
+  });
+}
+
 export function useHealth() {
   return useQuery<HealthStatus>({
     queryKey: QK.health(),
