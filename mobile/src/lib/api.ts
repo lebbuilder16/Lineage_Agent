@@ -208,6 +208,9 @@ export interface Graduation {
   deployer: string;
   timestamp: number;
   signature: string;
+  name?: string;
+  symbol?: string;
+  image_uri?: string;
 }
 
 export async function getGraduations(limit = 20): Promise<Graduation[]> {

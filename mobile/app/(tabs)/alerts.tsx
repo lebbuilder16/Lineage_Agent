@@ -71,12 +71,16 @@ export default function AlertsScreen() {
       if (seenGradRef.current.has(g.mint)) continue;
       seenGradRef.current.add(g.mint);
       // Inject as alert into the store
+      const displayName = g.name || g.symbol || g.mint.slice(0, 8);
       addAlert({
         id: `grad-${g.mint}-${g.timestamp}`,
         type: 'token_graduated',
-        title: '🎓 New DEX graduation',
-        message: `Token graduated to Raydium`,
+        title: `${displayName} 🎓`,
+        token_name: displayName,
+        message: `Graduated to DEX — ${g.deployer?.slice(0, 8) ?? 'unknown'}...`,
         mint: g.mint,
+        image_uri: g.image_uri || undefined,
+        deployer: g.deployer,
         timestamp: new Date(g.timestamp * 1000).toISOString(),
         read: false,
       } as any);
