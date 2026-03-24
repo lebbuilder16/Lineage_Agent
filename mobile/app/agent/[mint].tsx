@@ -430,7 +430,7 @@ export default function AgentScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: 'transparent',
+    backgroundColor: tokens.bgMain,
   },
   header: {
     flexDirection: 'row',

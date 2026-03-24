@@ -342,7 +342,7 @@ export default function AccountScreen() {
 
 // ── Styles ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: 'transparent' },
+  container: { flex: 1, backgroundColor: tokens.bgMain },
   safe: { flex: 1, paddingHorizontal: tokens.spacing.screenPadding },
   content: { gap: 12 },
   centerContent: { flex: 1, justifyContent: 'center' },

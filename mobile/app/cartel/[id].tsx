@@ -182,7 +182,7 @@ function SignalRow({ label, value, color }: { label: string; value: number; colo
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: 'transparent' },
+  container: { flex: 1, backgroundColor: tokens.bgMain },
   safe: { flex: 1 },
   navbar: {
     flexDirection: 'row',

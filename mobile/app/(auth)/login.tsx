@@ -427,7 +427,7 @@ export default function LoginScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: 'transparent' },
+  container: { flex: 1, backgroundColor: tokens.bgMain },
   kav: { flex: 1 },
   content: {
     paddingHorizontal: tokens.spacing.screenPadding + 4,

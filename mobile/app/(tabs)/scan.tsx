@@ -250,7 +250,7 @@ export default function ScanScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: 'transparent' },
+  container: { flex: 1, backgroundColor: tokens.bgMain },
   safe: { flex: 1 },
   kav: { flex: 1, paddingHorizontal: tokens.spacing.screenPadding },
 
