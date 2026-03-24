@@ -751,24 +751,40 @@ async def ws_alerts(websocket: WebSocket):
     await websocket.accept()
     register_web_client(websocket, user_id)
     logger.info("Alert client connected (user=%s)", user_id)
+
+    # Server-side keep-alive: send "ping" every 15s so the Fly.io proxy
+    # sees outgoing traffic and doesn't close the connection.
+    # This runs in parallel with the receive loop below.
+    ping_alive = True
+
+    async def _server_ping_loop():
+        while ping_alive:
+            await asyncio.sleep(15)
+            if not ping_alive:
+                break
+            try:
+                await websocket.send_text("ping")
+            except Exception:
+                break
+
+    ping_task = asyncio.create_task(_server_ping_loop())
+
     try:
         while True:
-            # Wait for client keepalive pings; timeout = 90s
             try:
-                msg = await asyncio.wait_for(websocket.receive_text(), timeout=20)
+                msg = await asyncio.wait_for(websocket.receive_text(), timeout=60)
                 if msg.strip().lower() == "ping":
                     await websocket.send_text("pong")
             except asyncio.TimeoutError:
-                # No ping received — send a server-side keepalive
-                try:
-                    await websocket.send_text("ping")
-                except Exception:
-                    break
+                # 60s with no message at all — client is truly gone
+                break
     except WebSocketDisconnect:
         logger.info("Browser alert client disconnected")
     except Exception:
         logger.exception("WebSocket alert error")
     finally:
+        ping_alive = False
+        ping_task.cancel()
         unregister_web_client(websocket)
         try:
             await websocket.close()
