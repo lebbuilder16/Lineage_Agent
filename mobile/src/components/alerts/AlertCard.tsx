@@ -152,6 +152,19 @@ export function AlertCard({
                   {timeAgo(item.timestamp ?? item.created_at ?? '')}
                 </Text>
                 {!item.read && <View style={styles.unreadDot} />}
+                {/* Risk delta badge */}
+                {item.enrichedData?.riskDelta != null && item.enrichedData.riskDelta !== 0 && (
+                  <View style={[styles.riskDeltaBadge, {
+                    backgroundColor: item.enrichedData.riskDelta > 0 ? `${tokens.risk.critical}20` : `${tokens.risk.low}20`,
+                    borderColor: item.enrichedData.riskDelta > 0 ? `${tokens.risk.critical}50` : `${tokens.risk.low}50`,
+                  }]}>
+                    <Text style={[styles.riskDeltaText, {
+                      color: item.enrichedData.riskDelta > 0 ? tokens.risk.critical : tokens.risk.low,
+                    }]}>
+                      {item.enrichedData.riskDelta > 0 ? '+' : ''}{item.enrichedData.riskDelta}
+                    </Text>
+                  </View>
+                )}
                 {/* AI enrichment toggle */}
                 {item.enrichedData && (
                   <TouchableOpacity
@@ -288,6 +301,17 @@ const styles = StyleSheet.create({
     height: 8,
     borderRadius: 4,
     backgroundColor: tokens.secondary,
+  },
+  riskDeltaBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: tokens.radius.pill,
+    borderWidth: 1,
+  },
+  riskDeltaText: {
+    fontFamily: 'Lexend-Bold',
+    fontSize: 10,
+    letterSpacing: 0.3,
   },
   swipeContainer: {
     borderRadius: tokens.radius.xl,

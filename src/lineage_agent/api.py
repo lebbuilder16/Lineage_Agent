@@ -3026,13 +3026,87 @@ async def get_stats_brief(request: Request) -> dict:
         except Exception as exc:
             logger.debug("[brief] personalization failed: %s", exc)
 
+    # ── Structured sections (Feature 10) ────────────────────────
+    sections: list[dict] = []
+
+    if api_key and personal_lines:
+        # Build structured watchlist alerts section
+        watchlist_items: list[dict] = []
+        for mint_addr in watched_mints[:10]:  # type: ignore[possibly-undefined]
+            try:
+                cached_tok = await get_cached_lineage_report(mint_addr)
+                if not cached_tok:
+                    continue
+                qt = getattr(cached_tok, "query_token", None)
+                name = getattr(qt, "name", "") or mint_addr[:8]
+                symbol = getattr(qt, "symbol", "") or "?"
+                dp2 = getattr(cached_tok, "deployer_profile", None)
+                ins2 = getattr(cached_tok, "insider_sell", None)
+                dc2 = getattr(cached_tok, "death_clock", None)
+                risk_lev = getattr(dc2, "risk_level", "unknown") if dc2 else "unknown"
+                severity = "critical" if (ins2 and getattr(ins2, "deployer_exited", False)) else risk_lev
+
+                flags = []
+                if ins2 and getattr(ins2, "deployer_exited", False):
+                    flags.append("DEPLOYER_EXITED")
+                if dp2 and getattr(dp2, "rug_rate_pct", 0) > 50:
+                    flags.append(f"RUG_RATE_{getattr(dp2, 'rug_rate_pct', 0):.0f}%")
+                if dc2 and risk_lev in ("high", "critical"):
+                    flags.append(f"RISK_{risk_lev.upper()}")
+
+                if flags:
+                    watchlist_items.append({
+                        "mint": mint_addr, "name": name, "symbol": symbol,
+                        "severity": severity, "flags": flags,
+                    })
+            except Exception:
+                pass
+
+        if watchlist_items:
+            sections.append({"type": "watchlist_alerts", "title": "Watchlist Alerts",
+                             "items": watchlist_items})
+
+        # Active campaigns (operators seen via cached lineage data)
+        try:
+            campaign_items: list[dict] = []
+            seen_ops: set[str] = set()
+            for mint_addr in watched_mints[:10]:  # type: ignore[possibly-undefined]
+                cached_tok = await get_cached_lineage_report(mint_addr)
+                if not cached_tok:
+                    continue
+                op2 = getattr(cached_tok, "operator_impact", None)
+                if op2 and getattr(op2, "is_campaign_active", False):
+                    fp = getattr(op2, "fingerprint", "")
+                    if fp and fp not in seen_ops:
+                        seen_ops.add(fp)
+                        campaign_items.append({
+                            "fingerprint": fp,
+                            "linked_wallets": len(getattr(op2, "linked_wallets", [])),
+                            "active_tokens": len(getattr(op2, "active_tokens", [])),
+                            "rug_rate_pct": getattr(op2, "rug_rate_pct", 0),
+                        })
+            if campaign_items:
+                sections.append({"type": "active_campaigns", "title": "Active Campaigns",
+                                 "items": campaign_items})
+        except Exception:
+            pass
+
+    # Global market section
+    sections.append({"type": "market_intel", "title": "Market Intelligence", "items": [{
+        "rugs_24h": stats.tokens_rugged_24h,
+        "rug_rate_pct": round(stats.rug_rate_24h_pct, 1),
+        "tokens_scanned": stats.tokens_scanned_24h,
+        "top_narrative": stats.top_narratives[0].narrative if stats.top_narratives else None,
+    }]})
+
     # ── Compose final briefing ───────────────────────────────────
     if personal_lines:
         text = " ".join(personal_lines) + " — " + global_line
     else:
         text = global_line
 
-    return {"text": text, "generated_at": datetime.now(tz=timezone.utc).isoformat()}
+    return {"text": text, "generated_at": datetime.now(tz=timezone.utc).isoformat(),
+            "sections": sections}
 
 
 # ------------------------------------------------------------------
@@ -3336,6 +3410,177 @@ async def submit_feedback(request: Request):
     asyncio.create_task(generate_calibration_rules())
 
     return {"ok": True}
+
+
+# ------------------------------------------------------------------
+# Feature 8 — Alert Enrichment endpoint
+# ------------------------------------------------------------------
+
+class _AlertEnrichBody(BaseModel):
+    id: str = ""
+    type: str = ""
+    title: str = ""
+    message: str = ""
+    mint: str = ""
+    risk_score: Optional[int] = None
+
+
+@app.post("/alerts/enrich", tags=["intelligence"])
+@limiter.limit("20/minute")
+async def enrich_alert_endpoint(request: Request, body: _AlertEnrichBody):
+    """Enrich an alert with AI summary, deployer context, related tokens, and recommended actions."""
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+
+    alert_dict = body.model_dump()
+    mint = body.mint
+
+    enriched_data: dict = {"summary": "", "relatedTokens": [], "riskDelta": 0,
+                           "deployerHistory": None, "recommendedAction": None}
+    actions: list[dict] = []
+
+    # 1. Fetch deployer context if mint is provided
+    deployer_ctx = ""
+    if mint:
+        try:
+            cached = await get_cached_lineage_report(mint)
+            if cached:
+                dp = getattr(cached, "deployer_profile", None)
+                op = getattr(cached, "operator_impact", None)
+                ins = getattr(cached, "insider_sell", None)
+                dc = getattr(cached, "death_clock", None)
+
+                if dp:
+                    deployer_ctx = (
+                        f"Deployer {getattr(dp, 'address', '?')[:8]}… — "
+                        f"{getattr(dp, 'total_tokens_launched', '?')} tokens, "
+                        f"{getattr(dp, 'confirmed_rug_count', '?')} rugs, "
+                        f"{getattr(dp, 'rug_rate_pct', 0):.0f}% rug rate"
+                    )
+                    enriched_data["deployerHistory"] = deployer_ctx
+
+                # Risk delta from death clock
+                if dc and getattr(dc, "rug_probability_pct", None) is not None:
+                    enriched_data["riskDelta"] = int(getattr(dc, "rug_probability_pct", 0))
+
+                # Related tokens from operator
+                if op and getattr(op, "active_tokens", None):
+                    enriched_data["relatedTokens"] = list(getattr(op, "active_tokens", []))[:5]
+
+                # Generate actions
+                actions.append({"label": "Investigate", "action": "lineage.navigate",
+                                "params": {"path": f"/investigate/{mint}"}})
+                if dp:
+                    addr = getattr(dp, "address", "")
+                    if addr:
+                        actions.append({"label": "View Deployer", "action": "lineage.navigate",
+                                        "params": {"path": f"/deployer/{addr}"}})
+                if op and getattr(op, "fingerprint", ""):
+                    actions.append({"label": "Hunt Operator", "action": "lineage.navigate",
+                                    "params": {"path": f"/operator/{getattr(op, 'fingerprint', '')}"}})
+        except Exception as exc:
+            logger.debug("[enrich] context fetch failed: %s", exc)
+
+    # 2. AI enrichment (best-effort)
+    try:
+        from .alert_service import enrich_alert
+        ai_result = await enrich_alert({**alert_dict, "deployer_context": deployer_ctx})
+        if ai_result.get("summary"):
+            enriched_data["summary"] = ai_result["summary"]
+        if ai_result.get("recommended_action"):
+            enriched_data["recommendedAction"] = ai_result["recommended_action"]
+    except Exception:
+        if deployer_ctx:
+            enriched_data["summary"] = f"Alert on token with known deployer. {deployer_ctx}."
+
+    # Fallback summary
+    if not enriched_data["summary"]:
+        enriched_data["summary"] = body.message or body.title or "Alert received."
+
+    return {"enrichedData": enriched_data, "actions": actions}
+
+
+# ------------------------------------------------------------------
+# Feature 9 — Agent Memory Surface endpoint
+# ------------------------------------------------------------------
+
+@app.get("/agent/memory", tags=["agent"])
+@limiter.limit("30/minute")
+async def get_agent_memory(
+    request: Request,
+    mint: Optional[str] = Query(None),
+    entity_type: Optional[str] = Query(None),
+    entity_id: Optional[str] = Query(None),
+):
+    """Surface the agent's memory for a token, deployer, or operator.
+
+    Returns entity knowledge, past episodes, calibration rules, and memory depth.
+    """
+    user = await _get_current_user(request)
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+    from .cache import SQLiteCache
+    from .memory_service import recall_entity, build_memory_brief
+
+    result: dict = {"memory_depth": "none", "entity_memory": None,
+                    "prior_episodes": [], "calibration_rules": [],
+                    "memory_brief": None}
+
+    if not isinstance(_cache, SQLiteCache):
+        return result
+
+    db = await _cache._get_conn()
+
+    # Resolve entity from mint if entity_type not provided
+    if mint and not entity_type:
+        try:
+            cached = await get_cached_lineage_report(mint)
+            if cached:
+                dp = getattr(cached, "deployer_profile", None)
+                if dp:
+                    entity_type = "deployer"
+                    entity_id = getattr(dp, "address", "")
+        except Exception:
+            pass
+
+    # Recall entity knowledge
+    if entity_type and entity_id:
+        try:
+            recalled = await recall_entity(entity_type, entity_id)
+            result["entity_memory"] = recalled.get("profile")
+            result["prior_episodes"] = recalled.get("episodes", [])
+            result["timeline"] = recalled.get("timeline", [])
+
+            ep_count = len(result["prior_episodes"])
+            result["memory_depth"] = "deep" if ep_count > 10 else "medium" if ep_count >= 3 else "shallow" if ep_count > 0 else "none"
+        except Exception as exc:
+            logger.debug("[memory] recall failed: %s", exc)
+
+    # Build memory brief
+    if mint:
+        try:
+            deployer = entity_id if entity_type == "deployer" else None
+            operator_fp = entity_id if entity_type == "operator" else None
+            brief = await build_memory_brief(mint, deployer=deployer, operator_fp=operator_fp)
+            if brief and brief.strip():
+                result["memory_brief"] = brief
+        except Exception as exc:
+            logger.debug("[memory] brief failed: %s", exc)
+
+    # Active calibration rules
+    try:
+        cursor = await db.execute(
+            "SELECT rule_type, condition_json, adjustment, sample_count, confidence "
+            "FROM calibration_rules WHERE active = 1 AND sample_count >= 3 AND confidence >= 0.7",
+        )
+        rules = await cursor.fetchall()
+        result["calibration_rules"] = [
+            {"rule_type": r[0], "condition": r[1], "adjustment": round(r[2], 1),
+             "sample_count": r[3], "confidence": round(r[4], 2)}
+            for r in rules
+        ]
+    except Exception:
+        pass
+
+    return result
 
 
 # ------------------------------------------------------------------

@@ -240,6 +240,72 @@ export async function regenerateApiKey(apiKey: string): Promise<string> {
   return data.api_key;
 }
 
+// ── Feature 8: Alert enrichment ──────────────────────────────────────────────
+
+export interface AlertEnrichResult {
+  enrichedData: {
+    summary: string;
+    relatedTokens: string[];
+    riskDelta: number;
+    deployerHistory?: string;
+    recommendedAction?: string;
+  };
+  actions: { label: string; action: string; params: Record<string, string> }[];
+}
+
+export async function enrichAlert(
+  apiKey: string,
+  body: { id?: string; type?: string; title?: string; message?: string; mint?: string; risk_score?: number },
+): Promise<AlertEnrichResult> {
+  const BASE = (process.env.EXPO_PUBLIC_API_URL ?? 'https://lineage-agent.fly.dev').replace(/\/$/, '');
+  const res = await fetch(`${BASE}/alerts/enrich`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: 'Enrichment failed' }));
+    throw new Error(err.detail ?? 'Enrichment failed');
+  }
+  return res.json() as Promise<AlertEnrichResult>;
+}
+
+// ── Feature 9: Agent memory ─────────────────────────────────────────────────
+
+export interface AgentMemoryResult {
+  memory_depth: string;
+  entity_memory: {
+    entity_type: string;
+    entity_id: string;
+    profile: Record<string, unknown> | null;
+    episodes: unknown[];
+    timeline: unknown[];
+  } | null;
+  prior_episodes: number;
+  calibration_rules: { rule_type: string; entity_type: string; adjustment: string; reason: string }[];
+  memory_brief: string | null;
+  timeline: unknown[];
+}
+
+export async function getAgentMemory(
+  apiKey: string,
+  params: { mint?: string; entity_type?: string; entity_id?: string },
+): Promise<AgentMemoryResult> {
+  const BASE = (process.env.EXPO_PUBLIC_API_URL ?? 'https://lineage-agent.fly.dev').replace(/\/$/, '');
+  const qs = new URLSearchParams();
+  if (params.mint) qs.set('mint', params.mint);
+  if (params.entity_type) qs.set('entity_type', params.entity_type);
+  if (params.entity_id) qs.set('entity_id', params.entity_id);
+  const res = await fetch(`${BASE}/agent/memory?${qs}`, {
+    headers: { 'X-API-Key': apiKey },
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: 'Memory fetch failed' }));
+    throw new Error(err.detail ?? 'Memory fetch failed');
+  }
+  return res.json() as Promise<AgentMemoryResult>;
+}
+
 export async function getTopTokens(limit = 10): Promise<TopToken[]> {
   const BASE_URL = (process.env.EXPO_PUBLIC_API_URL ?? 'https://lineage-agent.fly.dev').replace(/\/$/, '');
   const res = await fetch(`${BASE_URL}/stats/top-tokens?limit=${limit}`);

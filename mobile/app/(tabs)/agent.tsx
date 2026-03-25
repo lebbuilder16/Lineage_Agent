@@ -27,7 +27,8 @@ import { useAuthStore } from '../../src/store/auth';
 import { useSubscriptionStore } from '../../src/store/subscription';
 import { useAgentPrefsStore } from '../../src/store/agent-prefs';
 import { tokens } from '../../src/theme/tokens';
-import { AgentHero, AgentActivityFeed, AgentSettingsPanel } from '../../src/components/agent';
+import { AgentHero, AgentActivityFeed, AgentSettingsPanel, MemoryLensPanel } from '../../src/components/agent';
+import { useAgentMemory } from '../../src/lib/query';
 import type { FeedItem } from '../../src/components/agent/AgentActivityFeed';
 
 const BASE_URL = (process.env.EXPO_PUBLIC_API_URL ?? 'https://lineage-agent.fly.dev').replace(/\/$/, '');
@@ -50,7 +51,7 @@ interface SweepFlag {
   read: boolean;
 }
 
-type TabId = 'feed' | 'settings';
+type TabId = 'feed' | 'memory' | 'settings';
 
 export default function AgentScreen() {
   const insets = useSafeAreaInsets();
@@ -65,6 +66,10 @@ export default function AgentScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState<TabId>('feed');
   const plan = useSubscriptionStore((s) => s.plan);
+
+  // Feature 9: Agent Memory — use latest investigation's mint to fetch memory
+  const latestMint = investigations[0]?.mint ?? '';
+  const { data: memoryData } = useAgentMemory(apiKey, { mint: latestMint }, !!latestMint);
 
   const fetchStatus = async () => {
     if (!apiKey) return;
@@ -195,8 +200,14 @@ export default function AgentScreen() {
           {/* Tab bar */}
           <Animated.View entering={FadeInDown.delay(100).duration(300)}>
             <View style={styles.tabBar}>
-              {(['feed', 'settings'] as TabId[]).map((tab) => {
+              {(['feed', 'memory', 'settings'] as TabId[]).map((tab) => {
                 const isActive = activeTab === tab;
+                const tabIcon = tab === 'feed'
+                  ? <Zap size={13} color={isActive ? tokens.white100 : tokens.textTertiary} strokeWidth={2.5} />
+                  : tab === 'memory'
+                    ? <Search size={13} color={isActive ? tokens.white100 : tokens.textTertiary} strokeWidth={2} />
+                    : <Settings size={13} color={isActive ? tokens.white100 : tokens.textTertiary} strokeWidth={2} />;
+                const tabLabel = tab === 'feed' ? 'Activity' : tab === 'memory' ? 'Memory' : 'Settings';
                 return (
                   <TouchableOpacity
                     key={tab}
@@ -205,12 +216,9 @@ export default function AgentScreen() {
                     activeOpacity={0.7}
                   >
                     <View style={[styles.tabInner, isActive && styles.tabInnerActive]}>
-                      {tab === 'feed'
-                        ? <Zap size={13} color={isActive ? tokens.white100 : tokens.textTertiary} strokeWidth={2.5} />
-                        : <Settings size={13} color={isActive ? tokens.white100 : tokens.textTertiary} strokeWidth={2} />
-                      }
+                      {tabIcon}
                       <Text style={[styles.tabLabel, isActive && styles.tabLabelActive]}>
-                        {tab === 'feed' ? 'Activity' : 'Settings'}
+                        {tabLabel}
                       </Text>
                     </View>
                   </TouchableOpacity>
@@ -222,6 +230,20 @@ export default function AgentScreen() {
           {activeTab === 'feed' && (
             <Animated.View entering={FadeInDown.delay(150).duration(300).springify()}>
               <AgentActivityFeed feedItems={feedItems} />
+            </Animated.View>
+          )}
+
+          {activeTab === 'memory' && (
+            <Animated.View entering={FadeInDown.delay(150).duration(300).springify()} style={{ gap: 10 }}>
+              {memoryData ? (
+                <MemoryLensPanel data={memoryData} />
+              ) : (
+                <View style={styles.memoryEmpty}>
+                  <Text style={styles.memoryEmptyText}>
+                    {latestMint ? 'Loading agent memory...' : 'Investigate a token to see agent memory here.'}
+                  </Text>
+                </View>
+              )}
             </Animated.View>
           )}
 
@@ -266,4 +288,20 @@ const styles = StyleSheet.create({
     color: tokens.textTertiary,
   },
   tabLabelActive: { color: tokens.white100 },
+  memoryEmpty: {
+    alignItems: 'center',
+    paddingVertical: 32,
+    backgroundColor: tokens.bgGlass,
+    borderRadius: tokens.radius.md,
+    borderWidth: 1,
+    borderColor: tokens.borderSubtle,
+  },
+  memoryEmptyText: {
+    fontFamily: 'Lexend-Regular',
+    fontSize: tokens.font.small,
+    color: tokens.textTertiary,
+    textAlign: 'center',
+    maxWidth: 240,
+    lineHeight: 18,
+  },
 });

@@ -5,12 +5,19 @@ import { create } from 'zustand';
 
 // ─── Briefing store ─────────────────────────────────────────────────────────
 
+export interface BriefingSection {
+  type: 'watchlist_alerts' | 'active_campaigns' | 'market_intel' | string;
+  title: string;
+  items: { label: string; value: string; severity?: string; mint?: string; action?: string }[];
+}
+
 export interface BriefingState {
   latest: string | null;       // briefing content text
   generatedAt: string | null;  // ISO timestamp from backend (when briefing was generated)
   receivedAt: string | null;   // ISO timestamp (when mobile received it)
+  sections: BriefingSection[];
   unread: boolean;
-  setBriefing: (content: string, generatedAt?: string) => void;
+  setBriefing: (content: string, generatedAt?: string, sections?: BriefingSection[]) => void;
   markRead: () => void;
   clear: () => void;
 }
@@ -19,16 +26,18 @@ export const useBriefingStore = create<BriefingState>((set) => ({
   latest: null,
   generatedAt: null,
   receivedAt: null,
+  sections: [],
   unread: false,
-  setBriefing: (content, generatedAt) =>
+  setBriefing: (content, generatedAt, sections) =>
     set({
       latest: content,
       generatedAt: generatedAt ?? null,
       receivedAt: new Date().toISOString(),
+      sections: sections ?? [],
       unread: true,
     }),
   markRead: () => set({ unread: false }),
-  clear: () => set({ latest: null, generatedAt: null, receivedAt: null, unread: false }),
+  clear: () => set({ latest: null, generatedAt: null, receivedAt: null, sections: [], unread: false }),
 }));
 
 // ─── Backend polling ─────────────────────────────────────────────────────────
@@ -47,7 +56,7 @@ export function startBriefingListener(apiKey?: string): () => void {
         const data = await res.json();
         const content = data.content || data.text;
         if (content) {
-          useBriefingStore.getState().setBriefing(content, data.generated_at);
+          useBriefingStore.getState().setBriefing(content, data.generated_at, data.sections);
         }
       }
     } catch {

@@ -15,6 +15,12 @@ import {
   addWatch,
   deleteWatch,
   getTopTokens,
+  enrichAlert,
+  getAgentMemory,
+} from './api';
+import type {
+  AlertEnrichResult,
+  AgentMemoryResult,
 } from './api';
 import type {
   TokenSearchResult,
@@ -47,6 +53,8 @@ export const QK = {
   me: (key: string) => ['me', key] as const,
   watches: (key: string) => ['watches', key] as const,
   topTokens: () => ['topTokens'] as const,
+  agentMemory: (mint?: string, entityType?: string, entityId?: string) =>
+    ['agentMemory', mint ?? '', entityType ?? '', entityId ?? ''] as const,
 };
 
 export function useSearchTokens(q: string, enabled = true) {
@@ -175,6 +183,29 @@ export function useWatches(apiKey: string | null) {
     queryFn: () => getWatches(apiKey!),
     enabled: !!apiKey,
     staleTime: 60_000,
+  });
+}
+
+// ── Feature 9: Agent memory hook ─────────────────────────────────────────────
+
+export function useAgentMemory(
+  apiKey: string | null,
+  params: { mint?: string; entity_type?: string; entity_id?: string },
+  enabled = true,
+) {
+  return useQuery<AgentMemoryResult>({
+    queryKey: QK.agentMemory(params.mint, params.entity_type, params.entity_id),
+    queryFn: () => getAgentMemory(apiKey!, params),
+    enabled: enabled && !!apiKey && !!(params.mint || params.entity_id),
+    staleTime: 120_000,
+  });
+}
+
+// ── Feature 8: Enrich alert mutation ─────────────────────────────────────────
+
+export function useEnrichAlert(apiKey: string | null) {
+  return useMutation<AlertEnrichResult, Error, { id?: string; type?: string; title?: string; message?: string; mint?: string; risk_score?: number }>({
+    mutationFn: (body) => enrichAlert(apiKey!, body),
   });
 }
 
