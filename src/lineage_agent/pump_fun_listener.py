@@ -371,13 +371,48 @@ async def _process_graduated_token(token_info: dict) -> None:
         except Exception as exc:
             logger.debug("[listener] alert dispatch error: %s", exc)
 
-        # Run full forensic pipeline in background
+        # Run full forensic pipeline in background and record memory episode
         async def _run_pipeline():
             try:
-                from .forensic_pipeline import run_forensic_pipeline
-                async for _ in run_forensic_pipeline(mint):
-                    pass
+                from .forensic_pipeline import run_forensic_pipeline, report_to_lineage_result
+                report = None
+                async for evt in run_forensic_pipeline(mint):
+                    if isinstance(evt, dict) and evt.get("event") == "_report":
+                        report = evt["data"]
                 logger.info("[listener] pipeline done: %s", mint[:16])
+
+                # Record memory episode so the agent learns from every graduation
+                if report is not None:
+                    try:
+                        from .memory_service import record_episode
+                        scan_data = report_to_lineage_result(report)
+                        scan_dict = scan_data.__dict__ if hasattr(scan_data, "__dict__") else {}
+                        dp = report.deployer_profile
+                        op = report.operator_fingerprint
+                        op_fp = (op.fingerprint if hasattr(op, "fingerprint") else None) if op else None
+                        cr = report.cartel_report
+                        community_id = None
+                        if cr and hasattr(cr, "deployer_community") and cr.deployer_community:
+                            community_id = getattr(cr.deployer_community, "community_id", None)
+                        await record_episode(
+                            mint=mint,
+                            verdict={
+                                "risk_score": 0,
+                                "confidence": "low",
+                                "rug_pattern": "graduation_scan",
+                                "verdict_summary": "Auto-scan on DEX graduation",
+                                "conviction_chain": "",
+                                "key_findings": triage["risk_signals"],
+                                "model": "graduation_pipeline",
+                            },
+                            scan_data=scan_dict,
+                            deployer=deployer,
+                            operator_fp=op_fp,
+                            community_id=community_id,
+                        )
+                        logger.info("[listener] memory episode recorded: %s", mint[:16])
+                    except Exception as mem_exc:
+                        logger.debug("[listener] memory record failed %s: %s", mint[:16], mem_exc)
             except Exception as e:
                 logger.warning("[listener] pipeline error %s: %s", mint[:16], e)
 
