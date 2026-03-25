@@ -284,10 +284,12 @@ async def _process_graduated_token(token_info: dict) -> None:
     # Record event in intelligence DB
     try:
         from .data_sources._clients import event_insert
+        from datetime import datetime, timezone as _tz
         await event_insert(
             event_type="token_created", mint=mint, deployer=deployer,
             launch_platform="pump_fun", lifecycle_stage="dex_live",
-            market_surface="dex_active", recorded_at=time.time(),
+            market_surface="dex_active",
+            created_at=datetime.now(tz=_tz.utc).isoformat(),
         )
     except Exception:
         pass

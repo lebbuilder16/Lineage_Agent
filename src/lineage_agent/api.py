@@ -250,6 +250,21 @@ async def lifespan(application: FastAPI):
     logger.info("Database backend: %s", _db.dialect)
 
     await _purge_legacy_forensic_cache_namespaces()
+
+    # One-time fix: backfill NULL created_at in intelligence_events using recorded_at
+    try:
+        from .data_sources._clients import cache as _fix_cache
+        _fix_db = await _fix_cache._get_conn()
+        _fix_cursor = await _fix_db.execute(
+            "UPDATE intelligence_events SET created_at = "
+            "datetime(recorded_at, 'unixepoch') WHERE created_at IS NULL AND recorded_at IS NOT NULL"
+        )
+        await _fix_db.commit()
+        if _fix_cursor.rowcount > 0:
+            logger.info("Backfilled created_at for %d intelligence_events rows", _fix_cursor.rowcount)
+    except Exception as _fix_exc:
+        logger.debug("created_at backfill skipped: %s", _fix_exc)
+
     schedule_rug_sweep()
     _schedule_alert_sweep()
     _schedule_cartel_sweep()

@@ -1053,6 +1053,10 @@ class SQLiteCache:
             db = await self._get_conn()
             # Filter to whitelisted columns only
             safe = {k: v for k, v in kwargs.items() if k in self._IE_ALLOWED_COLS}
+            # Auto-fill created_at if caller didn't provide it
+            if "created_at" not in safe or not safe["created_at"]:
+                from datetime import datetime, timezone as _tz
+                safe["created_at"] = datetime.now(tz=_tz.utc).isoformat()
             cols = list(safe.keys()) + ["recorded_at"]
             placeholders = ", ".join("?" for _ in cols)
             col_names = ", ".join(cols)
