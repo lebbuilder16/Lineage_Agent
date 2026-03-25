@@ -107,12 +107,16 @@ export function VerdictHero() {
 
   const handleWatchToggle = async () => {
     if (!apiKey || !mint) return;
-    if (isWatching && existingWatch) {
-      storeRemoveWatch(existingWatch.id);
-      apiDeleteWatch(apiKey, existingWatch.id).catch(() => {});
-    } else {
-      const newWatch = await apiAddWatch(apiKey, 'mint', mint);
-      if (newWatch) storeAddWatch(newWatch);
+    try {
+      if (isWatching && existingWatch) {
+        storeRemoveWatch(existingWatch.id);
+        apiDeleteWatch(apiKey, existingWatch.id).catch(() => {});
+      } else {
+        const newWatch = await apiAddWatch(apiKey, 'mint', mint);
+        storeAddWatch(newWatch);
+      }
+    } catch {
+      // best-effort
     }
   };
 
