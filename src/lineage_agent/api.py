@@ -2963,6 +2963,7 @@ async def get_stats_brief(request: Request) -> dict:
     # ── Personalized section (if authenticated) ──────────────────
     api_key = request.headers.get("X-API-Key", "")
     personal_lines: list[str] = []
+    watched_mints: list[str] = []
 
     if api_key:
         try:
@@ -3032,7 +3033,7 @@ async def get_stats_brief(request: Request) -> dict:
     if api_key and personal_lines:
         # Build structured watchlist alerts section
         watchlist_items: list[dict] = []
-        for mint_addr in watched_mints[:10]:  # type: ignore[possibly-undefined]
+        for mint_addr in watched_mints[:10]:
             try:
                 cached_tok = await get_cached_lineage_report(mint_addr)
                 if not cached_tok:
@@ -3056,8 +3057,10 @@ async def get_stats_brief(request: Request) -> dict:
 
                 if flags:
                     watchlist_items.append({
-                        "mint": mint_addr, "name": name, "symbol": symbol,
-                        "severity": severity, "flags": flags,
+                        "label": f"{symbol} — {name}",
+                        "value": " | ".join(flags),
+                        "severity": severity,
+                        "mint": mint_addr,
                     })
             except Exception:
                 pass
@@ -3070,7 +3073,7 @@ async def get_stats_brief(request: Request) -> dict:
         try:
             campaign_items: list[dict] = []
             seen_ops: set[str] = set()
-            for mint_addr in watched_mints[:10]:  # type: ignore[possibly-undefined]
+            for mint_addr in watched_mints[:10]:
                 cached_tok = await get_cached_lineage_report(mint_addr)
                 if not cached_tok:
                     continue
@@ -3079,11 +3082,14 @@ async def get_stats_brief(request: Request) -> dict:
                     fp = getattr(op2, "fingerprint", "")
                     if fp and fp not in seen_ops:
                         seen_ops.add(fp)
+                        n_wallets = len(getattr(op2, "linked_wallets", []))
+                        n_tokens = len(getattr(op2, "active_tokens", []))
+                        rr = getattr(op2, "rug_rate_pct", 0)
                         campaign_items.append({
-                            "fingerprint": fp,
-                            "linked_wallets": len(getattr(op2, "linked_wallets", [])),
-                            "active_tokens": len(getattr(op2, "active_tokens", [])),
-                            "rug_rate_pct": getattr(op2, "rug_rate_pct", 0),
+                            "label": f"Operator {fp[:8]}…",
+                            "value": f"{n_wallets} wallets, {n_tokens} tokens, {rr:.0f}% rug",
+                            "severity": "critical" if rr > 50 else "high",
+                            "action": f"/operator/{fp}",
                         })
             if campaign_items:
                 sections.append({"type": "active_campaigns", "title": "Active Campaigns",
@@ -3091,13 +3097,15 @@ async def get_stats_brief(request: Request) -> dict:
         except Exception:
             pass
 
-    # Global market section
-    sections.append({"type": "market_intel", "title": "Market Intelligence", "items": [{
-        "rugs_24h": stats.tokens_rugged_24h,
-        "rug_rate_pct": round(stats.rug_rate_24h_pct, 1),
-        "tokens_scanned": stats.tokens_scanned_24h,
-        "top_narrative": stats.top_narratives[0].narrative if stats.top_narratives else None,
-    }]})
+    # Global market section — items follow {label, value} contract
+    market_items: list[dict] = [
+        {"label": "Rugs (24h)", "value": str(stats.tokens_rugged_24h), "severity": "high" if stats.tokens_rugged_24h > 0 else "info"},
+        {"label": "Rug rate", "value": f"{stats.rug_rate_24h_pct:.1f}%", "severity": "critical" if stats.rug_rate_24h_pct > 5 else "info"},
+        {"label": "Tokens scanned", "value": f"{stats.tokens_scanned_24h:,}"},
+    ]
+    if stats.top_narratives:
+        market_items.append({"label": "Top narrative", "value": stats.top_narratives[0].narrative})
+    sections.append({"type": "market_intel", "title": "Market Intelligence", "items": market_items})
 
     # ── Compose final briefing ───────────────────────────────────
     if personal_lines:
@@ -3521,8 +3529,8 @@ async def get_agent_memory(
     from .memory_service import recall_entity, build_memory_brief
 
     result: dict = {"memory_depth": "none", "entity_memory": None,
-                    "prior_episodes": [], "calibration_rules": [],
-                    "memory_brief": None}
+                    "prior_episodes": 0, "calibration_rules": [],
+                    "memory_brief": None, "timeline": []}
 
     if not isinstance(_cache, SQLiteCache):
         return result
@@ -3545,12 +3553,22 @@ async def get_agent_memory(
     if entity_type and entity_id:
         try:
             recalled = await recall_entity(entity_type, entity_id)
-            result["entity_memory"] = recalled.get("profile")
-            result["prior_episodes"] = recalled.get("episodes", [])
-            result["timeline"] = recalled.get("timeline", [])
+            episodes = recalled.get("episodes", [])
+            timeline = recalled.get("timeline", [])
 
-            ep_count = len(result["prior_episodes"])
-            result["memory_depth"] = "deep" if ep_count > 10 else "medium" if ep_count >= 3 else "shallow" if ep_count > 0 else "none"
+            # Structure entity_memory to match mobile contract
+            result["entity_memory"] = {
+                "entity_type": entity_type,
+                "entity_id": entity_id,
+                "profile": recalled.get("profile"),
+                "episodes": episodes,
+                "timeline": timeline,
+            }
+            result["prior_episodes"] = len(episodes)
+            result["timeline"] = timeline
+
+            ep_count = len(episodes)
+            result["memory_depth"] = "full" if ep_count > 10 else "partial" if ep_count > 0 else "none"
         except Exception as exc:
             logger.debug("[memory] recall failed: %s", exc)
 
@@ -3565,18 +3583,28 @@ async def get_agent_memory(
         except Exception as exc:
             logger.debug("[memory] brief failed: %s", exc)
 
-    # Active calibration rules
+    # Active calibration rules — map DB schema to mobile contract {rule_type, entity_type, adjustment, reason}
     try:
+        import json as _json
         cursor = await db.execute(
             "SELECT rule_type, condition_json, adjustment, sample_count, confidence "
             "FROM calibration_rules WHERE active = 1 AND sample_count >= 3 AND confidence >= 0.7",
         )
         rules = await cursor.fetchall()
-        result["calibration_rules"] = [
-            {"rule_type": r[0], "condition": r[1], "adjustment": round(r[2], 1),
-             "sample_count": r[3], "confidence": round(r[4], 2)}
-            for r in rules
-        ]
+        calib_list = []
+        for r in rules:
+            cond = {}
+            try:
+                cond = _json.loads(r[1]) if r[1] else {}
+            except Exception:
+                pass
+            calib_list.append({
+                "rule_type": r[0],
+                "entity_type": cond.get("entity_type", r[0]),
+                "adjustment": f"{'+' if r[2] > 0 else ''}{r[2]:.0f} pts" if r[2] else "",
+                "reason": cond.get("reason", cond.get("description", f"{r[3]} samples, {r[4]:.0%} confidence")),
+            })
+        result["calibration_rules"] = calib_list
     except Exception:
         pass
 
