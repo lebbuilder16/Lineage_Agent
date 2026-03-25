@@ -146,6 +146,17 @@ export function VerdictHero() {
             <RiskBadge level={level} size="md" />
             <RiskIcon level={level} size={16} />
           </View>
+          {verdict.confidence && (() => {
+            const conf = verdict.confidence as string;
+            const confColor = conf === 'high' ? tokens.risk.low : conf === 'medium' ? tokens.risk.medium : tokens.white60;
+            return (
+              <View style={[styles.confBadge, { backgroundColor: `${confColor}15`, borderColor: `${confColor}40` }]}>
+                <Text style={[styles.confText, { color: confColor }]}>
+                  {conf.toUpperCase()} CONF.
+                </Text>
+              </View>
+            );
+          })()}
         </View>
         <Text style={styles.verdictSummary}>{verdict.verdict_summary}</Text>
 
@@ -211,6 +222,13 @@ const styles = StyleSheet.create({
   },
   verdictBadgeRow: {
     flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4,
+  },
+  confBadge: {
+    paddingHorizontal: 9, paddingVertical: 3,
+    borderRadius: tokens.radius.pill, borderWidth: 1, marginTop: 6,
+  },
+  confText: {
+    fontFamily: 'Lexend-Bold', fontSize: 9, letterSpacing: 0.7,
   },
   verdictSummary: {
     fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.subheading,

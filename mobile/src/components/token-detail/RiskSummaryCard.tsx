@@ -23,10 +23,16 @@ export function RiskSummaryCard({ data, displayRiskLevel, riskColor, riskSummary
   const dp = data.deployer_profile;
   const dc = data.death_clock;
   const br = data.bundle_report;
+  const la = data.liquidity_arch;
   if (dp?.confirmed_rug_count != null) stats.push({ label: 'Rugs', value: String(dp.confirmed_rug_count), color: tokens.risk.critical });
   if (dp?.rug_rate_pct != null) stats.push({ label: 'Rug rate', value: `${dp.rug_rate_pct.toFixed(0)}%` });
   if (dc?.historical_rug_count != null) stats.push({ label: 'History', value: `${dc.historical_rug_count} rugs` });
   if (br?.total_sol_extracted_confirmed != null) stats.push({ label: 'Extracted', value: `${br.total_sol_extracted_confirmed.toFixed(1)} SOL`, color: tokens.accent });
+  if (la?.authenticity_score != null) {
+    const pct = Math.round(la.authenticity_score * 100);
+    const liqColor = pct >= 80 ? tokens.risk.low : pct >= 50 ? tokens.risk.medium : tokens.risk.critical;
+    stats.push({ label: 'Liq. Auth.', value: `${pct}%`, color: liqColor });
+  }
 
   return (
     <GlassCard
@@ -52,7 +58,7 @@ export function RiskSummaryCard({ data, displayRiskLevel, riskColor, riskSummary
 
       {stats.length > 0 && (
         <View style={styles.statsStrip}>
-          {stats.slice(0, 3).map((s, i) => (
+          {stats.slice(0, 4).map((s, i) => (
             <View key={i} style={styles.statItem}>
               <Text style={[styles.statValue, s.color ? { color: s.color } : undefined]}>{s.value}</Text>
               <Text style={styles.statLabel}>{s.label}</Text>

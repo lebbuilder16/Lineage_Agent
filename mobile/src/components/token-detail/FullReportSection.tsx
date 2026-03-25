@@ -89,6 +89,50 @@ export function FullReportSection({
         );
       })()}
 
+      {/* Insider Sell Timeline */}
+      {data.insider_sell && (data.insider_sell.sell_pressure_1h != null || data.insider_sell.sell_pressure_6h != null || data.insider_sell.sell_pressure_24h != null) && (() => {
+        const ins = data.insider_sell;
+        const columns: { label: string; pressure: number | null; change: number | null }[] = [
+          { label: '1H',  pressure: ins.sell_pressure_1h,  change: ins.price_change_1h  },
+          { label: '6H',  pressure: ins.sell_pressure_6h,  change: ins.price_change_6h  },
+          { label: '24H', pressure: ins.sell_pressure_24h, change: ins.price_change_24h },
+        ];
+        return (
+          <GlassCard>
+            <View style={styles.insiderHeader}>
+              <Text style={styles.sectionTitle}>INSIDER SELL PRESSURE</Text>
+              {ins.deployer_exited && (
+                <View style={styles.deployerExitedBadge}>
+                  <Text style={styles.deployerExitedText}>DEPLOYER EXITED</Text>
+                </View>
+              )}
+            </View>
+            <View style={styles.insiderColumns}>
+              {columns.map((col) => {
+                if (col.pressure == null) return null;
+                const pct = col.pressure * 100;
+                const barColor = pct > 60 ? tokens.risk.critical : pct > 35 ? tokens.risk.high : pct > 15 ? tokens.risk.medium : tokens.risk.low;
+                const changeColor = col.change == null ? tokens.white60 : col.change < -20 ? tokens.risk.critical : col.change < -5 ? tokens.risk.high : tokens.white80;
+                return (
+                  <View key={col.label} style={styles.insiderCol}>
+                    <Text style={styles.insiderTimeLabel}>{col.label}</Text>
+                    <View style={styles.insiderBarTrack}>
+                      <View style={[styles.insiderBarFill, { width: `${Math.min(pct, 100)}%` as any, backgroundColor: barColor }]} />
+                    </View>
+                    <Text style={[styles.insiderPct, { color: barColor }]}>{pct.toFixed(0)}%</Text>
+                    {col.change != null && (
+                      <Text style={[styles.insiderChange, { color: changeColor }]}>
+                        {col.change > 0 ? '+' : ''}{col.change.toFixed(0)}%
+                      </Text>
+                    )}
+                  </View>
+                );
+              })}
+            </View>
+          </GlassCard>
+        );
+      })()}
+
       {/* Suspicious flags */}
       {(data.bundle_report?.evidence_chain?.length ?? 0) > 0 && (
         <GlassCard>
@@ -203,4 +247,20 @@ const styles = StyleSheet.create({
   teaserBadgeText: { fontFamily: 'Lexend-Bold', fontSize: 9, letterSpacing: 0.6 },
   teaserSub: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny, color: tokens.white60 },
   teaserProb: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny, color: tokens.textTertiary },
+  insiderHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
+  deployerExitedBadge: {
+    backgroundColor: `${tokens.risk.critical}20`, borderRadius: tokens.radius.pill,
+    borderWidth: 1, borderColor: `${tokens.risk.critical}50`,
+    paddingHorizontal: 8, paddingVertical: 3,
+  },
+  deployerExitedText: {
+    fontFamily: 'Lexend-Bold', fontSize: 9, color: tokens.risk.critical, letterSpacing: 0.6,
+  },
+  insiderColumns: { flexDirection: 'row', gap: 8 },
+  insiderCol: { flex: 1, gap: 4, alignItems: 'center' },
+  insiderTimeLabel: { fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.tiny, color: tokens.white60, letterSpacing: 0.8 },
+  insiderBarTrack: { width: '100%', height: 6, borderRadius: 3, backgroundColor: `${tokens.white100}12`, overflow: 'hidden' },
+  insiderBarFill: { height: 6, borderRadius: 3 },
+  insiderPct: { fontFamily: 'Lexend-Bold', fontSize: tokens.font.body },
+  insiderChange: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny },
 });
