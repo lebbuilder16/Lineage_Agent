@@ -25,7 +25,7 @@
         "backgroundColor": "#0A0A07"
       },
       "package": "com.lineageagent.app",
-      "googleServicesFile": "./google-services.json",
+      "googleServicesFile": "$GOOGLE_SERVICES_JSON",
       "queries": {
         "schemes": ["phantom", "solflare", "backpack"]
       }
