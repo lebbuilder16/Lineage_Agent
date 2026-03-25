@@ -7,10 +7,14 @@ import {
   AlertTriangle,
   XOctagon,
   Share2,
+  Eye,
+  EyeOff,
 } from 'lucide-react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 
 import { useInvestigateStore } from '../../store/investigate';
+import { useAuthStore } from '../../store/auth';
+import { addWatch as apiAddWatch, removeWatch as apiRemoveWatch } from '../../lib/api';
 import { GlassCard } from '../ui/GlassCard';
 import { RiskBadge } from '../ui/RiskBadge';
 import { GaugeRing } from '../ui/GaugeRing';
@@ -93,6 +97,25 @@ function FindingItem({ text }: { text: string }) {
 export function VerdictHero() {
   const verdict = useInvestigateStore((s) => s.verdict);
   const mint = useInvestigateStore((s) => s.mint);
+  const watches = useAuthStore((s) => s.watches);
+  const storeAddWatch = useAuthStore((s) => s.addWatch);
+  const storeRemoveWatch = useAuthStore((s) => s.removeWatch);
+  const apiKey = useAuthStore((s) => s.apiKey);
+
+  const existingWatch = watches.find((w) => w.value === mint && w.sub_type === 'mint');
+  const isWatching = !!existingWatch;
+
+  const handleWatchToggle = async () => {
+    if (!apiKey || !mint) return;
+    if (isWatching && existingWatch) {
+      storeRemoveWatch(existingWatch.id);
+      apiRemoveWatch(apiKey, existingWatch.id).catch(() => {});
+    } else {
+      const newWatch = await apiAddWatch(apiKey, 'mint', mint);
+      if (newWatch) storeAddWatch(newWatch);
+    }
+  };
+
   if (!verdict) return null;
 
   const score = verdict.risk_score ?? 0;
@@ -158,6 +181,17 @@ export function VerdictHero() {
             accessibilityLabel="Share verdict"
           >
             <Share2 size={18} color={tokens.secondary} />
+          </HapticButton>
+          <HapticButton
+            variant="ghost"
+            size="md"
+            onPress={handleWatchToggle}
+            accessibilityLabel={isWatching ? 'Remove from watchlist' : 'Add to watchlist'}
+          >
+            {isWatching
+              ? <EyeOff size={18} color={tokens.secondary} />
+              : <Eye size={18} color={tokens.white60} />
+            }
           </HapticButton>
         </View>
       </GlassCard>

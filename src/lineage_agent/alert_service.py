@@ -297,6 +297,28 @@ async def _push_fcm_to_watchers(
         logger.debug("[FCM] push_to_watchers error: %s", exc)
 
 
+async def _push_fcm_to_deployer_investigators(deployer: str, title: str, body: str, data: dict) -> None:
+    """FCM push only to users who previously investigated a token from this deployer."""
+    if not _FIREBASE_PROJECT_ID:
+        return
+    try:
+        from .data_sources._clients import cache as _cache
+        db = await _cache._get_conn()
+        cursor = await db.execute(
+            """SELECT DISTINCT u.fcm_token FROM users u
+               JOIN investigations inv ON inv.user_id = u.id
+               JOIN investigation_episodes ep ON ep.mint = inv.mint
+               WHERE ep.deployer = ? AND u.fcm_token IS NOT NULL""",
+            (deployer,),
+        )
+        rows = await cursor.fetchall()
+        for (token,) in rows:
+            if token:
+                await _send_fcm_push(token, title=title, body=body, data=data)
+    except Exception as exc:
+        logger.debug("[FCM] deployer_investigators error: %s", exc)
+
+
 def register_web_client(ws: "WebSocket", user_id: int) -> None:
     """Register a browser/mobile WebSocket client for push alerts, scoped to *user_id*."""
     _web_clients.setdefault(user_id, set()).add(ws)
