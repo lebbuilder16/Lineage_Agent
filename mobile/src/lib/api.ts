@@ -306,6 +306,44 @@ export async function getAgentMemory(
   return res.json() as Promise<AgentMemoryResult>;
 }
 
+// ── Agent memory entities list ──────────────────────────────────────────────
+
+export interface MemoryEntity {
+  entity_type: 'deployer' | 'operator';
+  entity_id: string;
+  total_tokens: number;
+  total_rugs: number;
+  total_extracted_sol: number;
+  avg_risk_score: number;
+  preferred_narratives: string[];
+  typical_rug_pattern: string | null;
+  launch_velocity: number | null;
+  first_seen: number | null;
+  last_seen: number | null;
+  sample_count: number;
+  confidence: 'low' | 'medium' | 'high';
+  user_investigations: number;
+}
+
+export interface MemoryEntitiesResult {
+  entities: MemoryEntity[];
+  total_entities: number;
+  total_episodes: number;
+  active_rules: number;
+}
+
+export async function getMemoryEntities(apiKey: string): Promise<MemoryEntitiesResult> {
+  const BASE = (process.env.EXPO_PUBLIC_API_URL ?? 'https://lineage-agent.fly.dev').replace(/\/$/, '');
+  const res = await fetch(`${BASE}/agent/memory/entities`, {
+    headers: { 'X-API-Key': apiKey },
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: 'Entities fetch failed' }));
+    throw new Error(err.detail ?? 'Entities fetch failed');
+  }
+  return res.json() as Promise<MemoryEntitiesResult>;
+}
+
 export async function getTopTokens(limit = 10): Promise<TopToken[]> {
   const BASE_URL = (process.env.EXPO_PUBLIC_API_URL ?? 'https://lineage-agent.fly.dev').replace(/\/$/, '');
   const res = await fetch(`${BASE_URL}/stats/top-tokens?limit=${limit}`);

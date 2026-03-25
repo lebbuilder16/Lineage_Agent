@@ -3526,6 +3526,83 @@ async def enrich_alert_endpoint(request: Request, body: _AlertEnrichBody):
 # Feature 9 — Agent Memory Surface endpoint
 # ------------------------------------------------------------------
 
+
+@app.get("/agent/memory/entities", tags=["agent"])
+@limiter.limit("30/minute")
+async def list_memory_entities(request: Request):
+    """List all entities (deployers/operators) the agent has learned about.
+
+    Returns entity profiles from entity_knowledge + user-specific episode counts.
+    """
+    user = await _get_current_user(request)
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+    db = await _cache._get_conn()
+
+    # Get all known entities with meaningful data
+    cursor = await db.execute(
+        "SELECT entity_type, entity_id, total_tokens, total_rugs, "
+        "total_extracted_sol, avg_risk_score, preferred_narratives, "
+        "typical_rug_pattern, launch_velocity, first_seen, last_seen, "
+        "sample_count, confidence "
+        "FROM entity_knowledge "
+        "WHERE sample_count >= 1 "
+        "ORDER BY last_seen DESC LIMIT 50"
+    )
+    rows = await cursor.fetchall()
+
+    # Get user's investigation count per entity (deployer)
+    cursor2 = await db.execute(
+        "SELECT DISTINCT ie.deployer, COUNT(*) as cnt "
+        "FROM investigation_episodes ie "
+        "INNER JOIN investigations inv ON ie.mint = inv.mint AND inv.user_id = ? "
+        "WHERE ie.deployer IS NOT NULL "
+        "GROUP BY ie.deployer",
+        (user["id"],),
+    )
+    user_deployer_counts = {r[0]: r[1] for r in await cursor2.fetchall()}
+
+    # Active calibration rules count
+    cursor3 = await db.execute(
+        "SELECT COUNT(*) FROM calibration_rules WHERE active = 1"
+    )
+    active_rules = (await cursor3.fetchone())[0]
+
+    # Total episodes
+    cursor4 = await db.execute("SELECT COUNT(*) FROM investigation_episodes")
+    total_episodes = (await cursor4.fetchone())[0]
+
+    entities = []
+    for r in rows:
+        narratives = []
+        try:
+            narratives = json.loads(r[6]) if r[6] else []
+        except Exception:
+            pass
+        entities.append({
+            "entity_type": r[0],
+            "entity_id": r[1],
+            "total_tokens": r[2],
+            "total_rugs": r[3],
+            "total_extracted_sol": r[4] or 0,
+            "avg_risk_score": round(r[5] or 0, 1),
+            "preferred_narratives": narratives,
+            "typical_rug_pattern": r[7],
+            "launch_velocity": r[8],
+            "first_seen": r[9],
+            "last_seen": r[10],
+            "sample_count": r[11],
+            "confidence": r[12] or "low",
+            "user_investigations": user_deployer_counts.get(r[1], 0),
+        })
+
+    return {
+        "entities": entities,
+        "total_entities": len(entities),
+        "total_episodes": total_episodes,
+        "active_rules": active_rules,
+    }
+
+
 @app.get("/agent/memory", tags=["agent"])
 @limiter.limit("30/minute")
 async def get_agent_memory(

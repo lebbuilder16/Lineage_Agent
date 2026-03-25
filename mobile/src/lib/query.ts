@@ -17,10 +17,12 @@ import {
   getTopTokens,
   enrichAlert,
   getAgentMemory,
+  getMemoryEntities,
 } from './api';
 import type {
   AlertEnrichResult,
   AgentMemoryResult,
+  MemoryEntitiesResult,
 } from './api';
 import type {
   TokenSearchResult,
@@ -55,6 +57,7 @@ export const QK = {
   topTokens: () => ['topTokens'] as const,
   agentMemory: (mint?: string, entityType?: string, entityId?: string) =>
     ['agentMemory', mint ?? '', entityType ?? '', entityId ?? ''] as const,
+  memoryEntities: () => ['memoryEntities'] as const,
 };
 
 export function useSearchTokens(q: string, enabled = true) {
@@ -197,6 +200,15 @@ export function useAgentMemory(
     queryKey: QK.agentMemory(params.mint, params.entity_type, params.entity_id),
     queryFn: () => getAgentMemory(apiKey!, params),
     enabled: enabled && !!apiKey && !!(params.mint || params.entity_id),
+    staleTime: 120_000,
+  });
+}
+
+export function useMemoryEntities(apiKey: string | null) {
+  return useQuery<MemoryEntitiesResult>({
+    queryKey: QK.memoryEntities(),
+    queryFn: () => getMemoryEntities(apiKey!),
+    enabled: !!apiKey,
     staleTime: 120_000,
   });
 }
