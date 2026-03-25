@@ -281,14 +281,36 @@ async def _process_graduated_token(token_info: dict) -> None:
     if len(_recent_graduations) > _MAX_RECENT:
         _recent_graduations[:] = _recent_graduations[:_MAX_RECENT]
 
-    # Record event in intelligence DB
+    # Fetch market data from DexScreener early so we can store liq + mcap
+    _token_name = ""
+    _token_symbol = ""
+    _token_image = ""
+    _liq_usd = None
+    _mcap_usd = None
+    try:
+        from .data_sources._clients import get_dex_client
+        _dex = get_dex_client()
+        _pairs = await asyncio.wait_for(_dex.get_token_pairs(mint), timeout=5.0)
+        if _pairs:
+            _meta = _dex.pairs_to_metadata(mint, _pairs)
+            _token_name = _meta.name or ""
+            _token_symbol = _meta.symbol or ""
+            _token_image = _meta.image_uri or ""
+            _liq_usd = _meta.liquidity_usd
+            _mcap_usd = _meta.market_cap_usd
+    except Exception:
+        pass
+
+    # Record event in intelligence DB (with market data for rug sweep eligibility)
     try:
         from .data_sources._clients import event_insert
         from datetime import datetime, timezone as _tz
         await event_insert(
             event_type="token_created", mint=mint, deployer=deployer,
+            name=_token_name, symbol=_token_symbol,
             launch_platform="pump_fun", lifecycle_stage="dex_live",
             market_surface="dex_active",
+            liq_usd=_liq_usd, mcap_usd=_mcap_usd,
             created_at=datetime.now(tz=_tz.utc).isoformat(),
         )
     except Exception:
@@ -313,21 +335,10 @@ async def _process_graduated_token(token_info: dict) -> None:
             mint[:16], ", ".join(triage["risk_signals"]),
         )
 
-        # Enrich with token metadata (name, symbol, image) from DexScreener
-        token_name = ""
-        token_symbol = ""
-        token_image = ""
-        try:
-            from .data_sources._clients import get_dex_client
-            dex = get_dex_client()
-            pairs = await asyncio.wait_for(dex.get_token_pairs(mint), timeout=5.0)
-            if pairs:
-                meta = dex.pairs_to_metadata(mint, pairs)
-                token_name = meta.name or ""
-                token_symbol = meta.symbol or ""
-                token_image = meta.image_uri or ""
-        except Exception:
-            pass
+        # Reuse metadata already fetched above (avoid duplicate DexScreener call)
+        token_name = _token_name
+        token_symbol = _token_symbol
+        token_image = _token_image
 
         # Update the recent graduations buffer with enriched metadata
         for g in _recent_graduations:
