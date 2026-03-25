@@ -14,7 +14,7 @@ import Animated, { FadeInDown } from 'react-native-reanimated';
 
 import { useInvestigateStore } from '../../store/investigate';
 import { useAuthStore } from '../../store/auth';
-import { addWatch as apiAddWatch, removeWatch as apiRemoveWatch } from '../../lib/api';
+import { addWatch as apiAddWatch, deleteWatch as apiDeleteWatch } from '../../lib/api';
 import { GlassCard } from '../ui/GlassCard';
 import { RiskBadge } from '../ui/RiskBadge';
 import { GaugeRing } from '../ui/GaugeRing';
@@ -109,7 +109,7 @@ export function VerdictHero() {
     if (!apiKey || !mint) return;
     if (isWatching && existingWatch) {
       storeRemoveWatch(existingWatch.id);
-      apiRemoveWatch(apiKey, existingWatch.id).catch(() => {});
+      apiDeleteWatch(apiKey, existingWatch.id).catch(() => {});
     } else {
       const newWatch = await apiAddWatch(apiKey, 'mint', mint);
       if (newWatch) storeAddWatch(newWatch);
