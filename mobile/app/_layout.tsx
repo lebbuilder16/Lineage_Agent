@@ -10,7 +10,7 @@ import { StyleSheet, View, AppState } from 'react-native';
 import * as Linking from 'expo-linking';
 import * as Notifications from 'expo-notifications';
 import { PrivyProvider, usePrivy, useEmbeddedSolanaWallet } from '@privy-io/expo';
-import { checkWatchedTokenAlerts } from '../src/lib/notifications';
+import { checkWatchedTokenAlerts, setupNotificationResponseHandler } from '../src/lib/notifications';
 import { connectAlertsWS } from '../src/lib/streaming';
 import { useAlertsStore } from '../src/store/alerts';
 import { maybeAutoInvestigate } from '../src/lib/auto-investigate';
@@ -143,11 +143,23 @@ export default function RootLayout() {
       }),
     });
 
-    const sub = AppState.addEventListener('change', (state) => {
-      if (state === 'active') checkWatchedTokenAlerts();
+    const sub = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') {
+        // Catch up on alerts from watched tokens
+        checkWatchedTokenAlerts();
+        // Catch up on investigations completed while offline
+        import('../src/store/history').then(({ useHistoryStore }) => {
+          useHistoryStore.getState().catchUp();
+        }).catch(() => {});
+      }
     });
+
+    // Handle taps on FCM push notifications (investigation-complete, etc.)
+    const notifSub = setupNotificationResponseHandler();
+
     return () => {
       sub.remove();
+      notifSub.remove();
       disconnectOpenClaw();
     };
   }, []);

@@ -16,6 +16,26 @@ Notifications.setNotificationHandler({
   }),
 });
 
+/**
+ * Handle incoming FCM data payloads for investigation-complete events.
+ * When a background investigation finishes server-side, the FCM push
+ * carries ``type: 'investigation_complete'`` — we sync the result into
+ * the local history store so the user sees it immediately.
+ */
+export function setupNotificationResponseHandler(): Notifications.Subscription {
+  return Notifications.addNotificationResponseReceivedListener((response) => {
+    const data = response.notification.request.content.data as Record<string, string> | undefined;
+    if (!data) return;
+
+    if (data.type === 'investigation_complete' && data.mint) {
+      // Trigger incremental catch-up so the investigation appears in history
+      import('../store/history').then(({ useHistoryStore }) => {
+        useHistoryStore.getState().catchUp();
+      }).catch(() => {});
+    }
+  });
+}
+
 export async function registerForPushNotifications(): Promise<string | null> {
   if (Platform.OS === 'web') return null;
 
