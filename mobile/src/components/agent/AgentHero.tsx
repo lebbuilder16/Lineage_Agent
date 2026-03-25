@@ -7,7 +7,7 @@ import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import Animated, { FadeIn } from 'react-native-reanimated';
-import { Bot, Eye, Search, Activity, Shield } from 'lucide-react-native';
+import { Bot, Eye, Search, Activity, Shield, AlertTriangle } from 'lucide-react-native';
 import { tokens } from '../../theme/tokens';
 
 // ── Props ────────────────────────────────────────────────────────────────────
@@ -19,6 +19,7 @@ export interface AgentHeroProps {
   totalCount: number;
   accuratePct: number | null;
   lastSweep: number | null;
+  unreadFlags?: number;
 }
 
 // ── Internal: StatPill ───────────────────────────────────────────────────────
@@ -42,7 +43,14 @@ export function AgentHero({
   totalCount,
   accuratePct,
   lastSweep,
+  unreadFlags = 0,
 }: AgentHeroProps) {
+  // Format relative sweep time
+  const sweepAgo = lastSweep ? _formatTimeAgo(lastSweep) : null;
+  const nextSweep = lastSweep
+    ? new Date(lastSweep + 2 * 3600_000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    : null;
+
   return (
     <Animated.View entering={FadeIn.duration(400)}>
       <LinearGradient
@@ -76,21 +84,44 @@ export function AgentHero({
           <StatPill icon={Eye} value={watchCount} label="Watching" />
           <StatPill icon={Search} value={todayCount} label="Today" />
           <StatPill icon={Activity} value={totalCount} label="Total" />
-          {accuratePct != null && (
-            <StatPill icon={Shield} value={`${accuratePct}%`} label="Accuracy" color={accuratePct >= 70 ? tokens.success : tokens.warning} />
-          )}
+          {unreadFlags > 0 ? (
+            <StatPill
+              icon={AlertTriangle}
+              value={unreadFlags}
+              label="Flags"
+              color={tokens.risk.high}
+            />
+          ) : accuratePct != null ? (
+            <StatPill
+              icon={Shield}
+              value={`${accuratePct}%`}
+              label="Accuracy"
+              color={accuratePct >= 70 ? tokens.success : tokens.warning}
+            />
+          ) : null}
         </View>
 
-        {lastSweep && (
+        {sweepAgo && (
           <Text style={styles.sweepMeta}>
-            Last sweep {new Date(lastSweep).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-            {' · next ~'}
-            {new Date(new Date(lastSweep).getTime() + 2 * 3600_000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            Last sweep {sweepAgo}
+            {nextSweep ? ` · next ~${nextSweep}` : ''}
           </Text>
         )}
       </LinearGradient>
     </Animated.View>
   );
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+function _formatTimeAgo(ts: number): string {
+  const diff = Date.now() - ts;
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
 }
 
 // ── Styles ───────────────────────────────────────────────────────────────────

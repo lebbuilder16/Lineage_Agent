@@ -3228,7 +3228,7 @@ async def get_agent_status(request: Request):
         (user["id"],),
     )
     row = await cursor.fetchone()
-    last_sweep = row[0] if row and row[0] else None
+    last_sweep = int(row[0] * 1000) if row and row[0] else None
 
     # Investigations today
     today_start = time.time() - 86400
@@ -3256,7 +3256,7 @@ async def get_agent_status(request: Request):
         "last_sweep": last_sweep,
         "investigations_today": today_count,
         "total_investigations": total_count,
-        "auto_investigate": bool(prefs_row[2]) if prefs_row else False,
+        "auto_investigate": bool(prefs_row[0]) if prefs_row else False,
         "daily_briefing": bool(prefs_row[1]) if prefs_row else True,
         "briefing_hour": prefs_row[2] if prefs_row else 8,
     }
