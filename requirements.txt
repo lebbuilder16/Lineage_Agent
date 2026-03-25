@@ -14,6 +14,9 @@ prometheus-fastapi-instrumentator==7.*
 networkx>=3.3
 python-louvain>=0.16
 
+# Firebase Cloud Messaging (server-side push)
+google-auth>=2.0,<3.0
+
 # AI Analysis
 anthropic>=0.40.0,<1.0
 json-repair>=0.30.0

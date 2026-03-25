@@ -10,7 +10,8 @@ import { StyleSheet, View, AppState } from 'react-native';
 import * as Linking from 'expo-linking';
 import * as Notifications from 'expo-notifications';
 import { PrivyProvider, usePrivy, useEmbeddedSolanaWallet } from '@privy-io/expo';
-import { checkWatchedTokenAlerts, setupNotificationResponseHandler } from '../src/lib/notifications';
+import { checkWatchedTokenAlerts, registerForPushNotifications, setupNotificationResponseHandler } from '../src/lib/notifications';
+import { registerFcmToken } from '../src/lib/api';
 import { connectAlertsWS } from '../src/lib/streaming';
 import { useAlertsStore } from '../src/store/alerts';
 import { maybeAutoInvestigate } from '../src/lib/auto-investigate';
@@ -163,6 +164,16 @@ export default function RootLayout() {
       disconnectOpenClaw();
     };
   }, []);
+
+  // Register native FCM device token with the backend when authenticated
+  useEffect(() => {
+    if (!apiKey) return;
+    registerForPushNotifications()
+      .then((token) => {
+        if (token) registerFcmToken(apiKey, token).catch(() => {});
+      })
+      .catch(() => {});
+  }, [apiKey]);
 
   // User-scoped: WebSocket alerts + history hydration — reconnect on account change
   useEffect(() => {

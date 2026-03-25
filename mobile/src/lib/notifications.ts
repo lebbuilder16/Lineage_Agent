@@ -36,6 +36,11 @@ export function setupNotificationResponseHandler(): Notifications.Subscription {
   });
 }
 
+/**
+ * Request permissions, set up Android channel, and return the **native**
+ * FCM / APNS device push token (not the Expo wrapper token).
+ * This is the token the backend stores and uses with the FCM v1 HTTP API.
+ */
 export async function registerForPushNotifications(): Promise<string | null> {
   if (Platform.OS === 'web') return null;
 
@@ -59,8 +64,10 @@ export async function registerForPushNotifications(): Promise<string | null> {
     });
   }
 
-  const token = await Notifications.getExpoPushTokenAsync();
-  return token.data;
+  // Use native device token (FCM on Android, APNS on iOS) — not Expo push token.
+  // The backend sends pushes directly via FCM v1 HTTP API and needs the raw token.
+  const token = await Notifications.getDevicePushTokenAsync();
+  return token.data as string;
 }
 
 export function scheduleLocalAlert(title: string, body: string) {
