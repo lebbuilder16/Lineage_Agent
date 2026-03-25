@@ -189,9 +189,12 @@ async def run_single_rescan(watch_id: int, user_id: int, cache) -> dict | None:
         old_risk = prev[0] if prev else "unknown"
         old_score = prev[1] if prev else 0
 
-        # Rescan
+        # Rescan — force_refresh=True so deployer profiles / bundle data
+        # are fetched fresh instead of using stale 24-hour caches.
         from .lineage_detector import detect_lineage
-        lin = await asyncio.wait_for(detect_lineage(mint), timeout=45.0)
+        lin = await asyncio.wait_for(
+            detect_lineage(mint, force_refresh=True), timeout=60.0
+        )
 
         # Extract new forensic snapshot
         new_forensic = _extract_forensic_snapshot(lin)
@@ -219,6 +222,20 @@ async def run_single_rescan(watch_id: int, user_id: int, cache) -> dict | None:
         # Generate intelligence flags
         flags = _generate_flags(old_forensic, new_forensic, mint)
         now = time.time()
+
+        # Enrich flag details with token name/symbol for mobile display
+        qt = getattr(lin, "query_token", None) or getattr(lin, "root", None)
+        _token_name = getattr(qt, "name", "") or ""
+        _token_symbol = getattr(qt, "symbol", "") or ""
+        for flag in flags:
+            try:
+                detail_dict = json.loads(flag["detail"]) if isinstance(flag["detail"], str) else {}
+            except Exception:
+                detail_dict = {}
+            detail_dict["token_name"] = _token_name
+            detail_dict["symbol"] = _token_symbol
+            detail_dict["risk_score"] = new_score
+            flag["detail"] = json.dumps(detail_dict, default=str)
 
         # Store flags + new forensic snapshot
         for _attempt in range(3):

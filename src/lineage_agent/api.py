@@ -3113,6 +3113,21 @@ async def get_stats_brief(request: Request) -> dict:
     else:
         text = global_line
 
+    # Include latest AI-generated daily briefing if available
+    ai_briefing = None
+    if api_key:
+        try:
+            from .briefing_service import get_latest_briefing  # noqa: PLC0415
+            user2 = await verify_api_key(_cache, api_key)
+            if user2:
+                latest = await get_latest_briefing(_cache, user2["id"])
+                if latest and latest.get("content"):
+                    ai_briefing = latest["content"]
+                    # Use the richer AI briefing as text when available
+                    text = ai_briefing
+        except Exception:
+            pass
+
     return {"text": text, "generated_at": datetime.now(tz=timezone.utc).isoformat(),
             "sections": sections}
 
@@ -3884,8 +3899,10 @@ def _cancel_watchlist_sweep():
 
 def _schedule_briefing_loop():
     global _briefing_task
-    _briefing_task = asyncio.create_task(_briefing_loop())
-    logger.info("Briefing loop scheduled (hourly check)")
+    from .briefing_service import schedule_briefing_sweep  # noqa: PLC0415
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+    _briefing_task = asyncio.create_task(schedule_briefing_sweep(_cache))
+    logger.info("Briefing sweep scheduled (daily at %d:00 UTC)", 8)
 
 
 def _cancel_briefing_loop():
