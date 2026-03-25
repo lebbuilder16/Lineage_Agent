@@ -29,7 +29,7 @@ async def generate_briefing(user_id: int, cache) -> str | None:
         mints = [w[0] for w in watches]
 
         # Gather lineage data for watched tokens
-        from .lineage_core import detect_lineage, get_cached_lineage_report
+        from .lineage_detector import detect_lineage, get_cached_lineage_report
         from .chat_service import build_rich_context
 
         summaries = []
