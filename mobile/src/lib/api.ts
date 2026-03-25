@@ -203,6 +203,15 @@ export async function updateProfile(
   return res.json() as Promise<User>;
 }
 
+export async function registerFcmToken(apiKey: string, fcmToken: string): Promise<void> {
+  const BASE = (process.env.EXPO_PUBLIC_API_URL ?? 'https://lineage-agent.fly.dev').replace(/\/$/, '');
+  await fetch(`${BASE}/auth/fcm-token`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
+    body: JSON.stringify({ fcm_token: fcmToken }),
+  });
+}
+
 export interface Graduation {
   mint: string;
   deployer: string;

@@ -140,26 +140,49 @@ _sweep_task: Optional[asyncio.Task] = None
 _web_clients: dict[int, set["WebSocket"]] = {}
 
 # ── Firebase Cloud Messaging (HTTP v1) ────────────────────────────────────────
-# Set FIREBASE_PROJECT_ID + FIREBASE_SERVICE_ACCOUNT_JSON (path to SA JSON) env vars
-# to activate mobile push delivery. Silently disabled when not configured.
+# Accepts FIREBASE_SERVICE_ACCOUNT_JSON as either:
+#   - A file path (e.g. /app/firebase-sa.json)
+#   - Raw JSON string (for Fly.io secrets / env injection)
+# Silently disabled when not configured.
 _FIREBASE_PROJECT_ID = os.getenv("FIREBASE_PROJECT_ID", "")
-_FIREBASE_SA_JSON_PATH = os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON", "")
+_FIREBASE_SA_JSON_RAW = os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON", "")
 _FCM_ENDPOINT = "https://fcm.googleapis.com/v1/projects/{project}/messages:send"
 _fcm_client: Optional[httpx.AsyncClient] = None
 _fcm_access_token: Optional[str] = None
 _fcm_token_expiry: float = 0.0
 
 
+def _load_sa_credentials():
+    """Load service account credentials from file path or inline JSON string."""
+    from google.oauth2 import service_account  # type: ignore
+
+    raw = _FIREBASE_SA_JSON_RAW
+    if not raw:
+        return None
+    # If it looks like JSON (starts with '{'), parse inline; otherwise treat as file path
+    if raw.strip().startswith("{"):
+        import json as _json
+        info = _json.loads(raw)
+        return service_account.Credentials.from_service_account_info(
+            info,
+            scopes=["https://www.googleapis.com/auth/firebase.messaging"],
+        )
+    return service_account.Credentials.from_service_account_file(
+        raw,
+        scopes=["https://www.googleapis.com/auth/firebase.messaging"],
+    )
+
+
 async def _get_fcm_access_token() -> Optional[str]:
     """Return a valid Google OAuth2 access token for FCM v1 API.
 
-    Uses the service account JSON file at ``FIREBASE_SERVICE_ACCOUNT_JSON`` path.
+    Uses the service account JSON (file path or inline JSON string).
     Tokens are cached until 5 minutes before expiry to avoid OAuth2 round-trips.
     Returns None when Firebase is not configured or the credentials are invalid.
     """
     global _fcm_access_token, _fcm_token_expiry
 
-    if not _FIREBASE_PROJECT_ID or not _FIREBASE_SA_JSON_PATH:
+    if not _FIREBASE_PROJECT_ID or not _FIREBASE_SA_JSON_RAW:
         return None
 
     now = time.monotonic()
@@ -167,14 +190,11 @@ async def _get_fcm_access_token() -> Optional[str]:
         return _fcm_access_token
 
     try:
-        import google.auth  # type: ignore
         import google.auth.transport.requests  # type: ignore
-        from google.oauth2 import service_account  # type: ignore
 
-        creds = service_account.Credentials.from_service_account_file(
-            _FIREBASE_SA_JSON_PATH,
-            scopes=["https://www.googleapis.com/auth/firebase.messaging"],
-        )
+        creds = _load_sa_credentials()
+        if creds is None:
+            return None
         req = google.auth.transport.requests.Request()
         creds.refresh(req)
         _fcm_access_token = creds.token
@@ -183,7 +203,6 @@ async def _get_fcm_access_token() -> Optional[str]:
         _fcm_token_expiry = now + max(0, exp_utc - time.time() - 300)
         return _fcm_access_token
     except ImportError:
-        # google-auth not installed — graceful no-op
         logger.debug("[FCM] google-auth not installed; install with: pip install google-auth")
         return None
     except Exception as exc:

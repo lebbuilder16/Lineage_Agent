@@ -2267,6 +2267,22 @@ async def auth_update_profile(request: Request):
     }
 
 
+class _FcmTokenRequest(BaseModel):
+    fcm_token: str
+
+
+@app.put("/auth/fcm-token", tags=["auth"])
+async def auth_register_fcm_token(body: _FcmTokenRequest, request: Request):
+    """Register or update the user's FCM device token for push notifications."""
+    user = await _get_current_user(request)
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+    from .auth_service import register_fcm_token  # noqa: PLC0415
+    ok = await register_fcm_token(_cache, user["id"], body.fcm_token)
+    if not ok:
+        raise HTTPException(status_code=400, detail="Invalid FCM token")
+    return {"ok": True}
+
+
 @app.get("/auth/watches", tags=["auth"])
 async def auth_watches(request: Request):
     """Return user's watches. Requires X-API-Key header."""
