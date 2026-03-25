@@ -18,6 +18,7 @@ import {
   Copy,
   GitBranch,
   Bot,
+  Settings2,
 } from 'lucide-react-native';
 import { GlassCard } from '../../src/components/ui/GlassCard';
 import { RiskBadge } from '../../src/components/ui/RiskBadge';
@@ -39,6 +40,8 @@ import { AgentSuggestions } from '../../src/components/token-detail/AgentSuggest
 import { RiskSummaryCard } from '../../src/components/token-detail/RiskSummaryCard';
 import { FullReportSection } from '../../src/components/token-detail/FullReportSection';
 import { SweepAlertsBanner } from '../../src/components/token-detail/SweepAlertsBanner';
+import { LivePulseCard } from '../../src/components/token-detail/LivePulseCard';
+import { OperatorDamageCard } from '../../src/components/token-detail/OperatorDamageCard';
 
 // ─── Main Screen ─────────────────────────────────────────────────────────────
 
@@ -196,6 +199,22 @@ export default function TokenScreen() {
             <SweepAlertsBanner mint={mint ?? ''} />
             <RiskSummaryCard data={data} displayRiskLevel={displayRiskLevel} riskColor={riskColor} riskSummary={riskSummary} />
 
+            {/* Factory Bot Banner */}
+            {data.factory_rhythm?.is_factory && (
+              <View style={styles.factoryBanner}>
+                <Settings2 size={13} color={tokens.risk.medium} />
+                <Text style={styles.factoryText}>
+                  Bot Deployment Pattern
+                  {data.factory_rhythm.tokens_launched != null ? ` · ${data.factory_rhythm.tokens_launched} tokens` : ''}
+                  {data.factory_rhythm.median_interval_hours != null ? ` · every ~${data.factory_rhythm.median_interval_hours.toFixed(0)}h` : ''}
+                  {data.factory_rhythm.naming_pattern ? ` · ${data.factory_rhythm.naming_pattern}` : ''}
+                </Text>
+              </View>
+            )}
+
+            <LivePulseCard data={data} />
+            <OperatorDamageCard data={data} />
+
             <HapticButton variant="primary" size="lg" fullWidth onPress={() => router.push(`/investigate/${mint}` as any)} accessibilityRole="button" accessibilityLabel="Investigate token">
               <Text style={styles.btnPrimaryText}>INVESTIGATE</Text>
             </HapticButton>
@@ -245,4 +264,15 @@ const styles = StyleSheet.create({
   actionBtnText: { fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.small, color: tokens.secondary, letterSpacing: 0.3 },
   detailsToggle: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 12 },
   detailsToggleText: { fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.small, color: tokens.textTertiary, letterSpacing: 0.4 },
+  factoryBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: `${tokens.risk.medium}15`,
+    borderRadius: tokens.radius.sm, borderWidth: 1,
+    borderColor: `${tokens.risk.medium}35`,
+    paddingHorizontal: 12, paddingVertical: 9,
+  },
+  factoryText: {
+    fontFamily: 'Lexend-Regular', fontSize: tokens.font.small,
+    color: tokens.risk.medium, flex: 1, lineHeight: 18,
+  },
 });
