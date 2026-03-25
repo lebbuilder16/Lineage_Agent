@@ -302,7 +302,7 @@ async def build_memory_brief(
         # ── Episodic: other tokens from same deployer ─────────────────────
         if deployer:
             cursor = await db.execute(
-                "SELECT mint, risk_score, verdict_summary, user_rating "
+                "SELECT mint, risk_score, verdict_summary, user_rating, model "
                 "FROM investigation_episodes WHERE deployer = ? AND mint != ? "
                 "ORDER BY created_at DESC LIMIT 3",
                 (deployer, mint),
@@ -312,7 +312,8 @@ async def build_memory_brief(
                 lines = []
                 for ep in deployer_eps:
                     rating = f" [{ep[3]}]" if ep[3] else ""
-                    lines.append(f"  - {ep[0][:12]}.. risk={ep[1]}{rating}")
+                    src = " (heuristic)" if (ep[4] or "").startswith("heuristic") else ""
+                    lines.append(f"  - {ep[0][:12]}.. risk={ep[1]}{rating}{src}")
                 sections.append(
                     f"### Deployer History ({deployer[:12]}..)\n"
                     f"{len(deployer_eps)} past investigations:\n" + "\n".join(lines)

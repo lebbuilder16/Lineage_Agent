@@ -283,11 +283,12 @@ async def run_single_rescan(watch_id: int, user_id: int, cache) -> dict | None:
             dc_comm = cr.get("deployer_community") or {}
             _community_id = dc_comm.get("community_id", "") if isinstance(dc_comm, dict) else ""
 
+            sweep_confidence = "high" if hscore >= 75 else "medium" if hscore >= 50 else "low"
             await record_episode(
                 mint=mint,
                 verdict={
                     "risk_score": hscore,
-                    "confidence": "low",
+                    "confidence": sweep_confidence,
                     "rug_pattern": pattern,
                     "verdict_summary": f"Sweep rescan: {hscore}/100 ({pattern})",
                     "conviction_chain": "",
