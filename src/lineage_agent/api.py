@@ -3486,11 +3486,12 @@ async def _auto_investigate_token(mint: str, user_id: int, cache):
 
 async def _store_investigation(cache, user_id: int, mint: str, verdict: dict):
     """Persist an investigation verdict to the investigations table."""
+    import json as _json  # noqa: PLC0415
     try:
         db = await cache._get_conn()
         key_findings = verdict.get("key_findings", [])
         if isinstance(key_findings, list):
-            key_findings = json.dumps(key_findings)
+            key_findings = _json.dumps(key_findings)
 
         # Extract name/symbol from narrative or verdict fields
         name = verdict.get("name") or ""
