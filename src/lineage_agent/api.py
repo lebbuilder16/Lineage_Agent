@@ -1764,6 +1764,11 @@ async def investigate_token(
     - Free: forensic pipeline → heuristic score
     - Pro: pipeline + single-shot AI verdict
     - Pro+/Whale: pipeline + autonomous agent multi-turn
+
+    The investigation runs server-side to completion even if the client
+    disconnects (SSE stream closes).  The verdict is always persisted to
+    the ``investigations`` table and a FCM push is sent on completion so
+    offline users are notified.
     """
     if not _BASE58_RE.match(mint):
         raise HTTPException(status_code=400, detail="Invalid Solana mint address")
@@ -1786,15 +1791,22 @@ async def investigate_token(
 
     from .data_sources._clients import cache as _cache
 
-    async def _generator():
+    # Shared mutable state between the background task and the SSE generator.
+    # The background task produces events into _event_queue; the generator
+    # consumes and yields them to the client.  If the client disconnects the
+    # background task keeps running — verdict is still stored + FCM push sent.
+    _event_queue: asyncio.Queue[dict | None] = asyncio.Queue()
+
+    async def _background_investigation():
+        """Run the full investigation in the background, pushing events to the queue."""
         import json as _json
         try:
             async for event in run_investigation(
                 mint, tier=tier, cache=_cache, user_id=user_id,
-                is_disconnected=request.is_disconnected,
+                # NOTE: no is_disconnected — investigation runs to completion
                 session_id=request.headers.get("X-Session-ID") or None,
             ):
-                yield event
+                await _event_queue.put(event)
                 # Record scan event with identity data from pipeline
                 if event.get("event") == "identity_ready":
                     _id_data = _json.loads(event["data"]) if isinstance(event.get("data"), str) else event.get("data", {})
@@ -1807,7 +1819,7 @@ async def investigate_token(
                             "created_at": _id_data.get("created_at"),
                         })(),
                     ))
-                # Store verdict in investigations table for server-side history
+                # Store verdict + notify via FCM
                 ev_type = event.get("event", "") if isinstance(event, dict) else ""
                 if user_id and ev_type == "verdict":
                     ev_data = event.get("data", "")
@@ -1816,12 +1828,32 @@ async def investigate_token(
                         asyncio.create_task(
                             _store_investigation(_cache, user_id, mint, verdict_dict)
                         )
+                        asyncio.create_task(
+                            _notify_investigation_complete(user_id, mint, verdict_dict)
+                        )
         except Exception as exc:
-            logger.exception("[investigate] unhandled error for %s", mint[:12])
-            yield {
+            logger.exception("[investigate] background error for %s", mint[:12])
+            await _event_queue.put({
                 "event": "error",
                 "data": _json.dumps({"detail": f"Investigation failed: {type(exc).__name__}", "recoverable": False}),
-            }
+            })
+        finally:
+            await _event_queue.put(None)  # sentinel — signals end of stream
+
+    # Start the investigation immediately; it will outlive the SSE connection
+    bg_task = asyncio.create_task(_background_investigation())
+
+    async def _generator():
+        """Yield events from the background task to the SSE stream."""
+        try:
+            while True:
+                event = await _event_queue.get()
+                if event is None:
+                    break
+                yield event
+        except asyncio.CancelledError:
+            # Client disconnected — background task keeps running
+            logger.info("[investigate] SSE client disconnected for %s — investigation continues in background", mint[:12])
 
     return EventSourceResponse(_generator())
 
@@ -3133,18 +3165,37 @@ async def get_agent_status(request: Request):
 
 
 @app.get("/agent/history", tags=["agent"])
-async def get_investigation_history(request: Request):
-    """Return user's investigation history (server-side memory)."""
+async def get_investigation_history(
+    request: Request,
+    since: Optional[float] = Query(None, description="UNIX timestamp (seconds) — return only investigations after this time"),
+    limit: int = Query(50, ge=1, le=200),
+):
+    """Return user's investigation history (server-side memory).
+
+    Pass ``since`` (UNIX seconds) to fetch only new investigations since the
+    client's last sync — used for catch-up after the app was offline.
+    """
     import json as _json  # noqa: PLC0415
     user = await _get_current_user(request)
     from .data_sources._clients import cache as _cache  # noqa: PLC0415
     db = await _cache._get_conn()
-    cursor = await db.execute(
-        "SELECT mint, name, symbol, risk_score, verdict_summary, "
-        "key_findings, model, turns_used, tokens_used, created_at "
-        "FROM investigations WHERE user_id = ? ORDER BY created_at DESC LIMIT 50",
-        (user["id"],),
-    )
+
+    if since is not None:
+        cursor = await db.execute(
+            "SELECT mint, name, symbol, risk_score, verdict_summary, "
+            "key_findings, model, turns_used, tokens_used, created_at "
+            "FROM investigations WHERE user_id = ? AND created_at > ? "
+            "ORDER BY created_at DESC LIMIT ?",
+            (user["id"], since, limit),
+        )
+    else:
+        cursor = await db.execute(
+            "SELECT mint, name, symbol, risk_score, verdict_summary, "
+            "key_findings, model, turns_used, tokens_used, created_at "
+            "FROM investigations WHERE user_id = ? ORDER BY created_at DESC LIMIT ?",
+            (user["id"], limit),
+        )
+
     rows = await cursor.fetchall()
     results = []
     for r in rows:
@@ -3167,27 +3218,37 @@ async def get_investigation_history(request: Request):
 async def get_sweep_flags(
     request: Request,
     mint: Optional[str] = Query(None, description="Filter by mint address"),
+    since: Optional[float] = Query(None, description="UNIX timestamp (seconds) — return only flags after this time"),
     limit: int = Query(50, ge=1, le=200),
 ):
-    """Return intelligence flags generated by the watchlist sweep."""
+    """Return intelligence flags generated by the watchlist sweep.
+
+    Pass ``since`` (UNIX seconds) to fetch only new flags since the client's
+    last sync — used for catch-up after the app was offline.
+    """
     user = await _get_current_user(request)
     from .data_sources._clients import cache as _cache  # noqa: PLC0415
     db = await _cache._get_conn()
 
+    # Build WHERE clause dynamically based on filters
+    conditions = ["user_id = ?", "flag_type != '_SNAPSHOT'"]
+    params: list = [user["id"]]
+
     if mint:
-        cursor = await db.execute(
-            "SELECT id, mint, flag_type, severity, title, detail, created_at, read "
-            "FROM sweep_flags WHERE user_id = ? AND mint = ? AND flag_type != '_SNAPSHOT' "
-            "ORDER BY created_at DESC LIMIT ?",
-            (user["id"], mint, limit),
-        )
-    else:
-        cursor = await db.execute(
-            "SELECT id, mint, flag_type, severity, title, detail, created_at, read "
-            "FROM sweep_flags WHERE user_id = ? AND flag_type != '_SNAPSHOT' "
-            "ORDER BY created_at DESC LIMIT ?",
-            (user["id"], limit),
-        )
+        conditions.append("mint = ?")
+        params.append(mint)
+    if since is not None:
+        conditions.append("created_at > ?")
+        params.append(since)
+
+    params.append(limit)
+    where = " AND ".join(conditions)
+    cursor = await db.execute(
+        f"SELECT id, mint, flag_type, severity, title, detail, created_at, read "
+        f"FROM sweep_flags WHERE {where} "
+        f"ORDER BY created_at DESC LIMIT ?",
+        tuple(params),
+    )
 
     rows = await cursor.fetchall()
     import json as _json
@@ -3310,15 +3371,16 @@ async def _watchlist_sweep_loop():
                     if not result:
                         continue
 
-                    # Broadcast critical/warning flags as WebSocket alerts
+                    # Broadcast critical/warning flags as WebSocket + FCM alerts
                     for flag in result.get("flags", []):
                         if flag["severity"] in ("critical", "warning"):
                             try:
-                                from .alert_service import _broadcast_web_alert
+                                from .alert_service import _broadcast_web_alert, _send_fcm_push
+                                _flag_title = f"{'🔴' if flag['severity'] == 'critical' else '⚠️'} {flag['title']}"
                                 await _broadcast_web_alert({
                                     "type": "sweep_flag",
                                     "alert_type": flag["flag_type"],
-                                    "title": f"{'🔴' if flag['severity'] == 'critical' else '⚠️'} {flag['title']}",
+                                    "title": _flag_title,
                                     "message": flag["title"],
                                     "body": flag["title"],
                                     "mint": result["mint"],
@@ -3326,7 +3388,25 @@ async def _watchlist_sweep_loop():
                                     "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                                     "id": f"sweep-{result['mint'][:8]}-{flag['flag_type']}-{int(time.time())}",
                                     "read": False,
-                                })
+                                }, user_id=user_id)
+                                # Direct FCM push to this user (even if not a mint watcher)
+                                _user_cursor = await db.execute(
+                                    "SELECT fcm_token FROM users WHERE id = ? AND fcm_token IS NOT NULL",
+                                    (user_id,),
+                                )
+                                _user_row = await _user_cursor.fetchone()
+                                if _user_row and _user_row[0]:
+                                    asyncio.create_task(_send_fcm_push(
+                                        _user_row[0],
+                                        title=_flag_title,
+                                        body=flag["title"],
+                                        data={
+                                            "type": "sweep_flag",
+                                            "mint": result["mint"],
+                                            "flag_type": flag["flag_type"],
+                                            "urgency": "high" if flag["severity"] == "critical" else "normal",
+                                        },
+                                    ))
                             except Exception:
                                 pass
 
@@ -3397,6 +3477,7 @@ async def _auto_investigate_token(mint: str, user_id: int, cache):
 
         if verdict:
             await _store_investigation(cache, user_id, mint, verdict)
+            await _notify_investigation_complete(user_id, mint, verdict)
             logger.info("[auto-investigate] completed %s for user %d — score %s",
                         mint[:12], user_id, verdict.get("risk_score"))
     except Exception as exc:
@@ -3440,6 +3521,63 @@ async def _store_investigation(cache, user_id: int, mint: str, verdict: dict):
                 raise
     except Exception as exc:
         logger.error("[store_investigation] FAILED for user=%d mint=%s: %s", user_id, mint[:12], exc)
+
+
+async def _notify_investigation_complete(user_id: int, mint: str, verdict: dict):
+    """Send FCM push + WebSocket alert when a background investigation completes."""
+    try:
+        from .alert_service import _send_fcm_push, _broadcast_web_alert
+        from .data_sources._clients import cache as _cache
+
+        risk = verdict.get("risk_score", 0)
+        name = verdict.get("name") or mint[:8]
+        symbol = verdict.get("symbol") or ""
+        label = f"{name} ({symbol})" if symbol else name
+        summary = verdict.get("verdict_summary", "")[:120]
+
+        if risk >= 70:
+            emoji = "🔴"
+        elif risk >= 40:
+            emoji = "🟡"
+        else:
+            emoji = "🟢"
+
+        title = f"{emoji} Investigation Complete — {label}"
+        body = f"Risk {risk}/100 · {summary}" if summary else f"Risk score: {risk}/100"
+
+        # 1. WebSocket broadcast (if user is still connected)
+        await _broadcast_web_alert({
+            "type": "investigation_complete",
+            "title": title,
+            "body": body,
+            "mint": mint,
+            "risk_score": risk,
+            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "id": f"inv-{mint[:8]}-{int(time.time())}",
+            "read": False,
+        }, user_id=user_id)
+
+        # 2. Direct FCM push to this specific user (not just watchers)
+        db = await _cache._get_conn()
+        cursor = await db.execute(
+            "SELECT fcm_token FROM users WHERE id = ? AND fcm_token IS NOT NULL",
+            (user_id,),
+        )
+        row = await cursor.fetchone()
+        if row and row[0]:
+            await _send_fcm_push(
+                row[0],
+                title=title,
+                body=body,
+                data={
+                    "type": "investigation_complete",
+                    "mint": mint,
+                    "risk_score": str(risk),
+                    "urgency": "high" if risk >= 70 else "normal",
+                },
+            )
+    except Exception as exc:
+        logger.debug("[notify_investigation] failed for user=%d mint=%s: %s", user_id, mint[:12], exc)
 
 
 def _schedule_watchlist_sweep():

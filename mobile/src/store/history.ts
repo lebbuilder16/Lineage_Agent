@@ -1,12 +1,18 @@
 /**
  * Investigation history — persists past verdicts across sessions.
  * Syncs with backend via GET /agent/history for server-side memory.
+ *
+ * Supports incremental catch-up: when the app returns to foreground,
+ * ``catchUp()`` fetches only investigations created since the last sync
+ * (via the ``since`` query param) so background/auto-investigations
+ * appear without a full re-fetch.
  */
 import { create } from 'zustand';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuthStore } from './auth';
 
 const STORAGE_KEY = 'lineage_investigation_history';
+const LAST_SYNC_KEY = 'lineage_history_last_sync';
 const MAX_RECORDS = 50;
 const BASE_URL = (process.env.EXPO_PUBLIC_API_URL ?? 'https://lineage-agent.fly.dev').replace(/\/$/, '');
 
@@ -28,6 +34,8 @@ interface HistoryState {
   getByMint: (mint: string) => InvestigationRecord | undefined;
   setFeedback: (mint: string, feedback: 'accurate' | 'incorrect') => void;
   hydrate: () => Promise<void>;
+  /** Incremental sync — fetch only new investigations since last sync. */
+  catchUp: () => Promise<void>;
 }
 
 export const useHistoryStore = create<HistoryState>((set, get) => ({
@@ -103,8 +111,44 @@ export const useHistoryStore = create<HistoryState>((set, get) => ({
           }
         }
       }
+      // Record sync time
+      AsyncStorage.setItem(LAST_SYNC_KEY, String(Date.now() / 1000)).catch(() => {});
     } catch {
       set({ hydrated: true });
+    }
+  },
+
+  catchUp: async () => {
+    const apiKey = useAuthStore.getState().apiKey;
+    if (!apiKey) return;
+    try {
+      // Fetch only investigations created since our last sync
+      const raw = await AsyncStorage.getItem(LAST_SYNC_KEY);
+      const since = raw ? parseFloat(raw) : (Date.now() / 1000) - 86400; // fallback: last 24h
+
+      const res = await fetch(
+        `${BASE_URL}/agent/history?since=${since}`,
+        { headers: { 'X-API-Key': apiKey } },
+      );
+      if (!res.ok) return;
+
+      const serverRecords = (await res.json()) as InvestigationRecord[];
+      if (Array.isArray(serverRecords) && serverRecords.length > 0) {
+        set((s) => {
+          const localMints = new Set(s.investigations.map((r) => r.mint));
+          const newFromServer = serverRecords.filter((r) => !localMints.has(r.mint));
+          if (newFromServer.length === 0) return s;
+          const merged = [...newFromServer, ...s.investigations]
+            .sort((a, b) => b.timestamp - a.timestamp)
+            .slice(0, MAX_RECORDS);
+          AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(merged)).catch(() => {});
+          return { investigations: merged };
+        });
+      }
+      // Update sync timestamp
+      AsyncStorage.setItem(LAST_SYNC_KEY, String(Date.now() / 1000)).catch(() => {});
+    } catch {
+      // best-effort — will retry on next foreground
     }
   },
 }));
