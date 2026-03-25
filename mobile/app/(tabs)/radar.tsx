@@ -11,6 +11,7 @@ import { Swipeable } from 'react-native-gesture-handler';
 import { useAlertsStore } from '../../src/store/alerts';
 import { useAuthStore } from '../../src/store/auth';
 import { useBriefingStore, startBriefingListener } from '../../src/lib/openclaw-briefing';
+import { BriefingActionCard } from '../../src/components/radar/BriefingActionCard';
 import { maybeAutoInvestigate } from '../../src/lib/auto-investigate';
 import { tokens } from '../../src/theme/tokens';
 import type { TopToken, AlertItem } from '../../src/types/api';
@@ -85,9 +86,9 @@ export default function RadarScreen() {
 
   const briefing = useBriefingStore((s) => s.latest);
   const briefingGeneratedAt = useBriefingStore((s) => s.generatedAt);
+  const briefingSections = useBriefingStore((s) => s.sections);
   const briefingUnread = useBriefingStore((s) => s.unread);
   const markBriefingRead = useBriefingStore((s) => s.markRead);
-  const [briefingExpanded, setBriefingExpanded] = useState(false);
 
   useEffect(() => {
     const unsubBriefing = startBriefingListener(apiKey ?? undefined);
@@ -162,23 +163,13 @@ export default function RadarScreen() {
           {/* Briefing */}
           {briefing && (
             <Animated.View entering={FadeInDown.delay(60).duration(300)}>
-              <TouchableOpacity onPress={() => { setBriefingExpanded((v) => !v); if (briefingUnread) markBriefingRead(); }} activeOpacity={0.8}>
-                <GlassCard style={styles.briefingCard} noPadding={false}>
-                  <View style={styles.briefingHeader}>
-                    <Shield size={13} color={tokens.secondary} />
-                    <Text style={styles.briefingTitle}>BRIEFING</Text>
-                    {briefingUnread && <View style={styles.briefingUnread} />}
-                    <View style={{ flex: 1 }} />
-                    <ChevronRight size={14} color={tokens.textTertiary} style={briefingExpanded ? { transform: [{ rotate: '90deg' }] } : undefined} />
-                  </View>
-                  <Text style={briefingExpanded ? styles.briefingContent : styles.briefingPreview} numberOfLines={briefingExpanded ? undefined : 2} selectable={briefingExpanded}>
-                    {briefing}
-                  </Text>
-                  {briefingGeneratedAt && briefingExpanded && (
-                    <Text style={styles.briefingMeta}>{new Date(briefingGeneratedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Text>
-                  )}
-                </GlassCard>
-              </TouchableOpacity>
+              <BriefingActionCard
+                text={briefing}
+                generatedAt={briefingGeneratedAt}
+                sections={briefingSections}
+                unread={briefingUnread}
+                onMarkRead={markBriefingRead}
+              />
             </Animated.View>
           )}
 
