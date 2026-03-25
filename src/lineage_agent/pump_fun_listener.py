@@ -368,6 +368,18 @@ async def _process_graduated_token(token_info: dict) -> None:
                 except Exception:
                     pass
 
+            # FCM push only to users who already investigated a token from this deployer
+            from .alert_service import _push_fcm_to_deployer_investigators
+            asyncio.create_task(
+                _push_fcm_to_deployer_investigators(
+                    deployer=deployer,
+                    title=f"{display_name} — deployer suivi vient de graduer",
+                    body=f"Nouveau token sur Raydium — {rug_info}",
+                    data={"type": "deployer_graduation", "mint": mint, "deployer": deployer},
+                ),
+                name=f"fcm_dep_{deployer[:8]}",
+            )
+
         except Exception as exc:
             logger.debug("[listener] alert dispatch error: %s", exc)
 
@@ -385,6 +397,7 @@ async def _process_graduated_token(token_info: dict) -> None:
                 if report is not None:
                     try:
                         from .memory_service import record_episode
+                        from .ai_analyst import _heuristic_score
                         scan_data = report_to_lineage_result(report)
                         scan_dict = scan_data.__dict__ if hasattr(scan_data, "__dict__") else {}
                         dp = report.deployer_profile
@@ -394,16 +407,22 @@ async def _process_graduated_token(token_info: dict) -> None:
                         community_id = None
                         if cr and hasattr(cr, "deployer_community") and cr.deployer_community:
                             community_id = getattr(cr.deployer_community, "community_id", None)
+                        computed_score = _heuristic_score(
+                            lineage=report.family_tree,
+                            bundle=report.bundle_report,
+                            sol_flow=report.sol_flow,
+                            behavioral_signals=None,
+                        )
                         await record_episode(
                             mint=mint,
                             verdict={
-                                "risk_score": 0,
-                                "confidence": "low",
+                                "risk_score": computed_score,
+                                "confidence": "medium" if computed_score > 30 else "low",
                                 "rug_pattern": "graduation_scan",
                                 "verdict_summary": "Auto-scan on DEX graduation",
                                 "conviction_chain": "",
                                 "key_findings": triage["risk_signals"],
-                                "model": "graduation_pipeline",
+                                "model": "heuristic_graduation",
                             },
                             scan_data=scan_dict,
                             deployer=deployer,

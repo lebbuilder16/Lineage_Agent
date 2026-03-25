@@ -140,6 +140,22 @@ async def schedule_briefing_sweep(cache) -> None:
                 if content:
                     await store_briefing(cache, uid, content)
                     generated += 1
+                    try:
+                        from .alert_service import _send_fcm_push
+                        db2 = await cache._get_conn()
+                        cur2 = await db2.execute(
+                            "SELECT fcm_token FROM users WHERE id = ? AND fcm_token IS NOT NULL", (uid,)
+                        )
+                        row = await cur2.fetchone()
+                        if row and row[0]:
+                            lines = [l.strip() for l in content.strip().splitlines() if l.strip()]
+                            body = " ".join(lines[:2])[:200]
+                            await _send_fcm_push(
+                                row[0], "Votre briefing Lineage est prêt", body,
+                                data={"type": "daily_briefing"},
+                            )
+                    except Exception:
+                        pass  # best-effort, never block briefing
                 # Small delay between users to avoid rate limits
                 await asyncio.sleep(2)
 
