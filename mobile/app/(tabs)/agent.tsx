@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState, useCallback } from 'react';
+import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -18,6 +18,7 @@ import {
   Info,
   Zap,
   Settings,
+  Brain,
 } from 'lucide-react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { useIsFocused } from '@react-navigation/native';
@@ -67,28 +68,34 @@ export default function AgentScreen() {
   const [activeTab, setActiveTab] = useState<TabId>('feed');
   const plan = useSubscriptionStore((s) => s.plan);
 
+  // Use ref to avoid stale closure in polling interval
+  const apiKeyRef = useRef(apiKey);
+  apiKeyRef.current = apiKey;
+
   // Feature 9: Agent Memory — use latest investigation's mint to fetch memory
   const latestMint = investigations[0]?.mint ?? '';
   const { data: memoryData } = useAgentMemory(apiKey, { mint: latestMint }, !!latestMint);
 
-  const fetchStatus = async () => {
-    if (!apiKey) return;
+  const fetchStatus = useCallback(async () => {
+    const key = apiKeyRef.current;
+    if (!key) return;
     try {
-      const res = await fetch(`${BASE_URL}/agent/status`, { headers: { 'X-API-Key': apiKey } });
+      const res = await fetch(`${BASE_URL}/agent/status`, { headers: { 'X-API-Key': key } });
       if (res.ok) setServerStatus(await res.json());
     } catch { /* best-effort */ }
-  };
+  }, []);
 
-  const fetchFlags = async () => {
-    if (!apiKey) return;
+  const fetchFlags = useCallback(async () => {
+    const key = apiKeyRef.current;
+    if (!key) return;
     try {
-      const res = await fetch(`${BASE_URL}/agent/flags?limit=20`, { headers: { 'X-API-Key': apiKey } });
+      const res = await fetch(`${BASE_URL}/agent/flags?limit=20`, { headers: { 'X-API-Key': key } });
       if (res.ok) {
         const data = await res.json();
         setSweepFlags(data.flags ?? []);
       }
     } catch { /* best-effort */ }
-  };
+  }, []);
 
   useEffect(() => {
     useAgentPrefsStore.getState().hydrate();
@@ -97,12 +104,12 @@ export default function AgentScreen() {
     fetchFlags();
   }, [apiKey]);
 
-  // Pause polling when screen is not focused
+  // Polling — uses refs so no stale closures
   useEffect(() => {
     if (!apiKey || !isFocused) return;
     const interval = setInterval(() => { fetchStatus(); fetchFlags(); }, 30_000);
     return () => clearInterval(interval);
-  }, [apiKey, isFocused]);
+  }, [apiKey, isFocused, fetchStatus, fetchFlags]);
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -114,7 +121,8 @@ export default function AgentScreen() {
 
   const feedItems = useMemo(() => {
     const items: FeedItem[] = [];
-    for (const inv of investigations.slice(0, 5)) {
+
+    for (const inv of investigations.slice(0, 8)) {
       const name = inv.name ?? inv.mint.slice(0, 8);
       const symbol = inv.symbol ?? '';
       items.push({
@@ -132,7 +140,8 @@ export default function AgentScreen() {
         color: inv.riskScore >= 75 ? tokens.risk.critical : inv.riskScore >= 50 ? tokens.risk.high : tokens.secondary,
       });
     }
-    for (const alert of alerts.slice(0, 5)) {
+
+    for (const alert of alerts.slice(0, 8)) {
       const ts = new Date(alert.timestamp ?? alert.created_at ?? '').getTime();
       if (isNaN(ts)) continue;
       items.push({
@@ -149,21 +158,42 @@ export default function AgentScreen() {
         color: (alert.risk_score ?? 0) >= 75 ? tokens.risk.critical : tokens.risk.high,
       });
     }
-    for (const flag of sweepFlags.slice(0, 5)) {
+
+    for (const flag of sweepFlags.slice(0, 8)) {
+      // Extract token name from flag detail or title
+      const flagName =
+        (flag.detail?.token_name as string) ??
+        (flag.detail?.name as string) ??
+        (flag.detail?.symbol as string) ??
+        _extractNameFromTitle(flag.title) ??
+        flag.mint.slice(0, 6) + '…' + flag.mint.slice(-4);
+      const flagSymbol = (flag.detail?.symbol as string) ?? '';
+      // Build readable summary from flag detail
+      const summary = _buildFlagSummary(flag);
       items.push({
         id: `flag-${flag.id}`,
         category: 'flag',
-        categoryLabel: 'Sweep Flag',
+        categoryLabel: flag.flagType === 'deployer_exit' ? 'Deployer Exit'
+          : flag.flagType === 'bundle' ? 'Bundle Detected'
+          : flag.flagType === 'sol_extraction' ? 'SOL Extraction'
+          : flag.flagType === 'price_crash' ? 'Price Crash'
+          : flag.flagType === 'cartel' ? 'Cartel Link'
+          : flag.flagType === 'operator_match' ? 'Operator Match'
+          : flag.flagType === 'deployer_rug' ? 'New Rug'
+          : 'Sweep Flag',
         icon: flag.severity === 'critical' ? XOctagon : flag.severity === 'warning' ? AlertTriangle : Info,
-        tokenName: flag.mint.slice(0, 8),
-        tokenSymbol: '',
+        tokenName: flagName,
+        tokenSymbol: flagSymbol,
         mint: flag.mint,
-        summary: flag.title,
+        summary,
+        detail: _buildFlagDetail(flag),
+        riskScore: (flag.detail?.risk_score as number) ?? undefined,
         time: flag.createdAt * 1000,
         color: flag.severity === 'critical' ? tokens.risk.critical : flag.severity === 'warning' ? tokens.risk.high : tokens.white60,
+        read: flag.read,
       });
     }
-    return items.sort((a, b) => b.time - a.time).slice(0, 12);
+    return items.sort((a, b) => b.time - a.time).slice(0, 20);
   }, [investigations, alerts, sweepFlags]);
 
   // ── Derived stats ────────────────────────────────────────────────────────────
@@ -178,7 +208,10 @@ export default function AgentScreen() {
     ? Math.round((withFeedback.filter((i) => i.feedback === 'accurate').length / withFeedback.length) * 100)
     : null;
 
-  // ── Render ───────────────────────────────────────────────────────────────────
+  // Count unread flags
+  const unreadFlags = sweepFlags.filter((f) => !f.read).length;
+
+  // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
     <View style={styles.container}>
@@ -195,31 +228,35 @@ export default function AgentScreen() {
             totalCount={totalCount}
             accuratePct={accuratePct}
             lastSweep={serverStatus?.last_sweep ?? null}
+            unreadFlags={unreadFlags}
           />
 
           {/* Tab bar */}
           <Animated.View entering={FadeInDown.delay(100).duration(300)}>
             <View style={styles.tabBar}>
-              {(['feed', 'memory', 'settings'] as TabId[]).map((tab) => {
-                const isActive = activeTab === tab;
-                const tabIcon = tab === 'feed'
-                  ? <Zap size={13} color={isActive ? tokens.white100 : tokens.textTertiary} strokeWidth={2.5} />
-                  : tab === 'memory'
-                    ? <Search size={13} color={isActive ? tokens.white100 : tokens.textTertiary} strokeWidth={2} />
-                    : <Settings size={13} color={isActive ? tokens.white100 : tokens.textTertiary} strokeWidth={2} />;
-                const tabLabel = tab === 'feed' ? 'Activity' : tab === 'memory' ? 'Memory' : 'Settings';
+              {([
+                { id: 'feed' as TabId, icon: Zap, label: 'Activity' },
+                { id: 'memory' as TabId, icon: Brain, label: 'Memory' },
+                { id: 'settings' as TabId, icon: Settings, label: 'Settings' },
+              ]).map(({ id, icon: TabIcon, label }) => {
+                const isActive = activeTab === id;
                 return (
                   <TouchableOpacity
-                    key={tab}
-                    onPress={() => setActiveTab(tab)}
+                    key={id}
+                    onPress={() => setActiveTab(id)}
                     style={styles.tabTouch}
                     activeOpacity={0.7}
                   >
                     <View style={[styles.tabInner, isActive && styles.tabInnerActive]}>
-                      {tabIcon}
+                      <TabIcon size={13} color={isActive ? tokens.white100 : tokens.textTertiary} strokeWidth={2.5} />
                       <Text style={[styles.tabLabel, isActive && styles.tabLabelActive]}>
-                        {tabLabel}
+                        {label}
                       </Text>
+                      {id === 'feed' && unreadFlags > 0 && (
+                        <View style={styles.tabBadge}>
+                          <Text style={styles.tabBadgeText}>{unreadFlags > 9 ? '9+' : unreadFlags}</Text>
+                        </View>
+                      )}
                     </View>
                   </TouchableOpacity>
                 );
@@ -239,8 +276,14 @@ export default function AgentScreen() {
                 <MemoryLensPanel data={memoryData} />
               ) : (
                 <View style={styles.memoryEmpty}>
+                  <Brain size={28} color={tokens.white20} />
+                  <Text style={styles.memoryEmptyTitle}>
+                    {latestMint ? 'Loading agent memory…' : 'No intelligence yet'}
+                  </Text>
                   <Text style={styles.memoryEmptyText}>
-                    {latestMint ? 'Loading agent memory...' : 'Investigate a token to see agent memory here.'}
+                    {latestMint
+                      ? 'Fetching entity profile and learned patterns.'
+                      : 'Investigate a token to build the agent\'s memory. Each scan teaches it to recognize patterns.'}
                   </Text>
                 </View>
               )}
@@ -256,6 +299,62 @@ export default function AgentScreen() {
       </View>
     </View>
   );
+}
+
+// ── Helpers: Extract readable data from sweep flags ──────────────────────────
+
+function _extractNameFromTitle(title: string): string | null {
+  // Titles often look like "Deployer exited on TokenName" or "Price crash on $SYMBOL"
+  const match = title.match(/on\s+\$?(\w[\w\s]*)/i);
+  return match?.[1]?.trim() ?? null;
+}
+
+function _buildFlagSummary(flag: SweepFlag): string {
+  const d = flag.detail;
+  switch (flag.flagType) {
+    case 'deployer_exit':
+      return d?.amount_sol
+        ? `Deployer withdrew ${Number(d.amount_sol).toFixed(1)} SOL`
+        : flag.title;
+    case 'sol_extraction': {
+      const amt = d?.amount_sol ?? d?.extracted_sol;
+      return amt ? `${Number(amt).toFixed(1)} SOL extracted` : flag.title;
+    }
+    case 'price_crash': {
+      const pct = d?.drop_pct ?? d?.change_pct;
+      return pct ? `Price dropped ${Math.abs(Number(pct)).toFixed(0)}%` : flag.title;
+    }
+    case 'bundle':
+      return d?.bundle_pct
+        ? `${Number(d.bundle_pct).toFixed(0)}% of supply bundled`
+        : flag.title;
+    case 'cartel':
+      return d?.cluster_size
+        ? `Linked to cluster of ${d.cluster_size} wallets`
+        : flag.title;
+    case 'operator_match':
+      return d?.match_count
+        ? `Matches operator behind ${d.match_count} other tokens`
+        : flag.title;
+    case 'deployer_rug':
+      return d?.rug_count
+        ? `Deployer has ${d.rug_count} prior rugs`
+        : flag.title;
+    default:
+      return flag.title;
+  }
+}
+
+function _buildFlagDetail(flag: SweepFlag): string | undefined {
+  const d = flag.detail;
+  if (!d) return undefined;
+  // Collect extra context from detail fields
+  const parts: string[] = [];
+  if (d.deployer) parts.push(`Deployer: ${String(d.deployer).slice(0, 8)}…`);
+  if (d.risk_score) parts.push(`Risk: ${d.risk_score}/100`);
+  if (d.narrative) parts.push(`Narrative: ${d.narrative}`);
+  if (d.note) parts.push(String(d.note));
+  return parts.length > 0 ? parts.join(' · ') : undefined;
 }
 
 const styles = StyleSheet.create({
@@ -288,20 +387,43 @@ const styles = StyleSheet.create({
     color: tokens.textTertiary,
   },
   tabLabelActive: { color: tokens.white100 },
+  tabBadge: {
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: tokens.risk.critical,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+    marginLeft: 2,
+  },
+  tabBadgeText: {
+    fontFamily: 'Lexend-Bold',
+    fontSize: 9,
+    color: tokens.white100,
+  },
   memoryEmpty: {
     alignItems: 'center',
-    paddingVertical: 32,
+    paddingVertical: 40,
+    paddingHorizontal: 24,
     backgroundColor: tokens.bgGlass,
     borderRadius: tokens.radius.md,
     borderWidth: 1,
     borderColor: tokens.borderSubtle,
+    gap: 8,
+  },
+  memoryEmptyTitle: {
+    fontFamily: 'Lexend-SemiBold',
+    fontSize: tokens.font.body,
+    color: tokens.white60,
+    marginTop: 4,
   },
   memoryEmptyText: {
     fontFamily: 'Lexend-Regular',
     fontSize: tokens.font.small,
     color: tokens.textTertiary,
     textAlign: 'center',
-    maxWidth: 240,
+    maxWidth: 280,
     lineHeight: 18,
   },
 });
