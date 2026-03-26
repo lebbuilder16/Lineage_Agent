@@ -362,17 +362,24 @@ export function WalletHoldingsPanel({ plan }: WalletHoldingsPanelProps) {
   } = useWalletMonitorStore();
   const enabled = useAgentPrefsStore((s) => s.walletMonitorEnabled);
   const [sortKey, setSortKey] = useState<SortKey>('risk');
+  const [watchedMint, setWatchedMint] = useState<string | null>(null);
 
-  const handleWatch = useCallback((mint: string) => {
+  const handleWatch = useCallback(async (mint: string) => {
     const { useAuthStore } = require('../../store/auth');
     const key = useAuthStore.getState().apiKey;
     if (!key) return;
     const BASE = (process.env.EXPO_PUBLIC_API_URL ?? 'https://lineage-agent.fly.dev').replace(/\/$/, '');
-    fetch(`${BASE}/auth/watches`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-API-Key': key },
-      body: JSON.stringify({ sub_type: 'mint', value: mint }),
-    }).catch(() => {});
+    try {
+      const res = await fetch(`${BASE}/auth/watches`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-API-Key': key },
+        body: JSON.stringify({ sub_type: 'mint', value: mint }),
+      });
+      if (res.ok) {
+        setWatchedMint(mint);
+        setTimeout(() => setWatchedMint(null), 3000);
+      }
+    } catch { /* best-effort */ }
   }, []);
 
   useEffect(() => {
@@ -457,6 +464,13 @@ export function WalletHoldingsPanel({ plan }: WalletHoldingsPanelProps) {
     <View style={s.root}>
       {lastScanResult && <ScanToast result={lastScanResult} onDismiss={clearScanResult} />}
 
+      {watchedMint && (
+        <Animated.View entering={SlideInUp.duration(300)} style={s.watchToast}>
+          <Eye size={14} color={tokens.secondary} />
+          <Text style={s.watchToastText}>Added to watchlist</Text>
+        </Animated.View>
+      )}
+
       <PortfolioSummary
         portfolioUsd={portfolioUsd} riskyUsd={riskyUsd}
         totalHoldings={totalHoldings} riskDist={riskDistribution} lastSweep={lastSweep}
@@ -491,7 +505,14 @@ export function WalletHoldingsPanel({ plan }: WalletHoldingsPanelProps) {
 const s = StyleSheet.create({
   root: { gap: 8 },
 
-  // Toast
+  // Toasts
+  watchToast: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    paddingVertical: 10, paddingHorizontal: 14,
+    backgroundColor: `${tokens.secondary}12`, borderRadius: tokens.radius.sm,
+    borderWidth: 1, borderColor: `${tokens.secondary}30`,
+  },
+  watchToastText: { flex: 1, fontFamily: 'Lexend-Medium', fontSize: tokens.font.small, color: tokens.secondary },
   toast: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
     paddingVertical: 10, paddingHorizontal: 14,
