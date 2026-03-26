@@ -45,8 +45,10 @@ export default function WatchlistScreen() {
 
   const [sweeping, setSweeping] = useState(false);
   const [flagCounts, setFlagCounts] = useState<Record<string, number>>({});
+  const [flagTypes, setFlagTypes] = useState<Record<string, string[]>>({});
+  const [tokenMeta, setTokenMeta] = useState<Record<string, { name?: string; symbol?: string; image?: string }>>({});
 
-  // Fetch flag counts for all watched tokens
+  // Fetch flag details + token metadata for all watched tokens
   React.useEffect(() => {
     if (!apiKey) return;
     const BASE = (process.env.EXPO_PUBLIC_API_URL ?? 'https://lineage-agent.fly.dev').replace(/\/$/, '');
@@ -55,10 +57,25 @@ export default function WatchlistScreen() {
       .then((d) => {
         if (!d?.flags) return;
         const counts: Record<string, number> = {};
+        const types: Record<string, string[]> = {};
+        const meta: Record<string, { name?: string; symbol?: string; image?: string }> = {};
         for (const f of d.flags) {
-          if (!f.read) counts[f.mint] = (counts[f.mint] ?? 0) + 1;
+          if (!f.read) {
+            counts[f.mint] = (counts[f.mint] ?? 0) + 1;
+            if (!types[f.mint]) types[f.mint] = [];
+            if (!types[f.mint].includes(f.flagType)) types[f.mint].push(f.flagType);
+          }
+          // Extract token metadata from flag detail
+          if (f.detail && f.mint && !meta[f.mint]) {
+            const det = typeof f.detail === 'string' ? (() => { try { return JSON.parse(f.detail); } catch { return f.detail; } })() : f.detail;
+            if (det?.token_name || det?.symbol) {
+              meta[f.mint] = { name: det.token_name, symbol: det.symbol, image: det.image_uri };
+            }
+          }
         }
         setFlagCounts(counts);
+        setFlagTypes(types);
+        setTokenMeta((prev) => ({ ...prev, ...meta }));
       })
       .catch(() => {});
   }, [apiKey, watches]);
@@ -281,7 +298,14 @@ export default function WatchlistScreen() {
                     </TouchableOpacity>
                   )}
                 >
-                  <WatchItemCard item={item} onPress={handlePress} onCopy={handleCopy} flagCount={flagCounts[item.value] ?? 0} />
+                  <WatchItemCard
+                    item={item}
+                    onPress={handlePress}
+                    onCopy={handleCopy}
+                    flagCount={flagCounts[item.value] ?? 0}
+                    flagTypeList={flagTypes[item.value]}
+                    tokenMetaOverride={tokenMeta[item.value]}
+                  />
                 </Swipeable>
               </Animated.View>
             )}
