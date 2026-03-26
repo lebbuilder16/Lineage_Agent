@@ -142,10 +142,13 @@ function _extractInsight(flags: string[]): { forensic: string[]; market: string[
       continue;
     }
 
-    // First flag is usually the verdict summary — classify by keywords
+    // Classify by keywords
     const fl = f.toLowerCase();
     if (fl.includes('price') || fl.includes('mcap') || fl.includes('liq') || fl.includes('market:')) {
       market.push(f.length > 80 ? f.slice(0, 77) + '...' : f);
+    } else if (fl.includes('bundle wallet') || fl.includes('bundle sold') || fl.includes('still holding')) {
+      // Bundle wallet activity — high-value forensic signal
+      forensic.push(f);
     } else {
       // Shorten long verdict summaries
       const short = f.split(/[.;]/)[0].trim();

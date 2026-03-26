@@ -163,6 +163,20 @@ def _generate_flags(old: dict, new: dict, mint: str) -> list[dict]:
               f"Sell pressure spiked: {old_sp*100:.0f}% → {new_sp*100:.0f}%",
               {"old": old_sp, "new": new_sp})
 
+    # Bundle wallet exits (detected by balance check)
+    new_bundle_exits = new.get("bundle_exits_new") or 0
+    old_bundle_exits = old.get("bundle_exits_new") or 0
+    if new_bundle_exits > old_bundle_exits:
+        exit_wallets = new.get("bundle_exit_wallets") or []
+        _flag("BUNDLE_WALLET_EXIT", "critical",
+              f"{new_bundle_exits} bundle wallet(s) sold since last scan",
+              {"new_exits": new_bundle_exits, "wallets": exit_wallets[:3],
+               "still_holding": new.get("bundle_holders", 0)})
+    elif new_bundle_exits > 0 and new.get("bundle_holders", 0) == 0:
+        _flag("BUNDLE_WALLETS_ALL_EXITED", "critical",
+              "All bundle wallets have exited — full team extraction",
+              {"total_exits": new_bundle_exits})
+
     # ── Correlative intelligence: forensic × market cross-reference ──
     deltas = _compute_deltas(old, new)
     correlated = _cross_reference(deltas, old, new)
@@ -181,6 +195,7 @@ def _compute_deltas(old: dict, new: dict) -> dict:
     d["cartel_wallets_delta"] = (new.get("cartel_wallets") or 0) - (old.get("cartel_wallets") or 0)
     d["rug_count_delta"] = (new.get("rug_count") or 0) - (old.get("rug_count") or 0)
     d["deployer_just_exited"] = (not old.get("deployer_exited")) and bool(new.get("deployer_exited"))
+    d["bundle_exits_new"] = (new.get("bundle_exits_new") or 0) - (old.get("bundle_exits_new") or 0)
     d["insider_escalated"] = (
         old.get("insider_verdict") != "insider_dump"
         and new.get("insider_verdict") == "insider_dump"
@@ -206,6 +221,7 @@ def _cross_reference(deltas: dict, old: dict, new: dict) -> list[dict]:
         or deltas["cartel_wallets_delta"] > 0
         or deltas["deployer_just_exited"]
         or deltas["insider_escalated"]
+        or deltas.get("bundle_exits_new", 0) > 0
     )
     market_stressed = (
         (deltas.get("price_usd_pct") or 0) <= -20
@@ -230,6 +246,8 @@ def _cross_reference(deltas: dict, old: dict, new: dict) -> list[dict]:
         forensic_facts.append(f"+{deltas['cartel_wallets_delta']} cartel wallets")
     if deltas["rug_count_delta"] > 0:
         forensic_facts.append(f"+{deltas['rug_count_delta']} new rug(s)")
+    if deltas.get("bundle_exits_new", 0) > 0:
+        forensic_facts.append(f"{deltas['bundle_exits_new']} bundle wallet(s) sold")
 
     market_facts = []
     price_pct = deltas.get("price_usd_pct")
@@ -273,6 +291,76 @@ def _cross_reference(deltas: dict, old: dict, new: dict) -> list[dict]:
                         "detail": detail})
 
     return results
+
+
+# ── Bundle wallet activity tracking ──────────────────────────────────────────
+
+async def _check_bundle_wallet_balances(mint: str, lin: Any) -> dict | None:
+    """Check if known bundle wallets still hold tokens (1 RPC call per wallet).
+
+    Returns {total, still_holding, new_exits, exit_wallets} or None if no bundle.
+    """
+    br = getattr(lin, "bundle_report", None)
+    if not br:
+        # Try cached report
+        try:
+            from .bundle_tracker_service import get_cached_bundle_report
+            br = await get_cached_bundle_report(mint)
+        except Exception:
+            pass
+    if not br:
+        return None
+
+    # Collect all bundle wallets worth tracking
+    wallets_to_check: list[tuple[str, bool]] = []  # (address, was_sold_initially)
+    bundle_wallets = getattr(br, "bundle_wallets", None) or []
+    for bw in bundle_wallets:
+        addr = getattr(bw, "wallet", None) or (bw.get("wallet") if isinstance(bw, dict) else None)
+        if not addr:
+            continue
+        post = getattr(bw, "post_sell", None) or (bw.get("post_sell") if isinstance(bw, dict) else None)
+        was_sold = False
+        if post:
+            was_sold = getattr(post, "sell_detected", False) if hasattr(post, "sell_detected") else post.get("sell_detected", False)
+        wallets_to_check.append((addr, was_sold))
+
+    if not wallets_to_check:
+        return None
+
+    # Check current balances in parallel (max 8 concurrent)
+    from .data_sources._clients import get_rpc_client
+    rpc = get_rpc_client()
+    sem = asyncio.Semaphore(8)
+
+    async def _check(wallet: str) -> tuple[str, float]:
+        async with sem:
+            try:
+                bal = await asyncio.wait_for(
+                    rpc.get_wallet_token_balance(wallet, mint),
+                    timeout=5.0,
+                )
+                return (wallet, bal)
+            except Exception:
+                return (wallet, -1.0)  # unknown
+
+    results = await asyncio.gather(*[_check(w) for w, _ in wallets_to_check])
+
+    still_holding = 0
+    new_exits: list[str] = []
+    for (wallet, was_sold), (_, balance) in zip(wallets_to_check, results):
+        if balance < 0:
+            continue  # RPC failed, skip
+        if balance > 0:
+            still_holding += 1
+        elif not was_sold and balance == 0:
+            new_exits.append(wallet)
+
+    return {
+        "total": len(wallets_to_check),
+        "still_holding": still_holding,
+        "new_exits": len(new_exits),
+        "exit_wallets": new_exits[:5],  # cap for display
+    }
 
 
 # ── Main rescan function ─────────────────────────────────────────────────────
@@ -340,6 +428,14 @@ async def run_single_rescan(watch_id: int, user_id: int, cache) -> dict | None:
                     await asyncio.sleep(1)
                     continue
                 logger.warning("[sweep] snapshot write failed: %s", e)
+
+        # ── Bundle wallet activity check ─────────────────────────────
+        # Check if known bundle wallets still hold the token (cheap: 1 RPC/wallet)
+        bundle_activity = await _check_bundle_wallet_balances(mint, lin)
+        if bundle_activity:
+            new_forensic["bundle_holders"] = bundle_activity["still_holding"]
+            new_forensic["bundle_exits_new"] = bundle_activity["new_exits"]
+            new_forensic["bundle_exit_wallets"] = bundle_activity["exit_wallets"]
 
         # Generate intelligence flags
         flags = _generate_flags(old_forensic, new_forensic, mint)
