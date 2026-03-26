@@ -105,45 +105,10 @@ def _shannon_entropy(s: str) -> float:
     return ent / max_ent if max_ent > 0 else 0.0
 
 
-# ── Persistent fingerprint cache ─────────────────────────────────────────────
+# ── In-process fingerprint cache (no DB writes during scan) ──────────────────
 
-async def _get_cached_fingerprint(mint: str) -> dict | None:
-    """Read from token_fingerprints table. Returns dict or None."""
-    try:
-        from .data_sources._clients import cache as _c
-        db = await _c._get_conn()
-        row = await (await db.execute(
-            "SELECT fingerprint, campaign_tags, desc_norm, upload_service, entropy "
-            "FROM token_fingerprints WHERE mint = ?",
-            (mint,),
-        )).fetchone()
-        if row:
-            return {
-                "fingerprint": row[0],
-                "campaign_tags": row[1] or "",
-                "desc_norm": row[2] or "",
-                "upload_service": row[3] or "",
-                "entropy": row[4] or 0,
-            }
-    except Exception:
-        pass
-    return None
-
-
-async def _save_fingerprint(mint: str, fp: str, tags: str, desc: str, svc: str, ent: float) -> None:
-    """Write to token_fingerprints table."""
-    try:
-        from .data_sources._clients import cache as _c
-        db = await _c._get_conn()
-        await db.execute(
-            "INSERT OR REPLACE INTO token_fingerprints "
-            "(mint, fingerprint, campaign_tags, desc_norm, upload_service, entropy, computed_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (mint, fp, tags, desc, svc, ent, time.time()),
-        )
-        await db.commit()
-    except Exception:
-        pass
+_FP_MEM_CACHE: dict[str, tuple[str, str]] = {}  # mint → (fp, desc_norm)
+_FP_MEM_MAX = 2000
 
 
 # ── Core fingerprint computation ─────────────────────────────────────────────
@@ -160,10 +125,9 @@ async def _get_fingerprint(mint: str, uri: str) -> tuple[str, str] | None:
     if not uri:
         return None
 
-    # 1. Persistent DB cache (survives restarts, shared across all scan paths)
-    cached_db = await _get_cached_fingerprint(mint)
-    if cached_db:
-        return cached_db["fingerprint"], cached_db["desc_norm"]
+    # 1. In-process dict cache (instant, no DB I/O)
+    if mint in _FP_MEM_CACHE:
+        return _FP_MEM_CACHE[mint]
 
     # 2. In-memory TTL cache (fast path within same process)
     cache_key = f"dna:v2:{mint}"
@@ -218,8 +182,9 @@ async def _get_fingerprint(mint: str, uri: str) -> tuple[str, str] | None:
         raw = f"{service}:{desc_norm}"
     fp = hashlib.sha256(raw.encode()).hexdigest()[:32]
 
-    # 5. Persist to both caches
-    await _save_fingerprint(mint, fp, tags_str, desc_norm, service, entropy)
+    # 5. Cache in-process + TTL
+    if len(_FP_MEM_CACHE) < _FP_MEM_MAX:
+        _FP_MEM_CACHE[mint] = (fp, desc_norm)
     await cache_set(cache_key, f"{fp}|{desc_norm}|{tags_str}", ttl=86400)
 
     return fp, desc_norm
