@@ -41,10 +41,10 @@ _SKIP_ADDRESSES = SKIP_PROGRAMS
 
 _MIN_TRANSFER_LAMPORTS = MIN_TRANSFER_LAMPORTS
 _MAX_HOPS = int(os.getenv("SOL_TRACE_MAX_HOPS", "3"))
-_MAX_TXN_PER_WALLET = 50
-_MAX_TXN_HOP1_PLUS = 20          # Fewer txs per wallet for hops > 0
-_MAX_FRONTIER_PER_HOP = 8        # Cap BFS frontier to avoid explosion
-_TRACE_TIMEOUT = 45.0
+_MAX_TXN_PER_WALLET = 80
+_MAX_TXN_HOP1_PLUS = 30          # Fewer txs per wallet for hops > 0
+_MAX_FRONTIER_PER_HOP = 12       # Cap BFS frontier to avoid explosion
+_TRACE_TIMEOUT = 60.0
 _HOP_SEM_CONCURRENCY = 12
 
 

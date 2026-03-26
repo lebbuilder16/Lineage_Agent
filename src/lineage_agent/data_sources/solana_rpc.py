@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+import time
 from datetime import datetime, timezone
 from typing import Any, Optional
 
@@ -123,6 +124,34 @@ _PROGRAM_ADDRESSES: frozenset[str] = frozenset({
     "WLHv2UAZm6z4KyaaELi5pjdbJh6RESMva1Rnn8pJVVh",     # Raydium Launchpad authority
     "LanMV9sAd7wArD6GNnABFhv4Vf8W4N9xCRbTPgP3czj",    # Raydium Launchpad program
 })
+
+
+# ── TX-level LRU cache for getTransaction ─────────────────────────────────────
+# Avoids re-fetching the same transaction across sol_flow, bundle, and insider
+# services. Entries expire after 10 minutes. Max 500 entries.
+_TX_CACHE: dict[str, tuple[float, Any]] = {}  # sig → (timestamp, result)
+_TX_CACHE_MAX = 500
+_TX_CACHE_TTL = 600.0  # 10 minutes
+
+
+def _tx_cache_get(sig: str) -> Any | None:
+    entry = _TX_CACHE.get(sig)
+    if entry is None:
+        return None
+    ts, result = entry
+    if time.monotonic() - ts > _TX_CACHE_TTL:
+        _TX_CACHE.pop(sig, None)
+        return None
+    return result
+
+
+def _tx_cache_put(sig: str, result: Any) -> None:
+    if len(_TX_CACHE) >= _TX_CACHE_MAX:
+        # Evict oldest 20%
+        sorted_keys = sorted(_TX_CACHE, key=lambda k: _TX_CACHE[k][0])
+        for k in sorted_keys[:_TX_CACHE_MAX // 5]:
+            _TX_CACHE.pop(k, None)
+    _TX_CACHE[sig] = (time.monotonic(), result)
 
 
 class SolanaRpcClient:
@@ -657,6 +686,14 @@ class SolanaRpcClient:
             failures should not cascade to block critical RPC calls such as
             ``getSignaturesForAddress`` or ``getAsset``.
         """
+        # TX-level cache for getTransaction (avoids redundant RPC calls)
+        _cache_sig: str | None = None
+        if method == "getTransaction" and isinstance(params, list) and params:
+            _cache_sig = str(params[0])
+            cached = _tx_cache_get(_cache_sig)
+            if cached is not None:
+                return cached
+
         self._id_counter += 1
         payload = {
             "jsonrpc": "2.0",
@@ -674,6 +711,9 @@ class SolanaRpcClient:
             )
             if result is None:
                 raise httpx.RequestError(f"Solana RPC {method}: all retries exhausted")
+            # Cache successful getTransaction results
+            if _cache_sig and result:
+                _tx_cache_put(_cache_sig, result)
             return result
 
         if self._cb is not None and circuit_protect:

@@ -70,7 +70,7 @@ _PUMP_PROGRAM = "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBymtzbm"
 # ~12 000 transactions are very unlikely to be active scam targets; coverage
 # can be extended via the dedicated /bundle/{mint} endpoint which has a higher
 # timeout budget.  (Optimization #6)
-_MAX_PAGINATION_PAGES = 12
+_MAX_PAGINATION_PAGES = 20
 # Concurrency throttle — max parallel RPC calls from the bundle tracker.
 # 8 stays within Helius Growth plan limits (50 req/s) while allowing
 # pre/post-sell analyses + Phase-1 TX decoding to complete faster.
