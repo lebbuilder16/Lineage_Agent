@@ -41,7 +41,7 @@ from .death_clock import _compute_rug_probability, compute_death_clock
 from .deployer_service import compute_deployer_profile
 from .factory_service import analyze_factory_rhythm, record_token_creation
 from .insider_sell_service import analyze_insider_sell
-from .bundle_tracker_service import analyze_bundle
+from .bundle_tracker_service import analyze_bundle, get_cached_bundle_report
 from .constants import LAUNCHPAD_PROGRAMS
 from .liquidity_arch import analyze_liquidity_architecture
 from .metadata_dna_service import build_operator_fingerprint
@@ -1158,7 +1158,7 @@ async def _detect_lineage_impl(
         logger.debug("uri_tuples history expansion failed: %s", _fp_err)
 
     # Phases 2, 3, 5, 6, 7, 8, 9 — async enrichers in parallel
-    async def _safe(coro, *, name: str = "enricher", timeout: float = 5.0):
+    async def _safe(coro, *, name: str = "enricher", timeout: float = 12.0):
         try:
             return await asyncio.wait_for(coro, timeout=timeout)
         except asyncio.TimeoutError:
@@ -1287,9 +1287,16 @@ async def _detect_lineage_impl(
                 _price = _p
         except Exception:
             pass
-        # Inline cap = 5 s (down from 8 s).  The bundle tracker's own internal
-        # timeout handles the full analysis in the background; results are
-        # persisted to DB and the next scan reads them instantly.
+        # Check warm cache first (background task may have completed)
+        if not force_refresh:
+            try:
+                _cached_br = await get_cached_bundle_report(_scan_mint)
+                if _cached_br:
+                    return _cached_br
+            except Exception:
+                pass
+        # Inline cap = 5 s.  The bundle tracker's own internal timeout
+        # handles the full analysis in background; results are cached.
         try:
             return await asyncio.wait_for(
                 analyze_bundle(_scan_mint, _scan_deployer, _price, force_refresh=force_refresh),
