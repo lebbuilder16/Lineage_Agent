@@ -47,6 +47,7 @@ export interface RiskDistribution {
   medium: number;
   high: number;
   critical: number;
+  unknown: number;
 }
 
 interface WalletMonitorState {
@@ -82,7 +83,7 @@ function applyHoldingsData(data: any) {
     lastSweep: data.last_sweep ?? null,
     portfolioUsd: data.portfolio_usd ?? 0,
     riskyUsd: data.risky_usd ?? 0,
-    riskDistribution: data.risk_distribution ?? { low: 0, medium: 0, high: 0, critical: 0 },
+    riskDistribution: data.risk_distribution ?? { low: 0, medium: 0, high: 0, critical: 0, unknown: 0 },
   };
 }
 
@@ -94,7 +95,7 @@ export const useWalletMonitorStore = create<WalletMonitorState>((set) => ({
   totalHoldings: 0,
   portfolioUsd: 0,
   riskyUsd: 0,
-  riskDistribution: { low: 0, medium: 0, high: 0, critical: 0 },
+  riskDistribution: { low: 0, medium: 0, high: 0, critical: 0, unknown: 0 },
   loading: false,
   scanning: false,
   lastScanResult: null,

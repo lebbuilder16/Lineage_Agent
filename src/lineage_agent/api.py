@@ -3678,16 +3678,21 @@ async def get_wallet_holdings(
     holdings = []
     total_usd = 0.0
     risky_usd = 0.0
-    risk_dist = {"low": 0, "medium": 0, "high": 0, "critical": 0}
+    risk_dist = {"low": 0, "medium": 0, "high": 0, "critical": 0, "unknown": 0}
     for r in rows:
         score = r[6] or 0
         price = r[9] or 0
+        liq = r[8] or 0
         amount = r[5] or 0
         usd_value = round(amount * price, 2) if price > 0 else None
         total_usd += usd_value or 0
+        risk_level_raw = r[7] or "unknown"
 
-        # Risk distribution
-        if score >= 75:
+        # Risk distribution — tokens with no market data go to "unknown"
+        has_market_data = liq > 0 or price > 0 or (score > 0 and risk_level_raw != "unknown")
+        if not has_market_data:
+            risk_dist["unknown"] += 1
+        elif score >= 75:
             risk_dist["critical"] += 1
             risky_usd += usd_value or 0
         elif score >= 50:

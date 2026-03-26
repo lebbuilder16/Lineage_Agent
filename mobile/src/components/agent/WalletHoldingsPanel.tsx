@@ -117,11 +117,12 @@ function PortfolioSummary({
   portfolioUsd, riskyUsd, totalHoldings, riskDist, lastSweep,
 }: {
   portfolioUsd: number; riskyUsd: number; totalHoldings: number;
-  riskDist: { low: number; medium: number; high: number; critical: number };
+  riskDist: { low: number; medium: number; high: number; critical: number; unknown: number };
   lastSweep: number | null;
 }) {
   const riskyPct = portfolioUsd > 0 ? Math.round((riskyUsd / portfolioUsd) * 100) : 0;
-  const total = riskDist.low + riskDist.medium + riskDist.high + riskDist.critical;
+  // Only count tokens with actual market data in the distribution bar
+  const assessed = riskDist.low + riskDist.medium + riskDist.high + riskDist.critical;
 
   return (
     <Animated.View entering={FadeIn.duration(300)}>
@@ -142,12 +143,12 @@ function PortfolioSummary({
           )}
         </View>
 
-        {total > 0 && (
+        {assessed > 0 && (
           <View style={s.distRow}>
             {(['critical', 'high', 'medium', 'low'] as const).map((level) => {
               const count = riskDist[level];
               if (count === 0) return null;
-              const pct = Math.max(8, (count / total) * 100);
+              const pct = Math.max(8, (count / assessed) * 100);
               const color = level === 'critical' ? tokens.risk.critical
                 : level === 'high' ? tokens.risk.high
                 : level === 'medium' ? tokens.risk.medium : tokens.risk.low;
@@ -161,7 +162,7 @@ function PortfolioSummary({
         )}
 
         <Text style={s.summaryMeta}>
-          {totalHoldings} token{totalHoldings !== 1 ? 's' : ''}
+          {assessed} assessed{riskDist.unknown > 0 ? ` · ${riskDist.unknown} no data` : ''}
           {lastSweep ? ` · scanned ${timeAgo(lastSweep)}` : ''}
         </Text>
       </View>
