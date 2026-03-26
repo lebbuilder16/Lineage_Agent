@@ -114,15 +114,54 @@ function ScanToast({ result, onDismiss }: { result: ScanResult; onDismiss: () =>
 
 // ── Agent Insights — forensic × market correlation ──────────────────────────
 
+function _extractInsight(flags: string[]): { forensic: string[]; market: string[] } {
+  const forensic: string[] = [];
+  const market: string[] = [];
+
+  for (const raw of flags) {
+    // The first flag is the verdict summary, key_findings follow with [TAG] prefix
+    const f = raw.trim();
+    if (!f) continue;
+
+    // Extract clean signal from verbose key_findings "[EXIT] Deployer confirmed exited..."
+    const tagMatch = f.match(/^\[(\w+)\]\s*(.+)/);
+    if (tagMatch) {
+      const tag = tagMatch[1].toUpperCase();
+      const body = tagMatch[2];
+      // Shorten to first sentence or 80 chars
+      const short = body.split(/[.;]/)[0].trim().slice(0, 80);
+      if (['EXIT', 'DEPLOYMENT', 'INSIDER', 'COORDINATION', 'CARTEL', 'OPERATOR'].includes(tag)) {
+        forensic.push(short);
+      } else if (['FINANCIAL', 'EXTRACTION', 'FLOW'].includes(tag)) {
+        forensic.push(short);
+      } else if (['MARKET', 'PRICE', 'LIQUIDITY', 'VOLUME'].includes(tag)) {
+        market.push(short);
+      } else {
+        forensic.push(short);
+      }
+      continue;
+    }
+
+    // First flag is usually the verdict summary — classify by keywords
+    const fl = f.toLowerCase();
+    if (fl.includes('price') || fl.includes('mcap') || fl.includes('liq') || fl.includes('market:')) {
+      market.push(f.length > 80 ? f.slice(0, 77) + '...' : f);
+    } else {
+      // Shorten long verdict summaries
+      const short = f.split(/[.;]/)[0].trim();
+      forensic.push(short.length > 80 ? short.slice(0, 77) + '...' : short);
+    }
+  }
+  return { forensic, market };
+}
+
 function AgentInsights({ holdings }: { holdings: WalletHolding[] }) {
-  // Only show for tokens with risk data (score > 0 or flags)
   const analyzed = holdings.filter(
     (h) => (h.risk_score && h.risk_score > 0) || (h.risk_flags && h.risk_flags.length > 0),
   );
   if (analyzed.length === 0) return null;
 
-  // Build insights by cross-referencing forensic flags with market state
-  const insights: { token: string; severity: string; color: string; text: string }[] = [];
+  const insights: { token: string; color: string; forensic: string[]; market: string[]; score: number }[] = [];
 
   for (const h of analyzed) {
     const score = h.risk_score ?? 0;
@@ -130,41 +169,17 @@ function AgentInsights({ holdings }: { holdings: WalletHolding[] }) {
     const name = h.token_name || h.token_symbol || h.mint.slice(0, 8);
     const rc = score >= 75 ? tokens.risk.critical : score >= 50 ? tokens.risk.high : score >= 25 ? tokens.risk.medium : tokens.risk.low;
 
-    // Forensic observations
-    const forensic: string[] = [];
-    const market: string[] = [];
+    const { forensic, market } = _extractInsight(flags);
 
-    for (const f of flags) {
-      const fl = f.toLowerCase();
-      if (fl.includes('deployer') || fl.includes('bundle') || fl.includes('cartel')
-        || fl.includes('insider') || fl.includes('extraction') || fl.includes('sol extracted')
-        || fl.includes('rug')) {
-        forensic.push(f);
-      } else if (fl.includes('price') || fl.includes('mcap') || fl.includes('liq') || fl.includes('market')) {
-        market.push(f);
-      } else {
-        forensic.push(f);
+    // Add market context from holding data if not already present
+    if (market.length === 0) {
+      if (h.liquidity_usd != null && h.liquidity_usd > 0 && h.liquidity_usd < 5000) {
+        market.push(`Low liquidity: $${h.liquidity_usd.toFixed(0)}`);
       }
     }
 
-    // Build cross-reference text
-    const parts: string[] = [];
-    if (forensic.length > 0) parts.push(forensic.slice(0, 2).join(', '));
-    if (market.length > 0) parts.push(market.slice(0, 2).join(', '));
-
-    // Add market context from holding data
-    if (parts.length === 0 && score >= 50) {
-      if (h.liquidity_usd && h.liquidity_usd < 5000) parts.push('low liquidity');
-      parts.push(`risk ${score}/100`);
-    }
-
-    if (parts.length > 0) {
-      insights.push({
-        token: name,
-        severity: score >= 75 ? 'critical' : score >= 50 ? 'high' : 'medium',
-        color: rc,
-        text: parts.join(' · '),
-      });
+    if (forensic.length > 0 || market.length > 0) {
+      insights.push({ token: name, color: rc, forensic, market, score });
     }
   }
 
@@ -179,10 +194,33 @@ function AgentInsights({ holdings }: { holdings: WalletHolding[] }) {
           <Zap size={10} color={tokens.violet} />
         </View>
         {insights.map((ins, i) => (
-          <View key={i} style={s.insightRow}>
-            <View style={[s.insightDot, { backgroundColor: ins.color }]} />
-            <Text style={s.insightToken}>{ins.token}</Text>
-            <Text style={[s.insightText, { color: ins.color }]} numberOfLines={2}>{ins.text}</Text>
+          <View key={i} style={s.insightBlock}>
+            {/* Token header */}
+            <View style={s.insightTokenRow}>
+              <View style={[s.insightDot, { backgroundColor: ins.color }]} />
+              <Text style={s.insightToken}>{ins.token}</Text>
+              <Text style={[s.insightScore, { color: ins.color }]}>{ins.score}/100</Text>
+            </View>
+            {/* Forensic signals */}
+            {ins.forensic.length > 0 && (
+              <View style={s.insightLayer}>
+                <Text style={s.insightLayerLabel}>Forensic</Text>
+                {ins.forensic.slice(0, 2).map((f, fi) => (
+                  <Text key={fi} style={[s.insightFinding, { color: ins.color }]} numberOfLines={2}>
+                    {f}
+                  </Text>
+                ))}
+              </View>
+            )}
+            {/* Market observations */}
+            {ins.market.length > 0 && (
+              <View style={s.insightLayer}>
+                <Text style={s.insightLayerLabel}>Market</Text>
+                {ins.market.slice(0, 2).map((m, mi) => (
+                  <Text key={mi} style={s.insightMarketText} numberOfLines={1}>{m}</Text>
+                ))}
+              </View>
+            )}
           </View>
         ))}
       </View>
@@ -704,17 +742,37 @@ const s = StyleSheet.create({
     fontFamily: 'Lexend-SemiBold', fontSize: 9,
     color: tokens.violet, letterSpacing: 1, flex: 1,
   },
-  insightRow: {
-    flexDirection: 'row', alignItems: 'flex-start', gap: 8,
+  insightBlock: {
+    paddingTop: 8, paddingBottom: 4,
+    borderTopWidth: 1, borderTopColor: `${tokens.violet}10`,
+    gap: 4,
   },
-  insightDot: { width: 6, height: 6, borderRadius: 3, marginTop: 4 },
+  insightTokenRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+  },
+  insightDot: { width: 6, height: 6, borderRadius: 3 },
   insightToken: {
     fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.small,
-    color: tokens.white80, minWidth: 70,
+    color: tokens.white80, flex: 1,
   },
-  insightText: {
-    fontFamily: 'Lexend-Regular', fontSize: tokens.font.small,
-    flex: 1, lineHeight: 16,
+  insightScore: {
+    fontFamily: 'Lexend-Bold', fontSize: tokens.font.tiny,
+  },
+  insightLayer: {
+    paddingLeft: 12, gap: 2,
+  },
+  insightLayerLabel: {
+    fontFamily: 'Lexend-SemiBold', fontSize: 8,
+    color: tokens.textTertiary, letterSpacing: 0.5,
+    textTransform: 'uppercase',
+  },
+  insightFinding: {
+    fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny,
+    lineHeight: 15,
+  },
+  insightMarketText: {
+    fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny,
+    color: tokens.white60, lineHeight: 15,
   },
 
   // Sort bar
