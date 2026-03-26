@@ -272,6 +272,7 @@ async def lifespan(application: FastAPI):
 
     _schedule_watchlist_sweep()
     _schedule_briefing_loop()
+    _schedule_wallet_monitor()
 
     # ── Pump.fun real-time listener ───────────────────────────────────────
     from .pump_fun_listener import schedule_pump_fun_listener, is_listener_active
@@ -314,6 +315,7 @@ async def lifespan(application: FastAPI):
     cancel_db_maintenance()
     _cancel_watchlist_sweep()
     _cancel_briefing_loop()
+    _cancel_wallet_monitor()
     _cancel_wallet_label_refresh()
     await close_clients()
 
@@ -3164,6 +3166,9 @@ class _AgentPrefsBody(BaseModel):
     investigationDepth: str = "standard"
     quietHoursStart: Optional[int] = None
     quietHoursEnd: Optional[int] = None
+    walletMonitorEnabled: bool = False
+    walletMonitorThreshold: int = 60
+    walletMonitorInterval: int = 600
 
 
 @app.post("/agent/prefs", tags=["agent"])
@@ -3178,13 +3183,16 @@ async def set_agent_prefs(request: Request, body: _AgentPrefsBody):
             auto_investigate, daily_briefing, briefing_hour,
             risk_threshold, alert_types, sol_extraction_min,
             sweep_interval, investigation_depth,
-            quiet_hours_start, quiet_hours_end, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            quiet_hours_start, quiet_hours_end,
+            wallet_monitor_enabled, wallet_monitor_threshold, wallet_monitor_interval,
+            updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (user["id"], int(body.alertOnDeployerLaunch), int(body.alertOnHighRisk),
          int(body.autoInvestigate), int(body.dailyBriefing), body.briefingHour,
          body.riskThreshold, json.dumps(body.alertTypes), body.solExtractionMin,
          body.sweepInterval, body.investigationDepth,
          body.quietHoursStart, body.quietHoursEnd,
+         int(body.walletMonitorEnabled), body.walletMonitorThreshold, body.walletMonitorInterval,
          time.time()),
     )
     await db.commit()
@@ -3201,7 +3209,8 @@ async def get_agent_prefs(request: Request):
         "SELECT alert_deployer_launch, alert_high_risk, auto_investigate, "
         "daily_briefing, briefing_hour, risk_threshold, alert_types, "
         "sol_extraction_min, sweep_interval, investigation_depth, "
-        "quiet_hours_start, quiet_hours_end "
+        "quiet_hours_start, quiet_hours_end, "
+        "wallet_monitor_enabled, wallet_monitor_threshold, wallet_monitor_interval "
         "FROM agent_prefs WHERE user_id = ?",
         (user["id"],),
     )
@@ -3216,6 +3225,9 @@ async def get_agent_prefs(request: Request):
         "investigationDepth": "standard",
         "quietHoursStart": None,
         "quietHoursEnd": None,
+        "walletMonitorEnabled": False,
+        "walletMonitorThreshold": 60,
+        "walletMonitorInterval": 600,
     }
     if not row:
         return defaults
@@ -3235,6 +3247,9 @@ async def get_agent_prefs(request: Request):
         "investigationDepth": row[9] or "standard",
         "quietHoursStart": row[10],
         "quietHoursEnd": row[11],
+        "walletMonitorEnabled": bool(row[12]) if row[12] is not None else False,
+        "walletMonitorThreshold": row[13] if row[13] is not None else 60,
+        "walletMonitorInterval": row[14] if row[14] is not None else 600,
     }
 
 
@@ -3535,6 +3550,259 @@ async def enrich_alert_endpoint(request: Request, body: _AlertEnrichBody):
         enriched_data["summary"] = body.message or body.title or "Alert received."
 
     return {"enrichedData": enriched_data, "actions": actions}
+
+
+# ------------------------------------------------------------------
+# Wallet Monitoring — multi-wallet risk scanning
+# ------------------------------------------------------------------
+
+
+class _WalletAddBody(BaseModel):
+    address: str
+    label: Optional[str] = None
+    source: str = "external"
+
+
+@app.get("/wallet/list", tags=["wallet"])
+async def list_monitored_wallets(request: Request):
+    """List all wallets the user has registered for monitoring."""
+    user = await _get_current_user(request)
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+    db = await _cache._get_conn()
+    cursor = await db.execute(
+        "SELECT id, address, label, source, enabled, created_at "
+        "FROM monitored_wallets WHERE user_id = ? ORDER BY created_at",
+        (user["id"],),
+    )
+    rows = await cursor.fetchall()
+    return {
+        "wallets": [
+            {"id": r[0], "address": r[1], "label": r[2], "source": r[3],
+             "enabled": bool(r[4]), "created_at": r[5]}
+            for r in rows
+        ]
+    }
+
+
+@app.post("/wallet/add", tags=["wallet"])
+async def add_monitored_wallet(request: Request, body: _WalletAddBody):
+    """Add a wallet address for monitoring (embedded or external)."""
+    user = await _get_current_user(request)
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+    db = await _cache._get_conn()
+
+    # Validate address (Base58, 32-44 chars)
+    addr = body.address.strip()
+    if not (32 <= len(addr) <= 44) or not all(c in "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz" for c in addr):
+        raise HTTPException(400, "Invalid Solana address")
+
+    # Max 5 wallets per user
+    cursor = await db.execute(
+        "SELECT COUNT(*) FROM monitored_wallets WHERE user_id = ?", (user["id"],)
+    )
+    count = (await cursor.fetchone())[0]
+    if count >= 5:
+        raise HTTPException(400, "Maximum 5 monitored wallets")
+
+    try:
+        await db.execute(
+            "INSERT INTO monitored_wallets (user_id, address, label, source, enabled, created_at) "
+            "VALUES (?, ?, ?, ?, 1, ?)",
+            (user["id"], addr, body.label, body.source, time.time()),
+        )
+        await db.commit()
+    except Exception:
+        raise HTTPException(409, "Wallet already monitored")
+
+    return {"ok": True, "address": addr}
+
+
+@app.delete("/wallet/remove/{wallet_id}", tags=["wallet"])
+async def remove_monitored_wallet(wallet_id: int, request: Request):
+    """Remove a wallet from monitoring and delete its holdings."""
+    user = await _get_current_user(request)
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+    db = await _cache._get_conn()
+
+    # Get address before deleting (for holdings cleanup)
+    cursor = await db.execute(
+        "SELECT address FROM monitored_wallets WHERE id = ? AND user_id = ?",
+        (wallet_id, user["id"]),
+    )
+    row = await cursor.fetchone()
+    if not row:
+        raise HTTPException(404, "Wallet not found")
+
+    await db.execute("DELETE FROM monitored_wallets WHERE id = ? AND user_id = ?", (wallet_id, user["id"]))
+    await db.execute("DELETE FROM wallet_holdings WHERE user_id = ? AND wallet_address = ?", (user["id"], row[0]))
+    await db.commit()
+    return {"ok": True}
+
+
+@app.get("/wallet/holdings", tags=["wallet"])
+async def get_wallet_holdings(
+    request: Request,
+    address: Optional[str] = Query(None, description="Filter by specific wallet address"),
+):
+    """Return tracked holdings with risk scores across all monitored wallets."""
+    user = await _get_current_user(request)
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+    db = await _cache._get_conn()
+
+    if address:
+        cursor = await db.execute(
+            "SELECT wallet_address, mint, token_name, token_symbol, image_uri, "
+            "ui_amount, risk_score, risk_level, liquidity_usd, price_usd, last_scanned "
+            "FROM wallet_holdings WHERE user_id = ? AND wallet_address = ? "
+            "ORDER BY risk_score DESC NULLS LAST",
+            (user["id"], address),
+        )
+    else:
+        cursor = await db.execute(
+            "SELECT wallet_address, mint, token_name, token_symbol, image_uri, "
+            "ui_amount, risk_score, risk_level, liquidity_usd, price_usd, last_scanned "
+            "FROM wallet_holdings WHERE user_id = ? "
+            "ORDER BY risk_score DESC NULLS LAST",
+            (user["id"],),
+        )
+
+    rows = await cursor.fetchall()
+    holdings = []
+    risky = 0
+    for r in rows:
+        score = r[6]
+        if score is not None and score >= 50:
+            risky += 1
+        holdings.append({
+            "wallet_address": r[0], "mint": r[1], "token_name": r[2],
+            "token_symbol": r[3], "image_uri": r[4], "ui_amount": r[5],
+            "risk_score": r[6], "risk_level": r[7], "liquidity_usd": r[8],
+            "price_usd": r[9], "last_scanned": r[10],
+        })
+
+    # Last sweep time
+    cursor2 = await db.execute(
+        "SELECT MAX(created_at) FROM wallet_monitor_log WHERE user_id = ?",
+        (user["id"],),
+    )
+    last_row = await cursor2.fetchone()
+    last_sweep = last_row[0] if last_row and last_row[0] else None
+
+    return {
+        "holdings": holdings,
+        "total_holdings": len(holdings),
+        "total_risky": risky,
+        "last_sweep": int(last_sweep * 1000) if last_sweep else None,
+    }
+
+
+@app.post("/wallet/monitor/scan", tags=["wallet"])
+async def trigger_wallet_scan(request: Request):
+    """Trigger an immediate scan of all monitored wallets. Returns results."""
+    user = await _get_current_user(request)
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+    db = await _cache._get_conn()
+
+    # Get user's threshold
+    cursor = await db.execute(
+        "SELECT wallet_monitor_threshold FROM agent_prefs WHERE user_id = ?",
+        (user["id"],),
+    )
+    pref_row = await cursor.fetchone()
+    threshold = pref_row[0] if pref_row and pref_row[0] else 60
+
+    # Get all enabled wallets
+    cursor2 = await db.execute(
+        "SELECT address FROM monitored_wallets WHERE user_id = ? AND enabled = 1",
+        (user["id"],),
+    )
+    wallets = [r[0] for r in await cursor2.fetchall()]
+
+    if not wallets:
+        return {"holdings_count": 0, "risky_count": 0, "alerts_sent": 0, "wallets_scanned": 0}
+
+    from .wallet_monitor_service import run_wallet_monitor_sweep
+    total_h, total_r, total_a = 0, 0, 0
+    for addr in wallets:
+        try:
+            result = await run_wallet_monitor_sweep(user["id"], addr, threshold, _cache)
+            total_h += result["holdings_count"]
+            total_r += result["risky_count"]
+            total_a += result["alerts_sent"]
+        except Exception as exc:
+            logger.warning("[wallet/scan] failed for %s: %s", addr[:12], exc)
+
+    # Log sweep
+    await db.execute(
+        "INSERT INTO wallet_monitor_log "
+        "(user_id, holdings_count, risky_count, alerts_sent, duration_ms, created_at) "
+        "VALUES (?, ?, ?, ?, 0, ?)",
+        (user["id"], total_h, total_r, total_a, time.time()),
+    )
+    await db.commit()
+
+    return {
+        "holdings_count": total_h,
+        "risky_count": total_r,
+        "alerts_sent": total_a,
+        "wallets_scanned": len(wallets),
+    }
+
+
+@app.get("/wallet/monitor/status", tags=["wallet"])
+async def get_wallet_monitor_status(request: Request):
+    """Return wallet monitoring status: last sweep, next, counts."""
+    user = await _get_current_user(request)
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+    db = await _cache._get_conn()
+
+    # Prefs
+    cursor = await db.execute(
+        "SELECT wallet_monitor_enabled, wallet_monitor_threshold, wallet_monitor_interval "
+        "FROM agent_prefs WHERE user_id = ?",
+        (user["id"],),
+    )
+    pref = await cursor.fetchone()
+    enabled = bool(pref[0]) if pref else False
+    threshold = pref[1] if pref else 60
+    interval = pref[2] if pref else 600
+
+    # Wallets count
+    cursor2 = await db.execute(
+        "SELECT COUNT(*) FROM monitored_wallets WHERE user_id = ? AND enabled = 1",
+        (user["id"],),
+    )
+    wallet_count = (await cursor2.fetchone())[0]
+
+    # Holdings count
+    cursor3 = await db.execute(
+        "SELECT COUNT(*) FROM wallet_holdings WHERE user_id = ?",
+        (user["id"],),
+    )
+    holdings_count = (await cursor3.fetchone())[0]
+
+    # Last sweep
+    cursor4 = await db.execute(
+        "SELECT MAX(created_at), risky_count FROM wallet_monitor_log WHERE user_id = ? "
+        "ORDER BY created_at DESC LIMIT 1",
+        (user["id"],),
+    )
+    log_row = await cursor4.fetchone()
+    last_sweep = log_row[0] if log_row and log_row[0] else None
+    risky_count = log_row[1] if log_row else 0
+
+    next_in = max(0, int(interval - (time.time() - last_sweep))) if last_sweep else 0
+
+    return {
+        "enabled": enabled,
+        "wallet_count": wallet_count,
+        "holdings_count": holdings_count,
+        "risky_count": risky_count,
+        "threshold": threshold,
+        "interval": interval,
+        "last_sweep": int(last_sweep * 1000) if last_sweep else None,
+        "next_sweep_in_seconds": next_in,
+    }
 
 
 # ------------------------------------------------------------------
@@ -4001,6 +4269,23 @@ def _cancel_briefing_loop():
     global _briefing_task
     if _briefing_task:
         _briefing_task.cancel()
+
+
+_wallet_monitor_task: Optional[asyncio.Task] = None
+
+
+def _schedule_wallet_monitor():
+    global _wallet_monitor_task
+    from .wallet_monitor_service import wallet_monitor_loop  # noqa: PLC0415
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+    _wallet_monitor_task = asyncio.create_task(wallet_monitor_loop(_cache))
+    logger.info("Wallet monitor scheduled (check every 2min)")
+
+
+def _cancel_wallet_monitor():
+    global _wallet_monitor_task
+    if _wallet_monitor_task:
+        _wallet_monitor_task.cancel()
 
 
 if __name__ == "__main__":

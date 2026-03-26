@@ -9,7 +9,6 @@ import { useAuthStore } from './auth';
 const STORAGE_KEY = 'lineage_agent_prefs';
 const BASE_URL = (process.env.EXPO_PUBLIC_API_URL ?? 'https://lineage-agent.fly.dev').replace(/\/$/, '');
 
-// All available alert types
 export const ALERT_TYPE_OPTIONS = [
   { key: 'deployer_exit', label: 'Deployer exit' },
   { key: 'bundle', label: 'Bundle detected' },
@@ -35,15 +34,21 @@ export const DEPTH_OPTIONS = [
   { value: 'deep', label: 'Deep', desc: 'Agent multi-turn, ~30s' },
 ] as const;
 
+export const WALLET_THRESHOLD_OPTIONS = [40, 50, 60, 70, 80] as const;
+
+export const WALLET_INTERVAL_OPTIONS = [
+  { value: 300, label: '5min' },
+  { value: 600, label: '10min' },
+  { value: 900, label: '15min' },
+  { value: 1800, label: '30min' },
+] as const;
+
 interface AgentPrefsState {
-  // Toggles
   alertOnDeployerLaunch: boolean;
   alertOnHighRisk: boolean;
   autoInvestigate: boolean;
   dailyBriefing: boolean;
   briefingHour: number;
-
-  // New settings
   riskThreshold: number;
   alertTypes: string[];
   solExtractionMin: number;
@@ -51,11 +56,12 @@ interface AgentPrefsState {
   investigationDepth: string;
   quietHoursStart: number | null;
   quietHoursEnd: number | null;
-
+  walletMonitorEnabled: boolean;
+  walletMonitorThreshold: number;
+  walletMonitorInterval: number;
   hydrated: boolean;
 
-  // Actions
-  toggle: (key: 'alertOnDeployerLaunch' | 'alertOnHighRisk' | 'autoInvestigate' | 'dailyBriefing') => void;
+  toggle: (key: 'alertOnDeployerLaunch' | 'alertOnHighRisk' | 'autoInvestigate' | 'dailyBriefing' | 'walletMonitorEnabled') => void;
   setBriefingHour: (hour: number) => void;
   setRiskThreshold: (value: number) => void;
   toggleAlertType: (type: string) => void;
@@ -63,6 +69,8 @@ interface AgentPrefsState {
   setSweepInterval: (value: number) => void;
   setInvestigationDepth: (value: string) => void;
   setQuietHours: (start: number | null, end: number | null) => void;
+  setWalletMonitorThreshold: (value: number) => void;
+  setWalletMonitorInterval: (value: number) => void;
   hydrate: () => Promise<void>;
   syncToBackend: () => void;
 }
@@ -89,6 +97,9 @@ function persistAndSync(state: AgentPrefsState) {
       investigationDepth: state.investigationDepth,
       quietHoursStart: state.quietHoursStart,
       quietHoursEnd: state.quietHoursEnd,
+      walletMonitorEnabled: state.walletMonitorEnabled,
+      walletMonitorThreshold: state.walletMonitorThreshold,
+      walletMonitorInterval: state.walletMonitorInterval,
     }),
   }).catch(() => {});
 }
@@ -106,6 +117,9 @@ export const useAgentPrefsStore = create<AgentPrefsState>((set, get) => ({
   investigationDepth: 'standard',
   quietHoursStart: null,
   quietHoursEnd: null,
+  walletMonitorEnabled: false,
+  walletMonitorThreshold: 60,
+  walletMonitorInterval: 600,
   hydrated: false,
 
   toggle: (key) => {
@@ -149,6 +163,16 @@ export const useAgentPrefsStore = create<AgentPrefsState>((set, get) => ({
 
   setQuietHours: (start, end) => {
     set({ quietHoursStart: start, quietHoursEnd: end });
+    persistAndSync(get());
+  },
+
+  setWalletMonitorThreshold: (value) => {
+    set({ walletMonitorThreshold: Math.max(20, Math.min(90, value)) });
+    persistAndSync(get());
+  },
+
+  setWalletMonitorInterval: (value) => {
+    set({ walletMonitorInterval: value });
     persistAndSync(get());
   },
 

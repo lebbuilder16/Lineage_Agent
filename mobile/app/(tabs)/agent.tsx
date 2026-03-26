@@ -19,6 +19,7 @@ import {
   Zap,
   Settings,
   Brain,
+  Wallet,
 } from 'lucide-react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { useIsFocused } from '@react-navigation/native';
@@ -28,7 +29,8 @@ import { useAuthStore } from '../../src/store/auth';
 import { useSubscriptionStore } from '../../src/store/subscription';
 import { useAgentPrefsStore } from '../../src/store/agent-prefs';
 import { tokens } from '../../src/theme/tokens';
-import { AgentHero, AgentActivityFeed, AgentSettingsPanel, MemoryLensPanel } from '../../src/components/agent';
+import { AgentHero, AgentActivityFeed, AgentSettingsPanel, MemoryLensPanel, WalletHoldingsPanel } from '../../src/components/agent';
+import { useWalletMonitorStore } from '../../src/store/wallet-monitor';
 import { useAgentMemory, useMemoryEntities } from '../../src/lib/query';
 import type { FeedItem } from '../../src/components/agent/AgentActivityFeed';
 
@@ -52,7 +54,7 @@ interface SweepFlag {
   read: boolean;
 }
 
-type TabId = 'feed' | 'memory' | 'settings';
+type TabId = 'feed' | 'wallet' | 'memory' | 'settings';
 
 export default function AgentScreen() {
   const insets = useSafeAreaInsets();
@@ -103,6 +105,14 @@ export default function AgentScreen() {
       }
     } catch { /* best-effort */ }
   }, []);
+
+  // Fetch wallet data when wallet tab is active
+  useEffect(() => {
+    if (activeTab === 'wallet' && apiKey) {
+      useWalletMonitorStore.getState().fetchWallets();
+      useWalletMonitorStore.getState().fetchHoldings();
+    }
+  }, [activeTab, apiKey]);
 
   useEffect(() => {
     useAgentPrefsStore.getState().hydrate();
@@ -217,6 +227,7 @@ export default function AgentScreen() {
 
   // Count unread flags
   const unreadFlags = sweepFlags.filter((f) => !f.read).length;
+  const walletRisky = useWalletMonitorStore((s) => s.totalRisky);
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
@@ -243,6 +254,7 @@ export default function AgentScreen() {
             <View style={styles.tabBar}>
               {([
                 { id: 'feed' as TabId, icon: Zap, label: 'Activity' },
+                { id: 'wallet' as TabId, icon: Wallet, label: 'Wallet' },
                 { id: 'memory' as TabId, icon: Brain, label: 'Memory' },
                 { id: 'settings' as TabId, icon: Settings, label: 'Settings' },
               ]).map(({ id, icon: TabIcon, label }) => {
@@ -264,6 +276,11 @@ export default function AgentScreen() {
                           <Text style={styles.tabBadgeText}>{unreadFlags > 9 ? '9+' : unreadFlags}</Text>
                         </View>
                       )}
+                      {id === 'wallet' && walletRisky > 0 && (
+                        <View style={styles.tabBadge}>
+                          <Text style={styles.tabBadgeText}>{walletRisky > 9 ? '9+' : walletRisky}</Text>
+                        </View>
+                      )}
                     </View>
                   </TouchableOpacity>
                 );
@@ -274,6 +291,12 @@ export default function AgentScreen() {
           {activeTab === 'feed' && (
             <Animated.View entering={FadeInDown.delay(150).duration(300).springify()}>
               <AgentActivityFeed feedItems={feedItems} />
+            </Animated.View>
+          )}
+
+          {activeTab === 'wallet' && (
+            <Animated.View entering={FadeInDown.delay(150).duration(300).springify()}>
+              <WalletHoldingsPanel plan={plan} />
             </Animated.View>
           )}
 
