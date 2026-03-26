@@ -26,6 +26,7 @@ import { useWalletMonitorStore } from '../../store/wallet-monitor';
 import { useAgentPrefsStore } from '../../store/agent-prefs';
 import { canAccess, type PlanTier } from '../../lib/tier-limits';
 import type { WalletHolding, ScanResult } from '../../store/wallet-monitor';
+import { Brain, Zap } from 'lucide-react-native';
 
 interface WalletHoldingsPanelProps {
   plan: PlanTier;
@@ -107,6 +108,84 @@ function ScanToast({ result, onDismiss }: { result: ScanResult; onDismiss: () =>
       <TouchableOpacity onPress={onDismiss} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
         <X size={12} color={tokens.white35} />
       </TouchableOpacity>
+    </Animated.View>
+  );
+}
+
+// ── Agent Insights — forensic × market correlation ──────────────────────────
+
+function AgentInsights({ holdings }: { holdings: WalletHolding[] }) {
+  // Only show for tokens with risk data (score > 0 or flags)
+  const analyzed = holdings.filter(
+    (h) => (h.risk_score && h.risk_score > 0) || (h.risk_flags && h.risk_flags.length > 0),
+  );
+  if (analyzed.length === 0) return null;
+
+  // Build insights by cross-referencing forensic flags with market state
+  const insights: { token: string; severity: string; color: string; text: string }[] = [];
+
+  for (const h of analyzed) {
+    const score = h.risk_score ?? 0;
+    const flags = h.risk_flags ?? [];
+    const name = h.token_name || h.token_symbol || h.mint.slice(0, 8);
+    const rc = score >= 75 ? tokens.risk.critical : score >= 50 ? tokens.risk.high : score >= 25 ? tokens.risk.medium : tokens.risk.low;
+
+    // Forensic observations
+    const forensic: string[] = [];
+    const market: string[] = [];
+
+    for (const f of flags) {
+      const fl = f.toLowerCase();
+      if (fl.includes('deployer') || fl.includes('bundle') || fl.includes('cartel')
+        || fl.includes('insider') || fl.includes('extraction') || fl.includes('sol extracted')
+        || fl.includes('rug')) {
+        forensic.push(f);
+      } else if (fl.includes('price') || fl.includes('mcap') || fl.includes('liq') || fl.includes('market')) {
+        market.push(f);
+      } else {
+        forensic.push(f);
+      }
+    }
+
+    // Build cross-reference text
+    const parts: string[] = [];
+    if (forensic.length > 0) parts.push(forensic.slice(0, 2).join(', '));
+    if (market.length > 0) parts.push(market.slice(0, 2).join(', '));
+
+    // Add market context from holding data
+    if (parts.length === 0 && score >= 50) {
+      if (h.liquidity_usd && h.liquidity_usd < 5000) parts.push('low liquidity');
+      parts.push(`risk ${score}/100`);
+    }
+
+    if (parts.length > 0) {
+      insights.push({
+        token: name,
+        severity: score >= 75 ? 'critical' : score >= 50 ? 'high' : 'medium',
+        color: rc,
+        text: parts.join(' · '),
+      });
+    }
+  }
+
+  if (insights.length === 0) return null;
+
+  return (
+    <Animated.View entering={FadeIn.duration(300)}>
+      <View style={s.insightsCard}>
+        <View style={s.insightsHeader}>
+          <Brain size={14} color={tokens.violet} />
+          <Text style={s.insightsTitle}>AGENT ANALYSIS</Text>
+          <Zap size={10} color={tokens.violet} />
+        </View>
+        {insights.map((ins, i) => (
+          <View key={i} style={s.insightRow}>
+            <View style={[s.insightDot, { backgroundColor: ins.color }]} />
+            <Text style={s.insightToken}>{ins.token}</Text>
+            <Text style={[s.insightText, { color: ins.color }]} numberOfLines={2}>{ins.text}</Text>
+          </View>
+        ))}
+      </View>
     </Animated.View>
   );
 }
@@ -524,6 +603,9 @@ export function WalletHoldingsPanel({ plan }: WalletHoldingsPanelProps) {
         totalHoldings={totalHoldings} riskDist={riskDistribution} lastSweep={lastSweep}
       />
 
+      {/* Agent forensic × market insights */}
+      <AgentInsights holdings={activeTokens} />
+
       {/* Actions + sort */}
       <View style={s.actionsBar}>
         <SortBar current={sortKey} onChange={setSortKey} />
@@ -607,6 +689,33 @@ const s = StyleSheet.create({
   distSegment: { alignItems: 'center', justifyContent: 'center', borderRadius: 10 },
   distCount: { fontFamily: 'Lexend-Bold', fontSize: 9, color: tokens.white100 },
   summaryMeta: { fontFamily: 'Lexend-Regular', fontSize: 9, color: tokens.textTertiary },
+
+  // Agent Insights
+  insightsCard: {
+    backgroundColor: `${tokens.violet}06`,
+    borderRadius: tokens.radius.sm,
+    borderWidth: 1, borderColor: `${tokens.violet}20`,
+    padding: 12, gap: 8,
+  },
+  insightsHeader: {
+    flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2,
+  },
+  insightsTitle: {
+    fontFamily: 'Lexend-SemiBold', fontSize: 9,
+    color: tokens.violet, letterSpacing: 1, flex: 1,
+  },
+  insightRow: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: 8,
+  },
+  insightDot: { width: 6, height: 6, borderRadius: 3, marginTop: 4 },
+  insightToken: {
+    fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.small,
+    color: tokens.white80, minWidth: 70,
+  },
+  insightText: {
+    fontFamily: 'Lexend-Regular', fontSize: tokens.font.small,
+    flex: 1, lineHeight: 16,
+  },
 
   // Sort bar
   sortBar: { flexDirection: 'row', gap: 6, flex: 1 },
