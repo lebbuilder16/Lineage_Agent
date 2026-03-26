@@ -459,6 +459,27 @@ async def run_wallet_monitor_sweep(
         elif market_obs:
             risk_flags.extend(market_obs)
 
+        # ── Bundle wallet activity for held tokens ─────────────────
+        if needs_recheck and (meta.get("liquidity_usd") or 0) >= 500:
+            try:
+                from .watchlist_monitor_service import _check_bundle_wallet_balances
+                from .lineage_detector import get_cached_lineage_report
+                _cached_lin = await get_cached_lineage_report(mint)
+                if _cached_lin:
+                    _bundle_act = await _check_bundle_wallet_balances(mint, _cached_lin)
+                    if _bundle_act:
+                        holding = _bundle_act["still_holding"]
+                        exits = _bundle_act["new_exits"]
+                        total = _bundle_act["total"]
+                        if exits > 0:
+                            risk_flags.append(f"{exits} bundle wallet(s) sold")
+                        if total > 0 and holding == 0 and exits > 0:
+                            risk_flags.append("all bundle wallets exited")
+                        elif holding > 0:
+                            risk_flags.append(f"{holding}/{total} bundle wallets still holding")
+            except Exception:
+                pass
+
         if score >= threshold:
             risky_count += 1
 
