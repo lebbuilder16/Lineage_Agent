@@ -141,12 +141,42 @@ export default function AgentScreen() {
 
   // ── Build unified feed ───────────────────────────────────────────────────────
 
+  function _deriveEffectiveRisk(
+    score: number,
+    verdict?: string,
+    findings?: string[],
+  ): { score: number; color: string } {
+    // Check if forensic signals indicate higher risk than the heuristic score
+    const text = [verdict ?? '', ...(findings ?? [])].join(' ').toLowerCase();
+    const criticalSignals = ['rug', 'insider dump', 'confirmed extraction', 'team extraction', 'critical'];
+    const highSignals = ['deployer exited', 'bundle', 'cartel', 'high risk', 'suspicious', 'extraction', 'coordinated'];
+    const mediumSignals = ['medium', 'sell pressure', 'insufficient_data'];
+
+    let effectiveScore = score;
+    if (criticalSignals.some((s) => text.includes(s)) && effectiveScore < 75) {
+      effectiveScore = Math.max(effectiveScore, 75);
+    } else if (highSignals.some((s) => text.includes(s)) && effectiveScore < 50) {
+      effectiveScore = Math.max(effectiveScore, 55);
+    } else if (mediumSignals.some((s) => text.includes(s)) && effectiveScore < 25) {
+      effectiveScore = Math.max(effectiveScore, 30);
+    }
+
+    const color = effectiveScore >= 75 ? tokens.risk.critical
+      : effectiveScore >= 50 ? tokens.risk.high
+      : effectiveScore >= 25 ? tokens.risk.medium
+      : tokens.secondary;
+
+    return { score: effectiveScore, color };
+  }
+
   const feedItems = useMemo(() => {
     const items: FeedItem[] = [];
 
     for (const inv of investigations.slice(0, 8)) {
       const name = inv.name ?? inv.mint.slice(0, 8);
       const symbol = inv.symbol ?? '';
+      // Determine effective risk from score + forensic signals in verdict/findings
+      const effectiveRisk = _deriveEffectiveRisk(inv.riskScore, inv.verdict, inv.keyFindings);
       items.push({
         id: `inv-${inv.mint}-${inv.timestamp}`,
         category: 'investigation',
@@ -157,9 +187,9 @@ export default function AgentScreen() {
         mint: inv.mint,
         summary: inv.verdict ?? `Risk score: ${inv.riskScore}/100`,
         detail: inv.keyFindings?.[0] ?? undefined,
-        riskScore: inv.riskScore,
+        riskScore: effectiveRisk.score,
         time: inv.timestamp,
-        color: inv.riskScore >= 75 ? tokens.risk.critical : inv.riskScore >= 50 ? tokens.risk.high : tokens.secondary,
+        color: effectiveRisk.color,
       });
     }
 
