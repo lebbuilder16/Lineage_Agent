@@ -374,6 +374,35 @@ async def run_wallet_monitor_sweep(
                 full_score, full_level, full_flags = await assess_risk_full(mint)
                 if full_score > 0:
                     score, level, risk_flags = full_score, full_level, full_flags
+
+            # Override with AI investigation verdict if available and higher
+            # (the investigate page uses Claude AI which catches nuanced risks
+            # that the heuristic score misses)
+            try:
+                inv_cursor = await db.execute(
+                    "SELECT risk_score, verdict_summary, key_findings FROM investigations "
+                    "WHERE mint = ? ORDER BY created_at DESC LIMIT 1",
+                    (mint,),
+                )
+                inv_row = await inv_cursor.fetchone()
+                if inv_row and inv_row[0] is not None:
+                    inv_score = inv_row[0]
+                    if inv_score > score:
+                        score = inv_score
+                        level = "critical" if score >= 75 else "high" if score >= 50 else "medium" if score >= 25 else "low"
+                        # Add investigation verdict as a flag
+                        if inv_row[1]:
+                            risk_flags = [inv_row[1]] + risk_flags
+                        # Parse key_findings
+                        try:
+                            import json as _j
+                            kf = _j.loads(inv_row[2]) if inv_row[2] else []
+                            if isinstance(kf, list):
+                                risk_flags = risk_flags + kf[:2]
+                        except Exception:
+                            pass
+            except Exception:
+                pass
         else:
             score = old_score or 0
             level = p.get("risk_level", "unknown") if p else "unknown"
