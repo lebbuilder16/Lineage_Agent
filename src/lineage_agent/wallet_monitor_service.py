@@ -488,17 +488,20 @@ async def run_wallet_monitor_sweep(
                 "reason": f"Risk {score}/100{flag_summary}",
             })
 
-        # Preserve existing flags if new scan didn't produce any
+        # ALWAYS enrich from investigations if flags are still empty
         import json as _json
-        if not risk_flags and p:
+        if not risk_flags:
             try:
-                _old_flags_raw = await db.execute(
-                    "SELECT risk_flags FROM wallet_holdings WHERE user_id=? AND wallet_address=? AND mint=?",
-                    (user_id, wallet_address, mint),
+                _inv_c = await db.execute(
+                    "SELECT verdict_summary, key_findings FROM investigations "
+                    "WHERE mint = ? ORDER BY created_at DESC LIMIT 1",
+                    (mint,),
                 )
-                _old_row = await _old_flags_raw.fetchone()
-                if _old_row and _old_row[0]:
-                    risk_flags = _json.loads(_old_row[0])
+                _inv_r = await _inv_c.fetchone()
+                if _inv_r:
+                    if _inv_r[0]:
+                        risk_flags.append(_inv_r[0])
+                    risk_flags.extend(_parse_key_findings(_inv_r[1]))
             except Exception:
                 pass
 
