@@ -393,14 +393,21 @@ async def run_wallet_monitor_sweep(
                         # Add investigation verdict as a flag
                         if inv_row[1]:
                             risk_flags = [inv_row[1]] + risk_flags
-                        # Parse key_findings
+                        # Parse key_findings (robust: handle malformed JSON)
+                        raw_kf2 = inv_row[2] or ""
                         try:
                             import json as _j
-                            kf = _j.loads(inv_row[2]) if inv_row[2] else []
+                            kf = _j.loads(raw_kf2)
                             if isinstance(kf, list):
                                 risk_flags = risk_flags + kf[:2]
                         except Exception:
-                            pass
+                            try:
+                                fixed2 = raw_kf2.rstrip().rstrip(",") + "]" if raw_kf2.startswith("[") else raw_kf2
+                                kf = _j.loads(fixed2)
+                                if isinstance(kf, list):
+                                    risk_flags = risk_flags + kf[:2]
+                            except Exception:
+                                pass
             except Exception:
                 pass
         else:
@@ -419,13 +426,22 @@ async def run_wallet_monitor_sweep(
                 if inv_r:
                     if inv_r[0]:
                         risk_flags.append(inv_r[0])
+                    # Parse key_findings (robust: handle malformed JSON)
+                    raw_kf = inv_r[1] or ""
                     try:
                         import json as _j2
-                        kf2 = _j2.loads(inv_r[1]) if inv_r[1] else []
+                        kf2 = _j2.loads(raw_kf)
                         if isinstance(kf2, list):
                             risk_flags.extend(kf2[:2])
                     except Exception:
-                        pass
+                        # Malformed JSON — try to fix truncated array
+                        try:
+                            fixed = raw_kf.rstrip().rstrip(",") + "]" if raw_kf.startswith("[") else raw_kf
+                            kf2 = _j2.loads(fixed)
+                            if isinstance(kf2, list):
+                                risk_flags.extend(kf2[:2])
+                        except Exception:
+                            pass
             except Exception:
                 pass
 
