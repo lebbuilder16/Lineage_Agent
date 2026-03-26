@@ -53,9 +53,16 @@ function formatUsd(n: number | null): string {
 }
 
 export function WalletHoldingsPanel({ plan }: WalletHoldingsPanelProps) {
-  const { holdings, totalHoldings, totalRisky, lastSweep, loading, scanning, triggerScan } =
+  const { holdings, totalHoldings, totalRisky, lastSweep, loading, scanning, triggerScan, fetchHoldings } =
     useWalletMonitorStore();
   const enabled = useAgentPrefsStore((s) => s.walletMonitorEnabled);
+
+  // Auto-fetch holdings on mount
+  React.useEffect(() => {
+    if (canAccess(plan, 'pro_plus')) {
+      fetchHoldings();
+    }
+  }, []);
 
   if (!canAccess(plan, 'pro_plus')) {
     return (
@@ -76,7 +83,7 @@ export function WalletHoldingsPanel({ plan }: WalletHoldingsPanelProps) {
     );
   }
 
-  if (!enabled) {
+  if (!enabled && holdings.length === 0) {
     return (
       <View style={styles.emptyWrap}>
         <Wallet size={28} color={tokens.white20} />
