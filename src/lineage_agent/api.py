@@ -3728,6 +3728,39 @@ async def get_wallet_holdings(
 
     total_risky = risk_dist["high"] + risk_dist["critical"]
 
+    # Enrich empty risk_flags from investigations table (fallback for WAL read lag)
+    for h in holdings:
+        if not h["risk_flags"] and h["risk_score"] and h["risk_score"] > 0:
+            try:
+                _inv_cur = await db.execute(
+                    "SELECT verdict_summary, key_findings FROM investigations "
+                    "WHERE mint = ? ORDER BY created_at DESC LIMIT 1",
+                    (h["mint"],),
+                )
+                _inv_row = await _inv_cur.fetchone()
+                if _inv_row:
+                    _enriched: list[str] = []
+                    if _inv_row[0]:
+                        _enriched.append(_inv_row[0])
+                    # Robust key_findings parse
+                    _raw_kf = _inv_row[1] or ""
+                    try:
+                        _kf = json.loads(_raw_kf)
+                        if isinstance(_kf, list):
+                            _enriched.extend(_kf[:2])
+                    except Exception:
+                        try:
+                            _last_q = _raw_kf.rfind('"')
+                            if _last_q > 0:
+                                _kf = json.loads(_raw_kf[:_last_q + 1] + "]")
+                                if isinstance(_kf, list):
+                                    _enriched.extend(_kf[:2])
+                        except Exception:
+                            pass
+                    h["risk_flags"] = _enriched
+            except Exception:
+                pass
+
     # Fetch risk history for sparklines (last 10 per mint)
     if holdings:
         _mint_list = [h["mint"] for h in holdings]
