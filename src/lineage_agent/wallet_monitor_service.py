@@ -309,7 +309,16 @@ async def run_wallet_monitor_sweep(
         mint = holding["mint"]
         p = prev.get(mint)
 
-        # Enrich metadata — always refresh price/liquidity from DexScreener
+        # Determine if this holding needs re-evaluation
+        old_score = p["risk_score"] if p else None
+        risk_flags: list[str] = []
+        needs_recheck = (
+            not p
+            or p.get("risk_score") is None
+            or (now - (p.get("last_scanned") or 0)) > 600
+        )
+
+        # Enrich metadata — refresh price/liquidity when rechecking
         meta: dict = {}
         if not p or not p.get("token_name") or needs_recheck:
             meta = await enrich_holding_metadata(mint)
@@ -326,15 +335,6 @@ async def run_wallet_monitor_sweep(
                 "image_uri": p["image_uri"], "liquidity_usd": p["liquidity_usd"],
                 "price_usd": p["price_usd"],
             }
-
-        # Risk assessment
-        old_score = p["risk_score"] if p else None
-        risk_flags: list[str] = []
-        needs_recheck = (
-            not p
-            or p.get("risk_score") is None
-            or (now - (p.get("last_scanned") or 0)) > 600
-        )
 
         if needs_recheck:
             score, level, risk_flags = await assess_risk_lightweight(mint)
