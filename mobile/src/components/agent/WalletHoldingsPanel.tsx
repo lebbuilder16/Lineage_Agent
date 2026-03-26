@@ -225,10 +225,18 @@ function RiskSparkline({ history }: { history: { score: number; ts: number }[] }
 
 // ── Holding Card ─────────────────────────────────────────────────────────────
 
-function HoldingCard({ h, index, onWatch }: { h: WalletHolding; index: number; onWatch: (mint: string) => void }) {
+function HoldingCard({ h, index, onWatch }: { h: WalletHolding; index: number; onWatch: (mint: string) => Promise<boolean> }) {
   const score = h.risk_score ?? 0;
   const rc = score > 0 ? riskColor(score) : tokens.success;
   const hasHistory = h.risk_history && h.risk_history.length >= 2;
+  const [watchState, setWatchState] = useState<'idle' | 'loading' | 'done'>('idle');
+
+  const handleWatchPress = async () => {
+    if (watchState !== 'idle') return;
+    setWatchState('loading');
+    const ok = await onWatch(h.mint);
+    setWatchState(ok ? 'done' : 'idle');
+  };
 
   return (
     <Animated.View entering={FadeInDown.delay(index * 25).duration(200)}>
@@ -285,9 +293,29 @@ function HoldingCard({ h, index, onWatch }: { h: WalletHolding; index: number; o
             <Search size={10} color={tokens.secondary} strokeWidth={2.5} />
             <Text style={s.actionBtnText}>Investigate</Text>
           </TouchableOpacity>
-          <TouchableOpacity onPress={() => onWatch(h.mint)} style={[s.actionBtn, s.actionBtnSecondary]} activeOpacity={0.7}>
-            <Eye size={10} color={tokens.white60} strokeWidth={2} />
-            <Text style={[s.actionBtnText, { color: tokens.white60 }]}>Watch</Text>
+          <TouchableOpacity
+            onPress={handleWatchPress}
+            style={[
+              s.actionBtn,
+              watchState === 'done'
+                ? { borderColor: `${tokens.success}40`, backgroundColor: `${tokens.success}10` }
+                : s.actionBtnSecondary,
+            ]}
+            activeOpacity={0.7}
+            disabled={watchState !== 'idle'}
+          >
+            {watchState === 'loading' ? (
+              <ActivityIndicator size={10} color={tokens.white60} />
+            ) : watchState === 'done' ? (
+              <CheckCircle size={10} color={tokens.success} strokeWidth={2.5} />
+            ) : (
+              <Eye size={10} color={tokens.white60} strokeWidth={2} />
+            )}
+            <Text style={[s.actionBtnText, {
+              color: watchState === 'done' ? tokens.success : tokens.white60,
+            }]}>
+              {watchState === 'done' ? 'Watched' : watchState === 'loading' ? 'Adding...' : 'Watch'}
+            </Text>
           </TouchableOpacity>
           <TouchableOpacity onPress={() => router.push(`/token/${h.mint}` as any)} style={[s.actionBtn, s.actionBtnSecondary]} activeOpacity={0.7}>
             <ExternalLink size={10} color={tokens.white60} strokeWidth={2} />
@@ -328,7 +356,7 @@ function SortBar({ current, onChange }: { current: SortKey; onChange: (k: SortKe
 function WalletSection({
   address, label, holdings, startIndex, onWatch,
 }: {
-  address: string; label: string; holdings: WalletHolding[]; startIndex: number; onWatch: (mint: string) => void;
+  address: string; label: string; holdings: WalletHolding[]; startIndex: number; onWatch: (mint: string) => Promise<boolean>;
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const risky = holdings.filter((h) => (h.risk_score ?? 0) >= 50).length;
@@ -362,12 +390,11 @@ export function WalletHoldingsPanel({ plan }: WalletHoldingsPanelProps) {
   } = useWalletMonitorStore();
   const enabled = useAgentPrefsStore((s) => s.walletMonitorEnabled);
   const [sortKey, setSortKey] = useState<SortKey>('risk');
-  const [watchedMint, setWatchedMint] = useState<string | null>(null);
 
-  const handleWatch = useCallback(async (mint: string) => {
+  const handleWatch = useCallback(async (mint: string): Promise<boolean> => {
     const { useAuthStore } = require('../../store/auth');
     const key = useAuthStore.getState().apiKey;
-    if (!key) return;
+    if (!key) return false;
     const BASE = (process.env.EXPO_PUBLIC_API_URL ?? 'https://lineage-agent.fly.dev').replace(/\/$/, '');
     try {
       const res = await fetch(`${BASE}/auth/watches`, {
@@ -375,11 +402,10 @@ export function WalletHoldingsPanel({ plan }: WalletHoldingsPanelProps) {
         headers: { 'Content-Type': 'application/json', 'X-API-Key': key },
         body: JSON.stringify({ sub_type: 'mint', value: mint }),
       });
-      if (res.ok) {
-        setWatchedMint(mint);
-        setTimeout(() => setWatchedMint(null), 3000);
-      }
-    } catch { /* best-effort */ }
+      return res.ok;
+    } catch {
+      return false;
+    }
   }, []);
 
   useEffect(() => {
@@ -464,12 +490,6 @@ export function WalletHoldingsPanel({ plan }: WalletHoldingsPanelProps) {
     <View style={s.root}>
       {lastScanResult && <ScanToast result={lastScanResult} onDismiss={clearScanResult} />}
 
-      {watchedMint && (
-        <Animated.View entering={SlideInUp.duration(300)} style={s.watchToast}>
-          <Eye size={14} color={tokens.secondary} />
-          <Text style={s.watchToastText}>Added to watchlist</Text>
-        </Animated.View>
-      )}
 
       <PortfolioSummary
         portfolioUsd={portfolioUsd} riskyUsd={riskyUsd}
