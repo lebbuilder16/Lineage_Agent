@@ -1337,8 +1337,8 @@ async def _detect_lineage_impl(
         result.deployer_profile,
     ) = await asyncio.gather(
         _safe(compute_death_clock(_scan_deployer, _scan_created_at), name="death_clock"),
-        _safe(build_operator_fingerprint(uri_tuples), name="operator_fingerprint"),
-        _safe(analyze_factory_rhythm(_scan_deployer), name="factory_rhythm"),
+        _safe(build_operator_fingerprint(uri_tuples), name="operator_fingerprint", timeout=25.0),
+        _safe(analyze_factory_rhythm(_scan_deployer), name="factory_rhythm", timeout=20.0),
         _safe(compute_deployer_profile(_scan_deployer), name="deployer_profile"),
     )
 
