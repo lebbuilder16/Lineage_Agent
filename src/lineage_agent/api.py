@@ -654,7 +654,7 @@ async def get_lineage(
 
         # Warm cache: pre-compute heavy analyses in background so /investigate is fast
         _deployer = getattr(getattr(result, "root", None), "deployer", "") or ""
-        if _deployer and not force_refresh:
+        if _deployer:
             asyncio.create_task(_warm_heavy_analyses(mint, _deployer))
 
         # Record memory episode from scan data (enriches agent memory on every scan)
@@ -711,13 +711,29 @@ async def _warm_heavy_analyses(mint: str, deployer: str):
             except Exception:
                 pass
 
+        async def _safe_operator():
+            try:
+                from .metadata_dna_service import build_operator_fingerprint
+                await asyncio.wait_for(build_operator_fingerprint(deployer), timeout=30.0)
+            except Exception:
+                pass
+
+        async def _safe_factory():
+            try:
+                from .factory_service import analyze_factory_rhythm
+                await asyncio.wait_for(analyze_factory_rhythm(deployer), timeout=20.0)
+            except Exception:
+                pass
+
         await asyncio.gather(
             _safe_bundle(),
             _safe_sol_flow(),
             _safe_cartel(),
+            _safe_operator(),
+            _safe_factory(),
             return_exceptions=True,
         )
-        logger.info("[warm] pre-computed bundle/sol_flow/cartel for %s", mint[:12])
+        logger.info("[warm] pre-computed bundle/sol_flow/cartel/operator/factory for %s", mint[:12])
     except Exception as exc:
         logger.debug("[warm] failed for %s: %s", mint[:12], exc)
 
