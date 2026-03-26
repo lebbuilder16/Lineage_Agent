@@ -54,7 +54,7 @@ interface SweepFlag {
   read: boolean;
 }
 
-type TabId = 'feed' | 'wallet' | 'memory' | 'settings';
+type TabId = 'feed' | 'wallet' | 'settings';
 
 export default function AgentScreen() {
   const insets = useSafeAreaInsets();
@@ -302,7 +302,6 @@ export default function AgentScreen() {
               {([
                 { id: 'feed' as TabId, icon: Zap, label: 'Activity' },
                 { id: 'wallet' as TabId, icon: Wallet, label: 'Wallet' },
-                { id: 'memory' as TabId, icon: Brain, label: 'Memory' },
                 { id: 'settings' as TabId, icon: Settings, label: 'Settings' },
               ]).map(({ id, icon: TabIcon, label }) => {
                 const isActive = activeTab === id;
@@ -344,30 +343,6 @@ export default function AgentScreen() {
           {activeTab === 'wallet' && (
             <Animated.View entering={FadeInDown.delay(150).duration(300).springify()}>
               <WalletHoldingsPanel plan={plan} />
-            </Animated.View>
-          )}
-
-          {activeTab === 'memory' && (
-            <Animated.View entering={FadeInDown.delay(150).duration(300).springify()} style={{ gap: 10 }}>
-              {selectedEntity && memoryData ? (
-                <>
-                  <TouchableOpacity
-                    onPress={() => setSelectedEntity(null)}
-                    style={styles.memoryBackBtn}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={styles.memoryBackText}>← All entities</Text>
-                  </TouchableOpacity>
-                  <MemoryLensPanel data={memoryData} />
-                </>
-              ) : (
-                <MemoryEntitiesList
-                  entities={entitiesData?.entities ?? []}
-                  totalEpisodes={entitiesData?.total_episodes ?? 0}
-                  activeRules={entitiesData?.active_rules ?? 0}
-                  onSelect={(type, id) => setSelectedEntity({ type, id })}
-                />
-              )}
             </Animated.View>
           )}
 
