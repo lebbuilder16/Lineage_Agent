@@ -35,6 +35,74 @@ KNOWN_SKIP_MINTS: frozenset[str] = frozenset({
 SPL_TOKEN_PROGRAM = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
 
 
+async def generate_token_narrative(
+    token_name: str,
+    risk_score: int,
+    risk_flags: list[str],
+    liquidity_usd: float | None,
+    price_usd: float | None,
+    prev_price_usd: float | None,
+    bundle_info: str | None = None,
+) -> str | None:
+    """Generate a 2-3 sentence micro-narrative via Claude Haiku.
+
+    Summarizes forensic findings + market state into human-readable intelligence.
+    Returns None if AI unavailable or no meaningful data.
+    """
+    if not risk_flags and risk_score == 0:
+        return None
+
+    try:
+        from .ai_analyst import _get_client
+        client = _get_client()
+    except Exception:
+        return None
+
+    # Build context
+    facts: list[str] = []
+    for f in risk_flags[:5]:
+        # Shorten verbose findings to first sentence
+        short = f.split(".")[0].strip()[:120]
+        if short:
+            facts.append(f"- {short}")
+
+    if liquidity_usd is not None:
+        facts.append(f"- Current liquidity: ${liquidity_usd:,.0f}")
+    if price_usd and prev_price_usd and prev_price_usd > 0:
+        delta = (price_usd - prev_price_usd) / prev_price_usd * 100
+        if abs(delta) >= 5:
+            facts.append(f"- Price change since last scan: {delta:+.0f}%")
+    if bundle_info:
+        facts.append(f"- {bundle_info}")
+
+    if not facts:
+        return None
+
+    prompt = (
+        f"You are a Solana token risk analyst. Write a concise 2-3 sentence intelligence "
+        f"narrative for the token '{token_name}' (risk score: {risk_score}/100).\n\n"
+        f"Observed signals:\n" + "\n".join(facts) + "\n\n"
+        f"Rules:\n"
+        f"- State facts, don't speculate on causes\n"
+        f"- Mention the most critical signal first\n"
+        f"- If bundle wallets are selling, mention it prominently\n"
+        f"- End with the current trend (extraction active, paused, or complete)\n"
+        f"- Max 60 words. No markdown. No bullet points. Plain text only."
+    )
+
+    try:
+        response = await client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=120,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        text = response.content[0].text.strip()
+        return text if len(text) > 10 else None
+    except Exception as exc:
+        logger.debug("[narrative] generation failed for %s: %s", token_name, exc)
+        return None
+
+
 def _parse_key_findings(raw: str | None) -> list[str]:
     """Parse key_findings JSON robustly. Returns max 2 findings."""
     if not raw:
@@ -483,6 +551,31 @@ async def run_wallet_monitor_sweep(
         if score >= threshold:
             risky_count += 1
 
+        # Generate AI micro-narrative for tokens with meaningful data
+        _narrative = None
+        _narrative_at = None
+        if needs_recheck and risk_flags and score > 0:
+            # Find bundle info for narrative
+            _bundle_str = None
+            for _rf in risk_flags:
+                if "bundle wallet" in _rf.lower():
+                    _bundle_str = _rf
+                    break
+            try:
+                _narrative = await generate_token_narrative(
+                    token_name=meta.get("token_name", mint[:8]),
+                    risk_score=score,
+                    risk_flags=risk_flags,
+                    liquidity_usd=meta.get("liquidity_usd"),
+                    price_usd=meta.get("price_usd"),
+                    prev_price_usd=p.get("price_usd") if p else None,
+                    bundle_info=_bundle_str,
+                )
+                if _narrative:
+                    _narrative_at = now
+            except Exception:
+                pass
+
         # Compute status delta
         is_new = p is None
         if is_new:
@@ -530,16 +623,32 @@ async def run_wallet_monitor_sweep(
         _prev_price = p.get("price_usd") if p else None
         _prev_liq = p.get("liquidity_usd") if p else None
         _prev_mcap = p.get("mcap_usd") if p else None
+        # Preserve existing narrative if no new one generated
+        _final_narrative = _narrative
+        _final_narrative_at = _narrative_at
+        if not _final_narrative and p:
+            try:
+                _old_narr = await db.execute(
+                    "SELECT narrative, narrative_at FROM wallet_holdings WHERE user_id=? AND wallet_address=? AND mint=?",
+                    (user_id, wallet_address, mint),
+                )
+                _nr = await _old_narr.fetchone()
+                if _nr and _nr[0]:
+                    _final_narrative = _nr[0]
+                    _final_narrative_at = _nr[1]
+            except Exception:
+                pass
+
         await db.execute(
             """INSERT OR REPLACE INTO wallet_holdings
                (user_id, wallet_address, mint, token_name, token_symbol, image_uri,
                 ui_amount, decimals, risk_score, risk_level, liquidity_usd, price_usd,
                 mcap_usd, prev_price_usd, prev_liq_usd, prev_mcap_usd,
-                risk_flags, prev_risk_score, status,
+                risk_flags, prev_risk_score, status, narrative, narrative_at,
                 last_scanned, first_seen, updated_at)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                        ?, ?, ?, ?,
-                       ?, ?, ?,
+                       ?, ?, ?, ?, ?,
                        ?, COALESCE((SELECT first_seen FROM wallet_holdings
                                     WHERE user_id=? AND wallet_address=? AND mint=?), ?), ?)""",
             (user_id, wallet_address, mint,
@@ -549,7 +658,7 @@ async def run_wallet_monitor_sweep(
              meta.get("liquidity_usd"), meta.get("price_usd"),
              meta.get("mcap_usd"), _prev_price, _prev_liq, _prev_mcap,
              _json.dumps(risk_flags) if risk_flags else None,
-             old_score, status,
+             old_score, status, _final_narrative, _final_narrative_at,
              now if needs_recheck else (p.get("last_scanned") if p else now),
              user_id, wallet_address, mint, now, now),
         )

@@ -3688,7 +3688,7 @@ async def get_wallet_holdings(
     _cols = (
         "wallet_address, mint, token_name, token_symbol, image_uri, "
         "ui_amount, risk_score, risk_level, liquidity_usd, price_usd, last_scanned, "
-        "risk_flags, prev_risk_score, status"
+        "risk_flags, prev_risk_score, status, narrative"
     )
     if address:
         cursor = await db.execute(
@@ -3748,6 +3748,7 @@ async def get_wallet_holdings(
             "prev_risk_score": r[12],
             "status": r[13] or "held",
             "last_scanned": r[10],
+            "narrative": r[14],
         })
 
     total_risky = risk_dist["high"] + risk_dist["critical"]
