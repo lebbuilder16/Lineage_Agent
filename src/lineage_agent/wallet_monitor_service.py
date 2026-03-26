@@ -490,22 +490,6 @@ async def run_wallet_monitor_sweep(
             score = old_score or 0
             level = p.get("risk_level", "unknown") if p else "unknown"
 
-        # Always enrich flags from investigation verdict (even when not rechecking)
-        if not risk_flags:
-            try:
-                inv_cursor2 = await db.execute(
-                    "SELECT verdict_summary, key_findings FROM investigations "
-                    "WHERE mint = ? ORDER BY created_at DESC LIMIT 1",
-                    (mint,),
-                )
-                inv_r = await inv_cursor2.fetchone()
-                if inv_r:
-                    if inv_r[0]:
-                        risk_flags.append(inv_r[0])
-                    risk_flags.extend(_parse_key_findings(inv_r[1]))
-            except Exception:
-                pass
-
         # ── Market × forensic correlation ──────────────────────────
         market_obs: list[str] = []
         if p and meta.get("price_usd") and p.get("price_usd") and p["price_usd"] > 0:
@@ -554,7 +538,7 @@ async def run_wallet_monitor_sweep(
         # Generate AI micro-narrative for tokens with meaningful data
         _narrative = None
         _narrative_at = None
-        if needs_recheck and risk_flags and score > 0:
+        if risk_flags and score > 0:
             # Find bundle info for narrative
             _bundle_str = None
             for _rf in risk_flags:
