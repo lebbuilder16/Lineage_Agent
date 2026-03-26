@@ -3655,6 +3655,11 @@ async def get_wallet_holdings(
     user = await _get_current_user(request)
     from .data_sources._clients import cache as _cache  # noqa: PLC0415
     db = await _cache._get_conn()
+    # Force WAL checkpoint read so we see latest writes from background sweep
+    try:
+        await db.execute("PRAGMA wal_checkpoint(PASSIVE)")
+    except Exception:
+        pass
 
     _cols = (
         "wallet_address, mint, token_name, token_symbol, image_uri, "
