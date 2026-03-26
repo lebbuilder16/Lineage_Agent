@@ -353,15 +353,19 @@ async def wallet_monitor_loop(cache: Any) -> None:
         try:
             db = await cache._get_conn()
 
-            # Find users with wallet monitoring enabled
+            # Find users with monitored wallets (Pro+/Whale only).
+            # Uses LEFT JOIN so users without agent_prefs row are still picked
+            # up if they have monitored_wallets entries.
             cursor = await db.execute(
-                """SELECT u.id,
+                """SELECT DISTINCT u.id,
                           COALESCE(ap.wallet_monitor_threshold, 60),
                           COALESCE(ap.wallet_monitor_interval, 600)
                    FROM users u
-                   JOIN agent_prefs ap ON ap.user_id = u.id
-                   WHERE ap.wallet_monitor_enabled = 1
-                     AND u.plan IN ('pro_plus', 'whale')"""
+                   INNER JOIN monitored_wallets mw ON mw.user_id = u.id AND mw.enabled = 1
+                   LEFT JOIN agent_prefs ap ON ap.user_id = u.id
+                   WHERE u.plan IN ('pro_plus', 'whale')
+                     AND (ap.wallet_monitor_enabled = 1
+                          OR ap.wallet_monitor_enabled IS NULL)"""
             )
             users = await cursor.fetchall()
 
