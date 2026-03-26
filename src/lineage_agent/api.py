@@ -692,7 +692,7 @@ async def _warm_heavy_analyses(mint: str, deployer: str):
             if cached:
                 return
             try:
-                await asyncio.wait_for(analyze_bundle(mint, deployer), timeout=90.0)
+                await asyncio.wait_for(analyze_bundle(mint, deployer), timeout=150.0)
             except Exception:
                 pass
 
@@ -701,13 +701,13 @@ async def _warm_heavy_analyses(mint: str, deployer: str):
             if cached:
                 return
             try:
-                await asyncio.wait_for(trace_sol_flow(mint, deployer), timeout=60.0)
+                await asyncio.wait_for(trace_sol_flow(mint, deployer), timeout=90.0)
             except Exception:
                 pass
 
         async def _safe_cartel():
             try:
-                await asyncio.wait_for(compute_cartel_report(mint, deployer), timeout=30.0)
+                await asyncio.wait_for(compute_cartel_report(mint, deployer), timeout=45.0)
             except Exception:
                 pass
 

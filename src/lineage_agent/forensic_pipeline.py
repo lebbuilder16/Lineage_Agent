@@ -256,7 +256,7 @@ async def run_forensic_pipeline(
                 if deployer:
                     results["sol_flow"] = await asyncio.wait_for(
                         trace_sol_flow(mint, deployer, token_created_at=identity.created_at),
-                        timeout=25.0,
+                        timeout=45.0,
                     )
                 _sub_step("sol_flow", "done", ms=int((time.monotonic() - t) * 1000))
             except asyncio.TimeoutError:
@@ -282,7 +282,7 @@ async def run_forensic_pipeline(
                 # If it doesn't finish, the warm cache background task will complete it.
                 if deployer:
                     results["bundle_report"] = await asyncio.wait_for(
-                        analyze_bundle(mint, deployer), timeout=25.0,
+                        analyze_bundle(mint, deployer), timeout=45.0,
                     )
                 _sub_step("bundle", "done", ms=int((time.monotonic() - t) * 1000))
             except asyncio.TimeoutError:
