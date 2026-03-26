@@ -29,6 +29,9 @@ export interface WalletHolding {
   liquidity_usd: number | null;
   price_usd: number | null;
   last_scanned: number | null;
+  risk_flags: string[];
+  prev_risk_score: number | null;
+  status: 'new' | 'held' | 'risk_up' | 'risk_down';
 }
 
 export interface ScanResult {

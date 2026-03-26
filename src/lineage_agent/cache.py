@@ -933,6 +933,17 @@ class SQLiteCache:
         """)
         await db.execute("CREATE INDEX IF NOT EXISTS idx_wml_user ON wallet_monitor_log(user_id, created_at DESC)")
 
+        # Wallet holdings migrations (add columns if missing)
+        for col, defn in [
+            ("risk_flags", "TEXT"),           # JSON array of flag strings
+            ("prev_risk_score", "INTEGER"),   # score from previous scan (for delta)
+            ("status", "TEXT DEFAULT 'held'"),  # 'new' | 'held' | 'risk_up' | 'risk_down'
+        ]:
+            try:
+                await db.execute(f"ALTER TABLE wallet_holdings ADD COLUMN {col} {defn}")
+            except Exception:
+                pass
+
         # Wallet monitor columns in agent_prefs
         for col, defn in [
             ("wallet_monitor_enabled", "INTEGER NOT NULL DEFAULT 0"),

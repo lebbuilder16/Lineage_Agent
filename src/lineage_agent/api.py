@@ -3656,19 +3656,20 @@ async def get_wallet_holdings(
     from .data_sources._clients import cache as _cache  # noqa: PLC0415
     db = await _cache._get_conn()
 
+    _cols = (
+        "wallet_address, mint, token_name, token_symbol, image_uri, "
+        "ui_amount, risk_score, risk_level, liquidity_usd, price_usd, last_scanned, "
+        "risk_flags, prev_risk_score, status"
+    )
     if address:
         cursor = await db.execute(
-            "SELECT wallet_address, mint, token_name, token_symbol, image_uri, "
-            "ui_amount, risk_score, risk_level, liquidity_usd, price_usd, last_scanned "
-            "FROM wallet_holdings WHERE user_id = ? AND wallet_address = ? "
+            f"SELECT {_cols} FROM wallet_holdings WHERE user_id = ? AND wallet_address = ? "
             "ORDER BY risk_score DESC NULLS LAST",
             (user["id"], address),
         )
     else:
         cursor = await db.execute(
-            "SELECT wallet_address, mint, token_name, token_symbol, image_uri, "
-            "ui_amount, risk_score, risk_level, liquidity_usd, price_usd, last_scanned "
-            "FROM wallet_holdings WHERE user_id = ? "
+            f"SELECT {_cols} FROM wallet_holdings WHERE user_id = ? "
             "ORDER BY risk_score DESC NULLS LAST",
             (user["id"],),
         )
@@ -3697,11 +3698,21 @@ async def get_wallet_holdings(
         else:
             risk_dist["low"] += 1
 
+        # Parse risk_flags JSON
+        _flags_raw = r[11]
+        try:
+            _flags = json.loads(_flags_raw) if _flags_raw else []
+        except Exception:
+            _flags = []
+
         holdings.append({
             "wallet_address": r[0], "mint": r[1], "token_name": r[2],
             "token_symbol": r[3], "image_uri": r[4], "ui_amount": amount,
             "risk_score": r[6], "risk_level": r[7], "liquidity_usd": r[8],
             "price_usd": price, "usd_value": usd_value,
+            "risk_flags": _flags,
+            "prev_risk_score": r[12],
+            "status": r[13] or "held",
             "last_scanned": r[10],
         })
 
