@@ -193,6 +193,10 @@ def _extract_flags_from_lineage(lin: Any) -> list[str]:
 async def assess_risk_lightweight(mint: str) -> tuple[int, str, list[str]]:
     """Fast risk check using cached lineage data (zero external calls).
 
+    Always uses _heuristic_score as the single source of truth for the
+    numeric score — death_clock.rug_probability_pct was unreliable
+    (defaulted to 50 for insufficient_data, contradicting investigate).
+
     Returns (risk_score, risk_level, risk_flags).
     """
     try:
@@ -202,12 +206,6 @@ async def assess_risk_lightweight(mint: str) -> tuple[int, str, list[str]]:
         cached = await get_cached_lineage_report(mint)
         if cached:
             flags = _extract_flags_from_lineage(cached)
-            dc = getattr(cached, "death_clock", None)
-            if dc and getattr(dc, "risk_level", None):
-                score = int(getattr(dc, "rug_probability_pct", 50) or 50)
-                level = getattr(dc, "risk_level", "unknown")
-                return (score, level, flags)
-
             cached_dict = cached.model_dump(mode="json") if hasattr(cached, "model_dump") else {}
             score = _heuristic_score(
                 cached_dict,
