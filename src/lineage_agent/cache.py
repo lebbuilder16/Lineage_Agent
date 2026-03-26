@@ -938,6 +938,8 @@ class SQLiteCache:
             ("risk_flags", "TEXT"),           # JSON array of flag strings
             ("prev_risk_score", "INTEGER"),   # score from previous scan (for delta)
             ("status", "TEXT DEFAULT 'held'"),  # 'new' | 'held' | 'risk_up' | 'risk_down'
+            ("narrative", "TEXT"),              # AI-generated micro-narrative
+            ("narrative_at", "REAL"),           # when narrative was generated
         ]:
             try:
                 await db.execute(f"ALTER TABLE wallet_holdings ADD COLUMN {col} {defn}")

@@ -164,7 +164,7 @@ function AgentInsights({ holdings }: { holdings: WalletHolding[] }) {
   );
   if (analyzed.length === 0) return null;
 
-  const insights: { token: string; color: string; forensic: string[]; market: string[]; score: number }[] = [];
+  const insights: { token: string; color: string; forensic: string[]; market: string[]; score: number; narrative: string | null }[] = [];
 
   for (const h of analyzed) {
     const score = h.risk_score ?? 0;
@@ -181,8 +181,8 @@ function AgentInsights({ holdings }: { holdings: WalletHolding[] }) {
       }
     }
 
-    if (forensic.length > 0 || market.length > 0) {
-      insights.push({ token: name, color: rc, forensic, market, score });
+    if (forensic.length > 0 || market.length > 0 || h.narrative) {
+      insights.push({ token: name, color: rc, forensic, market, score, narrative: h.narrative ?? null });
     }
   }
 
@@ -204,8 +204,12 @@ function AgentInsights({ holdings }: { holdings: WalletHolding[] }) {
               <Text style={s.insightToken}>{ins.token}</Text>
               <Text style={[s.insightScore, { color: ins.color }]}>{ins.score}/100</Text>
             </View>
+            {/* AI narrative (main insight) */}
+            {ins.narrative && (
+              <Text style={s.insightNarrative}>{ins.narrative}</Text>
+            )}
             {/* Forensic signals */}
-            {ins.forensic.length > 0 && (
+            {!ins.narrative && ins.forensic.length > 0 && (
               <View style={s.insightLayer}>
                 <Text style={s.insightLayerLabel}>Forensic</Text>
                 {ins.forensic.slice(0, 2).map((f, fi) => (
@@ -216,7 +220,7 @@ function AgentInsights({ holdings }: { holdings: WalletHolding[] }) {
               </View>
             )}
             {/* Market observations */}
-            {ins.market.length > 0 && (
+            {!ins.narrative && ins.market.length > 0 && (
               <View style={s.insightLayer}>
                 <Text style={s.insightLayerLabel}>Market</Text>
                 {ins.market.slice(0, 2).map((m, mi) => (
@@ -768,6 +772,11 @@ const s = StyleSheet.create({
     fontFamily: 'Lexend-SemiBold', fontSize: 8,
     color: tokens.textTertiary, letterSpacing: 0.5,
     textTransform: 'uppercase',
+  },
+  insightNarrative: {
+    fontFamily: 'Lexend-Regular', fontSize: tokens.font.small,
+    color: tokens.white80, lineHeight: 18,
+    paddingLeft: 12, fontStyle: 'italic',
   },
   insightFinding: {
     fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny,
