@@ -3610,6 +3610,13 @@ async def add_monitored_wallet(request: Request, body: _WalletAddBody):
             "VALUES (?, ?, ?, ?, 1, ?)",
             (user["id"], addr, body.label, body.source, time.time()),
         )
+        # Auto-enable wallet monitoring in agent_prefs (create row if missing)
+        await db.execute(
+            """INSERT INTO agent_prefs (user_id, wallet_monitor_enabled, updated_at)
+               VALUES (?, 1, ?)
+               ON CONFLICT(user_id) DO UPDATE SET wallet_monitor_enabled = 1, updated_at = ?""",
+            (user["id"], time.time(), time.time()),
+        )
         await db.commit()
     except Exception:
         raise HTTPException(409, "Wallet already monitored")
