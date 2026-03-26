@@ -700,13 +700,6 @@ const s = StyleSheet.create({
   root: { gap: 8 },
 
   // Toasts
-  watchToast: {
-    flexDirection: 'row', alignItems: 'center', gap: 8,
-    paddingVertical: 10, paddingHorizontal: 14,
-    backgroundColor: `${tokens.secondary}12`, borderRadius: tokens.radius.sm,
-    borderWidth: 1, borderColor: `${tokens.secondary}30`,
-  },
-  watchToastText: { flex: 1, fontFamily: 'Lexend-Medium', fontSize: tokens.font.small, color: tokens.secondary },
   toast: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
     paddingVertical: 10, paddingHorizontal: 14,

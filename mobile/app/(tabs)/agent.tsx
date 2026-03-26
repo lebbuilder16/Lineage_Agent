@@ -18,7 +18,6 @@ import {
   Info,
   Zap,
   Settings,
-  Brain,
   Wallet,
 } from 'lucide-react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
@@ -29,9 +28,8 @@ import { useAuthStore } from '../../src/store/auth';
 import { useSubscriptionStore } from '../../src/store/subscription';
 import { useAgentPrefsStore } from '../../src/store/agent-prefs';
 import { tokens } from '../../src/theme/tokens';
-import { AgentHero, AgentActivityFeed, AgentSettingsPanel, MemoryLensPanel, WalletHoldingsPanel } from '../../src/components/agent';
+import { AgentHero, AgentActivityFeed, AgentSettingsPanel, WalletHoldingsPanel } from '../../src/components/agent';
 import { useWalletMonitorStore } from '../../src/store/wallet-monitor';
-import { useAgentMemory, useMemoryEntities } from '../../src/lib/query';
 import type { FeedItem } from '../../src/components/agent/AgentActivityFeed';
 
 const BASE_URL = (process.env.EXPO_PUBLIC_API_URL ?? 'https://lineage-agent.fly.dev').replace(/\/$/, '');
@@ -73,17 +71,6 @@ export default function AgentScreen() {
   // Use ref to avoid stale closure in polling interval
   const apiKeyRef = useRef(apiKey);
   apiKeyRef.current = apiKey;
-
-  // Feature 9: Agent Memory — entities overview + detail drill-down
-  const { data: entitiesData } = useMemoryEntities(apiKey);
-  const [selectedEntity, setSelectedEntity] = useState<{ type: string; id: string } | null>(null);
-  const { data: memoryData } = useAgentMemory(
-    apiKey,
-    selectedEntity
-      ? { entity_type: selectedEntity.type, entity_id: selectedEntity.id }
-      : { mint: investigations[0]?.mint ?? '' },
-    !!selectedEntity || !!(investigations[0]?.mint),
-  );
 
   const fetchStatus = useCallback(async () => {
     const key = apiKeyRef.current;
@@ -424,301 +411,7 @@ function _buildFlagDetail(flag: SweepFlag): string | undefined {
   return fallback.length > 0 ? fallback.join(' · ') : undefined;
 }
 
-// ── MemoryEntitiesList — shows all known entities with drill-down ─────────
-
-import { Activity, Crosshair, Database, Eye, Shield } from 'lucide-react-native';
-import type { MemoryEntity } from '../../src/lib/api';
-
-function MemoryEntitiesList({
-  entities,
-  totalEpisodes,
-  activeRules,
-  onSelect,
-}: {
-  entities: MemoryEntity[];
-  totalEpisodes: number;
-  activeRules: number;
-  onSelect: (type: string, id: string) => void;
-}) {
-  if (entities.length === 0) {
-    return (
-      <View style={memStyles.emptyWrap}>
-        <Brain size={32} color={tokens.white20} />
-        <Text style={memStyles.emptyTitle}>No intelligence yet</Text>
-        <Text style={memStyles.emptySub}>
-          Investigate tokens to build the agent's memory. Each scan teaches it to recognize deployer patterns and rug signals.
-        </Text>
-      </View>
-    );
-  }
-
-  return (
-    <View style={{ gap: 10 }}>
-      {/* Overview stats */}
-      <View style={memStyles.overviewRow}>
-        <View style={memStyles.overviewPill}>
-          <Database size={11} color={tokens.secondary} />
-          <Text style={memStyles.overviewValue}>{entities.length}</Text>
-          <Text style={memStyles.overviewLabel}>Entities</Text>
-        </View>
-        <View style={memStyles.overviewPill}>
-          <Eye size={11} color={tokens.violet} />
-          <Text style={memStyles.overviewValue}>{totalEpisodes}</Text>
-          <Text style={memStyles.overviewLabel}>Episodes</Text>
-        </View>
-        <View style={memStyles.overviewPill}>
-          <Shield size={11} color={tokens.success} />
-          <Text style={memStyles.overviewValue}>{activeRules}</Text>
-          <Text style={memStyles.overviewLabel}>Rules</Text>
-        </View>
-      </View>
-
-      {/* Entity cards */}
-      {entities.map((entity, i) => {
-        const rugRate = entity.total_tokens > 0
-          ? Math.round((entity.total_rugs / entity.total_tokens) * 100)
-          : 0;
-        const riskColor = entity.avg_risk_score >= 70
-          ? tokens.risk.critical
-          : entity.avg_risk_score >= 40
-            ? tokens.risk.high
-            : tokens.risk.low;
-        const isDeployer = entity.entity_type === 'deployer';
-
-        return (
-          <Animated.View key={`${entity.entity_type}-${entity.entity_id}`} entering={FadeInDown.delay(i * 40).duration(250)}>
-            <TouchableOpacity
-              onPress={() => onSelect(entity.entity_type, entity.entity_id)}
-              activeOpacity={0.7}
-              style={memStyles.entityCard}
-            >
-              {/* Type badge + ID */}
-              <View style={memStyles.entityTopRow}>
-                <View style={[memStyles.typeBadge, { backgroundColor: isDeployer ? `${tokens.violet}15` : `${tokens.cyan}15` }]}>
-                  <Text style={[memStyles.typeText, { color: isDeployer ? tokens.violet : tokens.cyan }]}>
-                    {isDeployer ? 'Deployer' : 'Operator'}
-                  </Text>
-                </View>
-                <Text style={memStyles.entityId}>
-                  {entity.entity_id.slice(0, 8)}…{entity.entity_id.slice(-6)}
-                </Text>
-                <View style={[memStyles.confidenceDot, {
-                  backgroundColor: entity.confidence === 'high' ? tokens.success
-                    : entity.confidence === 'medium' ? tokens.warning : tokens.white20,
-                }]} />
-              </View>
-
-              {/* Stats row */}
-              <View style={memStyles.entityStatsRow}>
-                <View style={memStyles.entityStat}>
-                  <Database size={10} color={tokens.textTertiary} />
-                  <Text style={memStyles.entityStatValue}>{entity.total_tokens}</Text>
-                  <Text style={memStyles.entityStatLabel}>tokens</Text>
-                </View>
-                <View style={memStyles.entityStat}>
-                  <Crosshair size={10} color={tokens.risk.critical} />
-                  <Text style={[memStyles.entityStatValue, { color: tokens.risk.critical }]}>{entity.total_rugs}</Text>
-                  <Text style={memStyles.entityStatLabel}>rugs</Text>
-                </View>
-                <View style={memStyles.entityStat}>
-                  <Activity size={10} color={riskColor} />
-                  <Text style={[memStyles.entityStatValue, { color: riskColor }]}>{entity.avg_risk_score.toFixed(0)}</Text>
-                  <Text style={memStyles.entityStatLabel}>avg risk</Text>
-                </View>
-                {rugRate > 0 && (
-                  <View style={[memStyles.rugRatePill, { borderColor: `${tokens.risk.critical}30` }]}>
-                    <Text style={memStyles.rugRateText}>{rugRate}% rug</Text>
-                  </View>
-                )}
-              </View>
-
-              {/* Narratives */}
-              {entity.preferred_narratives.length > 0 && (
-                <View style={memStyles.narrativeRow}>
-                  {entity.preferred_narratives.slice(0, 3).map((n) => (
-                    <View key={n} style={memStyles.narrativeChip}>
-                      <Text style={memStyles.narrativeText}>{n}</Text>
-                    </View>
-                  ))}
-                </View>
-              )}
-
-              {/* Pattern + extraction */}
-              <View style={memStyles.entityBottom}>
-                {entity.typical_rug_pattern && (
-                  <Text style={memStyles.patternText}>
-                    {entity.typical_rug_pattern.replace(/_/g, ' ')}
-                  </Text>
-                )}
-                {entity.total_extracted_sol > 0 && (
-                  <Text style={memStyles.solText}>
-                    {entity.total_extracted_sol.toFixed(1)} SOL extracted
-                  </Text>
-                )}
-              </View>
-            </TouchableOpacity>
-          </Animated.View>
-        );
-      })}
-    </View>
-  );
-}
-
-const memStyles = StyleSheet.create({
-  emptyWrap: {
-    alignItems: 'center',
-    paddingVertical: 40,
-    paddingHorizontal: 24,
-    backgroundColor: tokens.bgGlass,
-    borderRadius: tokens.radius.md,
-    borderWidth: 1,
-    borderColor: tokens.borderSubtle,
-    gap: 8,
-  },
-  emptyTitle: {
-    fontFamily: 'Lexend-SemiBold',
-    fontSize: tokens.font.body,
-    color: tokens.white60,
-    marginTop: 4,
-  },
-  emptySub: {
-    fontFamily: 'Lexend-Regular',
-    fontSize: tokens.font.small,
-    color: tokens.textTertiary,
-    textAlign: 'center',
-    maxWidth: 280,
-    lineHeight: 18,
-  },
-  overviewRow: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  overviewPill: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 5,
-    paddingVertical: 10,
-    backgroundColor: tokens.bgGlass,
-    borderRadius: tokens.radius.sm,
-    borderWidth: 1,
-    borderColor: tokens.borderSubtle,
-  },
-  overviewValue: {
-    fontFamily: 'Lexend-Bold',
-    fontSize: tokens.font.body,
-    color: tokens.white100,
-  },
-  overviewLabel: {
-    fontFamily: 'Lexend-Regular',
-    fontSize: 9,
-    color: tokens.textTertiary,
-  },
-  entityCard: {
-    backgroundColor: tokens.bgGlass,
-    borderRadius: tokens.radius.sm,
-    borderWidth: 1,
-    borderColor: tokens.borderSubtle,
-    padding: 12,
-    gap: 8,
-  },
-  entityTopRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  typeBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: tokens.radius.pill,
-  },
-  typeText: {
-    fontFamily: 'Lexend-SemiBold',
-    fontSize: 9,
-    letterSpacing: 0.3,
-  },
-  entityId: {
-    fontFamily: 'Lexend-Regular',
-    fontSize: tokens.font.tiny,
-    color: tokens.white60,
-    flex: 1,
-  },
-  confidenceDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-  },
-  entityStatsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  entityStat: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 3,
-  },
-  entityStatValue: {
-    fontFamily: 'Lexend-Bold',
-    fontSize: tokens.font.small,
-    color: tokens.white80,
-  },
-  entityStatLabel: {
-    fontFamily: 'Lexend-Regular',
-    fontSize: 9,
-    color: tokens.textTertiary,
-  },
-  rugRatePill: {
-    marginLeft: 'auto',
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-    borderRadius: tokens.radius.pill,
-    borderWidth: 1,
-    backgroundColor: `${tokens.risk.critical}08`,
-  },
-  rugRateText: {
-    fontFamily: 'Lexend-Bold',
-    fontSize: 9,
-    color: tokens.risk.critical,
-  },
-  narrativeRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 4,
-  },
-  narrativeChip: {
-    backgroundColor: `${tokens.accent}10`,
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-    borderRadius: tokens.radius.pill,
-    borderWidth: 1,
-    borderColor: `${tokens.accent}20`,
-  },
-  narrativeText: {
-    fontFamily: 'Lexend-Medium',
-    fontSize: 9,
-    color: tokens.accent,
-    textTransform: 'capitalize',
-  },
-  entityBottom: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  patternText: {
-    fontFamily: 'Lexend-Regular',
-    fontSize: tokens.font.tiny,
-    color: tokens.white35,
-    textTransform: 'capitalize',
-    fontStyle: 'italic',
-  },
-  solText: {
-    fontFamily: 'Lexend-SemiBold',
-    fontSize: tokens.font.tiny,
-    color: tokens.risk.high,
-  },
-});
+// ── Styles ──
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: tokens.bgMain },
@@ -764,16 +457,5 @@ const styles = StyleSheet.create({
     fontFamily: 'Lexend-Bold',
     fontSize: 9,
     color: tokens.white100,
-  },
-  memoryBackBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 4,
-  },
-  memoryBackText: {
-    fontFamily: 'Lexend-Medium',
-    fontSize: tokens.font.small,
-    color: tokens.secondary,
   },
 });
