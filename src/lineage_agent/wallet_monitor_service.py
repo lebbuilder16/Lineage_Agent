@@ -309,12 +309,17 @@ async def run_wallet_monitor_sweep(
         mint = holding["mint"]
         p = prev.get(mint)
 
-        # Enrich metadata for new tokens or stale ones
+        # Enrich metadata — always refresh price/liquidity from DexScreener
         meta: dict = {}
-        if not p or not p.get("token_name"):
+        if not p or not p.get("token_name") or needs_recheck:
             meta = await enrich_holding_metadata(mint)
-            if (meta.get("liquidity_usd") or 0) < MIN_LIQUIDITY_USD:
-                continue  # dust token, skip
+            if (meta.get("liquidity_usd") or 0) < MIN_LIQUIDITY_USD and not p:
+                continue  # new dust token, skip
+            # Keep existing name/symbol/image if DexScreener returned empty
+            if p and not meta.get("token_name"):
+                meta["token_name"] = p.get("token_name", "")
+                meta["token_symbol"] = p.get("token_symbol", "")
+                meta["image_uri"] = p.get("image_uri", "")
         else:
             meta = {
                 "token_name": p["token_name"], "token_symbol": p["token_symbol"],
