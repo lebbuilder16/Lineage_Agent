@@ -106,13 +106,14 @@ export default function AgentScreen() {
     } catch { /* best-effort */ }
   }, []);
 
-  // Fetch wallet data when wallet tab is active
+  // Fetch wallet data when wallet tab is active or screen regains focus
+  // (e.g. returning from investigate page)
   useEffect(() => {
-    if (activeTab === 'wallet' && apiKey) {
+    if (activeTab === 'wallet' && apiKey && isFocused) {
       useWalletMonitorStore.getState().fetchWallets();
       useWalletMonitorStore.getState().fetchHoldings();
     }
-  }, [activeTab, apiKey]);
+  }, [activeTab, apiKey, isFocused]);
 
   useEffect(() => {
     useAgentPrefsStore.getState().hydrate();

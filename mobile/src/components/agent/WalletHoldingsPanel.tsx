@@ -225,7 +225,7 @@ function RiskSparkline({ history }: { history: { score: number; ts: number }[] }
 
 // ── Holding Card ─────────────────────────────────────────────────────────────
 
-function HoldingCard({ h, index, onWatch }: { h: WalletHolding; index: number; onWatch: (mint: string) => Promise<boolean> }) {
+function HoldingCard({ h, index, onWatch, walletLabel }: { h: WalletHolding; index: number; onWatch: (mint: string) => Promise<boolean>; walletLabel?: string }) {
   const score = h.risk_score ?? 0;
   const rc = score > 0 ? riskColor(score) : tokens.success;
   const hasHistory = h.risk_history && h.risk_history.length >= 2;
@@ -264,6 +264,9 @@ function HoldingCard({ h, index, onWatch }: { h: WalletHolding; index: number; o
               {h.usd_value != null && h.usd_value > 0 ? ` · ${formatUsd(h.usd_value)}` : ''}
               {h.liquidity_usd ? ` · Liq ${formatUsd(h.liquidity_usd)}` : ''}
             </Text>
+            {walletLabel && (
+              <Text style={s.holdingWallet}>{walletLabel} · {h.wallet_address.slice(0, 4)}…{h.wallet_address.slice(-4)}</Text>
+            )}
             {/* Inline risk flags */}
             {h.risk_flags && h.risk_flags.length > 0 && (
               <View style={s.flagsRow}>
@@ -374,7 +377,7 @@ function WalletSection({
         {collapsed ? <ChevronDown size={12} color={tokens.white20} /> : <ChevronUp size={12} color={tokens.white20} />}
       </TouchableOpacity>
       {!collapsed && holdings.map((h, i) => (
-        <HoldingCard key={`${h.wallet_address}-${h.mint}`} h={h} index={startIndex + i} onWatch={onWatch} />
+        <HoldingCard key={`${h.wallet_address}-${h.mint}`} h={h} index={startIndex + i} onWatch={onWatch} walletLabel={label} />
       ))}
     </View>
   );
@@ -430,6 +433,15 @@ export function WalletHoldingsPanel({ plan }: WalletHoldingsPanelProps) {
     }
     return { activeTokens: active, dustTokens: dust };
   }, [sorted]);
+
+  // Build wallet address → label map
+  const walletLabelMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const w of wallets) {
+      map[w.address] = w.label || (w.source === 'embedded' ? 'My Wallet' : 'External');
+    }
+    return map;
+  }, [wallets]);
 
   // Group by wallet for multi-wallet view
   const hasMultipleWallets = wallets.length > 1;
@@ -521,7 +533,7 @@ export function WalletHoldingsPanel({ plan }: WalletHoldingsPanelProps) {
 
       {/* Active tokens (with market data) */}
       {activeTokens.map((h, i) => (
-        <HoldingCard key={`${h.wallet_address}-${h.mint}`} h={h} index={i} onWatch={handleWatch} />
+        <HoldingCard key={`${h.wallet_address}-${h.mint}`} h={h} index={i} onWatch={handleWatch} walletLabel={walletLabelMap[h.wallet_address]} />
       ))}
 
       {/* Dust / no market data — collapsible */}
@@ -643,6 +655,7 @@ const s = StyleSheet.create({
   holdingName: { fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.small, color: tokens.white100, flexShrink: 1 },
   holdingSymbol: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny, color: tokens.textTertiary },
   holdingMeta: { fontFamily: 'Lexend-Regular', fontSize: 9, color: tokens.white35 },
+  holdingWallet: { fontFamily: 'Lexend-Regular', fontSize: 8, color: tokens.violet, opacity: 0.7 },
 
   // Risk flags inline
   flagsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 3, marginTop: 3 },
