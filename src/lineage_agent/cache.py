@@ -959,6 +959,18 @@ class SQLiteCache:
             "ON wallet_risk_history(user_id, mint, scanned_at DESC)"
         )
 
+        # Wallet holdings: market correlation columns
+        for col, defn in [
+            ("mcap_usd", "REAL"),
+            ("prev_price_usd", "REAL"),
+            ("prev_liq_usd", "REAL"),
+            ("prev_mcap_usd", "REAL"),
+        ]:
+            try:
+                await db.execute(f"ALTER TABLE wallet_holdings ADD COLUMN {col} {defn}")
+            except Exception:
+                pass
+
         # Wallet monitor columns in agent_prefs
         for col, defn in [
             ("wallet_monitor_enabled", "INTEGER NOT NULL DEFAULT 0"),

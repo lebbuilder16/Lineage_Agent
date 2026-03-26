@@ -55,6 +55,19 @@ def _extract_forensic_snapshot(lin: Any) -> dict:
         snapshot["rug_count"] = getattr(dp, "confirmed_rug_count", 0) or 0
         snapshot["rug_rate"] = getattr(dp, "rug_rate_pct", 0) or 0
 
+    # Market metrics (from LineageResult — zero extra API calls)
+    qt = getattr(lin, "query_token", None) or getattr(lin, "root", None)
+    if qt:
+        snapshot["price_usd"] = getattr(qt, "price_usd", None)
+        snapshot["mcap_usd"] = getattr(qt, "market_cap_usd", None)
+        snapshot["liq_usd"] = getattr(qt, "liquidity_usd", None)
+    if ins:
+        snapshot["sell_pressure_1h"] = getattr(ins, "sell_pressure_1h", None)
+        snapshot["sell_pressure_24h_snap"] = getattr(ins, "sell_pressure_24h", None)
+        snapshot["volume_spike_ratio"] = getattr(ins, "volume_spike_ratio", None)
+        snapshot["price_change_h1"] = getattr(ins, "price_change_1h", None)
+        snapshot["price_change_h24"] = getattr(ins, "price_change_24h", None)
+
     return snapshot
 
 
@@ -150,7 +163,116 @@ def _generate_flags(old: dict, new: dict, mint: str) -> list[dict]:
               f"Sell pressure spiked: {old_sp*100:.0f}% → {new_sp*100:.0f}%",
               {"old": old_sp, "new": new_sp})
 
+    # ── Correlative intelligence: forensic × market cross-reference ──
+    deltas = _compute_deltas(old, new)
+    correlated = _cross_reference(deltas, old, new)
+    for c in correlated:
+        _flag(c["type"], c["severity"], c["title"], c["detail"])
+
     return flags
+
+
+def _compute_deltas(old: dict, new: dict) -> dict:
+    """Compute independent forensic + market deltas between two snapshots."""
+    d: dict = {}
+    # Forensic deltas
+    d["sol_delta"] = (new.get("sol_extracted") or 0) - (old.get("sol_extracted") or 0)
+    d["bundle_wallets_delta"] = (new.get("bundle_wallets") or 0) - (old.get("bundle_wallets") or 0)
+    d["cartel_wallets_delta"] = (new.get("cartel_wallets") or 0) - (old.get("cartel_wallets") or 0)
+    d["rug_count_delta"] = (new.get("rug_count") or 0) - (old.get("rug_count") or 0)
+    d["deployer_just_exited"] = (not old.get("deployer_exited")) and bool(new.get("deployer_exited"))
+    d["insider_escalated"] = (
+        old.get("insider_verdict") != "insider_dump"
+        and new.get("insider_verdict") == "insider_dump"
+    )
+
+    # Market deltas (% between scans)
+    for key in ["price_usd", "mcap_usd", "liq_usd"]:
+        ov, nv = old.get(key), new.get(key)
+        d[f"{key}_pct"] = round((nv - ov) / ov * 100, 1) if ov and nv and ov > 0 else None
+
+    d["sell_pressure_shift"] = (new.get("sell_pressure_1h") or 0) - (old.get("sell_pressure_1h") or 0)
+    d["volume_spiking"] = (new.get("volume_spike_ratio") or 0) >= 5
+    return d
+
+
+def _cross_reference(deltas: dict, old: dict, new: dict) -> list[dict]:
+    """Cross-reference forensic and market layers. Observational, not causal."""
+    results: list[dict] = []
+
+    forensic_changed = (
+        deltas["sol_delta"] > 0
+        or deltas["bundle_wallets_delta"] > 0
+        or deltas["cartel_wallets_delta"] > 0
+        or deltas["deployer_just_exited"]
+        or deltas["insider_escalated"]
+    )
+    market_stressed = (
+        (deltas.get("price_usd_pct") or 0) <= -20
+        or (deltas.get("liq_usd_pct") or 0) <= -20
+        or (deltas.get("mcap_usd_pct") or 0) <= -30
+    )
+
+    if not forensic_changed and not market_stressed:
+        return results
+
+    # Build factual observations per layer
+    forensic_facts = []
+    if deltas["sol_delta"] > 0:
+        forensic_facts.append(f"+{deltas['sol_delta']:.1f} SOL extracted")
+    if deltas["deployer_just_exited"]:
+        forensic_facts.append("deployer exited")
+    if deltas["insider_escalated"]:
+        forensic_facts.append("insider dump detected")
+    if deltas["bundle_wallets_delta"] > 0:
+        forensic_facts.append(f"+{deltas['bundle_wallets_delta']} bundle wallets")
+    if deltas["cartel_wallets_delta"] > 0:
+        forensic_facts.append(f"+{deltas['cartel_wallets_delta']} cartel wallets")
+    if deltas["rug_count_delta"] > 0:
+        forensic_facts.append(f"+{deltas['rug_count_delta']} new rug(s)")
+
+    market_facts = []
+    price_pct = deltas.get("price_usd_pct")
+    if price_pct is not None and abs(price_pct) >= 10:
+        market_facts.append(f"price {price_pct:+.0f}%")
+    mcap_pct = deltas.get("mcap_usd_pct")
+    if mcap_pct is not None and mcap_pct <= -15:
+        market_facts.append(f"mcap {mcap_pct:+.0f}%")
+    liq_pct = deltas.get("liq_usd_pct")
+    if liq_pct is not None and liq_pct <= -15:
+        market_facts.append(f"liq {liq_pct:+.0f}%")
+    if deltas["sell_pressure_shift"] > 0.15:
+        sp_now = (new.get("sell_pressure_1h") or 0) * 100
+        market_facts.append(f"sell pressure {sp_now:.0f}%")
+    if deltas["volume_spiking"]:
+        market_facts.append(f"volume {new.get('volume_spike_ratio', 0):.0f}x normal")
+
+    detail = json.dumps({
+        "forensic_changes": forensic_facts or ["none"],
+        "market_changes": market_facts or ["stable"],
+        "deltas": {k: v for k, v in deltas.items() if v is not None and v != 0 and v is not False},
+    })
+
+    if forensic_changed and market_stressed:
+        title = " · ".join(market_facts) + " | " + ", ".join(forensic_facts) if market_facts else ", ".join(forensic_facts)
+        results.append({"type": "CORRELATED_FORENSIC_MARKET", "severity": "critical", "title": title, "detail": detail})
+    elif forensic_changed:
+        results.append({"type": "FORENSIC_ACTIVITY", "severity": "warning",
+                        "title": ", ".join(forensic_facts) + (" · market: " + " · ".join(market_facts) if market_facts else " · market stable"),
+                        "detail": detail})
+    elif market_stressed:
+        results.append({"type": "MARKET_STRESS", "severity": "warning",
+                        "title": " · ".join(market_facts) + " · no new forensic trigger",
+                        "detail": detail})
+
+    # Extraction paused + recovery
+    if (deltas["sol_delta"] == 0 and (old.get("sol_extracted") or 0) > 0
+            and (deltas.get("price_usd_pct") or 0) > 10):
+        results.append({"type": "EXTRACTION_PAUSED", "severity": "info",
+                        "title": f"No new extraction · price {deltas['price_usd_pct']:+.0f}%",
+                        "detail": detail})
+
+    return results
 
 
 # ── Main rescan function ─────────────────────────────────────────────────────

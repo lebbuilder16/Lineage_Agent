@@ -387,13 +387,24 @@ function _buildFlagSummary(flag: SweepFlag): string {
 function _buildFlagDetail(flag: SweepFlag): string | undefined {
   const d = flag.detail;
   if (!d) return undefined;
-  // Collect extra context from detail fields
-  const parts: string[] = [];
-  if (d.deployer) parts.push(`Deployer: ${String(d.deployer).slice(0, 8)}…`);
-  if (d.risk_score) parts.push(`Risk: ${d.risk_score}/100`);
-  if (d.narrative) parts.push(`Narrative: ${d.narrative}`);
-  if (d.note) parts.push(String(d.note));
-  return parts.length > 0 ? parts.join(' · ') : undefined;
+
+  // Correlative forensic × market narratives
+  const fc = d.forensic_changes as string[] | undefined;
+  const mc = d.market_changes as string[] | undefined;
+  if (fc || mc) {
+    const parts: string[] = [];
+    if (fc && fc.length && fc[0] !== 'none') parts.push(`Forensic: ${fc.join(', ')}`);
+    if (mc && mc.length && mc[0] !== 'stable') parts.push(`Market: ${mc.join(', ')}`);
+    if (parts.length > 0) return parts.join(' · ');
+  }
+
+  // Fallback: standard detail fields
+  const fallback: string[] = [];
+  if (d.deployer) fallback.push(`Deployer: ${String(d.deployer).slice(0, 8)}…`);
+  if (d.risk_score) fallback.push(`Risk: ${d.risk_score}/100`);
+  if (d.narrative) fallback.push(`Narrative: ${d.narrative}`);
+  if (d.note) fallback.push(String(d.note));
+  return fallback.length > 0 ? fallback.join(' · ') : undefined;
 }
 
 // ── MemoryEntitiesList — shows all known entities with drill-down ─────────
