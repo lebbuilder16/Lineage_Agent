@@ -315,7 +315,7 @@ async def run_wallet_monitor_sweep(
     # 2. Load previous holdings from DB
     cursor = await db.execute(
         "SELECT mint, risk_score, risk_level, last_scanned, token_name, token_symbol, "
-        "image_uri, liquidity_usd, price_usd "
+        "image_uri, liquidity_usd, price_usd, mcap_usd "
         "FROM wallet_holdings WHERE user_id = ? AND wallet_address = ?",
         (user_id, wallet_address),
     )
@@ -325,7 +325,7 @@ async def run_wallet_monitor_sweep(
         prev[r[0]] = {
             "risk_score": r[1], "risk_level": r[2], "last_scanned": r[3],
             "token_name": r[4], "token_symbol": r[5], "image_uri": r[6],
-            "liquidity_usd": r[7], "price_usd": r[8],
+            "liquidity_usd": r[7], "price_usd": r[8], "mcap_usd": r[9],
         }
 
     alerts: list[dict] = []
@@ -407,6 +407,27 @@ async def run_wallet_monitor_sweep(
             score = old_score or 0
             level = p.get("risk_level", "unknown") if p else "unknown"
 
+        # ── Market × forensic correlation ──────────────────────────
+        market_obs: list[str] = []
+        if p and meta.get("price_usd") and p.get("price_usd") and p["price_usd"] > 0:
+            price_delta = (meta["price_usd"] - p["price_usd"]) / p["price_usd"] * 100
+            if abs(price_delta) >= 15:
+                market_obs.append(f"price {price_delta:+.0f}%")
+        if p and meta.get("liquidity_usd") and p.get("liquidity_usd") and p["liquidity_usd"] > 0:
+            liq_delta = (meta["liquidity_usd"] - p["liquidity_usd"]) / p["liquidity_usd"] * 100
+            if liq_delta <= -15:
+                market_obs.append(f"liq {liq_delta:+.0f}%")
+        if p and meta.get("mcap_usd") and p.get("mcap_usd") and p["mcap_usd"] > 0:
+            mcap_delta = (meta["mcap_usd"] - p["mcap_usd"]) / p["mcap_usd"] * 100
+            if mcap_delta <= -20:
+                market_obs.append(f"mcap {mcap_delta:+.0f}%")
+
+        # Cross-reference: present market + forensic side by side
+        if market_obs and risk_flags:
+            risk_flags.append(f"market: {' · '.join(market_obs)}")
+        elif market_obs:
+            risk_flags.extend(market_obs)
+
         if score >= threshold:
             risky_count += 1
 
@@ -436,15 +457,20 @@ async def run_wallet_monitor_sweep(
                 "reason": f"Risk {score}/100{flag_summary}",
             })
 
-        # Upsert holding with flags + delta
+        # Upsert holding with flags + delta + prev market values
         import json as _json
+        _prev_price = p.get("price_usd") if p else None
+        _prev_liq = p.get("liquidity_usd") if p else None
+        _prev_mcap = p.get("mcap_usd") if p else None
         await db.execute(
             """INSERT OR REPLACE INTO wallet_holdings
                (user_id, wallet_address, mint, token_name, token_symbol, image_uri,
                 ui_amount, decimals, risk_score, risk_level, liquidity_usd, price_usd,
+                mcap_usd, prev_price_usd, prev_liq_usd, prev_mcap_usd,
                 risk_flags, prev_risk_score, status,
                 last_scanned, first_seen, updated_at)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                       ?, ?, ?, ?,
                        ?, ?, ?,
                        ?, COALESCE((SELECT first_seen FROM wallet_holdings
                                     WHERE user_id=? AND wallet_address=? AND mint=?), ?), ?)""",
@@ -453,6 +479,7 @@ async def run_wallet_monitor_sweep(
              holding["ui_amount"], holding["decimals"],
              score, level,
              meta.get("liquidity_usd"), meta.get("price_usd"),
+             meta.get("mcap_usd"), _prev_price, _prev_liq, _prev_mcap,
              _json.dumps(risk_flags) if risk_flags else None,
              old_score, status,
              now if needs_recheck else (p.get("last_scanned") if p else now),
