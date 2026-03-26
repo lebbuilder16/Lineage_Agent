@@ -959,6 +959,19 @@ class SQLiteCache:
             "ON wallet_risk_history(user_id, mint, scanned_at DESC)"
         )
 
+        # Token fingerprint cache (persistent, avoids metadata re-fetch)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS token_fingerprints (
+                mint        TEXT PRIMARY KEY,
+                fingerprint TEXT NOT NULL,
+                campaign_tags TEXT,
+                desc_norm   TEXT,
+                upload_service TEXT,
+                entropy     REAL,
+                computed_at REAL NOT NULL
+            )
+        """)
+
         # Wallet holdings: market correlation columns
         for col, defn in [
             ("mcap_usd", "REAL"),
