@@ -479,8 +479,21 @@ async def run_wallet_monitor_sweep(
                 "reason": f"Risk {score}/100{flag_summary}",
             })
 
-        # Upsert holding with flags + delta + prev market values
+        # Preserve existing flags if new scan didn't produce any
         import json as _json
+        if not risk_flags and p:
+            try:
+                _old_flags_raw = await db.execute(
+                    "SELECT risk_flags FROM wallet_holdings WHERE user_id=? AND wallet_address=? AND mint=?",
+                    (user_id, wallet_address, mint),
+                )
+                _old_row = await _old_flags_raw.fetchone()
+                if _old_row and _old_row[0]:
+                    risk_flags = _json.loads(_old_row[0])
+            except Exception:
+                pass
+
+        # Upsert holding with flags + delta + prev market values
         _prev_price = p.get("price_usd") if p else None
         _prev_liq = p.get("liquidity_usd") if p else None
         _prev_mcap = p.get("mcap_usd") if p else None
