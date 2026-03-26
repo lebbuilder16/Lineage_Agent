@@ -75,7 +75,36 @@ async def fetch_wallet_holdings(wallet_address: str) -> list[dict]:
     return holdings[:MAX_TOKENS_PER_WALLET]
 
 
-# ── Enrich token metadata from DexScreener ───────────────────────────────────
+# ── Enrich token metadata ─────────────────────────────────────────────────────
+
+
+async def _resolve_token_name(mint: str, existing_meta: dict) -> dict:
+    """Fallback: resolve token name/symbol from on-chain metadata via Helius DAS."""
+    meta = {**existing_meta}
+    try:
+        from .data_sources._clients import get_rpc_client
+        rpc = get_rpc_client()
+        result = await asyncio.wait_for(
+            rpc._call("getAsset", [mint]),
+            timeout=5.0,
+        )
+        if result:
+            content = (result.get("content") or {})
+            json_meta = content.get("metadata") or {}
+            meta["token_name"] = json_meta.get("name", "") or meta.get("token_name", "")
+            meta["token_symbol"] = json_meta.get("symbol", "") or meta.get("token_symbol", "")
+            # Image from content.links or content.files
+            links = content.get("links") or {}
+            if links.get("image"):
+                meta["image_uri"] = links["image"]
+            elif not meta.get("image_uri"):
+                files = content.get("files") or []
+                if files and files[0].get("uri"):
+                    meta["image_uri"] = files[0]["uri"]
+    except Exception:
+        pass
+    return meta
+
 
 async def enrich_holding_metadata(mint: str) -> dict:
     """Fetch name, symbol, image, price, liquidity for a token.
@@ -322,9 +351,10 @@ async def run_wallet_monitor_sweep(
         meta: dict = {}
         if not p or not p.get("token_name") or needs_recheck:
             meta = await enrich_holding_metadata(mint)
-            if (meta.get("liquidity_usd") or 0) < MIN_LIQUIDITY_USD and not p:
-                continue  # new dust token, skip
-            # Keep existing name/symbol/image if DexScreener returned empty
+            # If DexScreener returned nothing, try on-chain metadata
+            if not meta.get("token_name"):
+                meta = await _resolve_token_name(mint, meta)
+            # Keep existing name/symbol/image if new fetch returned empty
             if p and not meta.get("token_name"):
                 meta["token_name"] = p.get("token_name", "")
                 meta["token_symbol"] = p.get("token_symbol", "")
