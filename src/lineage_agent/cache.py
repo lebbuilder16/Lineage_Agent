@@ -944,6 +944,21 @@ class SQLiteCache:
             except Exception:
                 pass
 
+        # Risk score history for sparklines
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS wallet_risk_history (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id    INTEGER NOT NULL,
+                mint       TEXT NOT NULL,
+                risk_score INTEGER NOT NULL,
+                scanned_at REAL NOT NULL
+            )
+        """)
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_wrh_user_mint "
+            "ON wallet_risk_history(user_id, mint, scanned_at DESC)"
+        )
+
         # Wallet monitor columns in agent_prefs
         for col, defn in [
             ("wallet_monitor_enabled", "INTEGER NOT NULL DEFAULT 0"),
