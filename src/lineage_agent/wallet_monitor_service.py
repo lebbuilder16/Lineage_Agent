@@ -35,6 +35,28 @@ KNOWN_SKIP_MINTS: frozenset[str] = frozenset({
 SPL_TOKEN_PROGRAM = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
 
 
+def _parse_key_findings(raw: str | None) -> list[str]:
+    """Parse key_findings JSON robustly. Returns max 2 findings."""
+    if not raw:
+        return []
+    import json as _j
+    # Try direct parse
+    try:
+        kf = _j.loads(raw)
+        return kf[:2] if isinstance(kf, list) else []
+    except Exception:
+        pass
+    # Try truncate-and-fix (find last complete quoted string)
+    try:
+        last_q = raw.rfind('"')
+        if last_q > 0:
+            kf = _j.loads(raw[:last_q + 1] + "]")
+            return kf[:2] if isinstance(kf, list) else []
+    except Exception:
+        pass
+    return []
+
+
 # ── Fetch holdings from Solana RPC ───────────────────────────────────────────
 
 async def fetch_wallet_holdings(wallet_address: str) -> list[dict]:
@@ -393,21 +415,7 @@ async def run_wallet_monitor_sweep(
                         # Add investigation verdict as a flag
                         if inv_row[1]:
                             risk_flags = [inv_row[1]] + risk_flags
-                        # Parse key_findings (robust: handle malformed JSON)
-                        raw_kf2 = inv_row[2] or ""
-                        try:
-                            import json as _j
-                            kf = _j.loads(raw_kf2)
-                            if isinstance(kf, list):
-                                risk_flags = risk_flags + kf[:2]
-                        except Exception:
-                            try:
-                                fixed2 = raw_kf2.rstrip().rstrip(",") + "]" if raw_kf2.startswith("[") else raw_kf2
-                                kf = _j.loads(fixed2)
-                                if isinstance(kf, list):
-                                    risk_flags = risk_flags + kf[:2]
-                            except Exception:
-                                pass
+                        risk_flags.extend(_parse_key_findings(inv_row[2]))
             except Exception:
                 pass
         else:
@@ -426,22 +434,7 @@ async def run_wallet_monitor_sweep(
                 if inv_r:
                     if inv_r[0]:
                         risk_flags.append(inv_r[0])
-                    # Parse key_findings (robust: handle malformed JSON)
-                    raw_kf = inv_r[1] or ""
-                    try:
-                        import json as _j2
-                        kf2 = _j2.loads(raw_kf)
-                        if isinstance(kf2, list):
-                            risk_flags.extend(kf2[:2])
-                    except Exception:
-                        # Malformed JSON — try to fix truncated array
-                        try:
-                            fixed = raw_kf.rstrip().rstrip(",") + "]" if raw_kf.startswith("[") else raw_kf
-                            kf2 = _j2.loads(fixed)
-                            if isinstance(kf2, list):
-                                risk_flags.extend(kf2[:2])
-                        except Exception:
-                            pass
+                    risk_flags.extend(_parse_key_findings(inv_r[1]))
             except Exception:
                 pass
 
