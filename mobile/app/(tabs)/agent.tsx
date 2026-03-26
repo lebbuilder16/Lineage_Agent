@@ -130,7 +130,11 @@ export default function AgentScreen() {
 
   const handleRefresh = async () => {
     setRefreshing(true);
-    await Promise.all([fetchStatus(), fetchFlags()]);
+    await Promise.all([
+      fetchStatus(),
+      fetchFlags(),
+      useWalletMonitorStore.getState().fetchHoldings(),
+    ]);
     setRefreshing(false);
   };
 
