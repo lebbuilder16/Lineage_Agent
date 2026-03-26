@@ -734,6 +734,13 @@ async def _warm_heavy_analyses(mint: str, deployer: str):
             return_exceptions=True,
         )
         logger.info("[warm] pre-computed bundle/sol_flow/cartel/operator/factory for %s", mint[:12])
+
+        # Invalidate lineage cache so next /lineage call re-assembles with warm results
+        try:
+            from .data_sources._clients import cache_delete_prefix
+            await cache_delete_prefix(f"lineage_v5:{mint}")
+        except Exception:
+            pass
     except Exception as exc:
         logger.debug("[warm] failed for %s: %s", mint[:12], exc)
 
