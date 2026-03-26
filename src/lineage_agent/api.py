@@ -653,7 +653,8 @@ async def get_lineage(
         asyncio.create_task(_record_scan_event(mint, _qt))
 
         # Warm cache: pre-compute heavy analyses in background so /investigate is fast
-        _deployer = getattr(getattr(result, "root", None), "deployer", "") or ""
+        _qt_warm = getattr(result, "query_token", None) or getattr(result, "root", None)
+        _deployer = getattr(_qt_warm, "deployer", "") or ""
         if _deployer:
             asyncio.create_task(_warm_heavy_analyses(mint, _deployer))
 
