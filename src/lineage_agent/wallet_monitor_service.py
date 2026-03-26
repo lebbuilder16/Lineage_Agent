@@ -407,6 +407,28 @@ async def run_wallet_monitor_sweep(
             score = old_score or 0
             level = p.get("risk_level", "unknown") if p else "unknown"
 
+        # Always enrich flags from investigation verdict (even when not rechecking)
+        if not risk_flags:
+            try:
+                inv_cursor2 = await db.execute(
+                    "SELECT verdict_summary, key_findings FROM investigations "
+                    "WHERE mint = ? ORDER BY created_at DESC LIMIT 1",
+                    (mint,),
+                )
+                inv_r = await inv_cursor2.fetchone()
+                if inv_r:
+                    if inv_r[0]:
+                        risk_flags.append(inv_r[0])
+                    try:
+                        import json as _j2
+                        kf2 = _j2.loads(inv_r[1]) if inv_r[1] else []
+                        if isinstance(kf2, list):
+                            risk_flags.extend(kf2[:2])
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
         # ── Market × forensic correlation ──────────────────────────
         market_obs: list[str] = []
         if p and meta.get("price_usd") and p.get("price_usd") and p["price_usd"] > 0:
