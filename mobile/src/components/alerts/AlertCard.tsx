@@ -48,6 +48,7 @@ const ALERT_ICONS: Record<string, React.ReactNode> = {
   narrative: <Bell size={18} color={tokens.secondary} />,
   token_graduated: <Rocket size={18} color={tokens.success} />,
   deployer_launch: <Rocket size={18} color={tokens.warning} />,
+  wallet_risk: <AlertTriangle size={18} color={tokens.risk.high} />,
 };
 
 // ── Props ────────────────────────────────────────────────────────────────────

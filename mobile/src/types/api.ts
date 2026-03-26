@@ -65,7 +65,7 @@ export interface Watch {
 
 export interface AlertItem {
   id: string;
-  type: 'rug' | 'bundle' | 'insider' | 'zombie' | 'death_clock' | 'deployer' | 'narrative' | 'token_graduated' | 'deployer_launch';
+  type: 'rug' | 'bundle' | 'insider' | 'zombie' | 'death_clock' | 'deployer' | 'narrative' | 'token_graduated' | 'deployer_launch' | 'wallet_risk';
   alert_type?: string;
   title?: string;
   token_name?: string;

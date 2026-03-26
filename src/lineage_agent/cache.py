@@ -882,6 +882,68 @@ class SQLiteCache:
             except Exception:
                 pass  # column already exists
 
+        # ── Wallet monitoring tables ──────────────────────────────────
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS monitored_wallets (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id     INTEGER NOT NULL,
+                address     TEXT NOT NULL,
+                label       TEXT,
+                source      TEXT NOT NULL DEFAULT 'external',
+                enabled     INTEGER NOT NULL DEFAULT 1,
+                created_at  REAL NOT NULL,
+                UNIQUE(user_id, address)
+            )
+        """)
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_mw_user ON monitored_wallets(user_id)")
+
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS wallet_holdings (
+                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id        INTEGER NOT NULL,
+                wallet_address TEXT NOT NULL,
+                mint           TEXT NOT NULL,
+                token_name     TEXT,
+                token_symbol   TEXT,
+                image_uri      TEXT,
+                ui_amount      REAL NOT NULL DEFAULT 0,
+                decimals       INTEGER DEFAULT 0,
+                risk_score     INTEGER,
+                risk_level     TEXT,
+                liquidity_usd  REAL,
+                price_usd      REAL,
+                last_scanned   REAL,
+                first_seen     REAL NOT NULL,
+                updated_at     REAL NOT NULL,
+                UNIQUE(user_id, wallet_address, mint)
+            )
+        """)
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_wh_user ON wallet_holdings(user_id)")
+
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS wallet_monitor_log (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id         INTEGER NOT NULL,
+                holdings_count  INTEGER NOT NULL DEFAULT 0,
+                risky_count     INTEGER NOT NULL DEFAULT 0,
+                alerts_sent     INTEGER NOT NULL DEFAULT 0,
+                duration_ms     REAL,
+                created_at      REAL NOT NULL
+            )
+        """)
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_wml_user ON wallet_monitor_log(user_id, created_at DESC)")
+
+        # Wallet monitor columns in agent_prefs
+        for col, defn in [
+            ("wallet_monitor_enabled", "INTEGER NOT NULL DEFAULT 0"),
+            ("wallet_monitor_threshold", "INTEGER NOT NULL DEFAULT 60"),
+            ("wallet_monitor_interval", "INTEGER NOT NULL DEFAULT 600"),
+        ]:
+            try:
+                await db.execute(f"ALTER TABLE agent_prefs ADD COLUMN {col} {defn}")
+            except Exception:
+                pass
+
         await db.commit()
         self._initialised = True
 
