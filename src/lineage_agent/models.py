@@ -804,7 +804,7 @@ class CartelEdge(BaseModel):
     wallet_b: str
     signal_type: Literal[
         "dna_match", "sol_transfer", "timing_sync", "phash_cluster", "cross_holding",
-        "funding_link", "shared_lp", "sniper_ring",
+        "funding_link", "shared_lp", "sniper_ring", "factory_deploy", "factory_sniper",
     ]
     signal_strength: float = Field(ge=0.0, le=1.0)
     evidence: dict = Field(default_factory=dict)
