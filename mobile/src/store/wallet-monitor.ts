@@ -23,11 +23,26 @@ export interface WalletHolding {
   token_symbol: string;
   image_uri?: string;
   ui_amount: number;
+  usd_value: number | null;
   risk_score: number | null;
   risk_level: string | null;
   liquidity_usd: number | null;
   price_usd: number | null;
   last_scanned: number | null;
+}
+
+export interface ScanResult {
+  holdings_count: number;
+  risky_count: number;
+  alerts_sent: number;
+  wallets_scanned: number;
+}
+
+export interface RiskDistribution {
+  low: number;
+  medium: number;
+  high: number;
+  critical: number;
 }
 
 interface WalletMonitorState {
@@ -36,18 +51,35 @@ interface WalletMonitorState {
   lastSweep: number | null;
   totalRisky: number;
   totalHoldings: number;
+  portfolioUsd: number;
+  riskyUsd: number;
+  riskDistribution: RiskDistribution;
   loading: boolean;
   scanning: boolean;
+  lastScanResult: ScanResult | null;
 
   fetchWallets: () => Promise<void>;
   addWallet: (address: string, label?: string, source?: string) => Promise<boolean>;
   removeWallet: (walletId: number) => Promise<void>;
   fetchHoldings: () => Promise<void>;
-  triggerScan: () => Promise<{ holdings_count: number; risky_count: number; alerts_sent: number } | null>;
+  triggerScan: () => Promise<ScanResult | null>;
+  clearScanResult: () => void;
 }
 
 function getKey(): string | null {
   return useAuthStore.getState().apiKey;
+}
+
+function applyHoldingsData(data: any) {
+  return {
+    holdings: data.holdings ?? [],
+    totalHoldings: data.total_holdings ?? 0,
+    totalRisky: data.total_risky ?? 0,
+    lastSweep: data.last_sweep ?? null,
+    portfolioUsd: data.portfolio_usd ?? 0,
+    riskyUsd: data.risky_usd ?? 0,
+    riskDistribution: data.risk_distribution ?? { low: 0, medium: 0, high: 0, critical: 0 },
+  };
 }
 
 export const useWalletMonitorStore = create<WalletMonitorState>((set) => ({
@@ -56,8 +88,12 @@ export const useWalletMonitorStore = create<WalletMonitorState>((set) => ({
   lastSweep: null,
   totalRisky: 0,
   totalHoldings: 0,
+  portfolioUsd: 0,
+  riskyUsd: 0,
+  riskDistribution: { low: 0, medium: 0, high: 0, critical: 0 },
   loading: false,
   scanning: false,
+  lastScanResult: null,
 
   fetchWallets: async () => {
     const apiKey = getKey();
@@ -83,7 +119,6 @@ export const useWalletMonitorStore = create<WalletMonitorState>((set) => ({
         body: JSON.stringify({ address, label, source }),
       });
       if (res.ok) {
-        // Refresh wallet list
         const listRes = await fetch(`${BASE_URL}/wallet/list`, {
           headers: { 'X-API-Key': apiKey },
         });
@@ -129,12 +164,7 @@ export const useWalletMonitorStore = create<WalletMonitorState>((set) => ({
       });
       if (res.ok) {
         const data = await res.json();
-        set({
-          holdings: data.holdings ?? [],
-          totalHoldings: data.total_holdings ?? 0,
-          totalRisky: data.total_risky ?? 0,
-          lastSweep: data.last_sweep ?? null,
-        });
+        set(applyHoldingsData(data));
       }
     } catch { /* best-effort */ }
     set({ loading: false });
@@ -143,32 +173,30 @@ export const useWalletMonitorStore = create<WalletMonitorState>((set) => ({
   triggerScan: async () => {
     const apiKey = getKey();
     if (!apiKey) return null;
-    set({ scanning: true });
+    set({ scanning: true, lastScanResult: null });
     try {
       const res = await fetch(`${BASE_URL}/wallet/monitor/scan`, {
         method: 'POST',
         headers: { 'X-API-Key': apiKey },
       });
       if (res.ok) {
-        const result = await res.json();
+        const result: ScanResult = await res.json();
         // Refresh holdings after scan
         const holdingsRes = await fetch(`${BASE_URL}/wallet/holdings`, {
           headers: { 'X-API-Key': apiKey },
         });
         if (holdingsRes.ok) {
           const data = await holdingsRes.json();
-          set({
-            holdings: data.holdings ?? [],
-            totalHoldings: data.total_holdings ?? 0,
-            totalRisky: data.total_risky ?? 0,
-            lastSweep: data.last_sweep ?? null,
-          });
+          set({ ...applyHoldingsData(data), scanning: false, lastScanResult: result });
+        } else {
+          set({ scanning: false, lastScanResult: result });
         }
-        set({ scanning: false });
         return result;
       }
     } catch { /* best-effort */ }
     set({ scanning: false });
     return null;
   },
+
+  clearScanResult: () => set({ lastScanResult: null }),
 }));

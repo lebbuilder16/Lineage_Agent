@@ -93,7 +93,7 @@ async def enrich_holding_metadata(mint: str) -> dict:
             "token_name": meta.name or "",
             "token_symbol": meta.symbol or "",
             "image_uri": meta.image_uri or "",
-            "price_usd": meta.market_cap_usd / max(1, meta.liquidity_usd or 1) if meta.market_cap_usd else 0,
+            "price_usd": meta.price_usd or 0,
             "liquidity_usd": meta.liquidity_usd or 0,
             "mcap_usd": meta.market_cap_usd or 0,
         }
