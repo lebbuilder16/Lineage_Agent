@@ -5,9 +5,8 @@ import {
   Eye,
   Search,
   AlertTriangle,
-  ChevronDown,
-  ChevronUp,
-  ExternalLink,
+  Shield,
+  Filter,
 } from 'lucide-react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { tokens } from '../../theme/tokens';
@@ -33,6 +32,8 @@ export interface FeedItem {
 interface AgentActivityFeedProps {
   feedItems: FeedItem[];
 }
+
+type FilterKey = 'all' | 'critical' | 'high' | 'recent';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -60,414 +61,326 @@ function riskColor(score: number): string {
   return tokens.risk.low;
 }
 
-// ── Section Component ────────────────────────────────────────────────────────
+// ── Filter Bar ───────────────────────────────────────────────────────────────
 
-function FeedSection({
-  title,
-  color,
-  items,
-  startIndex,
+function FilterBar({
+  active,
+  onChange,
+  counts,
 }: {
-  title: string;
-  color: string;
-  items: FeedItem[];
-  startIndex: number;
+  active: FilterKey;
+  onChange: (k: FilterKey) => void;
+  counts: { all: number; critical: number; high: number; recent: number };
 }) {
-  const [expandedId, setExpandedId] = useState<string | null>(null);
-
-  if (items.length === 0) return null;
+  const filters: { key: FilterKey; label: string; count: number }[] = [
+    { key: 'all', label: 'All', count: counts.all },
+    { key: 'critical', label: 'Critical', count: counts.critical },
+    { key: 'high', label: 'High', count: counts.high },
+    { key: 'recent', label: '24h', count: counts.recent },
+  ];
 
   return (
-    <View style={styles.section}>
-      <View style={styles.sectionHeader}>
-        <View style={[styles.sectionDot, { backgroundColor: color }]} />
-        <Text style={[styles.sectionTitle, { color }]}>{title}</Text>
-        <Text style={styles.sectionCount}>{items.length}</Text>
-      </View>
-      {items.map((item, i) => {
-        const Icon = item.icon;
-        const isExpanded = expandedId === item.id;
-        const isUnread = item.read === false;
-
+    <View style={s.filterBar}>
+      {filters.map(({ key, label, count }) => {
+        const isActive = active === key;
         return (
-          <Animated.View
-            key={item.id}
-            entering={FadeInDown.delay((startIndex + i) * 30).duration(250).springify()}
+          <TouchableOpacity
+            key={key}
+            onPress={() => onChange(key)}
+            style={[s.filterChip, isActive && s.filterChipActive]}
+            activeOpacity={0.7}
           >
-            <TouchableOpacity
-              onPress={() => setExpandedId(isExpanded ? null : item.id)}
-              activeOpacity={0.75}
-              style={[
-                styles.feedCard,
-                isExpanded && { borderColor: `${item.color}30` },
-                isUnread && styles.feedCardUnread,
-              ]}
-            >
-              {/* Left accent bar */}
-              <View style={[styles.feedAccent, { backgroundColor: item.color }]} />
-
-              {/* Main content */}
-              <View style={styles.feedBody}>
-                {/* Top row: category + time */}
-                <View style={styles.feedTopRow}>
-                  <View style={styles.feedCategoryWrap}>
-                    <Icon size={10} color={item.color} strokeWidth={2.5} />
-                    <Text style={[styles.feedCategoryLabel, { color: item.color }]}>
-                      {item.categoryLabel}
-                    </Text>
-                  </View>
-                  <Text style={styles.feedTime}>{timeAgoShort(item.time)}</Text>
-                </View>
-
-                {/* Token row */}
-                <View style={styles.feedTokenRow}>
-                  <Text style={styles.feedTokenName} numberOfLines={1}>
-                    {item.tokenName}
-                  </Text>
-                  {item.tokenSymbol !== '' && (
-                    <Text style={styles.feedTokenSymbol}>${item.tokenSymbol}</Text>
-                  )}
-                  {item.riskScore != null && (
-                    <View style={[styles.riskPill, { backgroundColor: `${riskColor(item.riskScore)}12`, borderColor: `${riskColor(item.riskScore)}30` }]}>
-                      <Text style={[styles.riskPillText, { color: riskColor(item.riskScore) }]}>
-                        {item.riskScore} {riskLabel(item.riskScore)}
-                      </Text>
-                    </View>
-                  )}
-                </View>
-
-                {/* Summary */}
-                <Text style={styles.feedSummary} numberOfLines={isExpanded ? 6 : 2}>
-                  {item.summary}
-                </Text>
-
-                {/* Expanded section */}
-                {isExpanded && (
-                  <View style={styles.feedExpanded}>
-                    {item.detail && (
-                      <Text style={styles.feedDetail}>{item.detail}</Text>
-                    )}
-                    <Text style={styles.feedMint}>
-                      {item.mint.slice(0, 16)}…{item.mint.slice(-8)}
-                    </Text>
-                    <View style={styles.feedActions}>
-                      {item.mint && (
-                        <TouchableOpacity
-                          onPress={() => router.push(`/investigate/${item.mint}` as any)}
-                          style={styles.feedActionPrimary}
-                          activeOpacity={0.7}
-                        >
-                          <Search size={12} color={tokens.secondary} strokeWidth={2.5} />
-                          <Text style={styles.feedActionPrimaryText}>Investigate</Text>
-                        </TouchableOpacity>
-                      )}
-                      {item.mint && (
-                        <TouchableOpacity
-                          onPress={() => router.push(`/token/${item.mint}` as any)}
-                          style={styles.feedActionSecondary}
-                          activeOpacity={0.7}
-                        >
-                          <ExternalLink size={12} color={tokens.white60} strokeWidth={2} />
-                          <Text style={styles.feedActionSecondaryText}>Details</Text>
-                        </TouchableOpacity>
-                      )}
-                    </View>
-                  </View>
-                )}
-
-                {/* Expand indicator */}
-                <View style={styles.expandHint}>
-                  {isExpanded
-                    ? <ChevronUp size={12} color={tokens.white20} />
-                    : <ChevronDown size={12} color={tokens.white20} />}
-                </View>
+            <Text style={[s.filterText, isActive && s.filterTextActive]}>
+              {label}
+            </Text>
+            {count > 0 && key !== 'all' && (
+              <View style={[s.filterBadge, isActive && s.filterBadgeActive]}>
+                <Text style={s.filterBadgeText}>{count > 9 ? '9+' : count}</Text>
               </View>
-            </TouchableOpacity>
-          </Animated.View>
+            )}
+          </TouchableOpacity>
         );
       })}
     </View>
   );
 }
 
-// ── Component ────────────────────────────────────────────────────────────────
+// ── Compact Card (Low/Medium risk) ───────────────────────────────────────────
+
+function CompactCard({ item, index }: { item: FeedItem; index: number }) {
+  const Icon = item.icon;
+  const score = item.riskScore ?? 0;
+  const rc = score > 0 ? riskColor(score) : tokens.white35;
+
+  return (
+    <Animated.View entering={FadeInDown.delay(index * 20).duration(200)}>
+      <TouchableOpacity
+        onPress={() => router.push(`/investigate/${item.mint}` as any)}
+        activeOpacity={0.7}
+        style={s.compactCard}
+      >
+        <View style={[s.compactDot, { backgroundColor: item.color }]} />
+        <Icon size={12} color={item.color} strokeWidth={2.5} />
+        <View style={s.compactBody}>
+          <Text style={s.compactName} numberOfLines={1}>
+            {item.tokenName}
+            {item.tokenSymbol ? ` $${item.tokenSymbol}` : ''}
+          </Text>
+          <Text style={s.compactSummary} numberOfLines={1}>{item.summary}</Text>
+        </View>
+        {score > 0 && (
+          <Text style={[s.compactScore, { color: rc }]}>{score}</Text>
+        )}
+        <Text style={s.compactTime}>{timeAgoShort(item.time)}</Text>
+      </TouchableOpacity>
+    </Animated.View>
+  );
+}
+
+// ── Prominent Card (High/Critical risk) ──────────────────────────────────────
+
+function PromCard({ item, index }: { item: FeedItem; index: number }) {
+  const Icon = item.icon;
+  const score = item.riskScore ?? 0;
+  const rc = score > 0 ? riskColor(score) : item.color;
+
+  return (
+    <Animated.View entering={FadeInDown.delay(index * 25).duration(250)}>
+      <TouchableOpacity
+        onPress={() => router.push(`/investigate/${item.mint}` as any)}
+        activeOpacity={0.7}
+        style={[s.promCard, { borderColor: `${rc}25` }]}
+      >
+        {/* Accent */}
+        <View style={[s.promAccent, { backgroundColor: rc }]} />
+
+        <View style={s.promBody}>
+          {/* Header: icon + name + score + time */}
+          <View style={s.promHeader}>
+            <View style={[s.promIconWrap, { backgroundColor: `${rc}15` }]}>
+              <Icon size={14} color={rc} strokeWidth={2.5} />
+            </View>
+            <View style={s.promNameCol}>
+              <Text style={s.promName} numberOfLines={1}>
+                {item.tokenName}
+                {item.tokenSymbol ? ` $${item.tokenSymbol}` : ''}
+              </Text>
+              <Text style={[s.promCategory, { color: rc }]}>{item.categoryLabel}</Text>
+            </View>
+            {score > 0 && (
+              <View style={[s.promScorePill, { backgroundColor: `${rc}12`, borderColor: `${rc}30` }]}>
+                <Text style={[s.promScoreNum, { color: rc }]}>{score}</Text>
+                <Text style={[s.promScoreLabel, { color: rc }]}>{riskLabel(score)}</Text>
+              </View>
+            )}
+            <Text style={s.promTime}>{timeAgoShort(item.time)}</Text>
+          </View>
+
+          {/* Summary */}
+          <Text style={s.promSummary} numberOfLines={2}>{item.summary}</Text>
+
+          {/* Detail (if available) */}
+          {item.detail && (
+            <Text style={s.promDetail} numberOfLines={1}>{item.detail}</Text>
+          )}
+        </View>
+      </TouchableOpacity>
+    </Animated.View>
+  );
+}
+
+// ── Main Component ───────────────────────────────────────────────────────────
 
 export function AgentActivityFeed({ feedItems }: AgentActivityFeedProps) {
-  // Separate items by category for sectioned display
-  const { flags, investigations, alertItems } = useMemo(() => {
-    const flags = feedItems.filter((i) => i.category === 'flag');
-    const investigations = feedItems.filter((i) => i.category === 'investigation');
-    const alertItems = feedItems.filter((i) => i.category === 'alert');
-    return { flags, investigations, alertItems };
+  const [filter, setFilter] = useState<FilterKey>('all');
+
+  // Counts for filter badges
+  const counts = useMemo(() => {
+    const now = Date.now();
+    return {
+      all: feedItems.length,
+      critical: feedItems.filter((i) => (i.riskScore ?? 0) >= 75).length,
+      high: feedItems.filter((i) => (i.riskScore ?? 0) >= 50).length,
+      recent: feedItems.filter((i) => now - i.time < 24 * 3600 * 1000).length,
+    };
   }, [feedItems]);
+
+  // Apply filter
+  const filtered = useMemo(() => {
+    const now = Date.now();
+    switch (filter) {
+      case 'critical':
+        return feedItems.filter((i) => (i.riskScore ?? 0) >= 75);
+      case 'high':
+        return feedItems.filter((i) => (i.riskScore ?? 0) >= 50);
+      case 'recent':
+        return feedItems.filter((i) => now - i.time < 24 * 3600 * 1000);
+      default:
+        return feedItems;
+    }
+  }, [feedItems, filter]);
 
   if (feedItems.length === 0) {
     return (
-      <View style={styles.emptyWrap}>
-        <View style={styles.emptyIconCircle}>
-          <Eye size={28} color={tokens.white20} />
+      <View style={s.emptyWrap}>
+        <View style={s.emptyIconCircle}>
+          <Shield size={28} color={tokens.white20} />
         </View>
-        <Text style={styles.emptyTitle}>No activity yet</Text>
-        <Text style={styles.emptySub}>
-          Add tokens to your watchlist or scan a token to start building your agent's intelligence.
+        <Text style={s.emptyTitle}>No activity yet</Text>
+        <Text style={s.emptySub}>
+          Add tokens to your watchlist or scan a token to start building intelligence.
         </Text>
         <TouchableOpacity
           onPress={() => router.push('/(tabs)/scan' as any)}
-          style={styles.emptyCta}
+          style={s.emptyCta}
           activeOpacity={0.75}
         >
           <Search size={14} color={tokens.secondary} />
-          <Text style={styles.emptyCtaText}>Scan a token</Text>
+          <Text style={s.emptyCtaText}>Scan a token</Text>
         </TouchableOpacity>
       </View>
     );
   }
 
-  // Show sections — flags first (most actionable), then investigations, then alerts
-  let idx = 0;
-
   return (
-    <View style={styles.feedContainer}>
-      {flags.length > 0 && (
-        <FeedSection
-          title="SWEEP FLAGS"
-          color={tokens.risk.high}
-          items={flags}
-          startIndex={(() => { const s = idx; idx += flags.length; return s; })()}
-        />
+    <View style={s.root}>
+      <FilterBar active={filter} onChange={setFilter} counts={counts} />
+
+      {filtered.length === 0 && (
+        <View style={s.noResults}>
+          <Filter size={18} color={tokens.white20} />
+          <Text style={s.noResultsText}>No items match this filter</Text>
+        </View>
       )}
-      {investigations.length > 0 && (
-        <FeedSection
-          title="INVESTIGATIONS"
-          color={tokens.violet}
-          items={investigations}
-          startIndex={(() => { const s = idx; idx += investigations.length; return s; })()}
-        />
-      )}
-      {alertItems.length > 0 && (
-        <FeedSection
-          title="ALERTS"
-          color={tokens.cyan}
-          items={alertItems}
-          startIndex={(() => { const s = idx; idx += alertItems.length; return s; })()}
-        />
-      )}
+
+      {filtered.map((item, i) => {
+        const score = item.riskScore ?? 0;
+        // High/Critical → prominent card, rest → compact
+        return score >= 50 ? (
+          <PromCard key={item.id} item={item} index={i} />
+        ) : (
+          <CompactCard key={item.id} item={item} index={i} />
+        );
+      })}
     </View>
   );
 }
 
 // ── Styles ───────────────────────────────────────────────────────────────────
 
-const styles = StyleSheet.create({
-  feedContainer: {
-    gap: 16,
+const s = StyleSheet.create({
+  root: { gap: 6 },
+
+  // Filter bar
+  filterBar: { flexDirection: 'row', gap: 6, marginBottom: 4 },
+  filterChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    paddingHorizontal: 12, paddingVertical: 7,
+    borderRadius: tokens.radius.pill,
+    backgroundColor: tokens.bgGlass8,
+    borderWidth: 1, borderColor: tokens.borderSubtle,
   },
-  section: {
-    gap: 6,
+  filterChipActive: {
+    backgroundColor: `${tokens.secondary}12`,
+    borderColor: `${tokens.secondary}30`,
   },
-  sectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginBottom: 4,
-    paddingHorizontal: 2,
+  filterText: { fontFamily: 'Lexend-Medium', fontSize: 11, color: tokens.textTertiary },
+  filterTextActive: { color: tokens.secondary },
+  filterBadge: {
+    minWidth: 16, height: 16, borderRadius: 8,
+    backgroundColor: tokens.bgGlass12,
+    alignItems: 'center', justifyContent: 'center',
+    paddingHorizontal: 4,
   },
-  sectionDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-  },
-  sectionTitle: {
-    fontFamily: 'Lexend-SemiBold',
-    fontSize: 10,
-    letterSpacing: 1,
-    flex: 1,
-  },
-  sectionCount: {
-    fontFamily: 'Lexend-Medium',
-    fontSize: 10,
-    color: tokens.textTertiary,
-  },
-  feedCard: {
-    flexDirection: 'row',
+  filterBadgeActive: { backgroundColor: `${tokens.secondary}25` },
+  filterBadgeText: { fontFamily: 'Lexend-Bold', fontSize: 8, color: tokens.white80 },
+
+  // Compact card (low/medium risk — 1 line)
+  compactCard: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    paddingVertical: 10, paddingHorizontal: 12,
     backgroundColor: tokens.bgGlass,
     borderRadius: tokens.radius.sm,
-    borderWidth: 1,
-    borderColor: tokens.borderSubtle,
-    overflow: 'hidden',
+    borderWidth: 1, borderColor: tokens.borderSubtle,
   },
-  feedCardUnread: {
-    borderColor: `${tokens.risk.high}25`,
-    backgroundColor: `${tokens.risk.high}04`,
+  compactDot: { width: 4, height: 4, borderRadius: 2 },
+  compactBody: { flex: 1, gap: 1 },
+  compactName: {
+    fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.small,
+    color: tokens.white80,
   },
-  feedAccent: {
-    width: 3,
+  compactSummary: {
+    fontFamily: 'Lexend-Regular', fontSize: 9,
+    color: tokens.white35,
   },
-  feedBody: {
-    flex: 1,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    gap: 5,
+  compactScore: { fontFamily: 'Lexend-Bold', fontSize: tokens.font.small },
+  compactTime: { fontFamily: 'Lexend-Regular', fontSize: 9, color: tokens.white20 },
+
+  // Prominent card (high/critical — multi-line)
+  promCard: {
+    backgroundColor: tokens.bgGlass,
+    borderRadius: tokens.radius.sm,
+    borderWidth: 1, overflow: 'hidden',
   },
-  feedTopRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+  promAccent: { height: 3 },
+  promBody: { padding: 12, gap: 6 },
+  promHeader: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  promIconWrap: {
+    width: 28, height: 28, borderRadius: 14,
+    alignItems: 'center', justifyContent: 'center',
   },
-  feedCategoryWrap: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  feedCategoryLabel: {
-    fontFamily: 'Lexend-SemiBold',
-    fontSize: 9,
-    letterSpacing: 0.3,
-  },
-  feedTime: {
-    fontFamily: 'Lexend-Regular',
-    fontSize: 9,
-    color: tokens.textTertiary,
-  },
-  feedTokenRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  feedTokenName: {
-    fontFamily: 'Lexend-SemiBold',
-    fontSize: tokens.font.body,
+  promNameCol: { flex: 1 },
+  promName: {
+    fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.body,
     color: tokens.white100,
-    flexShrink: 1,
   },
-  feedTokenSymbol: {
-    fontFamily: 'Lexend-Regular',
-    fontSize: tokens.font.small,
-    color: tokens.textTertiary,
+  promCategory: { fontFamily: 'Lexend-Medium', fontSize: 9, letterSpacing: 0.3 },
+  promScorePill: {
+    alignItems: 'center', paddingHorizontal: 8, paddingVertical: 3,
+    borderRadius: tokens.radius.sm, borderWidth: 1, minWidth: 40,
   },
-  riskPill: {
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-    borderRadius: tokens.radius.pill,
-    borderWidth: 1,
-    marginLeft: 'auto',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 3,
+  promScoreNum: { fontFamily: 'Lexend-Bold', fontSize: tokens.font.small },
+  promScoreLabel: { fontFamily: 'Lexend-Regular', fontSize: 7, letterSpacing: 0.3 },
+  promTime: { fontFamily: 'Lexend-Regular', fontSize: 9, color: tokens.white20 },
+  promSummary: {
+    fontFamily: 'Lexend-Regular', fontSize: tokens.font.small,
+    color: tokens.white60, lineHeight: 17,
   },
-  riskPillText: {
-    fontFamily: 'Lexend-Bold',
-    fontSize: 9,
+  promDetail: {
+    fontFamily: 'Lexend-Regular', fontSize: 9,
+    color: tokens.textTertiary, lineHeight: 14,
   },
-  feedSummary: {
-    fontFamily: 'Lexend-Regular',
-    fontSize: tokens.font.small,
-    color: tokens.white60,
-    lineHeight: 17,
-  },
-  feedExpanded: {
-    gap: 8,
-    paddingTop: 6,
-    borderTopWidth: 1,
-    borderTopColor: tokens.borderSubtle,
-    marginTop: 4,
-  },
-  feedDetail: {
-    fontFamily: 'Lexend-Regular',
-    fontSize: tokens.font.tiny,
-    color: tokens.textTertiary,
-    lineHeight: 15,
-  },
-  feedMint: {
-    fontFamily: 'Lexend-Regular',
-    fontSize: 9,
-    color: tokens.white20,
-    letterSpacing: 0.3,
-  },
-  feedActions: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  feedActionPrimary: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: tokens.radius.pill,
-    borderWidth: 1,
-    borderColor: `${tokens.secondary}40`,
-    backgroundColor: `${tokens.secondary}08`,
-  },
-  feedActionPrimaryText: {
-    fontFamily: 'Lexend-SemiBold',
-    fontSize: tokens.font.tiny,
-    color: tokens.secondary,
-  },
-  feedActionSecondary: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: tokens.radius.pill,
-    borderWidth: 1,
-    borderColor: tokens.borderSubtle,
-    backgroundColor: tokens.bgGlass8,
-  },
-  feedActionSecondaryText: {
-    fontFamily: 'Lexend-SemiBold',
-    fontSize: tokens.font.tiny,
-    color: tokens.white60,
-  },
-  expandHint: {
-    alignItems: 'center',
-    marginTop: 2,
-  },
+
+  // Empty state
   emptyWrap: {
-    alignItems: 'center',
-    paddingVertical: 48,
-    gap: 10,
+    alignItems: 'center', paddingVertical: 48, gap: 10,
   },
   emptyIconCircle: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: 56, height: 56, borderRadius: 28,
     backgroundColor: tokens.bgGlass8,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: tokens.borderSubtle,
-    marginBottom: 4,
+    alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1, borderColor: tokens.borderSubtle, marginBottom: 4,
   },
   emptyTitle: {
-    fontFamily: 'Lexend-SemiBold',
-    fontSize: tokens.font.body,
-    color: tokens.white60,
+    fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.body, color: tokens.white60,
   },
   emptySub: {
-    fontFamily: 'Lexend-Regular',
-    fontSize: tokens.font.small,
-    color: tokens.textTertiary,
-    textAlign: 'center',
-    maxWidth: 260,
-    lineHeight: 18,
+    fontFamily: 'Lexend-Regular', fontSize: tokens.font.small,
+    color: tokens.textTertiary, textAlign: 'center', maxWidth: 260, lineHeight: 18,
   },
   emptyCta: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginTop: 8,
-    paddingHorizontal: 18,
-    paddingVertical: 10,
-    borderRadius: tokens.radius.pill,
-    borderWidth: 1,
-    borderColor: `${tokens.secondary}40`,
-    backgroundColor: `${tokens.secondary}08`,
+    flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8,
+    paddingHorizontal: 18, paddingVertical: 10,
+    borderRadius: tokens.radius.pill, borderWidth: 1,
+    borderColor: `${tokens.secondary}40`, backgroundColor: `${tokens.secondary}08`,
   },
-  emptyCtaText: {
-    fontFamily: 'Lexend-SemiBold',
-    fontSize: tokens.font.small,
-    color: tokens.secondary,
+  emptyCtaText: { fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.small, color: tokens.secondary },
+
+  // No results for filter
+  noResults: {
+    alignItems: 'center', paddingVertical: 32, gap: 8,
+  },
+  noResultsText: {
+    fontFamily: 'Lexend-Regular', fontSize: tokens.font.small, color: tokens.white35,
   },
 });
