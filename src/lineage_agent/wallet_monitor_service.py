@@ -103,10 +103,68 @@ async def enrich_holding_metadata(mint: str) -> dict:
 
 # ── Risk assessment ──────────────────────────────────────────────────────────
 
-async def assess_risk_lightweight(mint: str) -> tuple[int, str]:
+def _extract_flags_from_lineage(lin: Any) -> list[str]:
+    """Extract human-readable risk flags from a lineage result."""
+    flags: list[str] = []
+    try:
+        # Deployer signals
+        dp = getattr(lin, "deployer_profile", None)
+        if dp:
+            rc = getattr(dp, "confirmed_rug_count", 0) or 0
+            if rc > 0:
+                flags.append(f"deployer: {rc} prior rug{'s' if rc > 1 else ''}")
+            rr = getattr(dp, "rug_rate_pct", 0) or 0
+            if rr > 40:
+                flags.append(f"rug rate {rr:.0f}%")
+
+        # Insider sell
+        ins = getattr(lin, "insider_sell", None)
+        if ins:
+            if getattr(ins, "deployer_exited", False):
+                flags.append("deployer exited")
+            verdict = getattr(ins, "verdict", "")
+            if verdict == "insider_dump":
+                flags.append("insider dump")
+
+        # Bundle
+        br = getattr(lin, "bundle_report", None)
+        if br:
+            bv = getattr(br, "overall_verdict", "")
+            if "extraction" in str(bv):
+                flags.append("bundle extraction")
+            bw = getattr(br, "bundle_wallet_count", 0) or 0
+            if bw >= 3:
+                flags.append(f"{bw} bundled wallets")
+
+        # Death clock
+        dc = getattr(lin, "death_clock", None)
+        if dc:
+            rl = getattr(dc, "risk_level", "")
+            if rl in ("high", "critical"):
+                flags.append(f"death clock: {rl}")
+
+        # SOL flow
+        sf = getattr(lin, "sol_flow", None)
+        if sf:
+            ext = getattr(sf, "total_extracted_sol", 0) or 0
+            if ext > 5:
+                flags.append(f"{ext:.1f} SOL extracted")
+
+        # Cartel
+        cr = getattr(lin, "cartel_report", None)
+        if cr:
+            dc_comm = getattr(cr, "deployer_community", None)
+            if dc_comm and getattr(dc_comm, "community_size", 0) >= 3:
+                flags.append(f"cartel: {getattr(dc_comm, 'community_size', 0)} wallets")
+    except Exception:
+        pass
+    return flags
+
+
+async def assess_risk_lightweight(mint: str) -> tuple[int, str, list[str]]:
     """Fast risk check using cached lineage data (zero external calls).
 
-    Returns (risk_score, risk_level).
+    Returns (risk_score, risk_level, risk_flags).
     """
     try:
         from .lineage_detector import get_cached_lineage_report
@@ -114,11 +172,12 @@ async def assess_risk_lightweight(mint: str) -> tuple[int, str]:
 
         cached = await get_cached_lineage_report(mint)
         if cached:
+            flags = _extract_flags_from_lineage(cached)
             dc = getattr(cached, "death_clock", None)
             if dc and getattr(dc, "risk_level", None):
                 score = int(getattr(dc, "rug_probability_pct", 50) or 50)
                 level = getattr(dc, "risk_level", "unknown")
-                return (score, level)
+                return (score, level, flags)
 
             cached_dict = cached.model_dump(mode="json") if hasattr(cached, "model_dump") else {}
             score = _heuristic_score(
@@ -127,22 +186,23 @@ async def assess_risk_lightweight(mint: str) -> tuple[int, str]:
                 cached_dict.get("sol_flow"),
             )
             level = "critical" if score >= 75 else "high" if score >= 50 else "medium" if score >= 25 else "low"
-            return (score, level)
+            return (score, level, flags)
     except Exception:
         pass
-    return (0, "unknown")
+    return (0, "unknown", [])
 
 
-async def assess_risk_full(mint: str) -> tuple[int, str]:
+async def assess_risk_full(mint: str) -> tuple[int, str, list[str]]:
     """Full forensic pipeline — only called when lightweight shows risk.
 
-    Returns (risk_score, risk_level).
+    Returns (risk_score, risk_level, risk_flags).
     """
     try:
         from .lineage_detector import detect_lineage
         from .ai_analyst import _heuristic_score
 
         lin = await asyncio.wait_for(detect_lineage(mint, force_refresh=True), timeout=60.0)
+        flags = _extract_flags_from_lineage(lin)
         scan_dict = lin.model_dump(mode="json") if hasattr(lin, "model_dump") else {}
         score = _heuristic_score(
             scan_dict,
@@ -150,10 +210,10 @@ async def assess_risk_full(mint: str) -> tuple[int, str]:
             scan_dict.get("sol_flow"),
         )
         level = "critical" if score >= 75 else "high" if score >= 50 else "medium" if score >= 25 else "low"
-        return (score, level)
+        return (score, level, flags)
     except Exception as exc:
         logger.debug("[wallet_monitor] full risk assess failed for %s: %s", mint[:12], exc)
-        return (0, "unknown")
+        return (0, "unknown", [])
 
 
 # ── Alert broadcast ──────────────────────────────────────────────────────────
@@ -264,24 +324,23 @@ async def run_wallet_monitor_sweep(
 
         # Risk assessment
         old_score = p["risk_score"] if p else None
+        risk_flags: list[str] = []
         needs_recheck = (
             not p
             or p.get("risk_score") is None
-            or (now - (p.get("last_scanned") or 0)) > 600  # re-check every 10 min
+            or (now - (p.get("last_scanned") or 0)) > 600
         )
 
         if needs_recheck:
-            score, level = await assess_risk_lightweight(mint)
-            # Full forensic if risk looks high OR if never scanned (unknown)
-            # and token has real liquidity (worth checking)
+            score, level, risk_flags = await assess_risk_lightweight(mint)
             needs_full = (
                 score >= threshold
                 or (level == "unknown" and (meta.get("liquidity_usd") or 0) >= 500)
             )
             if needs_full:
-                full_score, full_level = await assess_risk_full(mint)
+                full_score, full_level, full_flags = await assess_risk_full(mint)
                 if full_score > 0:
-                    score, level = full_score, full_level
+                    score, level, risk_flags = full_score, full_level, full_flags
         else:
             score = old_score or 0
             level = p.get("risk_level", "unknown") if p else "unknown"
@@ -289,28 +348,42 @@ async def run_wallet_monitor_sweep(
         if score >= threshold:
             risky_count += 1
 
+        # Compute status delta
+        is_new = p is None
+        if is_new:
+            status = "new"
+        elif old_score is not None and score > old_score + 10:
+            status = "risk_up"
+        elif old_score is not None and score < old_score - 10:
+            status = "risk_down"
+        else:
+            status = "held"
+
         # Generate alert if risk crossed threshold upward
         crossed_up = (
             (old_score is not None and old_score < threshold and score >= threshold)
-            or (old_score is None and score >= threshold)
+            or (is_new and score >= threshold)
         )
         if crossed_up:
+            flag_summary = (" — " + ", ".join(risk_flags[:2])) if risk_flags else ""
             alerts.append({
                 "mint": mint,
                 "token_name": meta.get("token_name", ""),
                 "risk_score": score,
                 "risk_level": level,
-                "reason": f"Risk {score}/100 — threshold crossed" if old_score is not None
-                    else f"New high-risk token detected ({score}/100)",
+                "reason": f"Risk {score}/100{flag_summary}",
             })
 
-        # Upsert holding
+        # Upsert holding with flags + delta
+        import json as _json
         await db.execute(
             """INSERT OR REPLACE INTO wallet_holdings
                (user_id, wallet_address, mint, token_name, token_symbol, image_uri,
                 ui_amount, decimals, risk_score, risk_level, liquidity_usd, price_usd,
+                risk_flags, prev_risk_score, status,
                 last_scanned, first_seen, updated_at)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                       ?, ?, ?,
                        ?, COALESCE((SELECT first_seen FROM wallet_holdings
                                     WHERE user_id=? AND wallet_address=? AND mint=?), ?), ?)""",
             (user_id, wallet_address, mint,
@@ -318,6 +391,8 @@ async def run_wallet_monitor_sweep(
              holding["ui_amount"], holding["decimals"],
              score, level,
              meta.get("liquidity_usd"), meta.get("price_usd"),
+             _json.dumps(risk_flags) if risk_flags else None,
+             old_score, status,
              now if needs_recheck else (p.get("last_scanned") if p else now),
              user_id, wallet_address, mint, now, now),
         )
