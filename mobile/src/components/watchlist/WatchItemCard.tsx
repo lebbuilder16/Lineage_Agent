@@ -15,17 +15,40 @@ export interface WatchItemCardProps {
   onPress: (w: Watch) => void;
   onCopy: (v: string) => void;
   flagCount?: number;
+  flagTypeList?: string[];
+  tokenMetaOverride?: { name?: string; symbol?: string; image?: string };
 }
 
-export function WatchItemCard({ item, onPress, onCopy, flagCount = 0 }: WatchItemCardProps) {
-  // Try to get token name/symbol from react-query lineage cache
+const FLAG_LABELS: Record<string, string> = {
+  SOL_EXTRACTION_NEW: 'SOL extracted',
+  SOL_EXTRACTION_INCREASED: 'SOL extraction ↑',
+  DEPLOYER_EXITED: 'Deployer exited',
+  INSIDER_DUMP_DETECTED: 'Insider dump',
+  BUNDLE_DETECTED: 'Bundle detected',
+  BUNDLE_WALLETS_NEW: 'New bundle wallets',
+  CARTEL_DETECTED: 'Cartel detected',
+  CARTEL_EXPANDED: 'Cartel expanded',
+  RISK_ESCALATION: 'Risk escalated',
+  DEPLOYER_NEW_RUG: 'New rug by deployer',
+  SELL_PRESSURE_SPIKE: 'Sell pressure spike',
+  BUNDLE_WALLET_EXIT: 'Bundle wallet sold',
+  BUNDLE_WALLETS_ALL_EXITED: 'All bundles exited',
+  CORRELATED_FORENSIC_MARKET: 'Forensic × Market',
+  FORENSIC_ACTIVITY: 'Forensic activity',
+  MARKET_STRESS: 'Market stress',
+  PRICE_CRASH: 'Price crash',
+  LIQUIDITY_DRAIN: 'Liquidity drain',
+};
+
+export function WatchItemCard({ item, onPress, onCopy, flagCount = 0, flagTypeList, tokenMetaOverride }: WatchItemCardProps) {
+  // Try to get token name/symbol from: 1) override from flags, 2) react-query cache, 3) item label
   const cached = item.sub_type === 'mint'
     ? queryClient.getQueryData<LineageResult>(QK.lineage(item.value))
     : undefined;
   const qt = (cached as Record<string, unknown> | undefined)?.query_token as Record<string, unknown> | undefined;
-  const tokenName = (qt?.name as string) || item.label || item.identifier || null;
-  const tokenSymbol = (qt?.symbol as string) || null;
-  const imageUri = (qt?.image_uri as string) || null;
+  const tokenName = tokenMetaOverride?.name || (qt?.name as string) || item.label || item.identifier || null;
+  const tokenSymbol = tokenMetaOverride?.symbol || (qt?.symbol as string) || null;
+  const imageUri = tokenMetaOverride?.image || (qt?.image_uri as string) || null;
 
   // Risk badge from investigation history
   const prev = useHistoryStore.getState().getByMint(item.value);
@@ -83,11 +106,28 @@ export function WatchItemCard({ item, onPress, onCopy, flagCount = 0 }: WatchIte
               {item.value.slice(0, 8)}…{item.value.slice(-6)}
             </Text>
             {riskLevel && <RiskBadge level={riskLevel} size="sm" />}
-            {flagCount > 0 && (
+            {flagCount > 0 && flagTypeList && flagTypeList.length > 0 ? (
+              <View style={styles.flagRow}>
+                {flagTypeList.slice(0, 2).map((ft, i) => (
+                  <View key={i} style={[styles.flagPill, ft.includes('CRITICAL') || ft.includes('EXITED') || ft.includes('RUG') || ft.includes('DUMP')
+                    ? { backgroundColor: `${tokens.risk.critical}15`, borderColor: `${tokens.risk.critical}30` }
+                    : { backgroundColor: `${tokens.warning}15`, borderColor: `${tokens.warning}30` }
+                  ]}>
+                    <Text style={[styles.flagPillText, ft.includes('CRITICAL') || ft.includes('EXITED') || ft.includes('RUG') || ft.includes('DUMP')
+                      ? { color: tokens.risk.critical }
+                      : { color: tokens.warning }
+                    ]}>{FLAG_LABELS[ft] || ft.replace(/_/g, ' ').toLowerCase()}</Text>
+                  </View>
+                ))}
+                {flagTypeList.length > 2 && (
+                  <Text style={styles.flagMore}>+{flagTypeList.length - 2}</Text>
+                )}
+              </View>
+            ) : flagCount > 0 ? (
               <View style={styles.flagBadge}>
                 <Text style={styles.flagBadgeText}>{flagCount} flag{flagCount > 1 ? 's' : ''}</Text>
               </View>
-            )}
+            ) : null}
           </View>
         </View>
       </TouchableOpacity>
@@ -157,6 +197,28 @@ const styles = StyleSheet.create({
     fontSize: tokens.font.tiny,
     color: tokens.textTertiary,
     flex: 1,
+  },
+  flagRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 4,
+    marginTop: 2,
+  },
+  flagPill: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: tokens.radius.pill,
+    borderWidth: 1,
+  },
+  flagPillText: {
+    fontFamily: 'Lexend-SemiBold',
+    fontSize: 8,
+  },
+  flagMore: {
+    fontFamily: 'Lexend-Regular',
+    fontSize: 8,
+    color: tokens.textTertiary,
+    alignSelf: 'center',
   },
   flagBadge: {
     flexDirection: 'row',
