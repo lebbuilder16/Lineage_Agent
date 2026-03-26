@@ -3,15 +3,13 @@ Phase 3 — Operator Fingerprint (Metadata DNA).
 
 Detects when different deployer wallets share the same behavioural
 fingerprint based on:
-- Upload service pattern (Arweave, IPFS, Cloudflare, NFT.Storage)
-- Normalised description prefix (first 60 chars stripped + lowercased)
+- Campaign tags (Discord, Twitter, Telegram) — STRONGEST signal
+- Upload service pattern (Arweave, IPFS, Cloudflare)
+- Normalised description prefix (entropy-filtered)
 
-If ≥2 different deployer wallets in a family share the same fingerprint,
-they are likely the same human operator using multiple wallets.
-
-metadata_uri is fetched from each pair's off-chain JSON.  Calls are
-bounded to 3 concurrent fetches with a 5s timeout.  Failures are silent
-(the signal is non-critical).
+Uses persistent `token_fingerprints` table to cache per-mint results,
+avoiding re-fetching metadata URIs on subsequent scans. Only NEW mints
+(not in cache) trigger HTTP fetches — making the service incremental.
 """
 
 from __future__ import annotations
@@ -19,7 +17,9 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+import math
 import re
+import time
 from typing import Optional
 
 import httpx
@@ -38,22 +38,20 @@ logger = logging.getLogger(__name__)
 
 _FETCH_TIMEOUT = 5.0        # seconds per metadata fetch
 _FETCH_SEM = asyncio.Semaphore(3)
+_MIN_DESC_ENTROPY = 0.35    # minimum Shannon entropy ratio to accept description
+_MIN_DESC_LENGTH = 8        # minimum chars after normalisation
 
-# Solana system/protocol addresses that should never be treated as human deployers
+# Solana system/protocol addresses — never treated as human deployers
 _SYSTEM_ADDRESSES: frozenset[str] = frozenset({
-    "11111111111111111111111111111111",          # System Program
-    "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",  # Token Program
-    "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJe1bRS",  # Associated Token Account
-    "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s",    # Metaplex Metadata
-    "TSLvdd1pWpHVjahSpsvCXUbgwsL3JAcvokwaKt1eokM",    # Pump.fun authority
-    "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBymPkZu",   # Pump.fun program
-    "Ce6TQqeHC9p8KetsN6JsjHK7UTZk7nasjjnr7XxXp9F1",   # Moonshot
+    "11111111111111111111111111111111",
+    "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+    "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJe1bRS",
+    "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s",
+    "TSLvdd1pWpHVjahSpsvCXUbgwsL3JAcvokwaKt1eokM",
+    "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBymPkZu",
+    "Ce6TQqeHC9p8KetsN6JsjHK7UTZk7nasjjnr7XxXp9F1",
 })
 
-# Social/campaign handle patterns extracted from off-chain metadata descriptions.
-# These are the STRONGEST cross-wallet signal: operators reuse the same Discord
-# slug, Twitter handle or Telegram channel across all their token launches even
-# when they use different deployer wallets and different description texts.
 _CAMPAIGN_PATTERNS: list[tuple[str, str]] = [
     (r"discord\.gg/([a-zA-Z0-9_-]{2,32})", "discord"),
     (r"discord\.com/invite/([a-zA-Z0-9_-]{2,32})", "discord"),
@@ -62,7 +60,6 @@ _CAMPAIGN_PATTERNS: list[tuple[str, str]] = [
     (r"instagram\.com/([a-zA-Z0-9_.]{1,30})(?:/|\s|$)", "instagram"),
 ]
 
-# Known IPFS/Arweave gateway patterns
 _SERVICE_PATTERNS: list[tuple[str, str]] = [
     (r"arweave\.net/", "arweave"),
     (r"ar-io\.net/", "arweave"),
@@ -73,7 +70,7 @@ _SERVICE_PATTERNS: list[tuple[str, str]] = [
     (r"gateway\.pinata\.cloud/ipfs/", "pinata"),
     (r"cf-ipfs\.com/", "cloudflare"),
     (r"pump\.fun/", "pumpfun"),
-    (r"bafkreia?[a-z0-9]{50,}", "ipfs"),  # IPFS CIDv1 inline
+    (r"bafkreia?[a-z0-9]{50,}", "ipfs"),
 ]
 
 _CONFIRMED_EVIDENCE_LEVELS = {EvidenceLevel.MODERATE.value, EvidenceLevel.STRONG.value}
@@ -95,23 +92,149 @@ def _is_confirmed_linked_wallet_rug(row: dict) -> bool:
     return evidence_level in _CONFIRMED_EVIDENCE_LEVELS
 
 
+def _shannon_entropy(s: str) -> float:
+    """Shannon entropy normalised to [0, 1]."""
+    if not s:
+        return 0.0
+    freq: dict[str, int] = {}
+    for c in s:
+        freq[c] = freq.get(c, 0) + 1
+    n = len(s)
+    ent = -sum((count / n) * math.log2(count / n) for count in freq.values())
+    max_ent = math.log2(min(n, 26))  # max for lowercase alpha
+    return ent / max_ent if max_ent > 0 else 0.0
+
+
+# ── Persistent fingerprint cache ─────────────────────────────────────────────
+
+async def _get_cached_fingerprint(mint: str) -> dict | None:
+    """Read from token_fingerprints table. Returns dict or None."""
+    try:
+        from .data_sources._clients import cache as _c
+        db = await _c._get_conn()
+        row = await (await db.execute(
+            "SELECT fingerprint, campaign_tags, desc_norm, upload_service, entropy "
+            "FROM token_fingerprints WHERE mint = ?",
+            (mint,),
+        )).fetchone()
+        if row:
+            return {
+                "fingerprint": row[0],
+                "campaign_tags": row[1] or "",
+                "desc_norm": row[2] or "",
+                "upload_service": row[3] or "",
+                "entropy": row[4] or 0,
+            }
+    except Exception:
+        pass
+    return None
+
+
+async def _save_fingerprint(mint: str, fp: str, tags: str, desc: str, svc: str, ent: float) -> None:
+    """Write to token_fingerprints table."""
+    try:
+        from .data_sources._clients import cache as _c
+        db = await _c._get_conn()
+        await db.execute(
+            "INSERT OR REPLACE INTO token_fingerprints "
+            "(mint, fingerprint, campaign_tags, desc_norm, upload_service, entropy, computed_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (mint, fp, tags, desc, svc, ent, time.time()),
+        )
+        await db.commit()
+    except Exception:
+        pass
+
+
+# ── Core fingerprint computation ─────────────────────────────────────────────
+
+async def _get_fingerprint(mint: str, uri: str) -> tuple[str, str] | None:
+    """Compute (fingerprint, desc_norm) for a single token.
+
+    1. Check persistent DB cache (token_fingerprints table)
+    2. Check in-memory TTL cache (dna:v2:{mint})
+    3. Fetch metadata URI (HTTP)
+    4. Compute fingerprint with entropy filter
+    5. Persist to DB + TTL cache
+    """
+    if not uri:
+        return None
+
+    # 1. Persistent DB cache (survives restarts, shared across all scan paths)
+    cached_db = await _get_cached_fingerprint(mint)
+    if cached_db:
+        return cached_db["fingerprint"], cached_db["desc_norm"]
+
+    # 2. In-memory TTL cache (fast path within same process)
+    cache_key = f"dna:v2:{mint}"
+    cached = await cache_get(cache_key)
+    if cached:
+        parts = str(cached).split("|", 2)
+        if len(parts) >= 2:
+            return parts[0], parts[1]
+
+    # 3. Fetch metadata
+    try:
+        client: httpx.AsyncClient = get_img_client()
+        fetch_url = _normalise_uri(uri)
+        if not fetch_url:
+            return None
+        resp = await asyncio.wait_for(client.get(fetch_url), timeout=_FETCH_TIMEOUT)
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as exc:
+        logger.debug("metadata fetch failed for %s (%s): %s", mint, uri, exc)
+        return None
+
+    desc = str(data.get("description") or "").strip()
+
+    # Extract campaign tags (STRONGEST signal)
+    campaign_tags: list[str] = []
+    for pattern, platform in _CAMPAIGN_PATTERNS:
+        for m in re.finditer(pattern, desc, re.IGNORECASE):
+            tag = f"{platform}:{m.group(1).lower()}"
+            if tag not in campaign_tags:
+                campaign_tags.append(tag)
+    tags_str = ";".join(sorted(campaign_tags))
+
+    # Normalise description
+    desc_norm = re.sub(r"[^a-z0-9 ]", "", desc.lower())[:200].strip()
+
+    # Entropy filter — reject descriptions too generic (e.g. "buy token now")
+    entropy = _shannon_entropy(desc_norm) if desc_norm else 0.0
+    if not tags_str:
+        if not desc_norm or len(desc_norm) < _MIN_DESC_LENGTH:
+            return None
+        if entropy < _MIN_DESC_ENTROPY:
+            logger.debug("desc entropy too low for %s: %.2f < %.2f", mint[:12], entropy, _MIN_DESC_ENTROPY)
+            return None
+
+    service = _detect_service(uri)
+
+    # Compute fingerprint
+    if tags_str:
+        raw = f"campaign:{tags_str}"
+    else:
+        raw = f"{service}:{desc_norm}"
+    fp = hashlib.sha256(raw.encode()).hexdigest()[:32]
+
+    # 5. Persist to both caches
+    await _save_fingerprint(mint, fp, tags_str, desc_norm, service, entropy)
+    await cache_set(cache_key, f"{fp}|{desc_norm}|{tags_str}", ttl=86400)
+
+    return fp, desc_norm
+
+
+# ── Main entry point ─────────────────────────────────────────────────────────
+
 async def build_operator_fingerprint(
     mints_deployers_uris: list[tuple[str, str, str]],
 ) -> Optional[OperatorFingerprint]:
     """Compute fingerprints for a list of (mint, deployer, metadata_uri) tuples.
 
-    Parameters
-    ----------
-    mints_deployers_uris:
-        List of (mint, deployer_address, metadata_uri) tuples.  Empty deployer
-        or uri entries are skipped.
-
-    Returns
-    -------
-    OperatorFingerprint if ≥2 distinct deployers share the same fingerprint,
-    else None.
+    Incremental: reads from persistent token_fingerprints cache for known mints,
+    only fetches metadata for new ones. This makes repeated scans near-instant.
     """
-    # Filter out entries without deployer or uri, and known system/protocol addresses
     valid = [
         (m, d, u)
         for m, d, u in mints_deployers_uris
@@ -120,8 +243,8 @@ async def build_operator_fingerprint(
     if len(valid) < 2:
         return None
 
-    # Fetch + compute fingerprints concurrently
-    sem = asyncio.Semaphore(3)
+    # Fetch + compute fingerprints concurrently (bounded)
+    sem = asyncio.Semaphore(5)  # increased from 3 — DB cache makes most calls instant
 
     async def _fp(mint: str, deployer: str, uri: str) -> tuple[str, str, str, str] | None:
         async with sem:
@@ -134,11 +257,11 @@ async def build_operator_fingerprint(
     tasks = [_fp(m, d, u) for m, d, u in valid]
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
-    # Group deployers by fingerprint — also count total tokens per fp
+    # Group deployers by fingerprint
     fp_to_deployers: dict[str, list[str]] = {}
     fp_to_service: dict[str, str] = {}
     fp_to_desc: dict[str, str] = {}
-    fp_token_count: dict[str, int] = {}   # total tokens (including same-deployer)
+    fp_token_count: dict[str, int] = {}
 
     for r in results:
         if not isinstance(r, tuple):
@@ -149,14 +272,11 @@ async def build_operator_fingerprint(
             fp_to_service[fp] = service
         if deployer not in fp_to_deployers[fp]:
             fp_to_deployers[fp].append(deployer)
-        # Store the human-readable normalised description (never the raw hash)
         if fp not in fp_to_desc or not fp_to_desc[fp] or fp_to_desc[fp] == fp:
             fp_to_desc[fp] = desc_norm if desc_norm else fp[:16] + "..."
         fp_token_count[fp] = fp_token_count.get(fp, 0) + 1
 
-    # Accept fingerprints with either:
-    #   a) ≥2 distinct deployers (cross-wallet match — strongest signal), OR
-    #   b) 1 deployer but ≥2 tokens with same DNA (same-wallet, repeated pattern)
+    # Accept: ≥2 deployers (cross-wallet) OR 1 deployer with ≥2 tokens same DNA
     shared = {
         fp: deps
         for fp, deps in fp_to_deployers.items()
@@ -165,16 +285,13 @@ async def build_operator_fingerprint(
     if not shared:
         return None
 
-    # Pick the fingerprint with the most linked wallets (break ties by token count)
     best_fp = max(shared, key=lambda k: (len(shared[k]), fp_token_count.get(k, 0)))
     linked = shared[best_fp]
     service = fp_to_service.get(best_fp, "unknown")
     is_cross_wallet = len(linked) >= 2
 
-    # Enrich with tokens launched by each linked wallet
     linked_wallet_tokens = await _fetch_linked_wallet_tokens(linked)
 
-    # Persist fingerprint→wallet mappings for Cartel Graph + Operator Impact
     for wallet in linked:
         try:
             await operator_mapping_upsert(best_fp, wallet)
@@ -189,142 +306,73 @@ async def build_operator_fingerprint(
         confidence=(
             "confirmed" if is_cross_wallet and len(linked) >= 3
             else "probable" if is_cross_wallet
-            else "probable"   # same-deployer pattern match
+            else "probable"
         ),
         linked_wallet_tokens=linked_wallet_tokens,
     )
 
 
-async def _fetch_linked_wallet_tokens(
-    wallets: list[str],
-    limit_per_wallet: int = 8,
-) -> dict[str, list[DeployerTokenSummary]]:
-    """Query intelligence_events for tokens launched by each linked wallet."""
+# ── Helpers ──────────────────────────────────────────────────────────────────
+
+async def _fetch_linked_wallet_tokens(wallets: list[str]) -> dict[str, list[DeployerTokenSummary]]:
+    """Enrich each linked wallet with its token launch history."""
     result: dict[str, list[DeployerTokenSummary]] = {}
-    if not wallets:
-        return result
 
     async def _query_wallet(wallet: str) -> None:
-        if wallet in _SYSTEM_ADDRESSES:
-            return
         try:
             rows = await event_query(
-                where="event_type = 'token_created' AND deployer = ?",
-
+                where="deployer = ? AND event_type = 'token_created'",
                 params=(wallet,),
-                columns="mint, name, symbol, narrative, mcap_usd, created_at",
-                limit=limit_per_wallet,
-                order_by="recorded_at DESC",
+                columns="mint, name, symbol, created_at, lifecycle_stage, evidence_level, rug_mechanism",
+                order_by="created_at DESC",
+                limit=20,
             )
-            mints = [row.get("mint", "") for row in rows if row.get("mint")]
-            rugged_map: dict[str, dict] = {}
-            if mints:
-                await normalize_legacy_rug_events(mints=mints)
-                placeholders = ",".join("?" for _ in mints)
-                rugged_rows = await event_query(
-                    where=f"event_type = 'token_rugged' AND mint IN ({placeholders})",
-                    params=tuple(mints),
-                    columns="mint, rugged_at, rug_mechanism, evidence_level",
-                    limit=len(mints),
+            if not rows:
+                return
+
+            legacy_rug_mints = [
+                r.get("mint", "")
+                for r in rows
+                if r.get("mint") and not r.get("rug_mechanism")
+            ]
+            if legacy_rug_mints:
+                await normalize_legacy_rug_events(mints=legacy_rug_mints)
+                rows = await event_query(
+                    where="deployer = ? AND event_type = 'token_created'",
+                    params=(wallet,),
+                    columns="mint, name, symbol, created_at, lifecycle_stage, evidence_level, rug_mechanism",
+                    order_by="created_at DESC",
+                    limit=20,
                 )
-                rugged_map = {row.get("mint", ""): row for row in rugged_rows if row.get("mint")}
-            tokens = []
-            for row in rows:
-                rug_row = rugged_map.get(row.get("mint", ""), {})
-                rugged_at_raw = rug_row.get("rugged_at") if _is_confirmed_linked_wallet_rug(rug_row) else None
-                from datetime import datetime, timezone
 
-                def _parse(v: object):  # noqa: ANN202
-                    if v is None or isinstance(v, datetime):
-                        return v
-                    try:
-                        dt = datetime.fromisoformat(str(v))
-                        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
-                    except ValueError:
-                        return None
+            rugged_mints = await event_query(
+                where="deployer = ? AND event_type = 'token_rugged'",
+                params=(wallet,),
+                columns="mint, rug_mechanism, evidence_level",
+                limit=100,
+            )
+            rugged_set = {
+                r.get("mint")
+                for r in rugged_mints
+                if r.get("mint") and _is_confirmed_linked_wallet_rug(r)
+            }
 
+            tokens: list[DeployerTokenSummary] = []
+            for r in rows:
+                mint = r.get("mint", "")
                 tokens.append(DeployerTokenSummary(
-                    mint=row.get("mint", ""),
-                    name=row.get("name") or "",
-                    symbol=row.get("symbol") or "",
-                    created_at=_parse(row.get("created_at")),
-                    rugged_at=_parse(rugged_at_raw),
-                    rug_mechanism=(rug_row.get("rug_mechanism") if rug_row else None),
-                    evidence_level=(rug_row.get("evidence_level") if rug_row else None),
-                    mcap_usd=row.get("mcap_usd"),
-                    narrative=row.get("narrative") or "",
+                    mint=mint,
+                    name=r.get("name") or mint[:8],
+                    symbol=r.get("symbol") or "?",
+                    created_at=r.get("created_at"),
+                    rugged=mint in rugged_set,
                 ))
-            if tokens:
-                result[wallet] = tokens
+            result[wallet] = tokens
         except Exception as exc:
             logger.debug("_fetch_linked_wallet_tokens failed for %s: %s", wallet, exc)
 
     await asyncio.gather(*[_query_wallet(w) for w in wallets])
     return result
-
-
-async def _get_fingerprint(mint: str, uri: str) -> tuple[str, str] | None:
-    """Fetch metadata JSON and compute (fingerprint, desc_norm). Uses cache."""
-    if not uri:
-        return None
-
-    # v2: version bump invalidates old 60-char entries and adds campaign tags
-    cache_key = f"dna:v2:{mint}"
-    cached = await cache_get(cache_key)
-    if cached:
-        # Cache value format: "fp|desc_norm|tags_str" (3-part, pipe-separated)
-        cached_str = str(cached)
-        parts = cached_str.split("|", 2)
-        if len(parts) >= 2:
-            return parts[0], parts[1]
-
-    try:
-        client: httpx.AsyncClient = get_img_client()
-        # Normalise URI (Arweave IDs may need arweave.net prefix)
-        fetch_url = _normalise_uri(uri)
-        if not fetch_url:
-            return None
-
-        resp = await asyncio.wait_for(client.get(fetch_url), timeout=_FETCH_TIMEOUT)
-        resp.raise_for_status()
-        data = resp.json()
-    except Exception as exc:
-        logger.debug("metadata fetch failed for %s (%s): %s", mint, uri, exc)
-        return None
-
-    desc = str(data.get("description") or "").strip()
-    desc_lower = desc.lower()
-
-    # Extract campaign social handles from the RAW description (before normalisation).
-    # These are the strongest cross-wallet identity signal: operators reuse the
-    # same Discord/Twitter/Telegram across launches even when description text differs.
-    campaign_tags: list[str] = []
-    for pattern, platform in _CAMPAIGN_PATTERNS:
-        for m in re.finditer(pattern, desc, re.IGNORECASE):
-            tag = f"{platform}:{m.group(1).lower()}"
-            if tag not in campaign_tags:
-                campaign_tags.append(tag)
-    tags_str = ";".join(sorted(campaign_tags))
-
-    # Normalise: keep only alphanumeric + spaces, truncate to 200
-    # (was 60 — truncation hid campaign tags embedded later in long descriptions)
-    desc_norm = re.sub(r"[^a-z0-9 ]", "", desc_lower)[:200].strip()
-    # Empty description is too weak a signal — would cause false positives across
-    # all tokens that have no description (they'd all share the same fingerprint)
-    if not desc_norm and not tags_str:
-        return None
-    service = _detect_service(uri)
-    # Campaign-tag fingerprint is STRONGER than description content because operators
-    # reuse the same social handles across wallets even when description text differs.
-    if tags_str:
-        raw = f"campaign:{tags_str}"
-    else:
-        raw = f"{service}:{desc_norm}"
-    fp = hashlib.sha256(raw.encode()).hexdigest()[:32]
-
-    # Cache as "fp|desc_norm|tags_str" so callers can recover human-readable info
-    await cache_set(cache_key, f"{fp}|{desc_norm}|{tags_str}", ttl=86400)
-    return fp, desc_norm
 
 
 def _detect_service(uri: str) -> str:
@@ -337,18 +385,14 @@ def _detect_service(uri: str) -> str:
 def _normalise_uri(uri: str) -> Optional[str]:
     """Ensure URI is a full HTTP URL."""
     uri = uri.strip()
+    if not uri:
+        return None
     if uri.startswith("http://") or uri.startswith("https://"):
         return uri
     if uri.startswith("ipfs://"):
-        cid = uri[7:]
-        return f"https://cloudflare-ipfs.com/ipfs/{cid}"
+        return "https://ipfs.io/ipfs/" + uri[7:]
     if uri.startswith("ar://"):
-        tx = uri[5:]
-        return f"https://arweave.net/{tx}"
-    # Bare Arweave transaction ID (43 chars, base64url chars only)
-    if re.fullmatch(r"[A-Za-z0-9_-]{43}", uri):
-        return f"https://arweave.net/{uri}"
-    # PumpFun metadata URI (e.g. https://pump.fun/coin/<mint>/metadata)
-    if "pump.fun" in uri:
-        return uri if uri.startswith("http") else f"https://{uri}"
+        return "https://arweave.net/" + uri[5:]
+    if re.match(r"^[a-zA-Z0-9_-]{43}$", uri):
+        return "https://arweave.net/" + uri
     return None
