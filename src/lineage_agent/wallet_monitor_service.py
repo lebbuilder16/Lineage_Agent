@@ -272,8 +272,13 @@ async def run_wallet_monitor_sweep(
 
         if needs_recheck:
             score, level = await assess_risk_lightweight(mint)
-            # Escalate to full forensic if risk looks high
-            if score >= threshold:
+            # Full forensic if risk looks high OR if never scanned (unknown)
+            # and token has real liquidity (worth checking)
+            needs_full = (
+                score >= threshold
+                or (level == "unknown" and (meta.get("liquidity_usd") or 0) >= 500)
+            )
+            if needs_full:
                 full_score, full_level = await assess_risk_full(mint)
                 if full_score > 0:
                     score, level = full_score, full_level
