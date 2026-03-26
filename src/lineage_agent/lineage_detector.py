@@ -1382,6 +1382,19 @@ async def _detect_lineage_impl(
         except Exception as _oi_exc:
             logger.warning("[operator_impact] enricher failed: %s", _oi_exc)
 
+    # ── Backfill missing modules from individual caches ────────────────────────
+    # The warm cache may have completed these in background; read them now.
+    if result.bundle_report is None:
+        try:
+            result.bundle_report = await get_cached_bundle_report(_scan_mint)
+        except Exception:
+            pass
+    if result.sol_flow is None:
+        try:
+            result.sol_flow = await get_sol_flow_report(_scan_mint)
+        except Exception:
+            pass
+
     # ── Enrich death_clock with rug_probability_pct ───────────────────────────
     # Requires insider_sell (from gather 2) — runs as a pure in-memory calculation
     # after both gathers are resolved; no additional I/O needed.
