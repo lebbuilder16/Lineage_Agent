@@ -201,7 +201,7 @@ export function FullReportSection({
 
       {/* Cartel */}
       {data.cartel_report?.deployer_community?.community_id && (
-        <TouchableOpacity onPress={() => router.push(`/cartel/${data.cartel_report?.deployer_community?.community_id}` as any)} activeOpacity={0.75} accessibilityRole="button" accessibilityLabel="View cartel network">
+        <TouchableOpacity onPress={() => router.push(`/cartel/${data.query_token?.deployer || data.root?.deployer || data.cartel_report?.deployer_community?.community_id}` as any)} activeOpacity={0.75} accessibilityRole="button" accessibilityLabel="View cartel network">
           <GlassCard style={[styles.linkCard, { borderLeftColor: `${tokens.accent}60`, borderLeftWidth: 3 }]} noPadding>
             <View style={styles.linkRow}>
               <Zap size={18} color={tokens.accent} />

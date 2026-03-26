@@ -35,7 +35,7 @@ export function AgentSuggestions({ data, mint }: AgentSuggestionsProps) {
     if (br?.overall_verdict?.includes('confirmed'))
       s.push({ Icon: Zap, text: 'Bundle extraction confirmed', why: 'Coordinated wallets extracted SOL post-launch', route: `/sol-trace/${mint}`, priority: 1 });
     if ((cr?.deployer_community?.wallets?.length ?? 0) > 2)
-      s.push({ Icon: Users, text: `${cr.deployer_community.wallets.length} linked deployers`, why: 'Network of deployers share funding or metadata patterns', route: `/cartel/${cr.deployer_community?.community_id}`, priority: 2 });
+      s.push({ Icon: Users, text: `${cr.deployer_community.wallets.length} linked deployers`, why: 'Network of deployers share funding or metadata patterns', route: `/cartel/${(data.query_token?.deployer || data.root?.deployer || cr.deployer_community?.community_id)}`, priority: 2 });
     if (sf?.total_extracted_sol != null && sf.total_extracted_sol > 10)
       s.push({ Icon: ArrowUpRight, text: `${sf.total_extracted_sol.toFixed(1)} SOL extracted`, why: `${sf.hop_count ?? '?'}-hop chain traced from deployer to exit wallets`, route: `/sol-trace/${mint}`, priority: 1 });
 
