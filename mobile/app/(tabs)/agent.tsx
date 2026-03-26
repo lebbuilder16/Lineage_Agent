@@ -220,8 +220,17 @@ export default function AgentScreen() {
         _extractNameFromTitle(flag.title) ??
         flag.mint.slice(0, 6) + '…' + flag.mint.slice(-4);
       const flagSymbol = (flag.detail?.symbol as string) ?? '';
-      // Build readable summary from flag detail
       const summary = _buildFlagSummary(flag);
+
+      // Cross-reference: use investigation score if higher than sweep score
+      let flagRiskScore = (flag.detail?.risk_score as number) ?? 0;
+      const matchingInv = investigations.find((inv) => inv.mint === flag.mint);
+      if (matchingInv && matchingInv.riskScore > flagRiskScore) {
+        flagRiskScore = matchingInv.riskScore;
+      }
+      // Also derive from flag type + title content
+      const flagEffective = _deriveEffectiveRisk(flagRiskScore, flag.title, [summary]);
+
       items.push({
         id: `flag-${flag.id}`,
         category: 'flag',
@@ -239,9 +248,12 @@ export default function AgentScreen() {
         mint: flag.mint,
         summary,
         detail: _buildFlagDetail(flag),
-        riskScore: (flag.detail?.risk_score as number) ?? undefined,
+        riskScore: flagEffective.score > 0 ? flagEffective.score : undefined,
         time: flag.createdAt * 1000,
-        color: flag.severity === 'critical' ? tokens.risk.critical : flag.severity === 'warning' ? tokens.risk.high : tokens.white60,
+        color: flagEffective.score > 0 ? flagEffective.color
+          : flag.severity === 'critical' ? tokens.risk.critical
+          : flag.severity === 'warning' ? tokens.risk.high
+          : tokens.white60,
         read: flag.read,
       });
     }
