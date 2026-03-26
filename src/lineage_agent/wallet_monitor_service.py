@@ -520,15 +520,15 @@ async def run_wallet_monitor_sweep(
                 if _cached_lin:
                     _bundle_act = await _check_bundle_wallet_balances(mint, _cached_lin)
                     if _bundle_act:
-                        holding = _bundle_act["still_holding"]
-                        exits = _bundle_act["new_exits"]
-                        total = _bundle_act["total"]
-                        if exits > 0:
-                            risk_flags.append(f"{exits} bundle wallet(s) sold")
-                        if total > 0 and holding == 0 and exits > 0:
+                        _bw_holding = _bundle_act["still_holding"]
+                        _bw_exits = _bundle_act["new_exits"]
+                        _bw_total = _bundle_act["total"]
+                        if _bw_exits > 0:
+                            risk_flags.append(f"{_bw_exits} bundle wallet(s) sold")
+                        if _bw_total > 0 and _bw_holding == 0 and _bw_exits > 0:
                             risk_flags.append("all bundle wallets exited")
-                        elif holding > 0:
-                            risk_flags.append(f"{holding}/{total} bundle wallets still holding")
+                        elif _bw_holding > 0:
+                            risk_flags.append(f"{_bw_holding}/{_bw_total} bundle wallets still holding")
             except Exception:
                 pass
 
