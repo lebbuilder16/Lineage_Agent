@@ -3675,17 +3675,37 @@ async def get_wallet_holdings(
 
     rows = await cursor.fetchall()
     holdings = []
-    risky = 0
+    total_usd = 0.0
+    risky_usd = 0.0
+    risk_dist = {"low": 0, "medium": 0, "high": 0, "critical": 0}
     for r in rows:
-        score = r[6]
-        if score is not None and score >= 50:
-            risky += 1
+        score = r[6] or 0
+        price = r[9] or 0
+        amount = r[5] or 0
+        usd_value = round(amount * price, 2) if price > 0 else None
+        total_usd += usd_value or 0
+
+        # Risk distribution
+        if score >= 75:
+            risk_dist["critical"] += 1
+            risky_usd += usd_value or 0
+        elif score >= 50:
+            risk_dist["high"] += 1
+            risky_usd += usd_value or 0
+        elif score >= 25:
+            risk_dist["medium"] += 1
+        else:
+            risk_dist["low"] += 1
+
         holdings.append({
             "wallet_address": r[0], "mint": r[1], "token_name": r[2],
-            "token_symbol": r[3], "image_uri": r[4], "ui_amount": r[5],
+            "token_symbol": r[3], "image_uri": r[4], "ui_amount": amount,
             "risk_score": r[6], "risk_level": r[7], "liquidity_usd": r[8],
-            "price_usd": r[9], "last_scanned": r[10],
+            "price_usd": price, "usd_value": usd_value,
+            "last_scanned": r[10],
         })
+
+    total_risky = risk_dist["high"] + risk_dist["critical"]
 
     # Last sweep time
     cursor2 = await db.execute(
@@ -3698,8 +3718,11 @@ async def get_wallet_holdings(
     return {
         "holdings": holdings,
         "total_holdings": len(holdings),
-        "total_risky": risky,
+        "total_risky": total_risky,
         "last_sweep": int(last_sweep * 1000) if last_sweep else None,
+        "portfolio_usd": round(total_usd, 2),
+        "risky_usd": round(risky_usd, 2),
+        "risk_distribution": risk_dist,
     }
 
 
