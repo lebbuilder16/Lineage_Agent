@@ -415,6 +415,21 @@ export function WalletHoldingsPanel({ plan }: WalletHoldingsPanelProps) {
   }, []);
 
   const sorted = useMemo(() => sortHoldings(holdings, sortKey), [holdings, sortKey]);
+  const [showDust, setShowDust] = useState(false);
+
+  // Split: active tokens (has liq or risk) vs dust (no liq, no risk)
+  const { activeTokens, dustTokens } = useMemo(() => {
+    const active: WalletHolding[] = [];
+    const dust: WalletHolding[] = [];
+    for (const h of sorted) {
+      if ((h.liquidity_usd && h.liquidity_usd > 0) || (h.risk_score && h.risk_score > 0) || (h.usd_value && h.usd_value > 0.01)) {
+        active.push(h);
+      } else {
+        dust.push(h);
+      }
+    }
+    return { activeTokens: active, dustTokens: dust };
+  }, [sorted]);
 
   // Group by wallet for multi-wallet view
   const hasMultipleWallets = wallets.length > 1;
@@ -504,17 +519,36 @@ export function WalletHoldingsPanel({ plan }: WalletHoldingsPanelProps) {
         </TouchableOpacity>
       </View>
 
-      {/* Per-wallet grouped OR flat list */}
-      {groupedByWallet ? (
-        Object.entries(groupedByWallet).map(([addr, { label, holdings: wHoldings }]) => {
-          const si = idx;
-          idx += wHoldings.length;
-          return (
-            <WalletSection key={addr} address={addr} label={label} holdings={wHoldings} startIndex={si} onWatch={handleWatch} />
-          );
-        })
-      ) : (
-        sorted.map((h, i) => <HoldingCard key={`${h.wallet_address}-${h.mint}`} h={h} index={i} onWatch={handleWatch} />)
+      {/* Active tokens (with market data) */}
+      {activeTokens.map((h, i) => (
+        <HoldingCard key={`${h.wallet_address}-${h.mint}`} h={h} index={i} onWatch={handleWatch} />
+      ))}
+
+      {/* Dust / no market data — collapsible */}
+      {dustTokens.length > 0 && (
+        <View style={s.dustSection}>
+          <TouchableOpacity onPress={() => setShowDust(!showDust)} style={s.dustHeader} activeOpacity={0.7}>
+            <Text style={s.dustTitle}>{dustTokens.length} other token{dustTokens.length > 1 ? 's' : ''}</Text>
+            <Text style={s.dustSub}>No market data</Text>
+            {showDust ? <ChevronUp size={12} color={tokens.white20} /> : <ChevronDown size={12} color={tokens.white20} />}
+          </TouchableOpacity>
+          {showDust && dustTokens.map((h, i) => (
+            <Animated.View key={`${h.wallet_address}-${h.mint}`} entering={FadeInDown.delay(i * 20).duration(150)}>
+              <View style={s.dustRow}>
+                {h.image_uri ? (
+                  <Image source={{ uri: h.image_uri }} style={s.dustImg} />
+                ) : (
+                  <View style={[s.dustImg, s.tokenImgPlaceholder]}>
+                    <Coins size={10} color={tokens.white20} />
+                  </View>
+                )}
+                <Text style={s.dustName} numberOfLines={1}>{h.token_name || h.mint.slice(0, 12)}</Text>
+                {h.token_symbol ? <Text style={s.dustSymbol}>${h.token_symbol}</Text> : null}
+                <Text style={s.dustAmt}>{formatAmount(h.ui_amount)}</Text>
+              </View>
+            </Animated.View>
+          ))}
+        </View>
       )}
     </View>
   );
@@ -641,6 +675,27 @@ const s = StyleSheet.create({
     borderColor: tokens.borderSubtle, backgroundColor: tokens.bgGlass8,
   },
   actionBtnText: { fontFamily: 'Lexend-SemiBold', fontSize: 9, color: tokens.secondary },
+
+  // Dust section (collapsed by default)
+  dustSection: {
+    backgroundColor: tokens.bgGlass, borderRadius: tokens.radius.sm,
+    borderWidth: 1, borderColor: tokens.borderSubtle, overflow: 'hidden',
+  },
+  dustHeader: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    paddingVertical: 10, paddingHorizontal: 14,
+  },
+  dustTitle: { fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.small, color: tokens.white60, flex: 1 },
+  dustSub: { fontFamily: 'Lexend-Regular', fontSize: 9, color: tokens.white20 },
+  dustRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    paddingVertical: 6, paddingHorizontal: 14,
+    borderTopWidth: 1, borderTopColor: tokens.borderSubtle,
+  },
+  dustImg: { width: 22, height: 22, borderRadius: 11 },
+  dustName: { fontFamily: 'Lexend-Medium', fontSize: tokens.font.tiny, color: tokens.white60, flex: 1 },
+  dustSymbol: { fontFamily: 'Lexend-Regular', fontSize: 9, color: tokens.white20 },
+  dustAmt: { fontFamily: 'Lexend-Regular', fontSize: 9, color: tokens.white35 },
 
   // Per-wallet section
   walletSection: { gap: 6 },
