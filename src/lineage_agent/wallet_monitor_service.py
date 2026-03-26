@@ -397,6 +397,22 @@ async def run_wallet_monitor_sweep(
              user_id, wallet_address, mint, now, now),
         )
 
+        # Record risk history for sparkline (only when score changed or first scan)
+        if needs_recheck and score > 0:
+            await db.execute(
+                "INSERT INTO wallet_risk_history (user_id, mint, risk_score, scanned_at) "
+                "VALUES (?, ?, ?, ?)",
+                (user_id, mint, score, now),
+            )
+            # Keep max 20 history points per (user, mint)
+            await db.execute(
+                "DELETE FROM wallet_risk_history WHERE id IN ("
+                "  SELECT id FROM wallet_risk_history WHERE user_id=? AND mint=? "
+                "  ORDER BY scanned_at DESC LIMIT -1 OFFSET 20"
+                ")",
+                (user_id, mint),
+            )
+
     # 4. Remove tokens no longer held
     prev_mints = set(prev.keys())
     sold = prev_mints - current_mints

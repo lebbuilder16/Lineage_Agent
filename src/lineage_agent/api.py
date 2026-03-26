@@ -3718,6 +3718,25 @@ async def get_wallet_holdings(
 
     total_risky = risk_dist["high"] + risk_dist["critical"]
 
+    # Fetch risk history for sparklines (last 10 per mint)
+    if holdings:
+        _mint_list = [h["mint"] for h in holdings]
+        _ph = ",".join("?" for _ in _mint_list)
+        hist_cursor = await db.execute(
+            f"SELECT mint, risk_score, scanned_at FROM wallet_risk_history "
+            f"WHERE user_id = ? AND mint IN ({_ph}) "
+            f"ORDER BY scanned_at ASC",
+            [user["id"]] + _mint_list,
+        )
+        hist_rows = await hist_cursor.fetchall()
+        # Group by mint
+        _hist_map: dict[str, list] = {}
+        for hr in hist_rows:
+            _hist_map.setdefault(hr[0], []).append({"score": hr[1], "ts": hr[2]})
+        # Attach (keep last 10 per mint)
+        for h in holdings:
+            h["risk_history"] = (_hist_map.get(h["mint"]) or [])[-10:]
+
     # Last sweep time
     cursor2 = await db.execute(
         "SELECT MAX(created_at) FROM wallet_monitor_log WHERE user_id = ?",

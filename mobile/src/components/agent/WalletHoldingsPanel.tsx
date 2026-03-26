@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
@@ -17,6 +17,8 @@ import {
   ChevronDown,
   ChevronUp,
   Sparkles,
+  Eye,
+  ExternalLink,
 } from 'lucide-react-native';
 import Animated, { FadeInDown, FadeIn, SlideInUp } from 'react-native-reanimated';
 import { tokens } from '../../theme/tokens';
@@ -199,55 +201,100 @@ function StatusBadge({ status, prevScore, score }: { status: string; prevScore: 
   return null;
 }
 
+// ── Risk Sparkline ───────────────────────────────────────────────────────────
+
+function RiskSparkline({ history }: { history: { score: number; ts: number }[] }) {
+  if (history.length < 2) return null;
+  const points = history.slice(-8);
+  const maxScore = Math.max(...points.map((p) => p.score), 1);
+
+  return (
+    <View style={s.sparkRow}>
+      {points.map((p, i) => {
+        const h = Math.max(3, (p.score / maxScore) * 16);
+        return (
+          <View
+            key={i}
+            style={[s.sparkBar, { height: h, backgroundColor: riskColor(p.score) }]}
+          />
+        );
+      })}
+    </View>
+  );
+}
+
 // ── Holding Card ─────────────────────────────────────────────────────────────
 
-function HoldingCard({ h, index }: { h: WalletHolding; index: number }) {
+function HoldingCard({ h, index, onWatch }: { h: WalletHolding; index: number; onWatch: (mint: string) => void }) {
   const score = h.risk_score ?? 0;
   const rc = score > 0 ? riskColor(score) : tokens.success;
+  const hasHistory = h.risk_history && h.risk_history.length >= 2;
 
   return (
     <Animated.View entering={FadeInDown.delay(index * 25).duration(200)}>
-      <TouchableOpacity onPress={() => router.push(`/investigate/${h.mint}` as any)} activeOpacity={0.7} style={s.holdingCard}>
-        {/* Token image */}
-        {h.image_uri ? (
-          <Image source={{ uri: h.image_uri }} style={s.tokenImg} />
-        ) : (
-          <View style={[s.tokenImg, s.tokenImgPlaceholder]}>
-            <Coins size={14} color={tokens.white20} />
-          </View>
-        )}
-
-        {/* Info */}
-        <View style={s.holdingInfo}>
-          <View style={s.holdingTopRow}>
-            <Text style={s.holdingName} numberOfLines={1}>{h.token_name || h.mint.slice(0, 8)}</Text>
-            {h.token_symbol ? <Text style={s.holdingSymbol}>${h.token_symbol}</Text> : null}
-            <StatusBadge status={h.status} prevScore={h.prev_risk_score} score={score} />
-          </View>
-          <Text style={s.holdingMeta}>
-            {formatAmount(h.ui_amount)}
-            {h.usd_value != null && h.usd_value > 0 ? ` · ${formatUsd(h.usd_value)}` : ''}
-            {h.liquidity_usd ? ` · Liq ${formatUsd(h.liquidity_usd)}` : ''}
-          </Text>
-          {/* Inline risk flags */}
-          {h.risk_flags && h.risk_flags.length > 0 && (
-            <View style={s.flagsRow}>
-              {h.risk_flags.slice(0, 3).map((flag, fi) => (
-                <View key={fi} style={[s.flagPill, { borderColor: `${rc}25`, backgroundColor: `${rc}08` }]}>
-                  <Text style={[s.flagText, { color: rc }]}>{flag}</Text>
-                </View>
-              ))}
+      <View style={s.holdingCard}>
+        {/* Main tap area */}
+        <TouchableOpacity onPress={() => router.push(`/investigate/${h.mint}` as any)} activeOpacity={0.7} style={s.holdingMain}>
+          {/* Token image */}
+          {h.image_uri ? (
+            <Image source={{ uri: h.image_uri }} style={s.tokenImg} />
+          ) : (
+            <View style={[s.tokenImg, s.tokenImgPlaceholder]}>
+              <Coins size={14} color={tokens.white20} />
             </View>
           )}
-        </View>
 
-        {/* Risk badge */}
-        <View style={[s.riskBadge, { backgroundColor: `${rc}12`, borderColor: `${rc}30` }]}>
-          {score >= 50 && <AlertTriangle size={9} color={rc} />}
-          <Text style={[s.riskScore, { color: rc }]}>{score > 0 ? score : '--'}</Text>
-          <Text style={[s.riskLabelText, { color: rc }]}>{score > 0 ? riskLabel(score) : 'Safe'}</Text>
+          {/* Info */}
+          <View style={s.holdingInfo}>
+            <View style={s.holdingTopRow}>
+              <Text style={s.holdingName} numberOfLines={1}>{h.token_name || h.mint.slice(0, 8)}</Text>
+              {h.token_symbol ? <Text style={s.holdingSymbol}>${h.token_symbol}</Text> : null}
+              <StatusBadge status={h.status} prevScore={h.prev_risk_score} score={score} />
+            </View>
+            <Text style={s.holdingMeta}>
+              {formatAmount(h.ui_amount)}
+              {h.usd_value != null && h.usd_value > 0 ? ` · ${formatUsd(h.usd_value)}` : ''}
+              {h.liquidity_usd ? ` · Liq ${formatUsd(h.liquidity_usd)}` : ''}
+            </Text>
+            {/* Inline risk flags */}
+            {h.risk_flags && h.risk_flags.length > 0 && (
+              <View style={s.flagsRow}>
+                {h.risk_flags.slice(0, 3).map((flag, fi) => (
+                  <View key={fi} style={[s.flagPill, { borderColor: `${rc}25`, backgroundColor: `${rc}08` }]}>
+                    <Text style={[s.flagText, { color: rc }]}>{flag}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
+          </View>
+
+          {/* Right column: sparkline + risk badge */}
+          <View style={s.holdingRight}>
+            {hasHistory && <RiskSparkline history={h.risk_history} />}
+            <View style={[s.riskBadge, { backgroundColor: `${rc}12`, borderColor: `${rc}30` }]}>
+              {score >= 50 && <AlertTriangle size={9} color={rc} />}
+              <Text style={[s.riskScore, { color: rc }]}>{score > 0 ? score : '--'}</Text>
+              <Text style={[s.riskLabelText, { color: rc }]}>{score > 0 ? riskLabel(score) : 'Safe'}</Text>
+            </View>
+          </View>
+        </TouchableOpacity>
+
+        {/* Action buttons */}
+        <View style={s.actionRow}>
+          <TouchableOpacity onPress={() => router.push(`/investigate/${h.mint}` as any)} style={s.actionBtn} activeOpacity={0.7}>
+            <Search size={10} color={tokens.secondary} strokeWidth={2.5} />
+            <Text style={s.actionBtnText}>Investigate</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => onWatch(h.mint)} style={[s.actionBtn, s.actionBtnSecondary]} activeOpacity={0.7}>
+            <Eye size={10} color={tokens.white60} strokeWidth={2} />
+            <Text style={[s.actionBtnText, { color: tokens.white60 }]}>Watch</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => router.push(`/token/${h.mint}` as any)} style={[s.actionBtn, s.actionBtnSecondary]} activeOpacity={0.7}>
+            <ExternalLink size={10} color={tokens.white60} strokeWidth={2} />
+            <Text style={[s.actionBtnText, { color: tokens.white60 }]}>Details</Text>
+          </TouchableOpacity>
         </View>
-      </TouchableOpacity>
+      </View>
     </Animated.View>
   );
 }
@@ -279,9 +326,9 @@ function SortBar({ current, onChange }: { current: SortKey; onChange: (k: SortKe
 // ── Per-wallet Section ───────────────────────────────────────────────────────
 
 function WalletSection({
-  address, label, holdings, startIndex,
+  address, label, holdings, startIndex, onWatch,
 }: {
-  address: string; label: string; holdings: WalletHolding[]; startIndex: number;
+  address: string; label: string; holdings: WalletHolding[]; startIndex: number; onWatch: (mint: string) => void;
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const risky = holdings.filter((h) => (h.risk_score ?? 0) >= 50).length;
@@ -299,7 +346,7 @@ function WalletSection({
         {collapsed ? <ChevronDown size={12} color={tokens.white20} /> : <ChevronUp size={12} color={tokens.white20} />}
       </TouchableOpacity>
       {!collapsed && holdings.map((h, i) => (
-        <HoldingCard key={`${h.wallet_address}-${h.mint}`} h={h} index={startIndex + i} />
+        <HoldingCard key={`${h.wallet_address}-${h.mint}`} h={h} index={startIndex + i} onWatch={onWatch} />
       ))}
     </View>
   );
@@ -315,6 +362,18 @@ export function WalletHoldingsPanel({ plan }: WalletHoldingsPanelProps) {
   } = useWalletMonitorStore();
   const enabled = useAgentPrefsStore((s) => s.walletMonitorEnabled);
   const [sortKey, setSortKey] = useState<SortKey>('risk');
+
+  const handleWatch = useCallback((mint: string) => {
+    const { useAuthStore } = require('../../store/auth');
+    const key = useAuthStore.getState().apiKey;
+    if (!key) return;
+    const BASE = (process.env.EXPO_PUBLIC_API_URL ?? 'https://lineage-agent.fly.dev').replace(/\/$/, '');
+    fetch(`${BASE}/auth/watches`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-API-Key': key },
+      body: JSON.stringify({ sub_type: 'mint', value: mint }),
+    }).catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (canAccess(plan, 'pro_plus')) {
@@ -417,11 +476,11 @@ export function WalletHoldingsPanel({ plan }: WalletHoldingsPanelProps) {
           const si = idx;
           idx += wHoldings.length;
           return (
-            <WalletSection key={addr} address={addr} label={label} holdings={wHoldings} startIndex={si} />
+            <WalletSection key={addr} address={addr} label={label} holdings={wHoldings} startIndex={si} onWatch={handleWatch} />
           );
         })
       ) : (
-        sorted.map((h, i) => <HoldingCard key={`${h.wallet_address}-${h.mint}`} h={h} index={i} />)
+        sorted.map((h, i) => <HoldingCard key={`${h.wallet_address}-${h.mint}`} h={h} index={i} onWatch={handleWatch} />)
       )}
     </View>
   );
@@ -488,13 +547,20 @@ const s = StyleSheet.create({
   },
   statusText: { fontFamily: 'Lexend-Bold', fontSize: 8 },
 
+  // Sparkline
+  sparkRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 2, height: 18 },
+  sparkBar: { width: 4, borderRadius: 2, minHeight: 3 },
+
   // Holding card
   holdingCard: {
-    flexDirection: 'row', alignItems: 'center', gap: 10,
     backgroundColor: tokens.bgGlass, borderRadius: tokens.radius.sm,
-    borderWidth: 1, borderColor: tokens.borderSubtle,
+    borderWidth: 1, borderColor: tokens.borderSubtle, overflow: 'hidden',
+  },
+  holdingMain: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
     paddingVertical: 10, paddingHorizontal: 12,
   },
+  holdingRight: { alignItems: 'center', gap: 4 },
   tokenImg: { width: 34, height: 34, borderRadius: 17 },
   tokenImgPlaceholder: { backgroundColor: tokens.bgGlass8, alignItems: 'center', justifyContent: 'center' },
   holdingInfo: { flex: 1, gap: 2 },
@@ -517,6 +583,23 @@ const s = StyleSheet.create({
   },
   riskScore: { fontFamily: 'Lexend-Bold', fontSize: tokens.font.small },
   riskLabelText: { fontFamily: 'Lexend-Regular', fontSize: 8, letterSpacing: 0.3 },
+
+  // Action row
+  actionRow: {
+    flexDirection: 'row', gap: 6,
+    paddingHorizontal: 12, paddingBottom: 8, paddingTop: 4,
+    borderTopWidth: 1, borderTopColor: tokens.borderSubtle,
+  },
+  actionBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    paddingHorizontal: 8, paddingVertical: 5,
+    borderRadius: tokens.radius.pill, borderWidth: 1,
+    borderColor: `${tokens.secondary}30`, backgroundColor: `${tokens.secondary}06`,
+  },
+  actionBtnSecondary: {
+    borderColor: tokens.borderSubtle, backgroundColor: tokens.bgGlass8,
+  },
+  actionBtnText: { fontFamily: 'Lexend-SemiBold', fontSize: 9, color: tokens.secondary },
 
   // Per-wallet section
   walletSection: { gap: 6 },

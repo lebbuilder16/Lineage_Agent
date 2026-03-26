@@ -32,6 +32,7 @@ export interface WalletHolding {
   risk_flags: string[];
   prev_risk_score: number | null;
   status: 'new' | 'held' | 'risk_up' | 'risk_down';
+  risk_history: { score: number; ts: number }[];
 }
 
 export interface ScanResult {
