@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, TextInput, StyleSheet, Linking, TouchableOpacity } from 'react-native';
-import { LogOut } from 'lucide-react-native';
+import { LogOut, Shield } from 'lucide-react-native';
 import { tokens } from '../../theme/tokens';
 import { HapticButton } from '../ui/HapticButton';
 
@@ -21,26 +21,33 @@ export function ApiKeySection({
   onRemove,
   error,
 }: ApiKeySectionProps) {
+  // Short masked key: first 6 + ••• + last 4
   const maskedKey = apiKey
-    ? `${apiKey.slice(0, 6)}${'•'.repeat(Math.max(0, apiKey.length - 10))}${apiKey.slice(-4)}`
+    ? `${apiKey.slice(0, 6)}•••${apiKey.slice(-4)}`
     : '';
 
   return (
-    <>
+    <View style={styles.container}>
       {/* Current key preview */}
       {apiKey ? (
         <View style={styles.currentRow}>
-          <Text style={styles.currentLabel}>Active key</Text>
-          <Text style={styles.currentValue}>{maskedKey}</Text>
+          <View style={styles.currentLeft}>
+            <Shield size={14} color={tokens.success} />
+            <Text style={styles.currentLabel}>Active</Text>
+          </View>
+          <Text style={styles.currentValue} numberOfLines={1}>{maskedKey}</Text>
         </View>
       ) : (
-        <Text style={styles.noKeyHint}>No API key configured.</Text>
+        <View style={styles.noKeyCard}>
+          <Shield size={18} color={tokens.textTertiary} />
+          <Text style={styles.noKeyHint}>No API key configured</Text>
+        </View>
       )}
 
       {/* New key input */}
       <Text style={styles.inputLabel}>{apiKey ? 'Replace with new key' : 'Enter API key'}</Text>
       <TextInput
-        style={styles.input}
+        style={[styles.input, error ? styles.inputError : undefined]}
         value={pendingKey}
         onChangeText={onPendingKeyChange}
         placeholder="sk-..."
@@ -56,7 +63,7 @@ export function ApiKeySection({
       {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
       <HapticButton
-        variant="secondary"
+        variant="primary"
         size="md"
         fullWidth
         onPress={onSave}
@@ -64,7 +71,7 @@ export function ApiKeySection({
         accessibilityRole="button"
         accessibilityLabel="Save API key"
       >
-        Save
+        <Text style={styles.saveBtnText}>Save Key</Text>
       </HapticButton>
 
       {apiKey && (
@@ -89,48 +96,65 @@ export function ApiKeySection({
           <Text style={styles.hintLink}>lineage-agent.fly.dev/dashboard</Text>
         </Text>
       </TouchableOpacity>
-    </>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  container: { gap: 10 },
   currentRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: tokens.bgGlass8,
+    backgroundColor: `${tokens.success}08`,
     borderRadius: tokens.radius.sm,
     paddingHorizontal: 14,
-    paddingVertical: 10,
+    paddingVertical: 12,
     borderWidth: 1,
-    borderColor: `${tokens.secondary}30`,
+    borderColor: `${tokens.success}25`,
+  },
+  currentLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
   currentLabel: {
-    fontFamily: 'Lexend-Regular',
+    fontFamily: 'Lexend-SemiBold',
     fontSize: tokens.font.small,
-    color: tokens.white60,
+    color: tokens.success,
   },
   currentValue: {
     fontFamily: 'Lexend-SemiBold',
     fontSize: tokens.font.small,
-    color: tokens.secondary,
-    letterSpacing: 1,
+    color: tokens.white60,
+    letterSpacing: 0.5,
+    flexShrink: 1,
+  },
+  noKeyCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 16,
+    backgroundColor: tokens.bgGlass8,
+    borderRadius: tokens.radius.sm,
+    borderWidth: 1,
+    borderColor: tokens.borderSubtle,
   },
   noKeyHint: {
     fontFamily: 'Lexend-Regular',
     fontSize: tokens.font.small,
     color: tokens.textTertiary,
-    textAlign: 'center',
   },
   inputLabel: {
-    fontFamily: 'Lexend-Regular',
-    fontSize: tokens.font.small,
+    fontFamily: 'Lexend-Medium',
+    fontSize: tokens.font.tiny,
     color: tokens.white60,
-    marginBottom: -4,
+    letterSpacing: 0.3,
   },
   input: {
     backgroundColor: tokens.bgGlass8,
-    borderRadius: tokens.radius.pill,
+    borderRadius: tokens.radius.sm,
     borderWidth: 1,
     borderColor: tokens.borderSubtle,
     paddingHorizontal: 16,
@@ -139,13 +163,22 @@ const styles = StyleSheet.create({
     fontSize: tokens.font.body,
     color: tokens.white100,
   },
+  inputError: {
+    borderColor: `${tokens.risk.critical}50`,
+  },
   errorText: {
     fontFamily: 'Lexend-Regular',
     fontSize: tokens.font.tiny,
     color: tokens.risk.critical,
-    marginTop: 2,
+    marginTop: -4,
   },
-  saveBtn: { marginTop: 4 },
+  saveBtn: { marginTop: 2 },
+  saveBtnText: {
+    fontFamily: 'Lexend-Bold',
+    fontSize: tokens.font.body,
+    color: tokens.white100,
+    letterSpacing: 0.3,
+  },
   removeInner: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   removeText: {
     fontFamily: 'Lexend-Regular',
@@ -157,7 +190,6 @@ const styles = StyleSheet.create({
     fontSize: tokens.font.tiny,
     color: tokens.textTertiary,
     textAlign: 'center',
-    marginTop: 4,
   },
   hintLink: {
     color: tokens.secondary,

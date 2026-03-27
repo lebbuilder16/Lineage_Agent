@@ -144,14 +144,14 @@ function DisconnectedView({
         accessibilityLabel="OpenClaw device role token"
       />
       <HapticButton
-        variant="secondary"
+        variant="primary"
         size="md"
         fullWidth
         onPress={onConnect}
         accessibilityRole="button"
         accessibilityLabel="Connect to OpenClaw"
       >
-        Connect
+        <Text style={styles.connectBtnText}>Connect</Text>
       </HapticButton>
     </>
   );
@@ -303,7 +303,7 @@ const styles = StyleSheet.create({
   },
   input: {
     backgroundColor: tokens.bgGlass8,
-    borderRadius: tokens.radius.pill,
+    borderRadius: tokens.radius.sm,
     borderWidth: 1,
     borderColor: tokens.borderSubtle,
     paddingHorizontal: 16,
@@ -311,6 +311,12 @@ const styles = StyleSheet.create({
     fontFamily: 'Lexend-Regular',
     fontSize: tokens.font.body,
     color: tokens.white100,
+  },
+  connectBtnText: {
+    fontFamily: 'Lexend-Bold',
+    fontSize: tokens.font.body,
+    color: tokens.white100,
+    letterSpacing: 0.3,
   },
   channelSection: {
     gap: 8,

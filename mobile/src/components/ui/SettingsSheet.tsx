@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   TouchableWithoutFeedback,
   KeyboardAvoidingView,
+  ScrollView,
   Platform,
   StyleSheet,
 } from 'react-native';
@@ -117,7 +118,7 @@ export function SettingsSheet({ visible, onClose }: SettingsSheetProps) {
           <View style={styles.titleRow}>
             <View style={styles.titleLeft}>
               <Key size={18} color={tokens.secondary} />
-              <Text style={styles.title}>API Key</Text>
+              <Text style={styles.title}>Settings</Text>
             </View>
             <TouchableOpacity
               onPress={onClose}
@@ -129,6 +130,7 @@ export function SettingsSheet({ visible, onClose }: SettingsSheetProps) {
             </TouchableOpacity>
           </View>
 
+          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
           <ApiKeySection
             apiKey={apiKey}
             pendingKey={pendingKey}
@@ -151,6 +153,7 @@ export function SettingsSheet({ visible, onClose }: SettingsSheetProps) {
             onConnect={handleConnect}
             onDisconnect={handleDisconnect}
           />
+          </ScrollView>
         </View>
       </KeyboardAvoidingView>
     </Modal>
@@ -168,15 +171,19 @@ const styles = StyleSheet.create({
     pointerEvents: 'box-none',
   },
   sheet: {
-    backgroundColor: tokens.bgApp, // Figma: --bg-app #040816
+    backgroundColor: tokens.bgApp,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     paddingTop: 12,
     paddingHorizontal: tokens.spacing.screenPadding,
     paddingBottom: 40,
-    gap: 12,
+    maxHeight: '85%',
     borderTopWidth: 1,
     borderColor: tokens.borderSubtle,
+  },
+  scrollContent: {
+    gap: 14,
+    paddingBottom: 20,
   },
   handle: {
     width: 40,
