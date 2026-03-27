@@ -75,6 +75,8 @@ export function useLineage(mint: string, enabled = true) {
     queryFn: () => getLineage(mint),
     enabled: enabled && mint.length > 10,
     staleTime: 60_000,
+    retry: 1,
+    retryDelay: 3_000,
   });
 }
 

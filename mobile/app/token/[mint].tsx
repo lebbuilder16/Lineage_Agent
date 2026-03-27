@@ -26,6 +26,7 @@ import { SkeletonBlock } from '../../src/components/ui/SkeletonLoader';
 import { HapticButton } from '../../src/components/ui/HapticButton';
 import { useToast } from '../../src/components/ui/Toast';
 import { useLineage } from '../../src/lib/query';
+import { ApiError } from '../../src/lib/api-client';
 import { useAuthStore } from '../../src/store/auth';
 import { useHistoryStore } from '../../src/store/history';
 import { addWatch } from '../../src/lib/api';
@@ -173,7 +174,27 @@ export default function TokenScreen() {
         refreshControl={<RefreshControl refreshing={isLoading} onRefresh={refetch} tintColor={tokens.secondary} />}
       >
         {isLoading && <GlassCard><SkeletonBlock lines={3} /></GlassCard>}
-        {!isLoading && error && <GlassCard><Text style={styles.errorText}>Could not load token. Is the mint address valid?</Text></GlassCard>}
+        {!isLoading && error && (
+          <GlassCard style={styles.errorCard}>
+            <Text style={styles.errorText}>
+              {error instanceof ApiError && error.status === 504
+                ? 'Analysis timed out — the token may be too new. Try again in a moment.'
+                : error instanceof ApiError && error.status === 429
+                ? 'Too many requests — please wait a moment.'
+                : error instanceof ApiError && error.status === 400
+                ? 'Invalid mint address.'
+                : 'Could not load token data. The token may not be indexed yet.'}
+            </Text>
+            <HapticButton
+              variant="secondary"
+              size="sm"
+              onPress={() => refetch()}
+              style={styles.retryBtn}
+            >
+              <Text style={styles.retryBtnText}>Retry</Text>
+            </HapticButton>
+          </GlassCard>
+        )}
 
         {data && !isLoading && (
           <Animated.View entering={FadeInDown.duration(350).springify()} style={styles.sections}>
@@ -257,7 +278,10 @@ const styles = StyleSheet.create({
   navTitle: { fontFamily: 'Lexend-Bold', fontSize: tokens.font.small, color: tokens.white60, letterSpacing: 1.5 },
   content: { paddingHorizontal: tokens.spacing.screenPadding, gap: 12 },
   sections: { gap: 12 },
-  errorText: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.body, color: tokens.accent, textAlign: 'center' },
+  errorCard: { alignItems: 'center' as const, gap: 14 },
+  errorText: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.body, color: tokens.accent, textAlign: 'center' as const, lineHeight: 22 },
+  retryBtn: { alignSelf: 'center' as const },
+  retryBtnText: { fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.small, color: tokens.primary },
   btnPrimaryText: { fontFamily: 'Lexend-Bold', fontSize: tokens.font.body, color: tokens.white100, letterSpacing: 0.5 },
   actionRow: { flexDirection: 'row', borderRadius: tokens.radius.md, borderWidth: 1, borderColor: tokens.borderSubtle, backgroundColor: tokens.bgGlass8, overflow: 'hidden' },
   actionBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 14 },
