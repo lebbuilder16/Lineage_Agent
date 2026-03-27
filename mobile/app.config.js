@@ -18,19 +18,6 @@ module.exports = {
       config: {
         usesNonExemptEncryption: false,
       },
-      infoPlist: {
-        NSCameraUsageDescription: 'Used to take a profile photo',
-        NSPhotoLibraryUsageDescription: 'Used to select a profile photo',
-        NSClipboardUsageDescription: 'Used to copy wallet addresses and token information',
-      },
-      privacyManifests: {
-        NSPrivacyAccessedAPITypes: [
-          {
-            NSPrivacyAccessedAPIType: 'NSPrivacyAccessedAPICategoryUserDefaults',
-            NSPrivacyAccessedAPITypeReasons: ['CA92.1'],
-          },
-        ],
-      },
     },
     android: {
       adaptiveIcon: {
@@ -65,13 +52,6 @@ module.exports = {
         {
           icon: './assets/notification-icon.png',
           color: '#6F6ACF',
-        },
-      ],
-      [
-        'expo-image-picker',
-        {
-          photosPermission: 'Allow Lineage Agent to access your photos to set a profile picture.',
-          cameraPermission: 'Allow Lineage Agent to use the camera to take a profile picture.',
         },
       ],
       'expo-secure-store',

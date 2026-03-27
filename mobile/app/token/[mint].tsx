@@ -26,7 +26,6 @@ import { SkeletonBlock } from '../../src/components/ui/SkeletonLoader';
 import { HapticButton } from '../../src/components/ui/HapticButton';
 import { useToast } from '../../src/components/ui/Toast';
 import { useLineage } from '../../src/lib/query';
-import { ApiError } from '../../src/lib/api-client';
 import { useAuthStore } from '../../src/store/auth';
 import { useHistoryStore } from '../../src/store/history';
 import { addWatch } from '../../src/lib/api';
@@ -168,52 +167,17 @@ export default function TokenScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Financial disclaimer */}
-      <View style={styles.disclaimerBar}>
-        <Text style={styles.disclaimerText}>For informational purposes only. Not financial advice.</Text>
-      </View>
-
       <ScrollView
         contentContainerStyle={[styles.content, { paddingBottom: Math.max(insets.bottom + 80, 120) }]}
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={isLoading} onRefresh={refetch} tintColor={tokens.secondary} />}
       >
         {isLoading && <GlassCard><SkeletonBlock lines={3} /></GlassCard>}
-        {!isLoading && error && (
-          <GlassCard style={styles.errorCard}>
-            <Text style={styles.errorText}>
-              {error instanceof ApiError && error.status === 504
-                ? 'Analysis timed out — the token may be too new. Try again in a moment.'
-                : error instanceof ApiError && error.status === 429
-                ? 'Too many requests — please wait a moment.'
-                : error instanceof ApiError && error.status === 400
-                ? 'Invalid mint address.'
-                : 'Could not load token data. The token may not be indexed yet.'}
-            </Text>
-            <HapticButton
-              variant="secondary"
-              size="sm"
-              onPress={() => refetch()}
-              style={styles.retryBtn}
-            >
-              <Text style={styles.retryBtnText}>Retry</Text>
-            </HapticButton>
-          </GlassCard>
-        )}
+        {!isLoading && error && <GlassCard><Text style={styles.errorText}>Could not load token. Is the mint address valid?</Text></GlassCard>}
 
         {data && !isLoading && (
           <Animated.View entering={FadeInDown.duration(350).springify()} style={styles.sections}>
             <HeroSection data={data} mint={mint ?? ''} riskScore={riskScore} riskColor={riskColor} displayRiskLevel={displayRiskLevel} watching={watching} onCopy={handleCopy} onWatch={handleWatch} />
-
-            {/* Critical info first — visible above the fold */}
-            <RiskSummaryCard data={data} displayRiskLevel={displayRiskLevel} riskColor={riskColor} riskSummary={riskSummary} />
-            <SweepAlertsBanner mint={mint ?? ''} />
-            <AgentSuggestions data={data} mint={mint ?? ''} />
-
-            {/* Primary CTA — right after risk context */}
-            <HapticButton variant="primary" size="lg" fullWidth onPress={() => router.push(`/investigate/${mint}` as any)} accessibilityRole="button" accessibilityLabel="Investigate token">
-              <Text style={styles.btnPrimaryText}>INVESTIGATE</Text>
-            </HapticButton>
 
             {previousInvestigation && (
               <TouchableOpacity onPress={() => router.push(`/investigate/${mint}` as any)} activeOpacity={0.75} accessibilityRole="button" accessibilityLabel="View previous investigation">
@@ -231,6 +195,10 @@ export default function TokenScreen() {
               </TouchableOpacity>
             )}
 
+            <AgentSuggestions data={data} mint={mint ?? ''} />
+            <SweepAlertsBanner mint={mint ?? ''} />
+            <RiskSummaryCard data={data} displayRiskLevel={displayRiskLevel} riskColor={riskColor} riskSummary={riskSummary} />
+
             {/* Factory Bot Banner */}
             {data.factory_rhythm?.is_factory && (
               <View style={styles.factoryBanner}>
@@ -246,6 +214,10 @@ export default function TokenScreen() {
 
             <LivePulseCard data={data} />
             <OperatorDamageCard data={data} />
+
+            <HapticButton variant="primary" size="lg" fullWidth onPress={() => router.push(`/investigate/${mint}` as any)} accessibilityRole="button" accessibilityLabel="Investigate token">
+              <Text style={styles.btnPrimaryText}>INVESTIGATE</Text>
+            </HapticButton>
 
             <View style={styles.actionRow}>
               <TouchableOpacity style={styles.actionBtn} onPress={() => router.push(`/tree/${mint}` as any)} activeOpacity={0.75} accessibilityRole="button" accessibilityLabel="View family tree">
@@ -280,17 +252,12 @@ export default function TokenScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: tokens.bgMain },
-  disclaimerBar: { paddingHorizontal: tokens.spacing.screenPadding, paddingVertical: 6, backgroundColor: `${tokens.warning}08` },
-  disclaimerText: { fontFamily: 'Lexend-Regular', fontSize: 9, color: tokens.warning, textAlign: 'center', letterSpacing: 0.2 },
   navbar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: tokens.spacing.screenPadding, paddingBottom: 12 },
   navBtn: { minWidth: tokens.minTouchSize, minHeight: tokens.minTouchSize, justifyContent: 'center', alignItems: 'center' },
   navTitle: { fontFamily: 'Lexend-Bold', fontSize: tokens.font.small, color: tokens.white60, letterSpacing: 1.5 },
   content: { paddingHorizontal: tokens.spacing.screenPadding, gap: 12 },
   sections: { gap: 12 },
-  errorCard: { alignItems: 'center' as const, gap: 14 },
-  errorText: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.body, color: tokens.accent, textAlign: 'center' as const, lineHeight: 22 },
-  retryBtn: { alignSelf: 'center' as const },
-  retryBtnText: { fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.small, color: tokens.primary },
+  errorText: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.body, color: tokens.accent, textAlign: 'center' },
   btnPrimaryText: { fontFamily: 'Lexend-Bold', fontSize: tokens.font.body, color: tokens.white100, letterSpacing: 0.5 },
   actionRow: { flexDirection: 'row', borderRadius: tokens.radius.md, borderWidth: 1, borderColor: tokens.borderSubtle, backgroundColor: tokens.bgGlass8, overflow: 'hidden' },
   actionBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 14 },

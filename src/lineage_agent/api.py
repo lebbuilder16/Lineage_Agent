@@ -274,10 +274,13 @@ async def lifespan(application: FastAPI):
     _schedule_briefing_loop()
     _schedule_wallet_monitor()
 
-    # ── Pump.fun real-time listener (disabled) ──────────────────────────
-    # from .pump_fun_listener import schedule_pump_fun_listener, is_listener_active
-    # _pf_task = schedule_pump_fun_listener()
-    logger.info("Pump.fun real-time listener: OFF (manually disabled)")
+    # ── Pump.fun real-time listener ───────────────────────────────────────
+    from .pump_fun_listener import schedule_pump_fun_listener, is_listener_active
+    _pf_task = schedule_pump_fun_listener()
+    if _pf_task:
+        logger.info("Pump.fun real-time listener: ACTIVE")
+    else:
+        logger.info("Pump.fun real-time listener: DISABLED (set HELIUS_API_KEY to enable)")
 
     # ── Log arq status ─────────────────────────────────────────────────────
     from config import ARQ_REDIS_URL  # noqa: PLC0415
@@ -304,8 +307,8 @@ async def lifespan(application: FastAPI):
     logger.info("Shutting down \u2013 closing HTTP clients \u2026")
     from .db import close_backend as _close_db
     await _close_db()
-    # from .pump_fun_listener import cancel_pump_fun_listener
-    # cancel_pump_fun_listener()
+    from .pump_fun_listener import cancel_pump_fun_listener
+    cancel_pump_fun_listener()
     cancel_rug_sweep()
     cancel_alert_sweep()
     _cancel_cartel_sweep()
@@ -527,12 +530,13 @@ async def admin_health() -> dict:
     except Exception:
         cache_info = {"backend": type(cache).__name__}
 
+    from .pump_fun_listener import get_listener_stats
     return {
         "status": "ok",
         "uptime_seconds": uptime_s,
         "cache": cache_info,
         "circuit_breakers": cb_statuses(),
-        "pump_fun_listener": {"active": False, "status": "manually disabled"},
+        "pump_fun_listener": get_listener_stats(),
     }
 
 
@@ -2344,18 +2348,6 @@ async def auth_add_watch(body: _WatchRequest, request: Request):
     return watch
 
 
-@app.delete("/auth/me", tags=["auth"], summary="Delete current user account and all data")
-async def auth_delete_account(request: Request):
-    """Permanently delete the authenticated user's account and all associated data."""
-    user = await _get_current_user(request)
-    from .data_sources._clients import cache as _cache  # noqa: PLC0415
-    from .auth_service import delete_user_account
-    deleted = await delete_user_account(_cache, user["id"])
-    if not deleted:
-        raise HTTPException(status_code=500, detail="Could not delete account")
-    return {"deleted": True}
-
-
 @app.delete("/auth/watches/{watch_id}", tags=["auth"])
 async def auth_remove_watch(watch_id: int, request: Request):
     """Delete a watch by id. Requires X-API-Key header."""
@@ -2942,7 +2934,7 @@ async def get_global_stats(request: Request) -> GlobalStats:
         cutoff = (datetime.now(tz=timezone.utc) - timedelta(hours=24)).isoformat()
 
         # Parallel DB reads
-        created_rows, rugged_rows, total_rows, narrative_rows, scanned_rows = await asyncio.gather(
+        created_rows, rugged_rows, total_rows, narrative_rows = await asyncio.gather(
             _eq(
                 where="event_type = 'token_created' AND created_at >= ?",
                 params=(cutoff,),
@@ -2955,15 +2947,9 @@ async def get_global_stats(request: Request) -> GlobalStats:
             ),
             _eq(where="1=1", params=(), columns="COUNT(*) as cnt", limit=1),
             _eq(
-                where="event_type = 'token_created' AND created_at >= ? AND narrative IS NOT NULL AND narrative != ''",
+                where="event_type = 'token_created' AND created_at >= ? AND narrative IS NOT NULL AND narrative != '' AND narrative != 'other'",
                 params=(cutoff,),
                 columns="narrative",
-            ),
-            # Count actual user investigations (not passive events)
-            _eq(
-                where="event_type = 'token_scanned' AND created_at >= ?",
-                params=(cutoff,),
-                columns="DISTINCT mint",
             ),
         )
 
@@ -2980,9 +2966,7 @@ async def get_global_stats(request: Request) -> GlobalStats:
                 columns="mint, rug_mechanism, evidence_level",
             )
 
-        # tokens_scanned = user investigations if available, otherwise created events
-        # Use max of both to ensure rug_rate never exceeds 100%
-        tokens_scanned = max(len(scanned_rows), len(created_rows))
+        tokens_scanned = len(created_rows)
         tokens_negative_outcomes = len(rugged_rows)
         tokens_rugged = sum(1 for row in rugged_rows if _is_confirmed_rug_stats_row(row))
         rug_rate = round((tokens_rugged / tokens_scanned * 100) if tokens_scanned > 0 else 0.0, 2)
@@ -2990,7 +2974,7 @@ async def get_global_stats(request: Request) -> GlobalStats:
         active_deployers = len({r.get("deployer", "") for r in created_rows if r.get("deployer")})
         db_total = total_rows[0].get("cnt", 0) if total_rows else 0
 
-        # Top 5 narratives by occurrence (include 'other' in count but label it)
+        # Top 5 narratives by occurrence
         from collections import Counter  # noqa: PLC0415
         nar_counter: Counter = Counter(
             r.get("narrative", "") for r in narrative_rows if r.get("narrative")
@@ -3023,15 +3007,19 @@ async def get_global_stats(request: Request) -> GlobalStats:
 # /graduations  — recent Pump.fun DEX graduations (from listener)
 # ---------------------------------------------------------------------------
 
-# Graduation listener disabled — endpoint kept but returns empty list
 @app.get("/graduations", tags=["intelligence"], summary="Recent Pump.fun tokens that graduated to DEX")
 @limiter.limit("60/minute")
 async def get_graduations(
     request: Request,
     limit: int = Query(20, ge=1, le=50),
 ):
-    """Listener disabled — returns empty list."""
-    return []
+    """Return the most recent Pump.fun tokens that graduated to a DEX pool.
+
+    Populated in real-time by the background graduation listener.
+    Useful for mobile apps that cannot maintain a persistent WebSocket.
+    """
+    from .pump_fun_listener import get_recent_graduations
+    return get_recent_graduations(limit)
 
 
 # /stats/top-tokens  — most scanned tokens in the last 24h
@@ -3060,33 +3048,24 @@ async def get_top_tokens(
     try:
         from .data_sources._clients import event_query as _eq  # noqa: PLC0415
 
-        # Rank by weighted event count in the last 24h
+        # Rank by weighted event count: scans count 5x more than passive events
         from .data_sources._clients import cache as _cache  # noqa: PLC0415
         db = await _cache._get_conn()
-        cutoff = (datetime.now(tz=timezone.utc) - timedelta(hours=24)).isoformat()
         sql = """
-            SELECT ie.mint,
-                   MAX(ie.name) as name,
-                   MAX(ie.symbol) as symbol,
-                   MAX(ie.narrative) as narrative,
-                   MAX(ie.mcap_usd) as mcap_usd,
-                   MIN(ie.created_at) as created_at,
-                   SUM(CASE WHEN ie.event_type = 'token_scanned' THEN 5 ELSE 1 END)
-                     + COALESCE(ep.investigation_bonus, 0) as event_count
-            FROM intelligence_events ie
-            LEFT JOIN (
-                SELECT mint, COUNT(*) * 3 as investigation_bonus
-                FROM investigation_episodes
-                WHERE created_at >= ?
-                GROUP BY mint
-            ) ep ON ep.mint = ie.mint
-            WHERE ie.mint IS NOT NULL AND ie.mint != ''
-              AND ie.created_at >= ?
-            GROUP BY ie.mint
-            ORDER BY event_count DESC, MAX(ie.ROWID) DESC
+            SELECT mint,
+                   MAX(name) as name,
+                   MAX(symbol) as symbol,
+                   MAX(narrative) as narrative,
+                   MAX(mcap_usd) as mcap_usd,
+                   MIN(created_at) as created_at,
+                   SUM(CASE WHEN event_type = 'token_scanned' THEN 5 ELSE 1 END) as event_count
+            FROM intelligence_events
+            WHERE mint IS NOT NULL AND mint != ''
+            GROUP BY mint
+            ORDER BY event_count DESC, MAX(ROWID) DESC
             LIMIT ?
         """
-        cursor = await db.execute(sql, (cutoff, cutoff, limit))
+        cursor = await db.execute(sql, (limit,))
         rows = await cursor.fetchall()
         col_names = [d[0] for d in cursor.description]
         results = [dict(zip(col_names, row)) for row in rows]
@@ -3349,37 +3328,8 @@ async def get_stats_brief(request: Request) -> dict:
         except Exception:
             pass
 
-    # Sort watchlist_alerts by severity (critical first)
-    _sev_order = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
-    for sec in sections:
-        if sec["type"] in ("watchlist_alerts", "active_campaigns"):
-            sec["items"].sort(key=lambda x: _sev_order.get(x.get("severity", "info"), 5))
-
     return {"text": text, "generated_at": datetime.now(tz=timezone.utc).isoformat(),
             "sections": sections}
-
-
-# ------------------------------------------------------------------
-# On-demand briefing generation
-# ------------------------------------------------------------------
-
-@app.post("/stats/brief/generate", tags=["intelligence"])
-@limiter.limit("3/hour")
-async def generate_briefing_now(request: Request):
-    """Generate a fresh briefing on demand (max 3/hour). Requires X-API-Key."""
-    user = await _get_current_user(request)
-    from .data_sources._clients import cache as _cache  # noqa: PLC0415
-    from .briefing_service import generate_briefing, store_briefing  # noqa: PLC0415
-
-    result = await generate_briefing(user["id"], _cache)
-    if result is None:
-        raise HTTPException(status_code=404, detail="No watchlist tokens or generation failed")
-
-    content, risk_snapshot = result
-    await store_briefing(_cache, user["id"], content, risk_snapshot)
-
-    return {"text": content, "generated_at": datetime.now(tz=timezone.utc).isoformat(),
-            "risk_snapshot": risk_snapshot}
 
 
 # ------------------------------------------------------------------

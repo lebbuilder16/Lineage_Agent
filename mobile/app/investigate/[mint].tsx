@@ -118,21 +118,6 @@ export default function InvestigateScreen() {
 
   const isRunning = status === 'scanning' || status === 'analyzing' || status === 'reasoning';
 
-  // Auto-scroll to latest content as scan steps / agent steps arrive
-  const prevStepCountRef = useRef(0);
-  useEffect(() => {
-    const totalSteps = scanSteps.length + agentSteps.length;
-    if (totalSteps > prevStepCountRef.current) {
-      prevStepCountRef.current = totalSteps;
-      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
-    }
-  }, [scanSteps.length, agentSteps.length]);
-
-  // Also scroll when verdict arrives
-  useEffect(() => {
-    if (verdict) setTimeout(() => scrollRef.current?.scrollTo({ y: 0, animated: true }), 150);
-  }, [verdict]);
-
   return (
     <KeyboardAvoidingView style={[styles.container, { paddingTop: insets.top }]} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <Stack.Screen options={{ headerShown: false, animation: 'slide_from_right' }} />
@@ -159,11 +144,6 @@ export default function InvestigateScreen() {
         <TouchableOpacity onPress={() => Linking.openURL(`https://solscan.io/token/${mint}`)} style={styles.explorerBtn} activeOpacity={0.7} accessibilityRole="link" accessibilityLabel="View on Solscan">
           <ExternalLink size={12} color={tokens.secondary} />
         </TouchableOpacity>
-      </View>
-
-      {/* Financial disclaimer */}
-      <View style={styles.disclaimerBar}>
-        <Text style={styles.disclaimerText}>For informational purposes only. Not financial advice.</Text>
       </View>
 
       {startedAt && <ElapsedTimer />}
@@ -246,8 +226,6 @@ export default function InvestigateScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: tokens.bgMain },
-  disclaimerBar: { paddingHorizontal: tokens.spacing.screenPadding, paddingVertical: 6, backgroundColor: `${tokens.warning}08` },
-  disclaimerText: { fontFamily: 'Lexend-Regular', fontSize: 9, color: tokens.warning, textAlign: 'center', letterSpacing: 0.2 },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: tokens.spacing.screenPadding, paddingVertical: 12 },
   headerTitle: { fontFamily: 'Lexend-Bold', fontSize: tokens.font.sectionHeader, color: tokens.white100, letterSpacing: 1.5 },
   quota: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny, color: tokens.textTertiary, textAlign: 'center', marginBottom: 4 },

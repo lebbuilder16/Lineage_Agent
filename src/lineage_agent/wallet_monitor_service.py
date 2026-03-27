@@ -44,58 +44,63 @@ async def generate_token_narrative(
     prev_price_usd: float | None,
     bundle_info: str | None = None,
 ) -> str | None:
-    """Generate a 2-3 sentence micro-narrative from templates.
+    """Generate a 2-3 sentence micro-narrative via Claude Haiku.
 
-    Deterministic: no LLM call. Summarizes forensic findings + market state
-    into human-readable intelligence using pattern-matched templates.
-    Returns None if no meaningful data.
+    Summarizes forensic findings + market state into human-readable intelligence.
+    Returns None if AI unavailable or no meaningful data.
     """
     if not risk_flags and risk_score == 0:
         return None
 
-    # Build context signals
-    parts: list[str] = []
-
-    # Lead with the most critical finding
-    for f in risk_flags[:3]:
-        short = f.split(".")[0].strip()[:100]
-        if short:
-            parts.append(short)
-
-    # Price trend
-    if price_usd and prev_price_usd and prev_price_usd > 0:
-        delta = (price_usd - prev_price_usd) / prev_price_usd * 100
-        if delta <= -20:
-            parts.append(f"Price dropped {delta:.0f}% since last scan")
-        elif delta >= 20:
-            parts.append(f"Price up {delta:+.0f}% since last scan")
-
-    # Liquidity context
-    if liquidity_usd is not None:
-        if liquidity_usd < 1000:
-            parts.append(f"Liquidity critically low (${liquidity_usd:,.0f})")
-        elif liquidity_usd < 10000:
-            parts.append(f"Thin liquidity (${liquidity_usd:,.0f})")
-
-    # Bundle info
-    if bundle_info:
-        parts.append(bundle_info)
-
-    if not parts:
+    try:
+        from .ai_analyst import _get_client
+        client = _get_client()
+    except Exception:
         return None
 
-    # Template-based narrative by risk tier
-    if risk_score >= 75:
-        lead = f"{token_name} shows critical risk signals."
-    elif risk_score >= 50:
-        lead = f"{token_name} has elevated risk indicators."
-    elif risk_score >= 25:
-        lead = f"{token_name} shows moderate risk."
-    else:
-        lead = f"{token_name} appears low-risk."
+    # Build context
+    facts: list[str] = []
+    for f in risk_flags[:5]:
+        # Shorten verbose findings to first sentence
+        short = f.split(".")[0].strip()[:120]
+        if short:
+            facts.append(f"- {short}")
 
-    detail = ". ".join(parts[:3])
-    return f"{lead} {detail}."
+    if liquidity_usd is not None:
+        facts.append(f"- Current liquidity: ${liquidity_usd:,.0f}")
+    if price_usd and prev_price_usd and prev_price_usd > 0:
+        delta = (price_usd - prev_price_usd) / prev_price_usd * 100
+        if abs(delta) >= 5:
+            facts.append(f"- Price change since last scan: {delta:+.0f}%")
+    if bundle_info:
+        facts.append(f"- {bundle_info}")
+
+    if not facts:
+        return None
+
+    prompt = (
+        f"You are a Solana token risk analyst. Write a concise 2-3 sentence intelligence "
+        f"narrative for the token '{token_name}' (risk score: {risk_score}/100).\n\n"
+        f"Observed signals:\n" + "\n".join(facts) + "\n\n"
+        f"Rules:\n"
+        f"- State facts, don't speculate on causes\n"
+        f"- Mention the most critical signal first\n"
+        f"- If bundle wallets are selling, mention it prominently\n"
+        f"- End with the current trend (extraction active, paused, or complete)\n"
+        f"- Max 60 words. No markdown. No bullet points. Plain text only."
+    )
+
+    try:
+        response = await client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=120,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        text = response.content[0].text.strip()
+        return text if len(text) > 10 else None
+    except Exception as exc:
+        logger.debug("[narrative] generation failed for %s: %s", token_name, exc)
+        return None
 
 
 def _parse_key_findings(raw: str | None) -> list[str]:

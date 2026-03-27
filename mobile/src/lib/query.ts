@@ -75,8 +75,6 @@ export function useLineage(mint: string, enabled = true) {
     queryFn: () => getLineage(mint),
     enabled: enabled && mint.length > 10,
     staleTime: 60_000,
-    retry: 1,
-    retryDelay: 3_000,
   });
 }
 
@@ -161,47 +159,6 @@ export function useGraduations(limit = 20) {
     },
     staleTime: 10_000,         // 10s — near real-time
     refetchInterval: 15_000,   // poll every 15s
-  });
-}
-
-// ── Watchlist flags (cached, avoids re-fetch on every mount) ─────────────
-
-interface FlagData {
-  counts: Record<string, number>;
-  types: Record<string, string[]>;
-  meta: Record<string, { name?: string; symbol?: string; image?: string }>;
-}
-
-export function useWatchlistFlags(apiKey: string | null) {
-  return useQuery<FlagData>({
-    queryKey: ['watchlist-flags', apiKey],
-    queryFn: async () => {
-      const BASE = (process.env.EXPO_PUBLIC_API_URL ?? 'https://lineage-agent.fly.dev').replace(/\/$/, '');
-      const res = await fetch(`${BASE}/agent/flags?limit=200`, { headers: { 'X-API-Key': apiKey! } });
-      if (!res.ok) return { counts: {}, types: {}, meta: {} };
-      const d = await res.json();
-      if (!d?.flags) return { counts: {}, types: {}, meta: {} };
-      const counts: Record<string, number> = {};
-      const types: Record<string, string[]> = {};
-      const meta: Record<string, { name?: string; symbol?: string; image?: string }> = {};
-      for (const f of d.flags) {
-        if (!f.read) {
-          counts[f.mint] = (counts[f.mint] ?? 0) + 1;
-          if (!types[f.mint]) types[f.mint] = [];
-          if (!types[f.mint].includes(f.flagType)) types[f.mint].push(f.flagType);
-        }
-        if (f.detail && f.mint && !meta[f.mint]) {
-          const det = typeof f.detail === 'string' ? (() => { try { return JSON.parse(f.detail); } catch { return f.detail; } })() : f.detail;
-          if (det?.token_name || det?.symbol) {
-            meta[f.mint] = { name: det.token_name, symbol: det.symbol, image: det.image_uri };
-          }
-        }
-      }
-      return { counts, types, meta };
-    },
-    enabled: !!apiKey,
-    staleTime: 60_000,        // 1 min cache
-    refetchInterval: 120_000, // refresh every 2 min
   });
 }
 

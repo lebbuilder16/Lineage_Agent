@@ -1,17 +1,13 @@
 """
 Agent Memory Service — Cross-Investigation Intelligence Layer.
 
-Provides five memory operations:
+Provides four memory operations:
 1. record_episode() — persist a verdict + signal snapshot after each investigation
-2. build_memory_brief() — narrative intelligence brief for agent system prompt
-3. recall_entity() — on-demand entity lookup with synthesised insights (recall_memory tool)
+2. build_memory_brief() — build a 300-800 token text brief for agent system prompt
+3. recall_entity() — on-demand entity lookup (recall_memory tool)
 4. get_calibration_offset() — fetch active calibration rules for heuristic adjustment
-5. synthesize_recommendation() — Haiku micro-synthesis for actionable guidance
 
-Architecture:
-- All data retrieval is 100% SQL — zero LLM calls for facts
-- Optional Haiku micro-synthesis (~50 tokens) for the recommendation line
-- Deterministic fallback if Haiku is unavailable
+All retrieval is 100% SQL — zero additional LLM calls.
 """
 from __future__ import annotations
 
@@ -471,20 +467,9 @@ async def get_active_anomalies(entity_type: str, entity_id: str) -> list[dict]:
 # ── Narrative Clustering ──────────────────────────────────────────────────────
 
 _NARRATIVE_STOPWORDS = frozenset({
-    # English stop words
     "token", "coin", "meme", "sol", "solana", "new", "the", "to", "and",
     "of", "a", "in", "on", "is", "it", "for", "my", "by", "up", "no",
     "go", "do", "so", "or", "an", "be", "at", "if", "ok", "v2", "v1",
-    # Verdict template words (appear in heuristic/AI verdicts, not real narratives)
-    "dex", "graduation", "auto-scan", "heuristic", "score", "scan",
-    "rule-based", "temporarily", "unavailable", "analysis", "risk",
-    "insufficient", "evidence", "minimal", "moderate", "high", "low",
-    "critical", "detected", "confirmed", "suspected", "unknown",
-    "with", "but", "not", "was", "has", "had", "are", "were", "been",
-    "from", "this", "that", "than", "very", "more", "less", "only",
-    "pre-dex", "post-launch", "early-stage", "0/100", "100",
-    "deployer", "wallet", "bundle", "liquidity", "market",
-    "via", "chain", "clean", "minimal_risk", "caution", "treat",
 })
 
 
@@ -563,12 +548,15 @@ async def detect_narrative_clusters(
                 }
                 clusters.append(cluster)
 
-        # Replace all active clusters atomically: delete old → insert fresh
-        await db.execute("DELETE FROM narrative_clusters WHERE active = 1")
+        # Deactivate old clusters, write new ones
+        await db.execute(
+            "UPDATE narrative_clusters SET active = 0 WHERE window_end < ?",
+            (window_start,),
+        )
 
         for c in clusters:
             await db.execute(
-                "INSERT INTO narrative_clusters "
+                "INSERT OR REPLACE INTO narrative_clusters "
                 "(narrative_key, deployer_count, token_count, deployers_json, mints_json, "
                 " avg_risk_score, window_start, window_end, active, created_at) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?)",
@@ -621,16 +609,10 @@ async def build_memory_brief(
     operator_fp: Optional[str] = None,
     community_id: Optional[str] = None,
 ) -> str:
-    """Build a narrative intelligence brief from all memory layers.
+    """Build a 300-800 token intelligence brief from all memory layers.
 
     Injected into the agent's system prompt before Claude is called.
-    Structure:
-    1. Threat Assessment — one-line classification + narrative synthesis
-    2. Cross-Entity Intelligence — deployer ↔ operator ↔ cluster correlation
-    3. Recommended Focus — deterministic investigation guidance
-    4. Haiku micro-synthesis — optional actionable recommendation
-
-    Data retrieval: 100% SQL. Optional Haiku call for recommendation (~50 tokens).
+    100% SQL retrieval — zero LLM calls.
     """
     try:
         from .data_sources._clients import cache as _cache
@@ -639,60 +621,121 @@ async def build_memory_brief(
             return ""
 
         db = await _cache._get_conn()
-        now = time.time()
+        sections: list[str] = []
 
-        # ── Collect all data in one pass ──────────────────────────────────
-        ctx = _MemoryContext()
-
-        # Previous investigation of this token
+        # ── Episodic: past verdicts for this token ────────────────────────
         cursor = await db.execute(
             "SELECT risk_score, verdict_summary, user_rating, created_at "
             "FROM investigation_episodes WHERE mint = ? ORDER BY created_at DESC LIMIT 1",
             (mint,),
         )
-        ctx.prev_episode = await cursor.fetchone()
+        prev = await cursor.fetchone()
+        if prev:
+            age_h = (time.time() - prev[3]) / 3600
+            rating = f" (user rated: {prev[2]})" if prev[2] else ""
+            sections.append(
+                f"### This Token\n"
+                f"Previously investigated {age_h:.0f}h ago → risk {prev[0]}/100: "
+                f'"{prev[1][:100]}"{rating}'
+            )
 
-        # Deployer knowledge + episodes
+        # ── Episodic: other tokens from same deployer ─────────────────────
+        if deployer:
+            cursor = await db.execute(
+                "SELECT mint, risk_score, verdict_summary, user_rating, model "
+                "FROM investigation_episodes WHERE deployer = ? AND mint != ? "
+                "ORDER BY created_at DESC LIMIT 3",
+                (deployer, mint),
+            )
+            deployer_eps = await cursor.fetchall()
+            if deployer_eps:
+                lines = []
+                for ep in deployer_eps:
+                    rating = f" [{ep[3]}]" if ep[3] else ""
+                    src = " (heuristic)" if (ep[4] or "").startswith("heuristic") else ""
+                    lines.append(f"  - {ep[0][:12]}.. risk={ep[1]}{rating}{src}")
+                sections.append(
+                    f"### Deployer History ({deployer[:12]}..)\n"
+                    f"{len(deployer_eps)} past investigations:\n" + "\n".join(lines)
+                )
+
+        # ── Entity knowledge: deployer profile ────────────────────────────
         if deployer:
             cursor = await db.execute(
                 "SELECT total_tokens, total_rugs, avg_risk_score, typical_rug_pattern, "
-                "launch_velocity, acceleration, confidence, total_extracted_sol "
+                "launch_velocity, acceleration, confidence "
                 "FROM entity_knowledge WHERE entity_type = 'deployer' AND entity_id = ?",
                 (deployer,),
             )
-            ctx.deployer_ek = await cursor.fetchone()
+            ek = await cursor.fetchone()
+            if ek:
+                vel_str = ""
+                if ek[4] and ek[4] > 0:
+                    arrow = "↑" if (ek[5] or 0) > 0 else "↓" if (ek[5] or 0) < 0 else "→"
+                    vel_str = f" Velocity: {ek[4]:.1f}/24h {arrow}"
+                rug_rate = round(ek[1] / ek[0] * 100) if ek[0] > 0 else 0
+                sections.append(
+                    f"### Deployer Profile\n"
+                    f"{ek[0]} tokens, {ek[1]} rugs ({rug_rate}%). "
+                    f"Avg risk: {ek[2]:.0f}. Pattern: {ek[3] or 'unknown'}.{vel_str} "
+                    f"[{ek[6]} confidence]"
+                )
 
-            cursor = await db.execute(
-                "SELECT mint, risk_score, user_rating, model, created_at "
-                "FROM investigation_episodes WHERE deployer = ? AND mint != ? "
-                "ORDER BY created_at DESC LIMIT 5",
-                (deployer, mint),
-            )
-            ctx.deployer_episodes = await cursor.fetchall()
-
-        # Operator knowledge
+        # ── Entity knowledge: operator profile ────────────────────────────
         if operator_fp:
             cursor = await db.execute(
                 "SELECT total_tokens, total_rugs, avg_risk_score, launch_velocity, acceleration "
                 "FROM entity_knowledge WHERE entity_type = 'operator' AND entity_id = ?",
                 (operator_fp,),
             )
-            ctx.operator_ek = await cursor.fetchone()
+            op = await cursor.fetchone()
+            if op and op[0] > 1:
+                rug_rate = round(op[1] / op[0] * 100) if op[0] > 0 else 0
+                vel = f" {op[3]:.1f} launches/24h" if op[3] else ""
+                sections.append(
+                    f"### Operator ({operator_fp[:12]}..)\n"
+                    f"{op[0]} tokens across linked wallets, {op[1]} rugs ({rug_rate}%). "
+                    f"Avg risk: {op[2]:.0f}.{vel}"
+                )
 
-        # Anomaly alerts
-        for a_type, a_id in [("deployer", deployer), ("operator", operator_fp)]:
-            if not a_id:
-                continue
+        # ── Calibration rules ─────────────────────────────────────────────
+        cursor = await db.execute(
+            "SELECT rule_type, condition_json, adjustment, sample_count "
+            "FROM calibration_rules WHERE active = 1 AND sample_count >= 3 AND confidence >= 0.7 "
+            "ORDER BY sample_count DESC LIMIT 3",
+        )
+        rules = await cursor.fetchall()
+        if rules:
+            lines = []
+            for r in rules:
+                cond = json.loads(r[1]) if r[1] else {}
+                cond_str = ", ".join(f"{k}={v}" for k, v in cond.items())
+                lines.append(f"  - {r[0]}: {cond_str} → adjust {r[2]:+.0f} ({r[3]} samples)")
+            sections.append("### Calibration Notes\n" + "\n".join(lines))
+
+        # ── Anomaly alerts ──────────────────────────────────────────────
+        anomaly_entities = []
+        if deployer:
+            anomaly_entities.append(("deployer", deployer))
+        if operator_fp:
+            anomaly_entities.append(("operator", operator_fp))
+        for a_type, a_id in anomaly_entities:
             cursor = await db.execute(
                 "SELECT anomaly_type, severity, description, created_at "
                 "FROM anomaly_alerts WHERE entity_type = ? AND entity_id = ? AND resolved = 0 "
                 "ORDER BY created_at DESC LIMIT 3",
                 (a_type, a_id),
             )
-            for row in await cursor.fetchall():
-                ctx.anomalies.append((a_type, row))
+            alerts = await cursor.fetchall()
+            if alerts:
+                label = a_type.title()
+                lines = []
+                for al in alerts:
+                    age_h = (time.time() - al[3]) / 3600
+                    lines.append(f"  - ⚠ [{al[1].upper()}] {al[2]} ({age_h:.0f}h ago)")
+                sections.append(f"### {label} Anomalies\n" + "\n".join(lines))
 
-        # Narrative clusters
+        # ── Narrative clusters ─────────────────────────────────────────
         if deployer:
             cursor = await db.execute(
                 "SELECT narrative_key, deployer_count, token_count, avg_risk_score "
@@ -700,67 +743,33 @@ async def build_memory_brief(
                 "ORDER BY deployer_count DESC LIMIT 2",
                 (f'%"{deployer}"%',),
             )
-            ctx.clusters = await cursor.fetchall()
+            nc_rows = await cursor.fetchall()
+            if nc_rows:
+                lines = []
+                for nc in nc_rows:
+                    lines.append(
+                        f"  - \"{nc[0]}\" wave: {nc[1]} deployers, {nc[2]} tokens, "
+                        f"avg risk {nc[3]:.0f}"
+                    )
+                sections.append("### Narrative Waves\n" + "\n".join(lines))
 
-        # Calibration rules
-        cursor = await db.execute(
-            "SELECT rule_type, condition_json, adjustment, sample_count "
-            "FROM calibration_rules WHERE active = 1 AND sample_count >= 3 AND confidence >= 0.7 "
-            "ORDER BY sample_count DESC LIMIT 3",
-        )
-        ctx.calibration_rules = await cursor.fetchall()
-
-        # Feedback
+        # ── Feedback synthesis ────────────────────────────────────────────
         if deployer:
             cursor = await db.execute(
                 "SELECT user_rating, COUNT(*) FROM investigation_episodes "
-                "WHERE deployer = ? AND user_rating IS NOT NULL GROUP BY user_rating",
+                "WHERE deployer = ? AND user_rating IS NOT NULL "
+                "GROUP BY user_rating",
                 (deployer,),
             )
-            ctx.feedback = await cursor.fetchall()
-
-        # ── Build narrative sections ──────────────────────────────────────
-        sections: list[str] = []
-
-        # 1. Threat Assessment
-        threat = _build_threat_assessment(ctx, deployer, operator_fp, now)
-        if threat:
-            sections.append(threat)
-
-        # 2. Cross-Entity Intelligence
-        cross = _build_cross_entity(ctx, deployer, operator_fp)
-        if cross:
-            sections.append(cross)
-
-        # 3. Recommended Focus (deterministic)
-        focus = _build_recommended_focus(ctx)
-        if focus:
-            sections.append(focus)
-
-        # 4. Calibration Notes (for transparency)
-        if ctx.calibration_rules:
-            lines = []
-            for r in ctx.calibration_rules:
-                cond = json.loads(r[1]) if r[1] else {}
-                cond_str = ", ".join(f"{k}={v}" for k, v in cond.items())
-                lines.append(f"  - {r[0]}: {cond_str} → adjust {r[2]:+.0f} ({r[3]} samples)")
-            sections.append("### Calibration Active\n" + "\n".join(lines))
-
-        # 5. Feedback track record
-        if ctx.feedback:
-            parts = [f"{r[1]}x {r[0]}" for r in ctx.feedback]
-            sections.append(f"### Feedback: {', '.join(parts)}")
+            feedback_rows = await cursor.fetchall()
+            if feedback_rows:
+                parts = [f"{r[1]}x {r[0]}" for r in feedback_rows]
+                sections.append(f"### Feedback: {', '.join(parts)}")
 
         if not sections:
             return ""
 
         brief = "## INTELLIGENCE MEMORY\n\n" + "\n\n".join(sections)
-
-        # 6. Haiku micro-synthesis (optional, async, best-effort)
-        recommendation = await _haiku_recommendation(ctx, deployer, operator_fp)
-        if recommendation:
-            brief += f"\n\n### Recommendation\n{recommendation}"
-
         logger.debug("[memory] brief built: %d chars for %s", len(brief), mint[:12])
         return brief
 
@@ -769,281 +778,10 @@ async def build_memory_brief(
         return ""
 
 
-# ── Brief sub-builders (deterministic, pure functions) ────────────────────────
-
-class _MemoryContext:
-    """Container for all memory data collected in one pass."""
-    __slots__ = (
-        "prev_episode", "deployer_ek", "deployer_episodes",
-        "operator_ek", "anomalies", "clusters",
-        "calibration_rules", "feedback",
-    )
-
-    def __init__(self):
-        self.prev_episode = None
-        self.deployer_ek = None
-        self.deployer_episodes: list = []
-        self.operator_ek = None
-        self.anomalies: list[tuple] = []
-        self.clusters: list = []
-        self.calibration_rules: list = []
-        self.feedback: list = []
-
-    @property
-    def deployer_rug_rate(self) -> float:
-        if not self.deployer_ek or not self.deployer_ek[0]:
-            return 0
-        return self.deployer_ek[1] / self.deployer_ek[0] * 100
-
-    @property
-    def deployer_threat_level(self) -> str:
-        rate = self.deployer_rug_rate
-        if rate >= 70:
-            return "critical"
-        if rate >= 40:
-            return "high"
-        if rate >= 15:
-            return "medium"
-        return "low"
-
-    @property
-    def has_velocity_spike(self) -> bool:
-        return any(a[1][0] == "velocity_spike" for a in self.anomalies)
-
-    @property
-    def has_high_risk_cluster(self) -> bool:
-        return any(c[3] >= 60 for c in self.clusters)
-
-
-def _build_threat_assessment(ctx: _MemoryContext, deployer: Optional[str],
-                             operator_fp: Optional[str], now: float) -> str:
-    """Section 1: One-line threat classification + narrative."""
-    parts: list[str] = []
-
-    # Previous investigation
-    if ctx.prev_episode:
-        age_h = (now - ctx.prev_episode[3]) / 3600
-        rating = f" — user rated {ctx.prev_episode[2]}" if ctx.prev_episode[2] else ""
-        parts.append(
-            f"Re-scan: last investigated {age_h:.0f}h ago at risk {ctx.prev_episode[0]}/100{rating}."
-        )
-
-    # Deployer threat classification
-    ek = ctx.deployer_ek
-    if ek and ek[0] > 0:
-        total, rugs, avg_risk, pattern = ek[0], ek[1], ek[2], ek[3] or "unknown"
-        velocity, accel, confidence, extracted = ek[4] or 0, ek[5] or 0, ek[6], ek[7] or 0
-        rug_rate = round(rugs / total * 100)
-        level = ctx.deployer_threat_level.upper()
-
-        # Narrative synthesis
-        if rug_rate >= 70:
-            label = "SERIAL RUGGER"
-        elif rug_rate >= 40:
-            label = "HIGH-RISK DEPLOYER"
-        elif rug_rate >= 15:
-            label = "MODERATE-RISK DEPLOYER"
-        else:
-            label = "LOW-RISK DEPLOYER"
-
-        accel_note = ""
-        if velocity > 0:
-            arrow = "↑ accelerating" if accel > 0 else "↓ slowing" if accel < 0 else "→ steady"
-            accel_note = f" Velocity: {velocity:.0f} tokens/24h ({arrow})."
-
-        campaign_note = ""
-        if ctx.has_velocity_spike:
-            campaign_note = " ACTIVE CAMPAIGN DETECTED — velocity anomaly flagged."
-
-        parts.append(
-            f"[{level}] {label}: {rug_rate}% rug rate across {total} tokens "
-            f"({rugs} rugged, {extracted:.1f} SOL extracted). "
-            f"Pattern: {pattern}. Confidence: {confidence}.{accel_note}{campaign_note}"
-        )
-
-    # Anomalies
-    if ctx.anomalies:
-        for a_type, al in ctx.anomalies:
-            age_h = (now - al[3]) / 3600
-            parts.append(f"⚠ [{al[1].upper()}] {al[2]} ({age_h:.0f}h ago)")
-
-    if not parts:
-        return ""
-    return "### Threat Assessment\n" + "\n".join(parts)
-
-
-def _build_cross_entity(ctx: _MemoryContext, deployer: Optional[str],
-                        operator_fp: Optional[str]) -> str:
-    """Section 2: Deployer ↔ Operator ↔ Cluster correlation."""
-    parts: list[str] = []
-
-    dep_ek = ctx.deployer_ek
-    op_ek = ctx.operator_ek
-
-    # Cross-reference deployer and operator
-    if dep_ek and op_ek and op_ek[0] > 1:
-        dep_total, dep_rugs = dep_ek[0], dep_ek[1]
-        op_total, op_rugs, op_risk = op_ek[0], op_ek[1], op_ek[2]
-        op_rug_rate = round(op_rugs / op_total * 100) if op_total > 0 else 0
-
-        if op_total > dep_total:
-            parts.append(
-                f"This deployer ({dep_total} tokens) is linked to operator "
-                f"{operator_fp[:12]}.. which controls {op_total} tokens across multiple wallets "
-                f"({op_rugs} rugs, {op_rug_rate}% rug rate, avg risk {op_risk:.0f}). "
-                f"The operator's footprint is {op_total - dep_total} tokens larger than "
-                f"this deployer alone."
-            )
-        else:
-            parts.append(
-                f"Operator {operator_fp[:12]}.. ({op_total} tokens, "
-                f"{op_rug_rate}% rug rate, avg risk {op_risk:.0f})."
-            )
-    elif op_ek and op_ek[0] > 1:
-        op_total, op_rugs, op_risk = op_ek[0], op_ek[1], op_ek[2]
-        op_rug_rate = round(op_rugs / op_total * 100) if op_total > 0 else 0
-        parts.append(
-            f"Operator {operator_fp[:12]}.. controls {op_total} tokens "
-            f"({op_rugs} rugs, {op_rug_rate}% rug rate)."
-        )
-
-    # Cluster membership
-    if ctx.clusters:
-        for nc in ctx.clusters:
-            parts.append(
-                f"Part of \"{nc[0]}\" wave: {nc[1]} deployers launched {nc[2]} tokens "
-                f"with avg risk {nc[3]:.0f} — coordinated thematic activity."
-            )
-
-    # Deployer history (condensed)
-    if ctx.deployer_episodes:
-        recent = ctx.deployer_episodes[:3]
-        scores = [ep[1] for ep in recent]
-        trend = "escalating" if len(scores) >= 2 and scores[0] > scores[-1] else \
-                "improving" if len(scores) >= 2 and scores[0] < scores[-1] else "stable"
-        lines = [f"  - {ep[0][:12]}.. risk={ep[1]}" +
-                 (f" [{ep[2]}]" if ep[2] else "") for ep in recent]
-        parts.append(
-            f"Recent history ({trend}): {len(ctx.deployer_episodes)} past investigations\n"
-            + "\n".join(lines)
-        )
-
-    if not parts:
-        return ""
-    return "### Cross-Entity Intelligence\n" + "\n".join(parts)
-
-
-def _build_recommended_focus(ctx: _MemoryContext) -> str:
-    """Section 3: Deterministic investigation guidance based on memory signals."""
-    priorities: list[str] = []
-    skip: list[str] = []
-
-    rug_rate = ctx.deployer_rug_rate
-
-    # No history → full investigation
-    if not ctx.deployer_ek:
-        return "### Recommended Focus\nFirst-time entity — run full investigation, all tools relevant."
-
-    # Serial rugger → focus exits
-    if rug_rate >= 60:
-        priorities.append("sol_flow + bundle_report (verify exit pattern)")
-        skip.append("compare_tokens (pattern already established)")
-
-    # Velocity spike → coordinated campaign
-    if ctx.has_velocity_spike:
-        priorities.append("cartel_report + operator_impact (investigate coordination)")
-
-    # Cluster member → check thematic wave
-    if ctx.has_high_risk_cluster:
-        priorities.append("compare_tokens (verify cluster pattern)")
-
-    # Re-scan with high confidence → minimal
-    if ctx.prev_episode and ctx.deployer_ek and ctx.deployer_ek[6] == "high":
-        prev_age_h = (time.time() - ctx.prev_episode[3]) / 3600
-        if prev_age_h < 24:
-            priorities.clear()
-            skip.clear()
-            priorities.append("delta analysis only — high-confidence re-scan within 24h")
-
-    if not priorities and not skip:
-        return ""
-
-    lines = []
-    if priorities:
-        lines.append("Priority: " + "; ".join(priorities))
-    if skip:
-        lines.append("Skip: " + "; ".join(skip))
-    return "### Recommended Focus\n" + "\n".join(lines)
-
-
-async def _haiku_recommendation(ctx: _MemoryContext, deployer: Optional[str],
-                                operator_fp: Optional[str]) -> str:
-    """Generate a 1-2 sentence actionable recommendation via Haiku.
-
-    Best-effort: returns empty string on failure (deterministic brief is sufficient).
-    Cost: ~50 output tokens × Haiku rate ≈ $0.001 per call.
-    """
-    # Only call Haiku if we have meaningful data
-    if not ctx.deployer_ek and not ctx.operator_ek:
-        return ""
-
-    # Build a compact fact summary for Haiku (no raw data, just structured facts)
-    facts: list[str] = []
-    if ctx.deployer_ek:
-        ek = ctx.deployer_ek
-        facts.append(f"Deployer: {ek[0]} tokens, {ek[1]} rugs, {ek[2]:.0f} avg risk, "
-                     f"{ek[7] or 0:.1f} SOL extracted, velocity={ek[4] or 0:.0f}/24h")
-    if ctx.operator_ek and ctx.operator_ek[0] > 1:
-        op = ctx.operator_ek
-        facts.append(f"Operator: {op[0]} tokens, {op[1]} rugs, {op[2]:.0f} avg risk")
-    if ctx.anomalies:
-        facts.append(f"Active anomalies: {', '.join(a[1][0] for a in ctx.anomalies)}")
-    if ctx.clusters:
-        facts.append(f"Cluster membership: {', '.join(c[0] for c in ctx.clusters)}")
-    if ctx.feedback:
-        parts = [f"{r[1]}x {r[0]}" for r in ctx.feedback]
-        facts.append(f"User feedback: {', '.join(parts)}")
-
-    if not facts:
-        return ""
-
-    try:
-        import asyncio as _asyncio
-        from .ai_analyst import _get_client
-
-        client = _get_client()
-        response = await _asyncio.wait_for(
-            client.messages.create(
-                model="claude-haiku-4-5",
-                max_tokens=80,
-                messages=[{
-                    "role": "user",
-                    "content": (
-                        "You are a blockchain forensics advisor. Given these facts about a "
-                        "Solana token deployer, write ONE actionable sentence (max 30 words) "
-                        "advising the investigation agent what to focus on and why.\n\n"
-                        + "\n".join(facts)
-                    ),
-                }],
-            ),
-            timeout=3.0,  # hard cap — never block the investigation
-        )
-        text = response.content[0].text.strip()
-        logger.debug("[memory] haiku recommendation: %s", text[:80])
-        return text
-    except Exception as exc:
-        logger.debug("[memory] haiku recommendation skipped: %s", exc)
-        return ""  # deterministic brief is sufficient
-
-
 # ── Entity Recall (for recall_memory tool) ────────────────────────────────────
 
 async def recall_entity(entity_type: str, entity_id: str) -> dict:
-    """Full memory recall for an entity — used by the recall_memory agent tool.
-
-    Returns profile, episodes, timeline, AND a pre-digested synthesis
-    with trend, threat level, active anomalies, and cluster membership.
-    """
+    """Full memory recall for an entity — used by the recall_memory agent tool."""
     result: dict[str, Any] = {"entity_type": entity_type, "entity_id": entity_id}
 
     try:
@@ -1053,7 +791,6 @@ async def recall_entity(entity_type: str, entity_id: str) -> dict:
             return result
 
         db = await _cache._get_conn()
-        now = time.time()
 
         # Entity knowledge
         cursor = await db.execute(
@@ -1068,7 +805,6 @@ async def recall_entity(entity_type: str, entity_id: str) -> dict:
         # Related episodes
         col_map = {"deployer": "deployer", "operator": "operator_fp", "campaign": "campaign_id", "mint": "mint"}
         col = col_map.get(entity_type)
-        episodes = []
         if col:
             cursor = await db.execute(
                 f"SELECT mint, risk_score, confidence, rug_pattern, verdict_summary, "
@@ -1080,7 +816,7 @@ async def recall_entity(entity_type: str, entity_id: str) -> dict:
             result["episodes"] = [
                 {"mint": r[0], "risk_score": r[1], "confidence": r[2],
                  "rug_pattern": r[3], "summary": r[4][:100], "rating": r[5],
-                 "age_hours": round((now - r[6]) / 3600, 1)}
+                 "age_hours": round((time.time() - r[6]) / 3600, 1)}
                 for r in episodes
             ]
 
@@ -1093,79 +829,10 @@ async def recall_entity(entity_type: str, entity_id: str) -> dict:
         )
         timeline = await cursor.fetchall()
         result["timeline"] = [
-            {"event": r[0], "mint": r[1][:12] if r[1] else "", "age_hours": round((now - r[2]) / 3600, 1),
+            {"event": r[0], "mint": r[1][:12] if r[1] else "", "age_hours": round((time.time() - r[2]) / 3600, 1),
              "risk_score": r[3], "extracted_sol": r[4]}
             for r in timeline
         ]
-
-        # ── Synthesis: pre-digested insights ──────────────────────────────
-        synthesis: dict[str, Any] = {}
-
-        # Trend: compare first half vs second half of episodes
-        if len(episodes) >= 4:
-            mid = len(episodes) // 2
-            recent_avg = sum(e[1] for e in episodes[:mid]) / mid
-            older_avg = sum(e[1] for e in episodes[mid:]) / (len(episodes) - mid)
-            if recent_avg > older_avg + 10:
-                synthesis["trend"] = "degrading"
-            elif recent_avg < older_avg - 10:
-                synthesis["trend"] = "improving"
-            else:
-                synthesis["trend"] = "stable"
-        elif episodes:
-            synthesis["trend"] = "insufficient_data"
-        else:
-            synthesis["trend"] = "unknown"
-
-        # Threat level
-        if ek_row:
-            total_tokens = ek_row[cols.index("total_tokens")] if "total_tokens" in cols else 0
-            total_rugs = ek_row[cols.index("total_rugs")] if "total_rugs" in cols else 0
-            rug_rate = (total_rugs / total_tokens * 100) if total_tokens > 0 else 0
-            if rug_rate >= 70:
-                synthesis["threat_level"] = "critical"
-            elif rug_rate >= 40:
-                synthesis["threat_level"] = "high"
-            elif rug_rate >= 15:
-                synthesis["threat_level"] = "medium"
-            else:
-                synthesis["threat_level"] = "low"
-        else:
-            synthesis["threat_level"] = "unknown"
-
-        # Active anomalies
-        cursor = await db.execute(
-            "SELECT anomaly_type, severity, description FROM anomaly_alerts "
-            "WHERE entity_type = ? AND entity_id = ? AND resolved = 0 LIMIT 5",
-            (entity_type, entity_id),
-        )
-        anomaly_rows = await cursor.fetchall()
-        synthesis["active_anomalies"] = [
-            {"type": r[0], "severity": r[1], "description": r[2]} for r in anomaly_rows
-        ]
-
-        # Cluster membership
-        cursor = await db.execute(
-            "SELECT narrative_key, deployer_count, avg_risk_score "
-            "FROM narrative_clusters WHERE active = 1 AND deployers_json LIKE ? LIMIT 3",
-            (f'%"{entity_id}"%',),
-        )
-        cluster_rows = await cursor.fetchall()
-        synthesis["cluster_membership"] = [
-            {"narrative": r[0], "deployers": r[1], "avg_risk": r[2]} for r in cluster_rows
-        ]
-
-        # Reliability
-        sample = ek_row[cols.index("sample_count")] if ek_row and "sample_count" in cols else 0
-        rated = sum(1 for e in episodes if e[5])  # episodes with user_rating
-        if sample >= 10 and rated >= 3:
-            synthesis["reliability"] = "high"
-        elif sample >= 3:
-            synthesis["reliability"] = "medium"
-        else:
-            synthesis["reliability"] = "low"
-
-        result["synthesis"] = synthesis
 
     except Exception as exc:
         logger.debug("[memory] recall_entity error: %s", exc)

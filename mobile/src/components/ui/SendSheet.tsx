@@ -152,9 +152,6 @@ export function SendSheet({ visible, onClose, walletAddress, balance, signAndSen
 
         {step === 'confirming' && (
           <View style={styles.confirmCard}>
-            <View style={styles.txWarning}>
-              <Text style={styles.txWarningText}>Crypto transactions are irreversible. Double-check the recipient address.</Text>
-            </View>
             <Text style={styles.confirmLabel}>Sending</Text>
             <Text style={styles.confirmAmount}>{parseFloat(amount).toFixed(6)} SOL</Text>
             <Text style={styles.confirmLabel}>To</Text>
@@ -230,8 +227,6 @@ const styles = StyleSheet.create({
   balanceHint: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny, color: tokens.textTertiary, marginTop: 4 },
   sendBtnText: { fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.body, color: tokens.white100 },
   confirmCard: { backgroundColor: tokens.bgGlass8, borderRadius: tokens.radius.md, padding: 16, gap: 6 },
-  txWarning: { backgroundColor: `${tokens.warning}10`, borderRadius: tokens.radius.sm, borderWidth: 1, borderColor: `${tokens.warning}20`, paddingHorizontal: 12, paddingVertical: 8, marginBottom: 4 },
-  txWarningText: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny, color: tokens.warning, textAlign: 'center', lineHeight: 16 },
   confirmLabel: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.small, color: tokens.textTertiary },
   confirmAmount: { fontFamily: 'Lexend-Bold', fontSize: tokens.font.heading, color: tokens.white100 },
   confirmAddr: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.small, color: tokens.white60 },

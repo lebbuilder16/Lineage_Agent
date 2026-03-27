@@ -38,6 +38,16 @@ mobile/GoogleService-Info.plist
 # OS
 .DS_Store
 Thumbs.db
+__MACOSX/
+._*
+
+# Design / large binary assets
+design/noelle-mobile-ui-kit*/
+figma-make/
+
+# Archive files in docs
+docs/*.zip
+docs/**/*.zip
 
 # Testing / Coverage
 htmlcov/

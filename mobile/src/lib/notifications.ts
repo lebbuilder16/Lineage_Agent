@@ -33,17 +33,6 @@ export function setupNotificationResponseHandler(): Notifications.Subscription {
         useHistoryStore.getState().catchUp();
       }).catch(() => {});
     }
-
-    if (data.type === 'daily_briefing') {
-      // Deep link: navigate to radar tab where briefing card is shown
-      import('expo-router').then(({ router }) => {
-        router.push('/(tabs)/radar' as any);
-      }).catch(() => {});
-      // Refresh briefing data immediately
-      import('./openclaw-briefing').then(({ useBriefingStore }) => {
-        useBriefingStore.getState().clear();
-      }).catch(() => {});
-    }
   });
 }
 

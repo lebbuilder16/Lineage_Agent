@@ -65,7 +65,7 @@ export interface AlertCardProps {
 
 // ── Component ────────────────────────────────────────────────────────────────
 
-export const AlertCard = React.memo(function AlertCard({
+export function AlertCard({
   item,
   isExpanded,
   groupHeader,
@@ -149,12 +149,10 @@ export const AlertCard = React.memo(function AlertCard({
                 )}
               </View>
               <View style={styles.alertMeta}>
-                <View style={styles.metaTopRow}>
-                  <Text style={styles.alertTime}>
-                    {timeAgo(item.timestamp ?? item.created_at ?? '')}
-                  </Text>
-                  {!item.read && <View style={styles.unreadDot} />}
-                </View>
+                <Text style={styles.alertTime}>
+                  {timeAgo(item.timestamp ?? item.created_at ?? '')}
+                </Text>
+                {!item.read && <View style={styles.unreadDot} />}
                 {/* Risk delta badge */}
                 {item.enrichedData?.riskDelta != null && item.enrichedData.riskDelta !== 0 && (
                   <View style={[styles.riskDeltaBadge, {
@@ -168,26 +166,25 @@ export const AlertCard = React.memo(function AlertCard({
                     </Text>
                   </View>
                 )}
-                {isExpanded
-                  ? <ChevronUp size={14} color={tokens.secondary} />
-                  : <ChevronDown size={14} color={tokens.textTertiary} />}
+                {/* AI enrichment toggle */}
+                {item.enrichedData && (
+                  <TouchableOpacity
+                    onPress={(e) => { e.stopPropagation?.(); onToggleEnrichment(item.id); }}
+                    hitSlop={tokens.hitSlop}
+                    accessibilityRole="button"
+                    accessibilityLabel={isExpanded ? 'Collapse AI enrichment' : 'Expand AI enrichment'}
+                  >
+                    {isExpanded
+                      ? <ChevronUp size={14} color={tokens.secondary} />
+                      : <ChevronDown size={14} color={tokens.secondary} />}
+                  </TouchableOpacity>
+                )}
               </View>
             </View>
 
-            {/* Quick actions + AI enrichment — visible when expanded */}
-            {isExpanded && item.mint && (
+            {/* Quick actions — Investigate / Watch */}
+            {item.mint && (
               <View style={styles.quickActions}>
-                <TouchableOpacity
-                  style={styles.quickActionBtn}
-                  onPress={(e) => {
-                    e.stopPropagation?.();
-                    router.push(`/token/${item.mint}` as any);
-                  }}
-                  activeOpacity={0.7}
-                >
-                  <Bookmark size={12} color={tokens.secondary} />
-                  <Text style={[styles.quickActionText, { color: tokens.secondary }]}>View Report</Text>
-                </TouchableOpacity>
                 <TouchableOpacity
                   style={styles.quickActionBtn}
                   onPress={(e) => {
@@ -196,8 +193,19 @@ export const AlertCard = React.memo(function AlertCard({
                   }}
                   activeOpacity={0.7}
                 >
-                  <Search size={12} color={tokens.white60} />
+                  <Search size={12} color={tokens.secondary} />
                   <Text style={styles.quickActionText}>Investigate</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.quickActionBtn}
+                  onPress={(e) => {
+                    e.stopPropagation?.();
+                    router.push(`/token/${item.mint}` as any);
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <Bookmark size={12} color={tokens.white60} />
+                  <Text style={styles.quickActionText}>View Token</Text>
                 </TouchableOpacity>
               </View>
             )}
@@ -244,13 +252,7 @@ export const AlertCard = React.memo(function AlertCard({
       </Swipeable>
     </>
   );
-}, (prev, next) =>
-  prev.item.id === next.item.id &&
-  prev.item.read === next.item.read &&
-  prev.isExpanded === next.isExpanded &&
-  prev.groupHeader === next.groupHeader &&
-  prev.item.enrichedData === next.item.enrichedData
-);
+}
 
 // ── Styles ───────────────────────────────────────────────────────────────────
 
@@ -289,8 +291,7 @@ const styles = StyleSheet.create({
     color: tokens.white60,
     marginTop: 4,
   },
-  alertMeta: { alignItems: 'flex-end', gap: 4, minWidth: 60 },
-  metaTopRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  alertMeta: { alignItems: 'flex-end', gap: 6 },
   alertTime: {
     fontFamily: 'Lexend-Regular',
     fontSize: tokens.font.tiny,

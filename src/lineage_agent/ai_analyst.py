@@ -242,18 +242,12 @@ def _heuristic_score(
         dp = getattr(lineage, "deployer_profile", None)
         if dp:
             rugs = getattr(dp, "rug_count", 0) or 0
-            dead = getattr(dp, "dead_token_count", 0) or 0
             if rugs >= 5:
                 score += 25
             elif rugs >= 2:
                 score += 15
             elif rugs >= 1:
                 score += 8
-            # Dead tokens: weaker signal than rugs but still informative
-            if dead >= 5:
-                score += 10
-            elif dead >= 2:
-                score += 5
         derivatives = getattr(lineage, "derivatives", []) or []
         score += min(len(derivatives) * 3, 15)
         if getattr(lineage, "zombie_alert", None):
@@ -292,13 +286,13 @@ def _heuristic_score(
         if getattr(lineage, "cartel_report", None):
             score += 15
 
-        # operator impact — use negative_outcome_rate (rugs + dead tokens)
+        # operator impact
         _oi = getattr(lineage, "operator_impact", None)
         if _oi:
-            _outcome_rate = getattr(_oi, "negative_outcome_rate_pct", 0) or getattr(_oi, "rug_rate_pct", 0) or 0
-            if _outcome_rate >= 60:
+            _rug_rate = getattr(_oi, "rug_rate_pct", 0) or 0
+            if _rug_rate >= 60:
                 score += 15
-            elif _outcome_rate >= 30:
+            elif _rug_rate >= 30:
                 score += 8
 
     # ── SOL flow signals ──────────────────────────────────────────────────
@@ -316,13 +310,6 @@ def _heuristic_score(
         _pc = behavioral_signals.get("phash_cluster") or {}
         if isinstance(_pc, dict) and (_pc.get("rugged_reuses") or 0) >= 1:
             score += 10
-
-        # Narrative cluster signal (injected by investigate_service)
-        _cluster_risk = behavioral_signals.get("narrative_cluster_avg_risk", 0) or 0
-        if _cluster_risk >= 80:
-            score += 15
-        elif _cluster_risk >= 60:
-            score += 8
 
     return min(score, 100)
 
@@ -727,9 +714,8 @@ def _build_prompt(
                 if _dp_life_hours is not None:
                     _dp_life_days = _dp_life_hours / 24.0
             _dp_negative = getattr(deployer_profile, 'negative_outcome_count', getattr(deployer_profile, 'rug_count', 0) or 0)
-            _dp_dead = getattr(deployer_profile, 'dead_token_count', 0) or 0
             parts.append(
-                f"Deployer history: {_dp_rugs} confirmed rug(s) + {_dp_dead} dead token(s) out of {_dp_total} launched; {_dp_negative} total negative outcome(s)"
+                f"Deployer history: {_dp_rugs} confirmed rug(s) out of {_dp_total} token(s) launched; {_dp_negative} total negative outcome(s) recorded"
             )
             if _dp_life_days is not None:
                 parts.append(f"Average lifespan before collapse: {_dp_life_days:.1f} day(s)")
@@ -1021,10 +1007,10 @@ def _build_prompt(
         parts.append(f"Fingerprint: {getattr(oi,'fingerprint','?')[:16]}...")
         parts.append(f"Linked deployer wallets: {len(getattr(oi,'linked_wallets',[]))}")
         parts.append(
-            f"Total tokens / confirmed rugs / dead tokens / all negative outcomes: {getattr(oi,'total_tokens_launched',0)} / {getattr(oi,'total_confirmed_rug_count',getattr(oi,'total_rug_count',0))} / {getattr(oi,'total_dead_token_count',0)} / {getattr(oi,'total_negative_outcome_count',getattr(oi,'total_rug_count',0))}"
+            f"Total tokens / confirmed rugs / all negative outcomes: {getattr(oi,'total_tokens_launched',0)} / {getattr(oi,'total_confirmed_rug_count',getattr(oi,'total_rug_count',0))} / {getattr(oi,'total_negative_outcome_count',getattr(oi,'total_rug_count',0))}"
         )
         parts.append(
-            f"Confirmed rug rate: {getattr(oi,'confirmed_rug_rate_pct',getattr(oi,'rug_rate_pct',0)):.0f}% | negative-outcome rate (rugs+dead): {getattr(oi,'negative_outcome_rate_pct',getattr(oi,'rug_rate_pct',0)):.0f}%"
+            f"Confirmed rug rate: {getattr(oi,'confirmed_rug_rate_pct',getattr(oi,'rug_rate_pct',0)):.0f}% | broad negative-outcome rate: {getattr(oi,'rug_rate_pct',0):.0f}%"
         )
         parts.append(f"Estimated extracted: ~${getattr(oi,'estimated_extracted_usd',0):,.0f} USD (is_estimated={getattr(oi,'is_estimated',True)})")
         parts.append(f"Campaign active now: {getattr(oi,'is_campaign_active',False)} | peak concurrent tokens: {getattr(oi,'peak_concurrent_tokens',0)}")
@@ -1076,26 +1062,19 @@ def _build_calibration_context(result: dict, lineage: Optional[Any]) -> dict:
     except Exception:
         pass
 
-    # Deployer bucket — uses negative_outcome_rate (rugs + dead tokens) for
-    # a realistic view of deployer track record on DEX-migrated tokens.
+    # Deployer bucket
     try:
         dp = getattr(lineage, "deployer_profile", None) or (lineage or {}).get("deployer_profile")
         if dp:
-            outcome_rate = (
-                getattr(dp, "negative_outcome_rate_pct", 0) or
-                (dp.get("negative_outcome_rate_pct", 0) if isinstance(dp, dict) else 0)
+            rug_rate = (
+                getattr(dp, "rug_rate_pct", 0) or
+                (dp.get("rug_rate_pct", 0) if isinstance(dp, dict) else 0)
             ) or 0
-            # Fallback to rug_rate_pct if negative_outcome_rate_pct not populated yet
-            if outcome_rate == 0:
-                outcome_rate = (
-                    getattr(dp, "rug_rate_pct", 0) or
-                    (dp.get("rug_rate_pct", 0) if isinstance(dp, dict) else 0)
-                ) or 0
-            if outcome_rate == 0:
+            if rug_rate == 0:
                 ctx["deployer_bucket"] = "deployer_clean"
-            elif outcome_rate <= 30:
+            elif rug_rate <= 30:
                 ctx["deployer_bucket"] = "deployer_low_rug"
-            elif outcome_rate <= 70:
+            elif rug_rate <= 70:
                 ctx["deployer_bucket"] = "deployer_mid_rug"
             else:
                 ctx["deployer_bucket"] = "deployer_serial"
@@ -1127,7 +1106,6 @@ def _sanity_check(
     has_flow   = sol_flow is not None
 
     deployer_rug_rate = 0.0
-    deployer_outcome_rate = 0.0
     if lineage:
         dp = getattr(lineage, "deployer_profile", None)
         if dp:
@@ -1137,8 +1115,6 @@ def _sanity_check(
             total = max(total_value or 1, 1)
             rugs  = getattr(dp, "confirmed_rug_count", getattr(dp, "rug_count", 0) or 0) or 0
             deployer_rug_rate = rugs / total
-            neg = getattr(dp, "negative_outcome_count", 0) or 0
-            deployer_outcome_rate = neg / total
 
     caveats: list[str] = []
 
@@ -1150,7 +1126,7 @@ def _sanity_check(
             ins = getattr(lineage, "insider_sell", None)
             insider_dump = ins is not None and getattr(ins, "verdict", "clean") == "insider_dump"
         # Permit score >70 when there's hard lineage evidence even without bundle/flow
-        strong_lineage = deployer_rug_rate > 0.60 or deployer_outcome_rate > 0.80 or derivatives_count > 3 or insider_dump
+        strong_lineage = deployer_rug_rate > 0.60 or derivatives_count > 3 or insider_dump
         if not strong_lineage:
             result["risk_score"] = min(score, 65)
             result["confidence"] = "low"
@@ -1166,8 +1142,8 @@ def _sanity_check(
                 "[CAVEAT] Score partially supported by lineage signals but no bundle/flow proof yet."
             )
 
-    # Rule 2: suppressed score despite proven serial rugger / high failure deployer
-    if score < 35 and (deployer_rug_rate > 0.60 or deployer_outcome_rate > 0.80):
+    # Rule 2: suppressed score despite proven serial rugger deployer
+    if score < 35 and deployer_rug_rate > 0.60:
         result["risk_score"] = min(score + 25, 55)
         if result.get("confidence") == "high":
             result["confidence"] = "medium"

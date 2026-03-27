@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { router } from 'expo-router';
 import Animated, { FadeInDown, LinearTransition } from 'react-native-reanimated';
-import { Bookmark, Trash2, Plus, Settings } from 'lucide-react-native';
+import { Bookmark, Trash2, Plus, Settings, Search } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Clipboard from 'expo-clipboard';
 import { Swipeable } from 'react-native-gesture-handler';
@@ -21,7 +21,7 @@ import { SkeletonBlock } from '../../src/components/ui/SkeletonLoader';
 import { ScreenHeader } from '../../src/components/ui/ScreenHeader';
 import { SettingsSheet } from '../../src/components/ui/SettingsSheet';
 import { useToast } from '../../src/components/ui/Toast';
-import { useWatches, useDeleteWatch, useAddWatch, useWatchlistFlags } from '../../src/lib/query';
+import { useWatches, useDeleteWatch, useAddWatch } from '../../src/lib/query';
 import { useAuthStore } from '../../src/store/auth';
 import { syncWatchlistCrons } from '../../src/lib/openclaw-cron';
 import { isOpenClawAvailable } from '../../src/lib/openclaw';
@@ -43,21 +43,52 @@ export default function WatchlistScreen() {
   const swipeableRefs = useRef<Map<string, Swipeable | null>>(new Map());
   const { showToast, toast } = useToast();
 
-  const { data: flagData } = useWatchlistFlags(apiKey);
-  const flagCounts = flagData?.counts ?? {};
-  const flagTypes = flagData?.types ?? {};
-  const tokenMeta = flagData?.meta ?? {};
+  const [sweeping, setSweeping] = useState(false);
+  const [flagCounts, setFlagCounts] = useState<Record<string, number>>({});
+  const [flagTypes, setFlagTypes] = useState<Record<string, string[]>>({});
+  const [tokenMeta, setTokenMeta] = useState<Record<string, { name?: string; symbol?: string; image?: string }>>({});
 
-  // Sort watches: most flags first, then by risk (from investigation history)
-  const sortedWatches = React.useMemo(() => {
-    if (!watches) return [];
-    return [...watches].sort((a, b) => {
-      const fa = flagCounts[a.value] ?? 0;
-      const fb = flagCounts[b.value] ?? 0;
-      if (fa !== fb) return fb - fa;
-      return 0;
-    });
-  }, [watches, flagCounts]);
+  // Fetch flag details + token metadata for all watched tokens
+  React.useEffect(() => {
+    if (!apiKey) return;
+    const BASE = (process.env.EXPO_PUBLIC_API_URL ?? 'https://lineage-agent.fly.dev').replace(/\/$/, '');
+    fetch(`${BASE}/agent/flags?limit=200`, { headers: { 'X-API-Key': apiKey } })
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => {
+        if (!d?.flags) return;
+        const counts: Record<string, number> = {};
+        const types: Record<string, string[]> = {};
+        const meta: Record<string, { name?: string; symbol?: string; image?: string }> = {};
+        for (const f of d.flags) {
+          if (!f.read) {
+            counts[f.mint] = (counts[f.mint] ?? 0) + 1;
+            if (!types[f.mint]) types[f.mint] = [];
+            if (!types[f.mint].includes(f.flagType)) types[f.mint].push(f.flagType);
+          }
+          // Extract token metadata from flag detail
+          if (f.detail && f.mint && !meta[f.mint]) {
+            const det = typeof f.detail === 'string' ? (() => { try { return JSON.parse(f.detail); } catch { return f.detail; } })() : f.detail;
+            if (det?.token_name || det?.symbol) {
+              meta[f.mint] = { name: det.token_name, symbol: det.symbol, image: det.image_uri };
+            }
+          }
+        }
+        setFlagCounts(counts);
+        setFlagTypes(types);
+        setTokenMeta((prev) => ({ ...prev, ...meta }));
+      })
+      .catch(() => {});
+  }, [apiKey, watches]);
+
+  const handleSweepAll = async () => {
+    const mintWatches = (watches ?? []).filter((w) => w.sub_type === 'mint');
+    if (mintWatches.length === 0 || sweeping) return;
+    setSweeping(true);
+    try {
+      router.push(`/investigate/${mintWatches[0].value}` as any);
+    } catch { /* ignore */ }
+    setSweeping(false);
+  };
 
   const handleDelete = (id: string) => {
     Alert.alert(
@@ -162,13 +193,28 @@ export default function WatchlistScreen() {
         <ScreenHeader
           icon={<Bookmark size={26} color={tokens.secondary} strokeWidth={2.5} />}
           title="Watchlist"
-          subtitle={`${watches?.length ?? 0} items${Object.values(flagCounts).reduce((s, c) => s + c, 0) > 0 ? ` · ${Object.values(flagCounts).reduce((s, c) => s + c, 0)} flags` : ''}`}
           rightAction={
             <View style={styles.headerActions}>
+              <Text style={styles.count}>{watches?.length ?? 0} items</Text>
+              {(watches ?? []).some((w) => w.sub_type === 'mint') && (
+                <TouchableOpacity
+                  onPress={handleSweepAll}
+                  style={styles.sweepBtn}
+                  activeOpacity={0.7}
+                  disabled={sweeping}
+                  accessibilityRole="button"
+                  accessibilityLabel="Investigate all watched tokens"
+                >
+                  <Search size={13} color={sweeping ? tokens.textTertiary : tokens.secondary} />
+                  <Text style={[styles.sweepBtnText, sweeping && { color: tokens.textTertiary }]}>
+                    {sweeping ? 'Sweeping...' : 'Sweep'}
+                  </Text>
+                </TouchableOpacity>
+              )}
               <TouchableOpacity
                 onPress={() => setAddOpen(true)}
                 hitSlop={tokens.hitSlop}
-                style={styles.headerBtn}
+                style={{ minWidth: tokens.minTouchSize, minHeight: tokens.minTouchSize, justifyContent: 'center', alignItems: 'center' }}
                 accessibilityRole="button"
                 accessibilityLabel="Add to watchlist"
               >
@@ -177,7 +223,7 @@ export default function WatchlistScreen() {
               <TouchableOpacity
                 onPress={() => setSettingsOpen(true)}
                 hitSlop={tokens.hitSlop}
-                style={styles.headerBtn}
+                style={{ minWidth: tokens.minTouchSize, minHeight: tokens.minTouchSize, justifyContent: 'center', alignItems: 'center' }}
                 accessibilityRole="button"
                 accessibilityLabel="Open API key settings"
               >
@@ -200,7 +246,7 @@ export default function WatchlistScreen() {
               <GlassCard key={i}><SkeletonBlock lines={2} /></GlassCard>
             ))}
           </View>
-        ) : sortedWatches.length === 0 ? (
+        ) : watches?.length === 0 ? (
           <Animated.View entering={FadeInDown.springify()} style={styles.empty}>
             <GlassCard style={styles.emptyCard} noPadding={false}>
               <View style={styles.emptyIconWrapper}>
@@ -224,7 +270,7 @@ export default function WatchlistScreen() {
           </Animated.View>
         ) : (
           <FlatList
-            data={sortedWatches}
+            data={watches}
             keyExtractor={(item) => item.id}
             contentContainerStyle={[styles.listContent, { paddingBottom: Math.max(insets.bottom + 100, 120) }]}
             showsVerticalScrollIndicator={false}
@@ -274,8 +320,21 @@ export default function WatchlistScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: tokens.bgMain },
   safe: { flex: 1 },
-  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  headerBtn: { minWidth: tokens.minTouchSize, minHeight: tokens.minTouchSize, justifyContent: 'center', alignItems: 'center' },
+  count: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.small, color: tokens.white60 },
+  sweepBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: tokens.radius.pill,
+    borderWidth: 1,
+    borderColor: `${tokens.secondary}40`,
+    backgroundColor: `${tokens.secondary}10`,
+    minHeight: tokens.minTouchSize,
+  },
+  sweepBtnText: { fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.tiny, color: tokens.secondary },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   listContent: { gap: 8, paddingHorizontal: tokens.spacing.screenPadding },
   swipeDeleteBtn: {
     backgroundColor: tokens.risk.critical,

@@ -6,7 +6,6 @@ import {
   TouchableOpacity,
   TouchableWithoutFeedback,
   KeyboardAvoidingView,
-  ScrollView,
   Platform,
   StyleSheet,
 } from 'react-native';
@@ -64,21 +63,12 @@ export function SettingsSheet({ visible, onClose }: SettingsSheetProps) {
     useOpenClawStore.getState().reset();
   };
 
-  const [keyError, setKeyError] = useState('');
-
   const handleSave = () => {
     const trimmed = pendingKey.trim();
-    if (trimmed.length < 8) {
-      setKeyError('Key must be at least 8 characters');
-      return;
+    if (trimmed.length >= 8) {
+      setApiKey(trimmed);
+      onClose();
     }
-    if (!trimmed.startsWith('sk-') && !trimmed.startsWith('sk_')) {
-      setKeyError('Key should start with "sk-"');
-      return;
-    }
-    setKeyError('');
-    setApiKey(trimmed);
-    onClose();
   };
 
   const handleRemove = async () => {
@@ -118,7 +108,7 @@ export function SettingsSheet({ visible, onClose }: SettingsSheetProps) {
           <View style={styles.titleRow}>
             <View style={styles.titleLeft}>
               <Key size={18} color={tokens.secondary} />
-              <Text style={styles.title}>Settings</Text>
+              <Text style={styles.title}>API Key</Text>
             </View>
             <TouchableOpacity
               onPress={onClose}
@@ -130,14 +120,12 @@ export function SettingsSheet({ visible, onClose }: SettingsSheetProps) {
             </TouchableOpacity>
           </View>
 
-          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
           <ApiKeySection
             apiKey={apiKey}
             pendingKey={pendingKey}
-            onPendingKeyChange={(v) => { setPendingKey(v); setKeyError(''); }}
+            onPendingKeyChange={setPendingKey}
             onSave={handleSave}
             onRemove={handleRemove}
-            error={keyError}
           />
 
           <OpenClawSection
@@ -153,7 +141,6 @@ export function SettingsSheet({ visible, onClose }: SettingsSheetProps) {
             onConnect={handleConnect}
             onDisconnect={handleDisconnect}
           />
-          </ScrollView>
         </View>
       </KeyboardAvoidingView>
     </Modal>
@@ -171,19 +158,15 @@ const styles = StyleSheet.create({
     pointerEvents: 'box-none',
   },
   sheet: {
-    backgroundColor: tokens.bgApp,
+    backgroundColor: tokens.bgApp, // Figma: --bg-app #040816
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     paddingTop: 12,
     paddingHorizontal: tokens.spacing.screenPadding,
     paddingBottom: 40,
-    maxHeight: '85%',
+    gap: 12,
     borderTopWidth: 1,
     borderColor: tokens.borderSubtle,
-  },
-  scrollContent: {
-    gap: 14,
-    paddingBottom: 20,
   },
   handle: {
     width: 40,

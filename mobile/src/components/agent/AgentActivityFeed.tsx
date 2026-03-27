@@ -1,17 +1,14 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { router } from 'expo-router';
 import {
+  Eye,
   Search,
+  AlertTriangle,
   Shield,
   Filter,
-  ChevronDown,
-  ChevronRight,
 } from 'lucide-react-native';
-import Animated, {
-  FadeInDown,
-  Layout,
-} from 'react-native-reanimated';
+import Animated, { FadeInDown } from 'react-native-reanimated';
 import { tokens } from '../../theme/tokens';
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -34,10 +31,9 @@ export interface FeedItem {
 
 interface AgentActivityFeedProps {
   feedItems: FeedItem[];
-  onMarkRead?: (id: string) => void;
 }
 
-type SourceFilter = 'all' | 'investigation' | 'alert' | 'flag';
+type FilterKey = 'all' | 'critical' | 'high' | 'recent';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -52,10 +48,10 @@ function timeAgoShort(ts: number): string {
 }
 
 function riskLabel(score: number): string {
-  if (score >= 75) return 'CRIT';
-  if (score >= 50) return 'HIGH';
-  if (score >= 25) return 'MED';
-  return 'LOW';
+  if (score >= 75) return 'Critical';
+  if (score >= 50) return 'High';
+  if (score >= 25) return 'Medium';
+  return 'Low';
 }
 
 function riskColor(score: number): string {
@@ -65,50 +61,28 @@ function riskColor(score: number): string {
   return tokens.risk.low;
 }
 
-type TimeSection = 'today' | 'yesterday' | 'week' | 'older';
+// ── Filter Bar ───────────────────────────────────────────────────────────────
 
-function getTimeSection(ts: number): TimeSection {
-  const now = new Date();
-  const d = new Date(ts);
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-  const yesterdayStart = todayStart - 86_400_000;
-  const weekStart = todayStart - 6 * 86_400_000;
-  if (ts >= todayStart) return 'today';
-  if (ts >= yesterdayStart) return 'yesterday';
-  if (ts >= weekStart) return 'week';
-  return 'older';
-}
-
-const SECTION_LABELS: Record<TimeSection, string> = {
-  today: 'Today',
-  yesterday: 'Yesterday',
-  week: 'This week',
-  older: 'Earlier',
-};
-
-// ── Source Filter Bar ────────────────────────────────────────────────────────
-
-function SourceFilterBar({
+function FilterBar({
   active,
   onChange,
   counts,
 }: {
-  active: SourceFilter;
-  onChange: (k: SourceFilter) => void;
-  counts: Record<SourceFilter, number>;
+  active: FilterKey;
+  onChange: (k: FilterKey) => void;
+  counts: { all: number; critical: number; high: number; recent: number };
 }) {
-  const filters: { key: SourceFilter; label: string }[] = [
-    { key: 'all', label: 'All' },
-    { key: 'investigation', label: 'My Scans' },
-    { key: 'alert', label: 'Alerts' },
-    { key: 'flag', label: 'Flags' },
+  const filters: { key: FilterKey; label: string; count: number }[] = [
+    { key: 'all', label: 'All', count: counts.all },
+    { key: 'critical', label: 'Critical', count: counts.critical },
+    { key: 'high', label: 'High', count: counts.high },
+    { key: 'recent', label: '24h', count: counts.recent },
   ];
 
   return (
     <View style={s.filterBar}>
-      {filters.map(({ key, label }) => {
+      {filters.map(({ key, label, count }) => {
         const isActive = active === key;
-        const count = counts[key];
         return (
           <TouchableOpacity
             key={key}
@@ -131,90 +105,33 @@ function SourceFilterBar({
   );
 }
 
-// ── Section Header ───────────────────────────────────────────────────────────
+// ── Compact Card (Low/Medium risk) ───────────────────────────────────────────
 
-function SectionHeader({
-  label,
-  count,
-  collapsed,
-  onToggle,
-}: {
-  label: string;
-  count: number;
-  collapsed: boolean;
-  onToggle: () => void;
-}) {
-  const Chevron = collapsed ? ChevronRight : ChevronDown;
-  return (
-    <TouchableOpacity onPress={onToggle} activeOpacity={0.6} style={s.sectionHeader}>
-      <Chevron size={12} color={tokens.white35} strokeWidth={2.5} />
-      <Text style={s.sectionLabel}>{label}</Text>
-      {collapsed && (
-        <Text style={s.sectionCount}>{count} item{count !== 1 ? 's' : ''}</Text>
-      )}
-    </TouchableOpacity>
-  );
-}
-
-// ── Risk Pill (shared by both card types) ────────────────────────────────────
-
-function RiskPill({ score }: { score: number }) {
-  const rc = riskColor(score);
-  return (
-    <View style={[s.riskPill, { backgroundColor: `${rc}12`, borderColor: `${rc}25` }]}>
-      <Text style={[s.riskPillScore, { color: rc }]}>{score}</Text>
-      <Text style={[s.riskPillLabel, { color: rc }]}>{riskLabel(score)}</Text>
-    </View>
-  );
-}
-
-// ── Swipeable Compact Card ───────────────────────────────────────────────────
-
-function CompactCard({
-  item,
-  index,
-  onMarkRead,
-}: {
-  item: FeedItem;
-  index: number;
-  onMarkRead?: (id: string) => void;
-}) {
-  const isUnread = item.read === false;
+function CompactCard({ item, index }: { item: FeedItem; index: number }) {
   const Icon = item.icon;
   const score = item.riskScore ?? 0;
-
-  const handlePress = useCallback(() => {
-    if (isUnread) onMarkRead?.(item.id);
-    router.push(`/token/${item.mint}` as any);
-  }, [item.id, item.mint, isUnread, onMarkRead]);
+  const rc = score > 0 ? riskColor(score) : tokens.white35;
 
   return (
-    <Animated.View entering={index < 15 ? FadeInDown.delay(index * 15).duration(180) : undefined} layout={Layout.springify()}>
+    <Animated.View entering={FadeInDown.delay(index * 20).duration(200)}>
       <TouchableOpacity
-        onPress={handlePress}
+        onPress={() => router.push(`/investigate/${item.mint}` as any)}
         activeOpacity={0.7}
         style={s.compactCard}
       >
-        {/* Unread dot */}
-        {isUnread && <View style={s.unreadDot} />}
-
-        {/* Category dot */}
-        <View style={[s.catDot, { backgroundColor: item.color }]} />
+        <View style={[s.compactDot, { backgroundColor: item.color }]} />
         <Icon size={12} color={item.color} strokeWidth={2.5} />
-
         <View style={s.compactBody}>
           <Text style={s.compactName} numberOfLines={1}>
             {item.tokenName}
             {item.tokenSymbol ? ` $${item.tokenSymbol}` : ''}
           </Text>
-          <Text style={s.compactSummary} numberOfLines={2}>{item.summary}</Text>
+          <Text style={s.compactSummary} numberOfLines={1}>{item.summary}</Text>
         </View>
-
-        {/* Right column: risk + time stacked */}
-        <View style={s.compactRight}>
-          {score > 0 && <RiskPill score={score} />}
-          <Text style={s.compactTime}>{timeAgoShort(item.time)}</Text>
-        </View>
+        {score > 0 && (
+          <Text style={[s.compactScore, { color: rc }]}>{score}</Text>
+        )}
+        <Text style={s.compactTime}>{timeAgoShort(item.time)}</Text>
       </TouchableOpacity>
     </Animated.View>
   );
@@ -222,33 +139,25 @@ function CompactCard({
 
 // ── Prominent Card (High/Critical risk) ──────────────────────────────────────
 
-function PromCard({
-  item,
-  index,
-}: {
-  item: FeedItem;
-  index: number;
-}) {
+function PromCard({ item, index }: { item: FeedItem; index: number }) {
   const Icon = item.icon;
   const score = item.riskScore ?? 0;
   const rc = score > 0 ? riskColor(score) : item.color;
-  const isUnread = item.read === false;
 
   return (
-    <Animated.View entering={FadeInDown.delay(index * 20).duration(220)}>
+    <Animated.View entering={FadeInDown.delay(index * 25).duration(250)}>
       <TouchableOpacity
-        onPress={() => router.push(`/token/${item.mint}` as any)}
+        onPress={() => router.push(`/investigate/${item.mint}` as any)}
         activeOpacity={0.7}
-        style={[s.promCard, { borderColor: `${rc}20` }]}
+        style={[s.promCard, { borderColor: `${rc}25` }]}
       >
-        {/* Accent bar */}
+        {/* Accent */}
         <View style={[s.promAccent, { backgroundColor: rc }]} />
 
         <View style={s.promBody}>
-          {/* Header row */}
+          {/* Header: icon + name + score + time */}
           <View style={s.promHeader}>
-            {isUnread && <View style={s.unreadDot} />}
-            <View style={[s.promIconWrap, { backgroundColor: `${rc}12` }]}>
+            <View style={[s.promIconWrap, { backgroundColor: `${rc}15` }]}>
               <Icon size={14} color={rc} strokeWidth={2.5} />
             </View>
             <View style={s.promNameCol}>
@@ -258,16 +167,19 @@ function PromCard({
               </Text>
               <Text style={[s.promCategory, { color: rc }]}>{item.categoryLabel}</Text>
             </View>
-            <View style={s.promRight}>
-              {score > 0 && <RiskPill score={score} />}
-              <Text style={s.promTime}>{timeAgoShort(item.time)}</Text>
-            </View>
+            {score > 0 && (
+              <View style={[s.promScorePill, { backgroundColor: `${rc}12`, borderColor: `${rc}30` }]}>
+                <Text style={[s.promScoreNum, { color: rc }]}>{score}</Text>
+                <Text style={[s.promScoreLabel, { color: rc }]}>{riskLabel(score)}</Text>
+              </View>
+            )}
+            <Text style={s.promTime}>{timeAgoShort(item.time)}</Text>
           </View>
 
           {/* Summary */}
           <Text style={s.promSummary} numberOfLines={2}>{item.summary}</Text>
 
-          {/* Detail */}
+          {/* Detail (if available) */}
           {item.detail && (
             <Text style={s.promDetail} numberOfLines={1}>{item.detail}</Text>
           )}
@@ -279,52 +191,34 @@ function PromCard({
 
 // ── Main Component ───────────────────────────────────────────────────────────
 
-export function AgentActivityFeed({ feedItems, onMarkRead }: AgentActivityFeedProps) {
-  const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all');
-  const [collapsed, setCollapsed] = useState<Record<TimeSection, boolean>>({
-    today: false,
-    yesterday: true,
-    week: true,
-    older: true,
-  });
+export function AgentActivityFeed({ feedItems }: AgentActivityFeedProps) {
+  const [filter, setFilter] = useState<FilterKey>('all');
 
-  // Source counts
-  const sourceCounts = useMemo<Record<SourceFilter, number>>(() => ({
-    all: feedItems.length,
-    investigation: feedItems.filter((i) => i.category === 'investigation').length,
-    alert: feedItems.filter((i) => i.category === 'alert').length,
-    flag: feedItems.filter((i) => i.category === 'flag').length,
-  }), [feedItems]);
+  // Counts for filter badges
+  const counts = useMemo(() => {
+    const now = Date.now();
+    return {
+      all: feedItems.length,
+      critical: feedItems.filter((i) => (i.riskScore ?? 0) >= 75).length,
+      high: feedItems.filter((i) => (i.riskScore ?? 0) >= 50).length,
+      recent: feedItems.filter((i) => now - i.time < 24 * 3600 * 1000).length,
+    };
+  }, [feedItems]);
 
-  // Filtered by source
+  // Apply filter
   const filtered = useMemo(() => {
-    if (sourceFilter === 'all') return feedItems;
-    return feedItems.filter((i) => i.category === sourceFilter);
-  }, [feedItems, sourceFilter]);
-
-  // Group by time section
-  const sections = useMemo(() => {
-    const groups: { key: TimeSection; label: string; items: FeedItem[] }[] = [];
-    const buckets: Record<TimeSection, FeedItem[]> = { today: [], yesterday: [], week: [], older: [] };
-
-    for (const item of filtered) {
-      buckets[getTimeSection(item.time)].push(item);
+    const now = Date.now();
+    switch (filter) {
+      case 'critical':
+        return feedItems.filter((i) => (i.riskScore ?? 0) >= 75);
+      case 'high':
+        return feedItems.filter((i) => (i.riskScore ?? 0) >= 50);
+      case 'recent':
+        return feedItems.filter((i) => now - i.time < 24 * 3600 * 1000);
+      default:
+        return feedItems;
     }
-
-    const order: TimeSection[] = ['today', 'yesterday', 'week', 'older'];
-    for (const key of order) {
-      if (buckets[key].length > 0) {
-        groups.push({ key, label: SECTION_LABELS[key], items: buckets[key] });
-      }
-    }
-    return groups;
-  }, [filtered]);
-
-  const toggleSection = useCallback((key: TimeSection) => {
-    setCollapsed((prev) => ({ ...prev, [key]: !prev[key] }));
-  }, []);
-
-  // ── Empty state ──────────────────────────────────────────────────────────
+  }, [feedItems, filter]);
 
   if (feedItems.length === 0) {
     return (
@@ -334,7 +228,7 @@ export function AgentActivityFeed({ feedItems, onMarkRead }: AgentActivityFeedPr
         </View>
         <Text style={s.emptyTitle}>No activity yet</Text>
         <Text style={s.emptySub}>
-          Scan a token or add to your watchlist to start building intelligence.
+          Add tokens to your watchlist or scan a token to start building intelligence.
         </Text>
         <TouchableOpacity
           onPress={() => router.push('/(tabs)/scan' as any)}
@@ -348,56 +242,24 @@ export function AgentActivityFeed({ feedItems, onMarkRead }: AgentActivityFeedPr
     );
   }
 
-  // ── No results for current filter ──────────────────────────────────────
+  return (
+    <View style={s.root}>
+      <FilterBar active={filter} onChange={setFilter} counts={counts} />
 
-  if (filtered.length === 0) {
-    return (
-      <View style={s.root}>
-        <SourceFilterBar active={sourceFilter} onChange={setSourceFilter} counts={sourceCounts} />
+      {filtered.length === 0 && (
         <View style={s.noResults}>
           <Filter size={18} color={tokens.white20} />
           <Text style={s.noResultsText}>No items match this filter</Text>
         </View>
-      </View>
-    );
-  }
+      )}
 
-  // ── Render ─────────────────────────────────────────────────────────────
-
-  let globalIdx = 0;
-
-  return (
-    <View style={s.root}>
-      <SourceFilterBar active={sourceFilter} onChange={setSourceFilter} counts={sourceCounts} />
-
-      {sections.map((section) => {
-        const isCollapsed = collapsed[section.key] ?? false;
-
-        return (
-          <View key={section.key} style={s.section}>
-            <SectionHeader
-              label={section.label}
-              count={section.items.length}
-              collapsed={isCollapsed}
-              onToggle={() => toggleSection(section.key)}
-            />
-
-            {!isCollapsed &&
-              section.items.map((item) => {
-                const idx = globalIdx++;
-                const score = item.riskScore ?? 0;
-                return score >= 50 ? (
-                  <PromCard key={item.id} item={item} index={idx} />
-                ) : (
-                  <CompactCard
-                    key={item.id}
-                    item={item}
-                    index={idx}
-                    onMarkRead={onMarkRead}
-                  />
-                );
-              })}
-          </View>
+      {filtered.map((item, i) => {
+        const score = item.riskScore ?? 0;
+        // High/Critical → prominent card, rest → compact
+        return score >= 50 ? (
+          <PromCard key={item.id} item={item} index={i} />
+        ) : (
+          <CompactCard key={item.id} item={item} index={i} />
         );
       })}
     </View>
@@ -407,10 +269,10 @@ export function AgentActivityFeed({ feedItems, onMarkRead }: AgentActivityFeedPr
 // ── Styles ───────────────────────────────────────────────────────────────────
 
 const s = StyleSheet.create({
-  root: { gap: 4 },
+  root: { gap: 6 },
 
   // Filter bar
-  filterBar: { flexDirection: 'row', gap: 6, marginBottom: 6 },
+  filterBar: { flexDirection: 'row', gap: 6, marginBottom: 4 },
   filterChip: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
     paddingHorizontal: 12, paddingVertical: 7,
@@ -433,62 +295,30 @@ const s = StyleSheet.create({
   filterBadgeActive: { backgroundColor: `${tokens.secondary}25` },
   filterBadgeText: { fontFamily: 'Lexend-Bold', fontSize: 8, color: tokens.white80 },
 
-  // Section
-  section: { gap: 4, marginTop: 2 },
-  sectionHeader: {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    paddingVertical: 6, paddingHorizontal: 2,
-  },
-  sectionLabel: {
-    fontFamily: 'Lexend-SemiBold', fontSize: 11,
-    color: tokens.white60, letterSpacing: 0.3,
-  },
-  sectionCount: {
-    fontFamily: 'Lexend-Regular', fontSize: 9,
-    color: tokens.white20, marginLeft: 2,
-  },
-
-  // Unread dot
-  unreadDot: {
-    width: 6, height: 6, borderRadius: 3,
-    backgroundColor: tokens.secondary,
-    position: 'absolute', left: 4, top: '50%',
-    marginTop: -3,
-  },
-
-  // Compact card
+  // Compact card (low/medium risk — 1 line)
   compactCard: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
-    paddingVertical: 10, paddingLeft: 16, paddingRight: 12,
-    backgroundColor: '#0a1128',
+    paddingVertical: 10, paddingHorizontal: 12,
+    backgroundColor: tokens.bgGlass,
     borderRadius: tokens.radius.sm,
     borderWidth: 1, borderColor: tokens.borderSubtle,
   },
-  catDot: { width: 4, height: 4, borderRadius: 2 },
-  compactBody: { flex: 1, gap: 2 },
+  compactDot: { width: 4, height: 4, borderRadius: 2 },
+  compactBody: { flex: 1, gap: 1 },
   compactName: {
     fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.small,
     color: tokens.white80,
   },
   compactSummary: {
-    fontFamily: 'Lexend-Regular', fontSize: 10,
-    color: tokens.white35, lineHeight: 14,
+    fontFamily: 'Lexend-Regular', fontSize: 9,
+    color: tokens.white35,
   },
-  compactRight: { alignItems: 'flex-end', gap: 4, minWidth: 44 },
+  compactScore: { fontFamily: 'Lexend-Bold', fontSize: tokens.font.small },
   compactTime: { fontFamily: 'Lexend-Regular', fontSize: 9, color: tokens.white20 },
 
-  // Risk pill (shared)
-  riskPill: {
-    flexDirection: 'row', alignItems: 'center', gap: 3,
-    paddingHorizontal: 6, paddingVertical: 2,
-    borderRadius: tokens.radius.xs, borderWidth: 1,
-  },
-  riskPillScore: { fontFamily: 'Lexend-Bold', fontSize: 10 },
-  riskPillLabel: { fontFamily: 'Lexend-Medium', fontSize: 7, letterSpacing: 0.3 },
-
-  // Prominent card (high/critical)
+  // Prominent card (high/critical — multi-line)
   promCard: {
-    backgroundColor: '#0a1128',
+    backgroundColor: tokens.bgGlass,
     borderRadius: tokens.radius.sm,
     borderWidth: 1, overflow: 'hidden',
   },
@@ -499,13 +329,18 @@ const s = StyleSheet.create({
     width: 28, height: 28, borderRadius: 14,
     alignItems: 'center', justifyContent: 'center',
   },
-  promRight: { alignItems: 'flex-end', gap: 4, minWidth: 44 },
   promNameCol: { flex: 1 },
   promName: {
     fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.body,
     color: tokens.white100,
   },
   promCategory: { fontFamily: 'Lexend-Medium', fontSize: 9, letterSpacing: 0.3 },
+  promScorePill: {
+    alignItems: 'center', paddingHorizontal: 8, paddingVertical: 3,
+    borderRadius: tokens.radius.sm, borderWidth: 1, minWidth: 40,
+  },
+  promScoreNum: { fontFamily: 'Lexend-Bold', fontSize: tokens.font.small },
+  promScoreLabel: { fontFamily: 'Lexend-Regular', fontSize: 7, letterSpacing: 0.3 },
   promTime: { fontFamily: 'Lexend-Regular', fontSize: 9, color: tokens.white20 },
   promSummary: {
     fontFamily: 'Lexend-Regular', fontSize: tokens.font.small,
@@ -517,7 +352,9 @@ const s = StyleSheet.create({
   },
 
   // Empty state
-  emptyWrap: { alignItems: 'center', paddingVertical: 48, gap: 10 },
+  emptyWrap: {
+    alignItems: 'center', paddingVertical: 48, gap: 10,
+  },
   emptyIconCircle: {
     width: 56, height: 56, borderRadius: 28,
     backgroundColor: tokens.bgGlass8,
@@ -539,7 +376,11 @@ const s = StyleSheet.create({
   },
   emptyCtaText: { fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.small, color: tokens.secondary },
 
-  // No results
-  noResults: { alignItems: 'center', paddingVertical: 32, gap: 8 },
-  noResultsText: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.small, color: tokens.white35 },
+  // No results for filter
+  noResults: {
+    alignItems: 'center', paddingVertical: 32, gap: 8,
+  },
+  noResultsText: {
+    fontFamily: 'Lexend-Regular', fontSize: tokens.font.small, color: tokens.white35,
+  },
 });

@@ -56,11 +56,10 @@ export function BriefingActionCard({
     if (unread) onMarkRead();
   };
 
-  const safeSections = sections ?? [];
-  const hasSections = safeSections.length > 0;
-  const threatCount = safeSections
+  const hasSections = sections.length > 0;
+  const threatCount = sections
     .filter((s) => s.type === 'watchlist_alerts' || s.type === 'active_campaigns')
-    .reduce((sum, s) => sum + (s.items?.length ?? 0), 0);
+    .reduce((sum, s) => sum + s.items.length, 0);
 
   return (
     <TouchableOpacity onPress={handlePress} activeOpacity={0.8}>
@@ -86,12 +85,6 @@ export function BriefingActionCard({
         </View>
 
         {/* Preview / Expanded text */}
-        {/* Lead with critical alert count in preview for better scannability */}
-        {!expanded && threatCount > 0 && (
-          <Text style={styles.criticalPreview}>
-            {threatCount} alert{threatCount > 1 ? 's' : ''} need attention
-          </Text>
-        )}
         <Text
           style={expanded ? styles.contentFull : styles.contentPreview}
           numberOfLines={expanded ? undefined : 2}
@@ -103,13 +96,13 @@ export function BriefingActionCard({
         {/* Structured sections */}
         {expanded && hasSections && (
           <Animated.View entering={FadeIn.duration(200)} style={styles.sectionsWrap}>
-            {safeSections.map((section, si) => (
+            {sections.map((section, si) => (
               <View key={si} style={styles.section}>
                 <View style={styles.sectionHeader}>
                   {SECTION_ICONS[section.type] ?? <Shield size={12} color={tokens.white60} />}
                   <Text style={styles.sectionTitle}>{section.title}</Text>
                 </View>
-                {(section.items ?? []).map((item, ii) => {
+                {section.items.map((item, ii) => {
                   const color = SEVERITY_COLORS[item.severity ?? 'info'] ?? tokens.white60;
                   const tappable = !!item.mint || !!item.action;
                   const content = (
@@ -198,13 +191,6 @@ const styles = StyleSheet.create({
     fontFamily: 'Lexend-Bold',
     fontSize: 9,
     color: tokens.risk.critical,
-  },
-  criticalPreview: {
-    fontFamily: 'Lexend-SemiBold',
-    fontSize: tokens.font.small,
-    color: tokens.risk.high,
-    marginTop: 8,
-    marginBottom: 2,
   },
   contentPreview: {
     fontFamily: 'Lexend-Regular',

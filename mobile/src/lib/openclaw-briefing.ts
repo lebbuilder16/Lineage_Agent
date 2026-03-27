@@ -46,9 +46,7 @@ const BASE_URL = (process.env.EXPO_PUBLIC_API_URL ?? 'https://lineage-agent.fly.
 
 /** Start polling for briefing data from backend API. Returns cleanup fn. */
 export function startBriefingListener(apiKey?: string): () => void {
-  // Poll every 5 minutes, but skip if content hasn't changed (conditional polling)
-  let lastGeneratedAt: string | null = null;
-  const smartFetch = async () => {
+  const fetchBriefing = async () => {
     try {
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (apiKey) headers['X-API-Key'] = apiKey;
@@ -56,13 +54,9 @@ export function startBriefingListener(apiKey?: string): () => void {
       const res = await fetch(`${BASE_URL}/stats/brief`, { headers });
       if (res.ok) {
         const data = await res.json();
-        const genAt = data.generated_at;
-        // Skip update if same content (saves re-renders and unread flicker)
-        if (genAt && genAt === lastGeneratedAt) return;
-        lastGeneratedAt = genAt;
         const content = data.content || data.text;
         if (content) {
-          useBriefingStore.getState().setBriefing(content, genAt, data.sections);
+          useBriefingStore.getState().setBriefing(content, data.generated_at, data.sections);
         }
       }
     } catch {
@@ -70,10 +64,11 @@ export function startBriefingListener(apiKey?: string): () => void {
     }
   };
 
-  const interval = setInterval(smartFetch, 5 * 60 * 1000);
+  // Poll every 5 minutes
+  const interval = setInterval(fetchBriefing, 5 * 60 * 1000);
 
-  // Fetch immediately (slight delay to avoid blocking startup)
-  setTimeout(smartFetch, 2000);
+  // Also fetch immediately (slight delay to avoid blocking startup)
+  setTimeout(fetchBriefing, 2000);
 
   return () => clearInterval(interval);
 }

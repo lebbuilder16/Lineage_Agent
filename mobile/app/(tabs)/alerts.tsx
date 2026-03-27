@@ -1,9 +1,8 @@
-import React, { useState, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  SectionList,
 } from 'react-native';
 import { router } from 'expo-router';
 import Animated, { FadeInDown, LinearTransition } from 'react-native-reanimated';
@@ -15,70 +14,56 @@ import { ScreenHeader } from '../../src/components/ui/ScreenHeader';
 import { AlertCard } from '../../src/components/alerts';
 import { AlertFilterChips } from '../../src/components/alerts';
 import { useAlertsStore } from '../../src/store/alerts';
+import { useGraduations } from '../../src/lib/query';
 import { tokens } from '../../src/theme/tokens';
 import type { AlertItem } from '../../src/types/api';
 
-// ── Filter types ────────────────────────────────────────────────────────────
-
-type QuickFilter = 'all' | 'critical' | 'unread' | 'rug' | 'bundle' | 'insider' | 'deployer' | 'wallet_risk';
-
+type QuickFilter = 'all' | 'critical' | 'unread' | 'live';
 const QUICK_FILTERS: { label: string; value: QuickFilter }[] = [
   { label: 'All', value: 'all' },
+  { label: 'Live', value: 'live' },
   { label: 'Critical', value: 'critical' },
   { label: 'Unread', value: 'unread' },
-  { label: 'Rug', value: 'rug' },
-  { label: 'Bundle', value: 'bundle' },
-  { label: 'Insider', value: 'insider' },
-  { label: 'Deployer', value: 'deployer' },
-  { label: 'Wallet', value: 'wallet_risk' },
 ];
 
 const CRITICAL_TYPES = new Set(['rug', 'death_clock', 'bundle', 'insider']);
-const TYPE_FILTERS = new Set<QuickFilter>(['rug', 'bundle', 'insider', 'deployer', 'wallet_risk']);
-const keyExtractor = (item: AlertItem) => item.id;
-
-// ── Time sections ───────────────────────────────────────────────────────────
-
-type TimeSection = 'today' | 'yesterday' | 'earlier';
-
-function getTimeSection(ts: string | undefined): TimeSection {
-  if (!ts) return 'earlier';
-  const now = new Date();
-  const d = new Date(ts);
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-  const yesterdayStart = todayStart - 86_400_000;
-  const t = d.getTime();
-  if (t >= todayStart) return 'today';
-  if (t >= yesterdayStart) return 'yesterday';
-  return 'earlier';
-}
-
-const SECTION_LABELS: Record<TimeSection, string> = {
-  today: 'Today',
-  yesterday: 'Yesterday',
-  earlier: 'Earlier',
-};
-
-// ── Component ───────────────────────────────────────────────────────────────
 
 export default function AlertsScreen() {
   const alerts = useAlertsStore((s) => s.alerts);
+  const addAlert = useAlertsStore((s) => s.addAlert);
   const markRead = useAlertsStore((s) => s.markRead);
   const markAllRead = useAlertsStore((s) => s.markAllRead);
   const deleteAlert = useAlertsStore((s) => s.deleteAlert);
   const wsConnected = useAlertsStore((s) => s.wsConnected);
-  const unreadCount = useAlertsStore((s) => {
-    let count = 0;
-    for (let i = 0; i < s.alerts.length; i++) if (!s.alerts[i].read) count++;
-    return count;
-  });
+  const unreadCount = useAlertsStore((s) => s.alerts.filter((a) => !a.read).length);
   const [activeFilter, setActiveFilter] = useState<QuickFilter>('all');
   const [expandedEnrichments, setExpandedEnrichments] = useState<Set<string>>(new Set());
   const insets = useSafeAreaInsets();
-  const wasConnectedRef = useRef(false);
 
-  // Track if WS was ever connected (to avoid showing offline banner on cold start)
-  if (wsConnected) wasConnectedRef.current = true;
+  // Poll graduations via REST (doesn't depend on WebSocket)
+  const { data: graduations } = useGraduations(20);
+  const seenGradRef = React.useRef<Set<string>>(new Set());
+  React.useEffect(() => {
+    if (!graduations?.length) return;
+    for (const g of graduations) {
+      if (seenGradRef.current.has(g.mint)) continue;
+      seenGradRef.current.add(g.mint);
+      // Inject as alert into the store
+      const displayName = g.name || g.symbol || g.mint.slice(0, 8);
+      addAlert({
+        id: `grad-${g.mint}-${g.timestamp}`,
+        type: 'token_graduated',
+        title: `${displayName} 🎓`,
+        token_name: displayName,
+        message: `Graduated to DEX — ${g.deployer?.slice(0, 8) ?? 'unknown'}...`,
+        mint: g.mint,
+        image_uri: g.image_uri || undefined,
+        deployer: g.deployer,
+        timestamp: new Date(g.timestamp * 1000).toISOString(),
+        read: false,
+      } as any);
+    }
+  }, [graduations, addAlert]);
 
   const toggleEnrichment = useCallback((id: string) => {
     setExpandedEnrichments((prev) => {
@@ -88,35 +73,22 @@ export default function AlertsScreen() {
     });
   }, []);
 
-  // Filter alerts
   const filtered = useMemo(() => {
     let list = alerts;
     if (activeFilter === 'critical') list = alerts.filter((a) => CRITICAL_TYPES.has(a.type));
     else if (activeFilter === 'unread') list = alerts.filter((a) => !a.read);
-    else if (TYPE_FILTERS.has(activeFilter)) list = alerts.filter((a) => a.type === activeFilter);
-    // Sort: unread first, then risk score desc
+    else if (activeFilter === 'live') list = alerts.filter((a) => a.type === 'token_graduated' || a.type === 'deployer_launch');
+    // Smart triage: sort by mint (group), then risk score descending, unread first
     return [...list].sort((a, b) => {
+      // Group by mint first (alerts for same token stay together)
+      const ma = a.mint ?? '';
+      const mb = b.mint ?? '';
+      if (ma && mb && ma !== mb) return ma < mb ? -1 : 1;
       if (!a.read && b.read) return -1;
       if (a.read && !b.read) return 1;
       return (b.risk_score ?? 0) - (a.risk_score ?? 0);
     });
   }, [alerts, activeFilter]);
-
-  // Group into time sections
-  const sections = useMemo(() => {
-    const buckets: Record<TimeSection, AlertItem[]> = { today: [], yesterday: [], earlier: [] };
-    for (const a of filtered) {
-      buckets[getTimeSection(a.timestamp ?? a.created_at)].push(a);
-    }
-    const result: { title: string; key: TimeSection; data: AlertItem[] }[] = [];
-    const order: TimeSection[] = ['today', 'yesterday', 'earlier'];
-    for (const key of order) {
-      if (buckets[key].length > 0) {
-        result.push({ title: `${SECTION_LABELS[key]} · ${buckets[key].length}`, key, data: buckets[key] });
-      }
-    }
-    return result;
-  }, [filtered]);
 
   // Count alerts per mint for grouping badges
   const mintCounts = useMemo(() => {
@@ -127,19 +99,19 @@ export default function AlertsScreen() {
     return counts;
   }, [filtered]);
 
-  // Alert summary for header — based on filtered list
+  // Alert summary for header
   const alertSummary = useMemo(() => {
-    const critCount = filtered.filter(a => (a.risk_score ?? 0) >= 75).length;
-    const highCount = filtered.filter(a => (a.risk_score ?? 0) >= 50 && (a.risk_score ?? 0) < 75).length;
+    const critCount = alerts.filter(a => (a.risk_score ?? 0) >= 75).length;
+    const highCount = alerts.filter(a => (a.risk_score ?? 0) >= 50 && (a.risk_score ?? 0) < 75).length;
     if (critCount > 0) return `${critCount} critical · ${highCount} high risk`;
     if (highCount > 0) return `${highCount} high risk alerts`;
     return null;
-  }, [filtered]);
+  }, [alerts]);
 
   const handlePress = useCallback((alert: AlertItem) => {
     markRead(alert.id);
-    toggleEnrichment(alert.id);
-  }, [markRead, toggleEnrichment]);
+    if (alert.mint) router.push(`/token/${alert.mint}` as any);
+  }, [markRead]);
 
   return (
     <View style={styles.container}>
@@ -173,15 +145,15 @@ export default function AlertsScreen() {
           </View>
         )}
 
-        {/* Offline banner — only if WS was previously connected */}
-        {!wsConnected && wasConnectedRef.current && (
+        {/* Offline banner */}
+        {!wsConnected && (
           <View style={styles.offlineBanner}>
             <View style={styles.offlineDot} />
             <Text style={styles.offlineText}>Alerts offline — reconnecting…</Text>
           </View>
         )}
 
-        {/* Filter chips — scrollable */}
+        {/* Quick filter chips */}
         <AlertFilterChips
           filters={QUICK_FILTERS}
           activeFilter={activeFilter}
@@ -195,45 +167,38 @@ export default function AlertsScreen() {
                 <Bell size={36} color={tokens.white60} />
               </View>
               <Text style={styles.emptyTitle}>
-                {activeFilter === 'critical' ? 'No critical alerts'
-                  : activeFilter === 'unread' ? 'All caught up'
-                  : TYPE_FILTERS.has(activeFilter) ? `No ${activeFilter.replace('_', ' ')} alerts`
-                  : !wsConnected && alerts.length === 0 ? 'Connecting...'
-                  : 'All clear for now'}
+                {activeFilter === 'critical' ? 'No critical alerts' : activeFilter === 'unread' ? 'All caught up' : activeFilter === 'live' ? 'No live graduations yet' : 'All clear for now'}
               </Text>
               <Text style={styles.emptySubtitle}>
-                {!wsConnected && alerts.length === 0
-                  ? 'Waiting for live feed connection'
-                  : 'Your radar is silent. We will notify you when action happens.'}
+                Your radar is silent. We will notify you when action happens.
               </Text>
             </GlassCard>
           </Animated.View>
         ) : (
-          <SectionList
-            sections={sections}
-            keyExtractor={keyExtractor}
+          <Animated.FlatList
+            data={filtered}
+            keyExtractor={(item) => item.id}
             contentContainerStyle={[styles.listContent, { paddingBottom: Math.max(insets.bottom + 100, 120) }]}
             showsVerticalScrollIndicator={false}
-            maxToRenderPerBatch={12}
-            windowSize={7}
-            stickySectionHeadersEnabled={false}
-            renderSectionHeader={({ section }) => (
-              <View style={styles.sectionHeader}>
-                <Text style={styles.sectionHeaderText}>{section.title}</Text>
-              </View>
-            )}
             renderItem={({ item, index }) => {
               const mintCount = item.mint ? (mintCounts.get(item.mint) ?? 0) : 0;
+              const isFirstOfGroup = item.mint && mintCount > 1 &&
+                (index === 0 || filtered[index - 1]?.mint !== item.mint);
 
               return (
                 <Animated.View
-                  entering={index < 15 ? FadeInDown.delay(index * tokens.timing.listItem).springify() : undefined}
+                  exiting={FadeInDown}
+                  entering={FadeInDown.delay(index * tokens.timing.listItem).springify()}
                   layout={LinearTransition.springify()}
                 >
                   <AlertCard
                     item={item}
                     isExpanded={expandedEnrichments.has(item.id)}
-                    groupHeader={undefined}
+                    groupHeader={
+                      isFirstOfGroup
+                        ? `${mintCount} alerts for ${item.token_name ?? item.mint?.slice(0, 8) ?? 'token'}`
+                        : undefined
+                    }
                     onPress={handlePress}
                     onToggleEnrichment={toggleEnrichment}
                     onDelete={deleteAlert}
@@ -289,18 +254,6 @@ const styles = StyleSheet.create({
     color: tokens.risk.critical,
   },
 
-  sectionHeader: {
-    paddingVertical: 8,
-    paddingHorizontal: 2,
-    marginTop: 4,
-  },
-  sectionHeaderText: {
-    fontFamily: 'Lexend-SemiBold',
-    fontSize: tokens.font.tiny,
-    color: tokens.white60,
-    letterSpacing: 0.5,
-  },
-
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 16, paddingHorizontal: 32 },
   emptyCard: {
     alignItems: 'center',
@@ -330,5 +283,5 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
 
-  listContent: { gap: 6 },
+  listContent: { gap: 10 },
 });

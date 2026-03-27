@@ -13,14 +13,11 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
-import { Search, X, Network, Clock, TrendingUp, Layers, ChevronRight } from 'lucide-react-native';
+import { Search, X, Network, Clock } from 'lucide-react-native';
 import { GlassCard } from '../../src/components/ui/GlassCard';
 import { ScreenHeader } from '../../src/components/ui/ScreenHeader';
 import { ScanOnboarding } from '../../src/components/scan/ScanOnboarding';
-import { RiskBadge } from '../../src/components/ui/RiskBadge';
 import { searchTokens } from '../../src/lib/api';
-import { useTopTokens } from '../../src/lib/query';
-import { deriveMarketRisk } from '../../src/lib/risk';
 import { useAuthStore } from '../../src/store/auth';
 import { tokens } from '../../src/theme/tokens';
 import Animated, { FadeInDown } from 'react-native-reanimated';
@@ -48,12 +45,6 @@ function TokenImage({ uri, symbol }: { uri?: string | null; symbol?: string }) {
   );
 }
 
-function fmtMcap(n: number): string {
-  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `$${(n / 1_000).toFixed(0)}K`;
-  return `$${n.toFixed(0)}`;
-}
-
 export default function ScanScreen() {
   const insets = useSafeAreaInsets();
   const [query, setQuery] = useState('');
@@ -61,7 +52,6 @@ export default function ScanScreen() {
   const [loading, setLoading] = useState(false);
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const recentSearches = useAuthStore((s) => s.recentSearches);
-  const { data: topTokens } = useTopTokens(5);
   const addRecentSearch = useAuthStore((s) => s.addRecentSearch);
   const clearRecentSearches = useAuthStore((s) => s.clearRecentSearches);
 
@@ -176,77 +166,35 @@ export default function ScanScreen() {
 
           {/* Recent searches — visible when query is empty and results are empty */}
           {query.length === 0 && results.length === 0 && recentSearches.length > 0 && (
-            <>
-              <View style={styles.recentWrap}>
-                <View style={styles.recentHeader}>
-                  <Clock size={12} color={tokens.textTertiary} />
-                  <Text style={styles.recentTitle}>Recent</Text>
-                  <TouchableOpacity onPress={clearRecentSearches} hitSlop={tokens.hitSlop} style={{ minHeight: tokens.minTouchSize, justifyContent: 'center' }}>
-                    <Text style={styles.recentClear}>Clear</Text>
-                  </TouchableOpacity>
-                </View>
-                {recentSearches.map((item) => (
-                  <TouchableOpacity
-                    key={item.mint}
-                    onPress={() => { handleSelect(item.mint, item.name, item.symbol); }}
-                    style={styles.recentItem}
-                  >
-                    <Search size={14} color={tokens.textTertiary} />
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.recentName} numberOfLines={1}>
-                        {item.name || item.mint}
-                        {item.symbol ? ` (${item.symbol})` : ''}
-                      </Text>
-                      {item.name ? (
-                        <Text style={styles.recentAddr} numberOfLines={1}>
-                          {item.mint.slice(0, 6)}…{item.mint.slice(-4)}
-                        </Text>
-                      ) : null}
-                    </View>
-                  </TouchableOpacity>
-                ))}
+            <View style={styles.recentWrap}>
+              <View style={styles.recentHeader}>
+                <Clock size={12} color={tokens.textTertiary} />
+                <Text style={styles.recentTitle}>Recent</Text>
+                <TouchableOpacity onPress={clearRecentSearches} hitSlop={tokens.hitSlop} style={{ minHeight: tokens.minTouchSize, justifyContent: 'center' }}>
+                  <Text style={styles.recentClear}>Clear</Text>
+                </TouchableOpacity>
               </View>
-
-              {/* Trending tokens for returning users */}
-              {topTokens && topTokens.length > 0 && (
-                <View style={styles.trendingWrap}>
-                  <View style={styles.recentHeader}>
-                    <TrendingUp size={12} color={tokens.secondary} />
-                    <Text style={[styles.recentTitle, { color: tokens.secondary }]}>Trending</Text>
+              {recentSearches.map((item) => (
+                <TouchableOpacity
+                  key={item.mint}
+                  onPress={() => { handleSelect(item.mint, item.name, item.symbol); }}
+                  style={styles.recentItem}
+                >
+                  <Search size={14} color={tokens.textTertiary} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.recentName} numberOfLines={1}>
+                      {item.name || item.mint}
+                      {item.symbol ? ` (${item.symbol})` : ''}
+                    </Text>
+                    {item.name ? (
+                      <Text style={styles.recentAddr} numberOfLines={1}>
+                        {item.mint.slice(0, 6)}…{item.mint.slice(-4)}
+                      </Text>
+                    ) : null}
                   </View>
-                  {topTokens.slice(0, 3).map((t) => {
-                    const risk = deriveMarketRisk({ mint: t.mint, market_cap_usd: t.mcap_usd });
-                    return (
-                      <TouchableOpacity
-                        key={t.mint}
-                        onPress={() => handleSelect(t.mint, t.name, t.symbol)}
-                        style={styles.recentItem}
-                      >
-                        <TokenImage uri={t.image_uri} symbol={t.symbol} />
-                        <View style={{ flex: 1 }}>
-                          <Text style={styles.recentName} numberOfLines={1}>{t.name}</Text>
-                          <Text style={styles.recentAddr}>
-                            {t.symbol}{t.mcap_usd ? ` · ${fmtMcap(t.mcap_usd)}` : ''} · {t.event_count} scans
-                          </Text>
-                        </View>
-                        <RiskBadge level={risk} size="sm" />
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-              )}
-
-              {/* Batch scan link */}
-              <TouchableOpacity
-                style={styles.batchLink}
-                onPress={() => router.push('/batch-scan' as any)}
-                activeOpacity={0.75}
-              >
-                <Layers size={14} color={tokens.secondary} />
-                <Text style={styles.batchText}>Batch Scan</Text>
-                <ChevronRight size={14} color={tokens.textTertiary} />
-              </TouchableOpacity>
-            </>
+                </TouchableOpacity>
+              ))}
+            </View>
           )}
 
           {/* Results */}
@@ -424,24 +372,5 @@ const styles = StyleSheet.create({
     fontSize: tokens.font.tiny,
     color: tokens.textTertiary,
     marginTop: 1,
-  },
-  trendingWrap: { marginBottom: 12, gap: 4 },
-  batchLink: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    backgroundColor: tokens.bgGlass8,
-    borderRadius: tokens.radius.sm,
-    borderWidth: 1,
-    borderColor: tokens.borderSubtle,
-    marginBottom: 12,
-  },
-  batchText: {
-    fontFamily: 'Lexend-SemiBold',
-    fontSize: tokens.font.small,
-    color: tokens.secondary,
-    flex: 1,
   },
 });
