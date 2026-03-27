@@ -398,6 +398,31 @@ async def _run_alert_sweep() -> int:
                     columns="mint,name,symbol,mcap_usd",
                     limit=5,
                 )
+            elif sub_type == "cartel":
+                # Cartel monitor: find tokens by deployers in this community
+                try:
+                    from .data_sources._clients import cache as _sc  # noqa: PLC0415
+                    from .cache import SQLiteCache  # noqa: PLC0415
+                    if isinstance(_sc, SQLiteCache):
+                        _db = await _sc._get_conn()
+                        _cur = await _db.execute(
+                            "SELECT sample_wallet FROM community_lookup WHERE community_id = ?",
+                            (value,),
+                        )
+                        _cw = await _cur.fetchone()
+                        if _cw:
+                            rows = await event_query(
+                                where="deployer = ? AND created_at > ?",
+                                params=(_cw[0], lookback_ts),
+                                columns="mint,name,symbol,mcap_usd",
+                                limit=5,
+                            )
+                        else:
+                            rows = []
+                    else:
+                        rows = []
+                except Exception:
+                    rows = []
             else:
                 continue
 
