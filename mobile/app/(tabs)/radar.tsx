@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState, useCallback } from 'react';
+import React, { useEffect, useMemo, useCallback } from 'react';
 import { View, Text, ScrollView, StyleSheet, TouchableOpacity, RefreshControl, Pressable } from 'react-native';
 import { router } from 'expo-router';
 import { TrendingUp, AlertTriangle, Bell, Zap, Skull, BookMarked, ChevronRight, User, Shield } from 'lucide-react-native';
@@ -70,19 +70,17 @@ export default function RadarScreen() {
   const wsConnected = useAlertsStore((s) => s.wsConnected);
   const markRead = useAlertsStore((s) => s.markRead);
   const allAlerts = useAlertsStore((s) => s.alerts);
-  const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set());
+  const deleteAlert = useAlertsStore((s) => s.deleteAlert);
   const recentAlerts = useMemo(() =>
-    allAlerts.filter((a) => !dismissedIds.has(a.id)).slice(0, 3),
-    [allAlerts, dismissedIds],
+    allAlerts.filter((a) => !a.read).slice(0, 3),
+    [allAlerts],
   );
   const handleDismissAlert = (id: string) => {
     markRead(id);
-    setDismissedIds((prev) => new Set(prev).add(id));
   };
 
   const apiKey = useAuthStore((s) => s.apiKey);
   const user = useAuthStore((s) => s.user);
-  const [wsStatus, setWsStatus] = useState<'connected' | 'reconnecting' | 'offline'>('offline');
   const insets = useSafeAreaInsets();
 
   const briefing = useBriefingStore((s) => s.latest);
@@ -118,7 +116,7 @@ export default function RadarScreen() {
               <View style={styles.statusRow}>
                 <View style={[styles.statusDot, { backgroundColor: wsConnected ? tokens.success : tokens.risk.critical }]} />
                 <Text style={styles.statusText}>
-                  {wsConnected ? 'Live' : wsStatus === 'reconnecting' ? 'Reconnecting' : 'Offline'}
+                  {wsConnected ? 'Live' : 'Offline'}
                 </Text>
               </View>
             </View>
@@ -128,10 +126,10 @@ export default function RadarScreen() {
           </Pressable>
         </View>
 
-        {wsStatus !== 'connected' && wsStatus !== 'offline' && (
+        {!wsConnected && allAlerts.length > 0 && (
           <View style={styles.wsBanner}>
             <View style={[styles.wsDot, { backgroundColor: tokens.risk.medium }]} />
-            <Text style={styles.wsBannerText}>Reconnecting to live feed...</Text>
+            <Text style={styles.wsBannerText}>Live feed offline — pull to refresh</Text>
           </View>
         )}
 

@@ -70,14 +70,14 @@ export default function AlertsScreen() {
     return counts;
   }, [filtered]);
 
-  // Alert summary for header
+  // Alert summary for header — based on filtered list
   const alertSummary = useMemo(() => {
-    const critCount = alerts.filter(a => (a.risk_score ?? 0) >= 75).length;
-    const highCount = alerts.filter(a => (a.risk_score ?? 0) >= 50 && (a.risk_score ?? 0) < 75).length;
+    const critCount = filtered.filter(a => (a.risk_score ?? 0) >= 75).length;
+    const highCount = filtered.filter(a => (a.risk_score ?? 0) >= 50 && (a.risk_score ?? 0) < 75).length;
     if (critCount > 0) return `${critCount} critical · ${highCount} high risk`;
     if (highCount > 0) return `${highCount} high risk alerts`;
     return null;
-  }, [alerts]);
+  }, [filtered]);
 
   const handlePress = useCallback((alert: AlertItem) => {
     markRead(alert.id);
@@ -138,10 +138,15 @@ export default function AlertsScreen() {
                 <Bell size={36} color={tokens.white60} />
               </View>
               <Text style={styles.emptyTitle}>
-                {activeFilter === 'critical' ? 'No critical alerts' : activeFilter === 'unread' ? 'All caught up' : 'All clear for now'}
+                {activeFilter === 'critical' ? 'No critical alerts'
+                  : activeFilter === 'unread' ? 'All caught up'
+                  : !wsConnected && alerts.length === 0 ? 'Connecting...'
+                  : 'All clear for now'}
               </Text>
               <Text style={styles.emptySubtitle}>
-                Your radar is silent. We will notify you when action happens.
+                {!wsConnected && alerts.length === 0
+                  ? 'Waiting for live feed connection'
+                  : 'Your radar is silent. We will notify you when action happens.'}
               </Text>
             </GlassCard>
           </Animated.View>

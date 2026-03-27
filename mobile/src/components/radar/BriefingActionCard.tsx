@@ -56,10 +56,11 @@ export function BriefingActionCard({
     if (unread) onMarkRead();
   };
 
-  const hasSections = sections.length > 0;
-  const threatCount = sections
+  const safeSections = sections ?? [];
+  const hasSections = safeSections.length > 0;
+  const threatCount = safeSections
     .filter((s) => s.type === 'watchlist_alerts' || s.type === 'active_campaigns')
-    .reduce((sum, s) => sum + s.items.length, 0);
+    .reduce((sum, s) => sum + (s.items?.length ?? 0), 0);
 
   return (
     <TouchableOpacity onPress={handlePress} activeOpacity={0.8}>
@@ -102,13 +103,13 @@ export function BriefingActionCard({
         {/* Structured sections */}
         {expanded && hasSections && (
           <Animated.View entering={FadeIn.duration(200)} style={styles.sectionsWrap}>
-            {sections.map((section, si) => (
+            {safeSections.map((section, si) => (
               <View key={si} style={styles.section}>
                 <View style={styles.sectionHeader}>
                   {SECTION_ICONS[section.type] ?? <Shield size={12} color={tokens.white60} />}
                   <Text style={styles.sectionTitle}>{section.title}</Text>
                 </View>
-                {section.items.map((item, ii) => {
+                {(section.items ?? []).map((item, ii) => {
                   const color = SEVERITY_COLORS[item.severity ?? 'info'] ?? tokens.white60;
                   const tappable = !!item.mint || !!item.action;
                   const content = (
