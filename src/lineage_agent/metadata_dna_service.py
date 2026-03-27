@@ -316,21 +316,24 @@ async def _fetch_linked_wallet_tokens(wallets: list[str]) -> dict[str, list[Depl
                 columns="mint, rug_mechanism, evidence_level",
                 limit=100,
             )
-            rugged_set = {
-                r.get("mint")
-                for r in rugged_mints
-                if r.get("mint") and _is_confirmed_linked_wallet_rug(r)
-            }
+            rugged_map: dict[str, dict] = {}
+            for r in rugged_mints:
+                m = r.get("mint")
+                if m:
+                    rugged_map[m] = r
 
             tokens: list[DeployerTokenSummary] = []
             for r in rows:
                 mint = r.get("mint", "")
+                rug_info = rugged_map.get(mint)
                 tokens.append(DeployerTokenSummary(
                     mint=mint,
                     name=r.get("name") or mint[:8],
                     symbol=r.get("symbol") or "?",
                     created_at=r.get("created_at"),
-                    rugged=mint in rugged_set,
+                    rug_mechanism=rug_info.get("rug_mechanism") if rug_info else None,
+                    evidence_level=rug_info.get("evidence_level") if rug_info else None,
+                    rugged_at=r.get("created_at") if rug_info and _is_confirmed_linked_wallet_rug(rug_info) else None,
                 ))
             result[wallet] = tokens
         except Exception as exc:
@@ -360,4 +363,7 @@ def _normalise_uri(uri: str) -> Optional[str]:
         return "https://arweave.net/" + uri[5:]
     if re.match(r"^[a-zA-Z0-9_-]{43}$", uri):
         return "https://arweave.net/" + uri
+    # Bare domain URIs (e.g. "pump.fun/coin/MINT/metadata")
+    if "." in uri and "/" in uri:
+        return "https://" + uri
     return None

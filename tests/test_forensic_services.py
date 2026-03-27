@@ -318,7 +318,7 @@ class TestRugDetector:
             market_surface="launchpad_curve_only",
         )
 
-        fake_dex = type("FakeDex", (), {"get_token_pairs": AsyncMock(return_value=[])})()
+        fake_dex = type("FakeDex", (), {"get_token_pairs_with_fallback": AsyncMock(return_value=[])})()
         monkeypatch.setattr("lineage_agent.rug_detector.get_dex_client", lambda: fake_dex)
 
         from lineage_agent.rug_detector import _run_rug_sweep
@@ -344,7 +344,7 @@ class TestRugDetector:
             market_surface="dex_pool_observed",
         )
 
-        fake_dex = type("FakeDex", (), {"get_token_pairs": AsyncMock(return_value=[])})()
+        fake_dex = type("FakeDex", (), {"get_token_pairs_with_fallback": AsyncMock(return_value=[])})()
         monkeypatch.setattr("lineage_agent.rug_detector.get_dex_client", lambda: fake_dex)
 
         from lineage_agent.rug_detector import _run_rug_sweep
@@ -495,6 +495,7 @@ class TestRugDetector:
             mint=mint,
             deployer=_DEPLOYER_A,
             total_extracted_sol=3.25,
+            extraction_context="confirmed_extraction",
             analysis_timestamp=_NOW,
         )
 
@@ -508,7 +509,7 @@ class TestRugDetector:
         assert changed is True
         reasons = set(json.loads(rugged_rows[0]["reason_codes"]))
         assert rugged_rows[0]["rug_mechanism"] == RugMechanism.PRE_DEX_EXTRACTION_RUG.value
-        assert rugged_rows[0]["evidence_level"] == EvidenceLevel.MODERATE.value
+        assert rugged_rows[0]["evidence_level"] == EvidenceLevel.WEAK.value
         assert "sol_flow_only_extraction_detected" in reasons
         assert "team_link_unproven" in reasons
         assert "bundle_suspected_team_extraction" not in reasons

@@ -459,6 +459,23 @@ async def analyze_token(
         # ── P0-A: sanity-check the score against hard evidence ────────────────
         result = _sanity_check(result, lineage_result, bundle_report, sol_flow_report)
 
+        # ── P0-A2: apply calibration offset from learned rules ────────────────
+        try:
+            from .memory_service import get_calibration_offset  # noqa: PLC0415
+            cal_context = _build_calibration_context(result, lineage_result)
+            cal_offset = await get_calibration_offset(cal_context)
+            if cal_offset != 0:
+                pre_cal = result["risk_score"]
+                result["risk_score"] = max(0, min(100, int(pre_cal + cal_offset)))
+                result["calibration_offset"] = cal_offset
+                result["pre_calibration_score"] = pre_cal
+                logger.info(
+                    "[ai_analyst] calibration: %+.0f applied (%d → %d) for %s",
+                    cal_offset, pre_cal, result["risk_score"], mint[:12],
+                )
+        except Exception as cal_exc:
+            logger.debug("[ai_analyst] calibration skipped: %s", cal_exc)
+
         # ── P0-B: persist to cache (with stale-while-revalidate window) ──────
         if cache:
             from config import CACHE_STALE_TTL_AI_SECONDS  # noqa: PLC0415
@@ -1025,6 +1042,46 @@ def _build_prompt(
             )
 
     return "\n".join(parts)
+
+
+# ── Calibration context builder ───────────────────────────────────────────────
+
+def _build_calibration_context(result: dict, lineage: Optional[Any]) -> dict:
+    """Build the context dict for matching against calibration rules."""
+    ctx: dict[str, Any] = {}
+    ctx["rug_pattern"] = result.get("rug_pattern", "")
+
+    # Launch platform from lineage
+    try:
+        qt = getattr(lineage, "query_token", None) or (lineage or {}).get("query_token")
+        if qt:
+            ctx["launch_platform"] = (
+                getattr(qt, "launch_platform", "") or
+                (qt.get("launch_platform", "") if isinstance(qt, dict) else "")
+            )
+    except Exception:
+        pass
+
+    # Deployer bucket
+    try:
+        dp = getattr(lineage, "deployer_profile", None) or (lineage or {}).get("deployer_profile")
+        if dp:
+            rug_rate = (
+                getattr(dp, "rug_rate_pct", 0) or
+                (dp.get("rug_rate_pct", 0) if isinstance(dp, dict) else 0)
+            ) or 0
+            if rug_rate == 0:
+                ctx["deployer_bucket"] = "deployer_clean"
+            elif rug_rate <= 30:
+                ctx["deployer_bucket"] = "deployer_low_rug"
+            elif rug_rate <= 70:
+                ctx["deployer_bucket"] = "deployer_mid_rug"
+            else:
+                ctx["deployer_bucket"] = "deployer_serial"
+    except Exception:
+        pass
+
+    return ctx
 
 
 # ── P0-A: Post-Claude sanity check ───────────────────────────────────────────

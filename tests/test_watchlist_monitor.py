@@ -64,6 +64,17 @@ async def _make_cache():
     await db.execute(
         "CREATE INDEX IF NOT EXISTS idx_ws_watch ON watch_snapshots(watch_id, scanned_at)"
     )
+    await db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS sweep_flags (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            watch_id    INTEGER NOT NULL,
+            flag_type   TEXT NOT NULL,
+            detail      TEXT,
+            created_at  REAL NOT NULL
+        )
+        """
+    )
     # Seed a user and watch
     await db.execute(
         "INSERT INTO users (privy_id, api_key, created_at) VALUES (?, ?, ?)",
@@ -94,12 +105,12 @@ async def test_run_single_rescan_stores_snapshot():
     lin = _make_lineage("medium", 45.0)
 
     with patch(
-        "lineage_agent.watchlist_monitor_service.detect_lineage",
+        "lineage_agent.lineage_detector.detect_lineage",
         new_callable=AsyncMock,
         return_value=lin,
     ):
         from lineage_agent.watchlist_monitor_service import run_single_rescan
-        result = await run_single_rescan(1, cache)
+        result = await run_single_rescan(1, 1, cache)
 
     assert result is not None
     assert result["mint"] == "So11111111111111111111111111111111"
@@ -128,12 +139,12 @@ async def test_escalation_medium_to_high():
     lin = _make_lineage("high", 75.0)
 
     with patch(
-        "lineage_agent.watchlist_monitor_service.detect_lineage",
+        "lineage_agent.lineage_detector.detect_lineage",
         new_callable=AsyncMock,
         return_value=lin,
     ):
         from lineage_agent.watchlist_monitor_service import run_single_rescan
-        result = await run_single_rescan(1, cache)
+        result = await run_single_rescan(1, 1, cache)
 
     assert result is not None
     assert result["escalated"] is True
@@ -157,12 +168,12 @@ async def test_no_escalation_low_to_low():
     lin = _make_lineage("low", 12.0)
 
     with patch(
-        "lineage_agent.watchlist_monitor_service.detect_lineage",
+        "lineage_agent.lineage_detector.detect_lineage",
         new_callable=AsyncMock,
         return_value=lin,
     ):
         from lineage_agent.watchlist_monitor_service import run_single_rescan
-        result = await run_single_rescan(1, cache)
+        result = await run_single_rescan(1, 1, cache)
 
     assert result is not None
     assert result["escalated"] is False
@@ -175,7 +186,7 @@ async def test_rescan_nonexistent_watch_returns_none():
     cache, db = await _make_cache()
 
     from lineage_agent.watchlist_monitor_service import run_single_rescan
-    result = await run_single_rescan(999, cache)
+    result = await run_single_rescan(999, 1, cache)
     assert result is None
 
     await db.close()

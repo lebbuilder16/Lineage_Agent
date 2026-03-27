@@ -13,10 +13,22 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import time
 from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
+
+# Temporal decay: half-life of 14 days — episode from 2 weeks ago has half the weight
+_DECAY_HALF_LIFE_DAYS = 14.0
+_DECAY_LAMBDA = math.log(2) / _DECAY_HALF_LIFE_DAYS
+_DECAY_MIN_WEIGHT = 0.05  # floor so old episodes still contribute 5%
+
+
+def _decay_weight(episode_ts: float, now: float) -> float:
+    """Exponential decay weight based on episode age."""
+    age_days = (now - episode_ts) / 86400
+    return max(_DECAY_MIN_WEIGHT, math.exp(-_DECAY_LAMBDA * age_days))
 
 
 # ── Episode Recording ─────────────────────────────────────────────────────────
@@ -188,8 +200,15 @@ async def _record_timeline_event(
 
 
 async def _update_entity_knowledge(db, entity_type: str, entity_id: str) -> None:
-    """Recompute entity knowledge from episodes."""
+    """Recompute entity knowledge from episodes with temporal decay weighting.
+
+    Recent episodes contribute more than old ones (half-life = 14 days).
+    After updating, checks for anomalies vs the entity's prior baseline.
+    """
     try:
+        # Read prior values BEFORE overwrite (for anomaly detection)
+        prior = await _read_prior_knowledge(db, entity_type, entity_id)
+
         col = "deployer" if entity_type == "deployer" else "operator_fp"
         cursor = await db.execute(
             f"SELECT risk_score, rug_pattern, signals_json, created_at "
@@ -200,34 +219,39 @@ async def _update_entity_knowledge(db, entity_type: str, entity_id: str) -> None
         if not rows:
             return
 
+        now = time.time()
         total = len(rows)
+
+        # Decay-weighted averages
+        weights = [_decay_weight(r[3], now) for r in rows]
+        total_weight = sum(weights)
+
         risk_scores = [r[0] for r in rows]
-        avg_score = sum(risk_scores) / total
+        avg_score = sum(s * w for s, w in zip(risk_scores, weights)) / total_weight
+
         patterns = [r[1] for r in rows if r[1]]
         typical_pattern = max(set(patterns), key=patterns.count) if patterns else ""
 
-        # Count rugs (risk >= 70)
-        rug_count = sum(1 for s in risk_scores if s >= 70)
+        # Weighted rug count (risk >= 70)
+        rug_count_weighted = sum(w for s, w in zip(risk_scores, weights) if s >= 70)
+        rug_count = round(rug_count_weighted)
 
-        # Aggregate extraction SOL + narrative preferences from signals_json
+        # Weighted extraction SOL + narrative preferences
         total_extracted = 0.0
         narratives: list[str] = []
-        for r in rows:
+        for r, w in zip(rows, weights):
             try:
                 sigs = json.loads(r[2]) if r[2] else {}
-                total_extracted += sigs.get("sol_extracted", 0) or 0
-                total_extracted += sigs.get("bundle_extracted_sol", 0) or 0
+                sol = (sigs.get("sol_extracted", 0) or 0) + (sigs.get("bundle_extracted_sol", 0) or 0)
+                total_extracted += sol * w
                 platform = sigs.get("launch_platform", "")
                 if platform:
                     narratives.append(platform)
             except Exception:
                 pass
 
-        # Velocity: tokens in last 24h
-        now = time.time()
+        # Velocity: tokens in last 24h (not weighted — raw count matters)
         recent_24h = sum(1 for r in rows if now - r[3] < 86400)
-
-        # Previous velocity (24-48h ago)
         prev_24h = sum(1 for r in rows if 86400 < now - r[3] < 172800)
         acceleration = recent_24h - prev_24h
 
@@ -237,10 +261,19 @@ async def _update_entity_knowledge(db, entity_type: str, entity_id: str) -> None
         confidence = "high" if total >= 5 else "medium" if total >= 2 else "low"
 
         # Top narratives/platforms
-        narrative_counts = {}
+        narrative_counts: dict[str, int] = {}
         for n in narratives:
             narrative_counts[n] = narrative_counts.get(n, 0) + 1
         top_narratives = sorted(narrative_counts, key=narrative_counts.get, reverse=True)[:3]
+
+        new_values = {
+            "total_tokens": total,
+            "total_rugs": rug_count,
+            "total_extracted_sol": round(total_extracted, 2),
+            "avg_risk_score": round(avg_score, 1),
+            "launch_velocity": recent_24h,
+            "acceleration": acceleration,
+        }
 
         await db.execute(
             "INSERT OR REPLACE INTO entity_knowledge "
@@ -257,8 +290,315 @@ async def _update_entity_knowledge(db, entity_type: str, entity_id: str) -> None
             ),
         )
         await db.commit()
+
+        # Anomaly detection: compare new values against prior baseline
+        if prior:
+            await _check_anomalies(db, entity_type, entity_id, prior, new_values, now)
+
     except Exception as exc:
         logger.debug("[memory] entity_knowledge update error: %s", exc)
+
+
+# ── Anomaly Detection ─────────────────────────────────────────────────────────
+
+async def _read_prior_knowledge(db, entity_type: str, entity_id: str) -> Optional[dict]:
+    """Read the entity's current knowledge row before it's overwritten."""
+    try:
+        cursor = await db.execute(
+            "SELECT total_tokens, total_rugs, total_extracted_sol, avg_risk_score, "
+            "launch_velocity, acceleration, last_seen "
+            "FROM entity_knowledge WHERE entity_type = ? AND entity_id = ?",
+            (entity_type, entity_id),
+        )
+        row = await cursor.fetchone()
+        if not row:
+            return None
+        return {
+            "total_tokens": row[0],
+            "total_rugs": row[1],
+            "total_extracted_sol": row[2],
+            "avg_risk_score": row[3],
+            "launch_velocity": row[4] or 0,
+            "acceleration": row[5] or 0,
+            "last_seen": row[6] or 0,
+        }
+    except Exception:
+        return None
+
+
+async def _check_anomalies(
+    db, entity_type: str, entity_id: str,
+    prior: dict, new: dict, now: float,
+) -> None:
+    """Compare new entity metrics against prior baseline and flag anomalies.
+
+    Anomaly dimensions:
+    - velocity_spike: launch rate jumped 3x+
+    - risk_jump: avg risk score increased 20+ points
+    - extraction_spike: extracted SOL doubled
+    - rug_rate_inflection: entity crossed from <30% to >50% rug rate
+    """
+    try:
+        # Skip if re-scanned too quickly (< 5 min gap)
+        if prior.get("last_seen") and (now - prior["last_seen"]) < 300:
+            return
+
+        anomalies: list[dict] = []
+
+        # Velocity spike: 3x increase (baseline must be > 0)
+        prior_vel = prior.get("launch_velocity", 0)
+        new_vel = new.get("launch_velocity", 0)
+        if prior_vel > 0 and new_vel >= prior_vel * 3:
+            anomalies.append({
+                "anomaly_type": "velocity_spike",
+                "severity": "high" if new_vel >= prior_vel * 5 else "medium",
+                "baseline_value": prior_vel,
+                "current_value": new_vel,
+                "description": f"Launch velocity spiked {new_vel/prior_vel:.1f}x "
+                               f"({prior_vel:.0f}/day → {new_vel:.0f}/day)",
+            })
+
+        # Risk score jump: +20 points
+        prior_risk = prior.get("avg_risk_score", 0)
+        new_risk = new.get("avg_risk_score", 0)
+        if new_risk >= prior_risk + 20:
+            anomalies.append({
+                "anomaly_type": "risk_jump",
+                "severity": "high" if new_risk >= prior_risk + 30 else "medium",
+                "baseline_value": prior_risk,
+                "current_value": new_risk,
+                "description": f"Average risk score jumped {new_risk - prior_risk:+.0f} "
+                               f"({prior_risk:.0f} → {new_risk:.0f})",
+            })
+
+        # Extraction spike: doubled (baseline must be > 1 SOL)
+        prior_ext = prior.get("total_extracted_sol", 0)
+        new_ext = new.get("total_extracted_sol", 0)
+        if prior_ext > 1.0 and new_ext >= prior_ext * 2:
+            anomalies.append({
+                "anomaly_type": "extraction_spike",
+                "severity": "high" if new_ext >= prior_ext * 3 else "medium",
+                "baseline_value": prior_ext,
+                "current_value": new_ext,
+                "description": f"Extracted SOL spiked {new_ext/prior_ext:.1f}x "
+                               f"({prior_ext:.1f} → {new_ext:.1f} SOL)",
+            })
+
+        # Rug rate inflection: crossed from <30% to >50%
+        prior_tokens = prior.get("total_tokens", 0)
+        new_tokens = new.get("total_tokens", 0)
+        if prior_tokens > 0 and new_tokens > 0:
+            prior_rug_rate = prior.get("total_rugs", 0) / prior_tokens * 100
+            new_rug_rate = new.get("total_rugs", 0) / new_tokens * 100
+            if prior_rug_rate < 30 and new_rug_rate > 50:
+                anomalies.append({
+                    "anomaly_type": "rug_rate_inflection",
+                    "severity": "high",
+                    "baseline_value": round(prior_rug_rate, 1),
+                    "current_value": round(new_rug_rate, 1),
+                    "description": f"Rug rate inflection: was {prior_rug_rate:.0f}% clean, "
+                                   f"now {new_rug_rate:.0f}% — entity turned hostile",
+                })
+
+        # Write new anomalies
+        for a in anomalies:
+            await db.execute(
+                "INSERT INTO anomaly_alerts "
+                "(entity_type, entity_id, anomaly_type, severity, "
+                " baseline_value, current_value, description, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (entity_type, entity_id, a["anomaly_type"], a["severity"],
+                 a["baseline_value"], a["current_value"], a["description"], now),
+            )
+            logger.info("[anomaly] %s %s: %s", entity_type, entity_id[:12], a["description"])
+
+        # Auto-resolve old anomalies where metric returned to within 1.5x of baseline
+        cursor = await db.execute(
+            "SELECT id, anomaly_type, baseline_value FROM anomaly_alerts "
+            "WHERE entity_type = ? AND entity_id = ? AND resolved = 0",
+            (entity_type, entity_id),
+        )
+        open_alerts = await cursor.fetchall()
+        for alert_id, atype, baseline in open_alerts:
+            current = new.get({
+                "velocity_spike": "launch_velocity",
+                "risk_jump": "avg_risk_score",
+                "extraction_spike": "total_extracted_sol",
+            }.get(atype, ""), 0)
+            if baseline and current <= baseline * 1.5:
+                await db.execute(
+                    "UPDATE anomaly_alerts SET resolved = 1, resolved_at = ? WHERE id = ?",
+                    (now, alert_id),
+                )
+
+        if anomalies:
+            await db.commit()
+
+    except Exception as exc:
+        logger.debug("[anomaly] check error: %s", exc)
+
+
+async def get_active_anomalies(entity_type: str, entity_id: str) -> list[dict]:
+    """Fetch unresolved anomaly alerts for an entity."""
+    try:
+        from .data_sources._clients import cache as _cache
+        from .cache import SQLiteCache
+        if not isinstance(_cache, SQLiteCache):
+            return []
+
+        db = await _cache._get_conn()
+        cursor = await db.execute(
+            "SELECT anomaly_type, severity, baseline_value, current_value, description, created_at "
+            "FROM anomaly_alerts WHERE entity_type = ? AND entity_id = ? AND resolved = 0 "
+            "ORDER BY created_at DESC LIMIT 5",
+            (entity_type, entity_id),
+        )
+        rows = await cursor.fetchall()
+        return [
+            {"type": r[0], "severity": r[1], "baseline": r[2],
+             "current": r[3], "description": r[4],
+             "age_hours": round((time.time() - r[5]) / 3600, 1)}
+            for r in rows
+        ]
+    except Exception:
+        return []
+
+
+# ── Narrative Clustering ──────────────────────────────────────────────────────
+
+_NARRATIVE_STOPWORDS = frozenset({
+    "token", "coin", "meme", "sol", "solana", "new", "the", "to", "and",
+    "of", "a", "in", "on", "is", "it", "for", "my", "by", "up", "no",
+    "go", "do", "so", "or", "an", "be", "at", "if", "ok", "v2", "v1",
+})
+
+
+async def detect_narrative_clusters(
+    window_days: int = 7, min_deployers: int = 3,
+) -> list[dict]:
+    """Detect coordinated thematic waves across unrelated deployers.
+
+    Scans recent investigation episodes, extracts narrative keywords from
+    verdict summaries and launch platforms, and clusters by theme.
+    Returns clusters where >= min_deployers participated in the window.
+    """
+    try:
+        from .data_sources._clients import cache as _cache
+        from .cache import SQLiteCache
+        if not isinstance(_cache, SQLiteCache):
+            return []
+
+        db = await _cache._get_conn()
+        now = time.time()
+        window_start = now - (window_days * 86400)
+
+        cursor = await db.execute(
+            "SELECT mint, deployer, risk_score, signals_json, verdict_summary, created_at "
+            "FROM investigation_episodes WHERE created_at >= ? AND deployer IS NOT NULL "
+            "ORDER BY created_at DESC",
+            (window_start,),
+        )
+        rows = await cursor.fetchall()
+        if not rows:
+            return []
+
+        # Extract narrative keywords per token
+        # keyword → {deployers: set, mints: list, risk_scores: list}
+        keyword_groups: dict[str, dict] = {}
+
+        for mint, deployer, risk_score, sigs_json, summary, created_at in rows:
+            keywords: set[str] = set()
+
+            # From signals_json: launch_platform
+            try:
+                sigs = json.loads(sigs_json) if sigs_json else {}
+                platform = sigs.get("launch_platform", "")
+                if platform and len(platform) > 2:
+                    keywords.add(platform.lower().strip())
+            except Exception:
+                pass
+
+            # From verdict_summary: extract meaningful words
+            if summary:
+                for word in summary.lower().split():
+                    word = word.strip(".,;:!?()[]\"'")
+                    if len(word) > 2 and word not in _NARRATIVE_STOPWORDS and not word.isdigit():
+                        keywords.add(word)
+
+            for kw in keywords:
+                if kw not in keyword_groups:
+                    keyword_groups[kw] = {"deployers": set(), "mints": [], "risk_scores": []}
+                keyword_groups[kw]["deployers"].add(deployer)
+                keyword_groups[kw]["mints"].append(mint)
+                keyword_groups[kw]["risk_scores"].append(risk_score)
+
+        # Filter: only clusters with enough distinct deployers
+        clusters: list[dict] = []
+        for keyword, data in keyword_groups.items():
+            deployer_count = len(data["deployers"])
+            if deployer_count >= min_deployers:
+                avg_risk = sum(data["risk_scores"]) / len(data["risk_scores"])
+                cluster = {
+                    "narrative_key": keyword,
+                    "deployer_count": deployer_count,
+                    "token_count": len(data["mints"]),
+                    "deployers": list(data["deployers"]),
+                    "mints": data["mints"][:20],  # cap for storage
+                    "avg_risk_score": round(avg_risk, 1),
+                }
+                clusters.append(cluster)
+
+        # Deactivate old clusters, write new ones
+        await db.execute(
+            "UPDATE narrative_clusters SET active = 0 WHERE window_end < ?",
+            (window_start,),
+        )
+
+        for c in clusters:
+            await db.execute(
+                "INSERT OR REPLACE INTO narrative_clusters "
+                "(narrative_key, deployer_count, token_count, deployers_json, mints_json, "
+                " avg_risk_score, window_start, window_end, active, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?)",
+                (
+                    c["narrative_key"], c["deployer_count"], c["token_count"],
+                    json.dumps(c["deployers"]), json.dumps(c["mints"]),
+                    c["avg_risk_score"], window_start, now, now,
+                ),
+            )
+        await db.commit()
+
+        logger.info("[narrative] detected %d clusters (%d+ deployers, %d-day window)",
+                     len(clusters), min_deployers, window_days)
+        return clusters
+
+    except Exception as exc:
+        logger.debug("[narrative] detect_narrative_clusters error: %s", exc)
+        return []
+
+
+async def get_narrative_clusters_for_deployer(deployer: str) -> list[dict]:
+    """Get active narrative clusters that include this deployer."""
+    try:
+        from .data_sources._clients import cache as _cache
+        from .cache import SQLiteCache
+        if not isinstance(_cache, SQLiteCache):
+            return []
+
+        db = await _cache._get_conn()
+        cursor = await db.execute(
+            "SELECT narrative_key, deployer_count, token_count, avg_risk_score "
+            "FROM narrative_clusters WHERE active = 1 "
+            "AND deployers_json LIKE ? ORDER BY deployer_count DESC LIMIT 3",
+            (f'%"{deployer}"%',),
+        )
+        rows = await cursor.fetchall()
+        return [
+            {"narrative": r[0], "deployers": r[1], "tokens": r[2], "avg_risk": r[3]}
+            for r in rows
+        ]
+    except Exception:
+        return []
 
 
 # ── Memory Brief Builder ──────────────────────────────────────────────────────
@@ -372,6 +712,46 @@ async def build_memory_brief(
                 cond_str = ", ".join(f"{k}={v}" for k, v in cond.items())
                 lines.append(f"  - {r[0]}: {cond_str} → adjust {r[2]:+.0f} ({r[3]} samples)")
             sections.append("### Calibration Notes\n" + "\n".join(lines))
+
+        # ── Anomaly alerts ──────────────────────────────────────────────
+        anomaly_entities = []
+        if deployer:
+            anomaly_entities.append(("deployer", deployer))
+        if operator_fp:
+            anomaly_entities.append(("operator", operator_fp))
+        for a_type, a_id in anomaly_entities:
+            cursor = await db.execute(
+                "SELECT anomaly_type, severity, description, created_at "
+                "FROM anomaly_alerts WHERE entity_type = ? AND entity_id = ? AND resolved = 0 "
+                "ORDER BY created_at DESC LIMIT 3",
+                (a_type, a_id),
+            )
+            alerts = await cursor.fetchall()
+            if alerts:
+                label = a_type.title()
+                lines = []
+                for al in alerts:
+                    age_h = (time.time() - al[3]) / 3600
+                    lines.append(f"  - ⚠ [{al[1].upper()}] {al[2]} ({age_h:.0f}h ago)")
+                sections.append(f"### {label} Anomalies\n" + "\n".join(lines))
+
+        # ── Narrative clusters ─────────────────────────────────────────
+        if deployer:
+            cursor = await db.execute(
+                "SELECT narrative_key, deployer_count, token_count, avg_risk_score "
+                "FROM narrative_clusters WHERE active = 1 AND deployers_json LIKE ? "
+                "ORDER BY deployer_count DESC LIMIT 2",
+                (f'%"{deployer}"%',),
+            )
+            nc_rows = await cursor.fetchall()
+            if nc_rows:
+                lines = []
+                for nc in nc_rows:
+                    lines.append(
+                        f"  - \"{nc[0]}\" wave: {nc[1]} deployers, {nc[2]} tokens, "
+                        f"avg risk {nc[3]:.0f}"
+                    )
+                sections.append("### Narrative Waves\n" + "\n".join(lines))
 
         # ── Feedback synthesis ────────────────────────────────────────────
         if deployer:
@@ -488,7 +868,15 @@ async def get_calibration_offset(context: dict) -> float:
             except Exception:
                 continue
 
-        return max(-30, min(30, total_offset))  # clamp to [-30, +30]
+        clamped = max(-30, min(30, total_offset))
+        if clamped != 0:
+            rules_matched = sum(1 for cj, adj in rules
+                                if all(context.get(k) == v
+                                       for k, v in json.loads(cj).items()))
+            logger.debug("[calibration] offset=%.1f from %d matching rules", clamped, rules_matched)
+            if abs(clamped) >= 25:
+                logger.warning("[calibration] large offset %.0f — possible over-fitting", clamped)
+        return clamped
 
     except Exception:
         return 0.0

@@ -868,6 +868,42 @@ class SQLiteCache:
         await db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_ct_unique ON campaign_timelines(entity_type, entity_id, event_type, mint)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_ct_entity ON campaign_timelines(entity_type, entity_id)")
 
+        # Layer 5: Anomaly alerts — proactive deviation detection
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS anomaly_alerts (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                entity_type     TEXT NOT NULL,
+                entity_id       TEXT NOT NULL,
+                anomaly_type    TEXT NOT NULL,
+                severity        TEXT NOT NULL DEFAULT 'medium',
+                baseline_value  REAL,
+                current_value   REAL,
+                description     TEXT,
+                resolved        INTEGER NOT NULL DEFAULT 0,
+                created_at      REAL NOT NULL,
+                resolved_at     REAL
+            )
+        """)
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_aa_entity ON anomaly_alerts(entity_type, entity_id, resolved)")
+
+        # Layer 6: Narrative clusters — cross-deployer thematic wave detection
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS narrative_clusters (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                narrative_key   TEXT NOT NULL,
+                deployer_count  INTEGER NOT NULL,
+                token_count     INTEGER NOT NULL,
+                deployers_json  TEXT NOT NULL,
+                mints_json      TEXT NOT NULL DEFAULT '[]',
+                avg_risk_score  REAL,
+                window_start    REAL NOT NULL,
+                window_end      REAL NOT NULL,
+                active          INTEGER NOT NULL DEFAULT 1,
+                created_at      REAL NOT NULL
+            )
+        """)
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_nc_key ON narrative_clusters(narrative_key, active)")
+
         # Safe column migrations
         for col_sql in [
             "ALTER TABLE users ADD COLUMN rc_customer_id TEXT",

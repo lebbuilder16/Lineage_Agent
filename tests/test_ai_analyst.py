@@ -324,14 +324,15 @@ class TestAnalyzeToken:
         assert result["mint"] == MINT
 
     @pytest.mark.asyncio
-    async def test_returns_none_on_missing_api_key(self):
+    async def test_returns_fallback_on_missing_api_key(self):
         with patch("lineage_agent.ai_analyst._get_client", side_effect=RuntimeError("ANTHROPIC_API_KEY not set")):
             lineage = _ns(
                 root=None, query_is_root=None, derivatives=[], confidence=0.5,
                 zombie_alert=None, death_clock=None, deployer_profile=None,
             )
             result = await analyze_token(MINT, lineage_result=lineage)
-        assert result is None
+        assert result is not None
+        assert result.get("is_fallback") is True or result.get("model") == "rule_based_fallback"
 
     @pytest.mark.asyncio
     async def test_returns_none_on_api_error(self):
@@ -716,8 +717,12 @@ class TestExtractDeployer:
 # ─────────────────────────────────────────────────────────────────────────────
 
 class TestRuleBasedFallback:
-    def test_all_none_returns_none(self):
-        assert _rule_based_fallback(MINT) is None
+    def test_all_none_returns_fallback_dict(self):
+        result = _rule_based_fallback(MINT)
+        assert result is not None
+        assert result["is_fallback"] is True
+        assert result["model"] == "rule_based_fallback"
+        assert result["risk_score"] == 30
 
     def test_bundle_only_confirmed_rug(self):
         bundle = _ns(overall_verdict="confirmed_coordinated_dump")

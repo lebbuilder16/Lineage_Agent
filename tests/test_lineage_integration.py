@@ -88,7 +88,9 @@ def _make_dex_client():
     """Create a mock DexScreenerClient."""
     dex = AsyncMock()
     dex.get_token_pairs = AsyncMock(return_value=_QUERY_PAIRS)
+    dex.get_token_pairs_with_fallback = AsyncMock(return_value=_QUERY_PAIRS)
     dex.search_tokens = AsyncMock(return_value=_SEARCH_PAIRS)
+    dex.search_tokens_with_fallback = AsyncMock(return_value=_SEARCH_PAIRS)
 
     # Use real conversion methods from the actual class
     from lineage_agent.data_sources.dexscreener import DexScreenerClient
@@ -177,7 +179,9 @@ class TestDetectLineageIntegration:
         """Regression: deployer must match on-chain creator (Solscan-style)."""
         dex = AsyncMock()
         dex.get_token_pairs = AsyncMock(return_value=_QUERY_PAIRS)
+        dex.get_token_pairs_with_fallback = AsyncMock(return_value=_QUERY_PAIRS)
         dex.search_tokens = AsyncMock(return_value=[])
+        dex.search_tokens_with_fallback = AsyncMock(return_value=[])
         dex.pairs_to_metadata = _make_dex_client().pairs_to_metadata
         dex.pairs_to_search_results = _make_dex_client().pairs_to_search_results
 
@@ -218,6 +222,7 @@ class TestDetectLineageIntegration:
 
         dex = AsyncMock()
         dex.get_token_pairs = AsyncMock(return_value=empty_pairs)
+        dex.get_token_pairs_with_fallback = AsyncMock(return_value=empty_pairs)
         dex.pairs_to_metadata = _make_dex_client().pairs_to_metadata
 
         rpc = AsyncMock()
@@ -239,7 +244,9 @@ class TestDetectLineageIntegration:
         """If search returns no Solana tokens, result has no derivatives."""
         dex = AsyncMock()
         dex.get_token_pairs = AsyncMock(return_value=_QUERY_PAIRS)
+        dex.get_token_pairs_with_fallback = AsyncMock(return_value=_QUERY_PAIRS)
         dex.search_tokens = AsyncMock(return_value=[])
+        dex.search_tokens_with_fallback = AsyncMock(return_value=[])
         dex.pairs_to_metadata = _make_dex_client().pairs_to_metadata
         dex.pairs_to_search_results = _make_dex_client().pairs_to_search_results
 
@@ -273,7 +280,7 @@ class TestDetectLineageIntegration:
             result2 = await detect_lineage("QueryMint1234567890123456789012345678")
 
         # DexScreener should only be called once
-        assert dex.get_token_pairs.call_count == 1
+        assert dex.get_token_pairs_with_fallback.call_count == 1
         assert result1.mint == result2.mint
 
     @pytest.mark.asyncio
@@ -290,7 +297,8 @@ class TestDetectLineageIntegration:
 
         dex = AsyncMock()
         dex.get_token_pairs = AsyncMock(return_value=[])
-        dex.search_tokens = AsyncMock(return_value=[
+        dex.get_token_pairs_with_fallback = AsyncMock(return_value=[])
+        _search_results_1 = [
             {
                 "chainId": "solana",
                 "baseToken": {
@@ -304,7 +312,9 @@ class TestDetectLineageIntegration:
                 "liquidity": {"usd": 8_000},
                 "url": "",
             }
-        ])
+        ]
+        dex.search_tokens = AsyncMock(return_value=_search_results_1)
+        dex.search_tokens_with_fallback = AsyncMock(return_value=_search_results_1)
         real_dex = _make_dex_client()
         dex.pairs_to_metadata = real_dex.pairs_to_metadata
         dex.pairs_to_search_results = real_dex.pairs_to_search_results
@@ -411,7 +421,8 @@ class TestDetectLineageIntegration:
 
         dex = AsyncMock()
         dex.get_token_pairs = AsyncMock(return_value=[])
-        dex.search_tokens = AsyncMock(return_value=[
+        dex.get_token_pairs_with_fallback = AsyncMock(return_value=[])
+        _search_results_2 = [
             {
                 "chainId": "solana",
                 "baseToken": {
@@ -425,7 +436,9 @@ class TestDetectLineageIntegration:
                 "liquidity": {"usd": 4_000},
                 "url": "",
             }
-        ])
+        ]
+        dex.search_tokens = AsyncMock(return_value=_search_results_2)
+        dex.search_tokens_with_fallback = AsyncMock(return_value=_search_results_2)
         real_dex = _make_dex_client()
         dex.pairs_to_metadata = real_dex.pairs_to_metadata
         dex.pairs_to_search_results = real_dex.pairs_to_search_results
@@ -467,6 +480,7 @@ class TestDetectLineageIntegration:
             mint=query_mint,
             deployer=deployer,
             total_extracted_sol=2.75,
+            extraction_context="confirmed_extraction",
             analysis_timestamp=base_time,
         )
 
@@ -497,7 +511,7 @@ class TestDetectLineageIntegration:
 
             assert len(rugged_rows) == 1
             assert rugged_rows[0]["rug_mechanism"] == RugMechanism.PRE_DEX_EXTRACTION_RUG.value
-            assert rugged_rows[0]["evidence_level"] == EvidenceLevel.MODERATE.value
+            assert rugged_rows[0]["evidence_level"] == EvidenceLevel.WEAK.value
             assert set(json.loads(rugged_rows[0]["reason_codes"])) >= {
                 "launchpad_authority_matched",
                 "sol_flow_only_extraction_detected",
@@ -536,7 +550,8 @@ class TestDetectLineageIntegration:
 
         dex = AsyncMock()
         dex.get_token_pairs = AsyncMock(return_value=dex_pairs)
-        dex.search_tokens = AsyncMock(return_value=[
+        dex.get_token_pairs_with_fallback = AsyncMock(return_value=dex_pairs)
+        _search_results_3 = [
             {
                 "chainId": "solana",
                 "baseToken": {
@@ -550,7 +565,9 @@ class TestDetectLineageIntegration:
                 "liquidity": {"usd": 5_000},
                 "url": "",
             }
-        ])
+        ]
+        dex.search_tokens = AsyncMock(return_value=_search_results_3)
+        dex.search_tokens_with_fallback = AsyncMock(return_value=_search_results_3)
         real_dex = _make_dex_client()
         dex.pairs_to_metadata = real_dex.pairs_to_metadata
         dex.pairs_to_search_results = real_dex.pairs_to_search_results
@@ -655,7 +672,7 @@ class TestSearchTokensIntegration:
             r1 = await search_tokens("doge")
             r2 = await search_tokens("doge")
 
-        assert dex.search_tokens.call_count == 1
+        assert dex.search_tokens_with_fallback.call_count == 1
         assert r1 == r2
 
 
@@ -689,7 +706,9 @@ class TestScannedAt:
         """scanned_at is set even when no candidate clones are found."""
         dex = AsyncMock()
         dex.get_token_pairs = AsyncMock(return_value=_QUERY_PAIRS)
+        dex.get_token_pairs_with_fallback = AsyncMock(return_value=_QUERY_PAIRS)
         dex.search_tokens = AsyncMock(return_value=[])  # no candidates
+        dex.search_tokens_with_fallback = AsyncMock(return_value=[])
         dex.pairs_to_metadata = _make_dex_client().pairs_to_metadata
         dex.pairs_to_search_results = _make_dex_client().pairs_to_search_results
 
@@ -727,7 +746,7 @@ class TestScannedAt:
         # Both calls must reference the same original scanned_at
         assert result1.scanned_at == result2.scanned_at
         # DexScreener called only once (second call was from cache)
-        assert dex.get_token_pairs.call_count == 1
+        assert dex.get_token_pairs_with_fallback.call_count == 1
 
 
 class TestForceRefresh:
@@ -757,15 +776,15 @@ class TestForceRefresh:
                _patch_fast_detect_lineage_background_work():
             # First call — populates cache
             await detect_lineage("QueryMint1234567890123456789012345678")
-            first_call_count = dex.get_token_pairs.call_count
+            first_call_count = dex.get_token_pairs_with_fallback.call_count
 
             # Second call WITHOUT force_refresh — should be cache hit
             await detect_lineage("QueryMint1234567890123456789012345678")
-            assert dex.get_token_pairs.call_count == first_call_count  # no extra call
+            assert dex.get_token_pairs_with_fallback.call_count == first_call_count  # no extra call
 
             # Third call WITH force_refresh — must re-fetch
             await detect_lineage("QueryMint1234567890123456789012345678", force_refresh=True)
-            assert dex.get_token_pairs.call_count == first_call_count + 1
+            assert dex.get_token_pairs_with_fallback.call_count == first_call_count + 1
 
     @pytest.mark.asyncio
     async def test_force_refresh_updates_scanned_at(self):

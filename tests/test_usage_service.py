@@ -91,10 +91,15 @@ async def test_date_rollover(cache):
 
     # Patch date.today to simulate next day
     fake_tomorrow = datetime.date.today() + datetime.timedelta(days=1)
+    original_date = datetime.date
+
+    class FakeDate(original_date):
+        @classmethod
+        def today(cls):
+            return fake_tomorrow
+
     with patch("lineage_agent.usage_service.datetime") as mock_dt:
-        mock_dt.date.today.return_value = fake_tomorrow
-        fake_tomorrow_iso = fake_tomorrow.isoformat()
-        mock_dt.date.today.return_value.isoformat.return_value = fake_tomorrow_iso
+        mock_dt.date = FakeDate
 
         # New day starts at 0
         result = await get_usage(cache, user_id=1, counter_key="scans")

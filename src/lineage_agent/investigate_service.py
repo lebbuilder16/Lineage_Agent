@@ -96,9 +96,22 @@ async def run_investigation(
     # Compute heuristic pre-score
     hscore = _heuristic_score(lineage_res, bundle_res, sol_res)
 
-    # ── Free tier: stop after heuristic ─────────────────────────────
+    # ── Free tier: stop after heuristic (with calibration) ──────────
     if not tier.has_ai_verdict:
-        yield _evtN("heuristic_complete", {"heuristic_score": hscore, "tier": tier_name})
+        calibrated_hscore = hscore
+        try:
+            from .memory_service import get_calibration_offset  # noqa: PLC0415
+            from .ai_analyst import _build_calibration_context  # noqa: PLC0415
+            _hv = _build_heuristic_verdict(hscore, mint)
+            _cal_ctx = _build_calibration_context(_hv, lineage_res)
+            _cal_off = await get_calibration_offset(_cal_ctx)
+            if _cal_off != 0:
+                calibrated_hscore = max(0, min(100, int(hscore + _cal_off)))
+                logger.info("[investigate] heuristic calibration: %+.0f (%d → %d) for %s",
+                            _cal_off, hscore, calibrated_hscore, mint[:12])
+        except Exception:
+            pass
+        yield _evtN("heuristic_complete", {"heuristic_score": calibrated_hscore, "tier": tier_name})
         yield _evtN("done", {
             "tier": tier_name,
             "turns_used": 0,

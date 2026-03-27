@@ -42,7 +42,10 @@ async def mem_db():
                 api_key          TEXT UNIQUE NOT NULL,
                 created_at       REAL NOT NULL,
                 fcm_token        TEXT,
-                notification_prefs TEXT
+                notification_prefs TEXT,
+                username         TEXT,
+                display_name     TEXT,
+                avatar_url       TEXT
             )
         """)
         await db.execute("""

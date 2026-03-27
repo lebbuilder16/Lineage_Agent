@@ -49,7 +49,7 @@ def _pairs(liq_usd: float, chain: str = "solana") -> list[dict]:
 
 def _make_dex(liq_usd: float, chain: str = "solana") -> MagicMock:
     dex = MagicMock()
-    dex.get_token_pairs = AsyncMock(return_value=_pairs(liq_usd, chain))
+    dex.get_token_pairs_with_fallback = AsyncMock(return_value=_pairs(liq_usd, chain))
     return dex
 
 
@@ -211,7 +211,7 @@ async def test_non_dex_context_skipped():
         "market_surface": "bonding_curve",    # pas dex_pool_observed
     }
     dex = MagicMock()
-    dex.get_token_pairs = AsyncMock(return_value=_pairs(50, chain="ethereum"))  # pas Solana
+    dex.get_token_pairs_with_fallback = AsyncMock(return_value=_pairs(50, chain="ethereum"))  # pas Solana
     count = await _run([row], dex, insert, update)
 
     assert count == 0
@@ -227,7 +227,7 @@ async def test_empty_rows_returns_zero():
     count = await _run([], dex, insert, update)
 
     assert count == 0
-    dex.get_token_pairs.assert_not_called()
+    dex.get_token_pairs_with_fallback.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -254,7 +254,7 @@ async def test_multiple_tokens_independent():
         _row(80_000, mint=MINT2),  # vivant ($80k → $20k)
     ]
     dex = MagicMock()
-    dex.get_token_pairs = AsyncMock(side_effect=[
+    dex.get_token_pairs_with_fallback = AsyncMock(side_effect=[
         _pairs(4_000),   # MINT  → rug
         _pairs(20_000),  # MINT2 → vivant
     ])

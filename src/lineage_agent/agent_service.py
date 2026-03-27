@@ -1045,6 +1045,28 @@ async def run_agent(
     if verdict:
         total_output_tokens += verdict.pop("_output_tokens", 0)
         total_input_tokens += verdict.pop("_input_tokens", 0)
+
+        # Apply calibration offset from learned rules
+        try:
+            from .memory_service import get_calibration_offset  # noqa: PLC0415
+            from .ai_analyst import _build_calibration_context  # noqa: PLC0415
+            _cal_lineage = None
+            if scan_summary:
+                _cal_lineage = scan_summary  # dict-based, _build_calibration_context handles both
+            cal_ctx = _build_calibration_context(verdict, _cal_lineage)
+            cal_offset = await get_calibration_offset(cal_ctx)
+            if cal_offset != 0:
+                pre_cal = verdict["risk_score"]
+                verdict["risk_score"] = max(0, min(100, int(pre_cal + cal_offset)))
+                verdict["calibration_offset"] = cal_offset
+                verdict["pre_calibration_score"] = pre_cal
+                logger.info(
+                    "[agent] calibration: %+.0f applied (%d → %d) for %s",
+                    cal_offset, pre_cal, verdict["risk_score"], mint[:12],
+                )
+        except Exception as cal_exc:
+            logger.debug("[agent] calibration skipped: %s", cal_exc)
+
         await _cache_verdict(cache, mint, verdict)
 
     # Record metrics + LangFuse

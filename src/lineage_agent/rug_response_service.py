@@ -18,7 +18,7 @@ async def handle_rug_event(mint: str, alert: dict, cache) -> dict:
 
     try:
         # Parallel: cartel report + deployer profile
-        from .lineage_core import detect_lineage, get_cached_lineage_report
+        from .lineage_detector import detect_lineage, get_cached_lineage_report
 
         lin = await get_cached_lineage_report(mint)
         if lin is None:

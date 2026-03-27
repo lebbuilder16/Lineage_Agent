@@ -160,21 +160,12 @@ class TestEnrichAlert:
         mock_client = MagicMock()
         mock_client.messages.create = AsyncMock(return_value=mock_response)
 
-        with patch("lineage_agent.alert_service._get_client", return_value=mock_client), \
-             patch("lineage_agent.alert_service._MODEL", "claude-haiku-4-5-20251001"):
-            # Patch the import inside enrich_alert
-            import lineage_agent.alert_service as mod
-            with patch.object(mod, "enrich_alert", wraps=mod.enrich_alert):
-                with patch.dict("sys.modules", {
-                    "lineage_agent.ai_analyst": MagicMock(
-                        _get_client=MagicMock(return_value=mock_client),
-                        _MODEL="claude-haiku-4-5-20251001",
-                    )
-                }):
-                    result = await enrich_alert({"title": "Test", "body": "Details"})
-                    assert result.get("summary") == "Suspicious activity"
-                    assert result.get("risk_delta") == "+15%"
-                    assert result.get("recommended_action") == "Monitor closely"
+        with patch("lineage_agent.ai_analyst._get_client", return_value=mock_client), \
+             patch("lineage_agent.ai_analyst._MODEL", "claude-haiku-4-5-20251001"):
+            result = await enrich_alert({"title": "Test", "body": "Details"})
+        assert result.get("summary") == "Suspicious activity"
+        assert result.get("risk_delta") == "+15%"
+        assert result.get("recommended_action") == "Monitor closely"
 
     @pytest.mark.asyncio
     async def test_enrichment_failure_returns_original(self):

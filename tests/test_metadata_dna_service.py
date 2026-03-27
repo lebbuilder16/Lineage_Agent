@@ -94,7 +94,7 @@ class TestNormaliseUri:
     def test_ipfs_scheme(self):
         from lineage_agent.metadata_dna_service import _normalise_uri
         result = _normalise_uri("ipfs://QmABC123")
-        assert "cloudflare-ipfs.com" in result
+        assert "ipfs.io/ipfs/" in result
         assert "QmABC123" in result
 
     def test_arweave_scheme(self):
