@@ -2934,7 +2934,7 @@ async def get_global_stats(request: Request) -> GlobalStats:
         cutoff = (datetime.now(tz=timezone.utc) - timedelta(hours=24)).isoformat()
 
         # Parallel DB reads
-        created_rows, rugged_rows, total_rows, narrative_rows = await asyncio.gather(
+        created_rows, rugged_rows, total_rows, narrative_rows, scanned_rows = await asyncio.gather(
             _eq(
                 where="event_type = 'token_created' AND created_at >= ?",
                 params=(cutoff,),
@@ -2947,9 +2947,15 @@ async def get_global_stats(request: Request) -> GlobalStats:
             ),
             _eq(where="1=1", params=(), columns="COUNT(*) as cnt", limit=1),
             _eq(
-                where="event_type = 'token_created' AND created_at >= ? AND narrative IS NOT NULL AND narrative != '' AND narrative != 'other'",
+                where="event_type = 'token_created' AND created_at >= ? AND narrative IS NOT NULL AND narrative != ''",
                 params=(cutoff,),
                 columns="narrative",
+            ),
+            # Count actual user investigations (not passive events)
+            _eq(
+                where="event_type = 'token_scanned' AND created_at >= ?",
+                params=(cutoff,),
+                columns="DISTINCT mint",
             ),
         )
 
@@ -2966,7 +2972,8 @@ async def get_global_stats(request: Request) -> GlobalStats:
                 columns="mint, rug_mechanism, evidence_level",
             )
 
-        tokens_scanned = len(created_rows)
+        # tokens_scanned = user investigations (token_scanned events), fallback to created events
+        tokens_scanned = len(scanned_rows) if scanned_rows else len(created_rows)
         tokens_negative_outcomes = len(rugged_rows)
         tokens_rugged = sum(1 for row in rugged_rows if _is_confirmed_rug_stats_row(row))
         rug_rate = round((tokens_rugged / tokens_scanned * 100) if tokens_scanned > 0 else 0.0, 2)
@@ -2974,7 +2981,7 @@ async def get_global_stats(request: Request) -> GlobalStats:
         active_deployers = len({r.get("deployer", "") for r in created_rows if r.get("deployer")})
         db_total = total_rows[0].get("cnt", 0) if total_rows else 0
 
-        # Top 5 narratives by occurrence
+        # Top 5 narratives by occurrence (include 'other' in count but label it)
         from collections import Counter  # noqa: PLC0415
         nar_counter: Counter = Counter(
             r.get("narrative", "") for r in narrative_rows if r.get("narrative")
@@ -3048,24 +3055,33 @@ async def get_top_tokens(
     try:
         from .data_sources._clients import event_query as _eq  # noqa: PLC0415
 
-        # Rank by weighted event count: scans count 5x more than passive events
+        # Rank by weighted event count in the last 24h
         from .data_sources._clients import cache as _cache  # noqa: PLC0415
         db = await _cache._get_conn()
+        cutoff = (datetime.now(tz=timezone.utc) - timedelta(hours=24)).isoformat()
         sql = """
-            SELECT mint,
-                   MAX(name) as name,
-                   MAX(symbol) as symbol,
-                   MAX(narrative) as narrative,
-                   MAX(mcap_usd) as mcap_usd,
-                   MIN(created_at) as created_at,
-                   SUM(CASE WHEN event_type = 'token_scanned' THEN 5 ELSE 1 END) as event_count
-            FROM intelligence_events
-            WHERE mint IS NOT NULL AND mint != ''
-            GROUP BY mint
-            ORDER BY event_count DESC, MAX(ROWID) DESC
+            SELECT ie.mint,
+                   MAX(ie.name) as name,
+                   MAX(ie.symbol) as symbol,
+                   MAX(ie.narrative) as narrative,
+                   MAX(ie.mcap_usd) as mcap_usd,
+                   MIN(ie.created_at) as created_at,
+                   SUM(CASE WHEN ie.event_type = 'token_scanned' THEN 5 ELSE 1 END)
+                     + COALESCE(ep.investigation_bonus, 0) as event_count
+            FROM intelligence_events ie
+            LEFT JOIN (
+                SELECT mint, COUNT(*) * 3 as investigation_bonus
+                FROM investigation_episodes
+                WHERE created_at >= ?
+                GROUP BY mint
+            ) ep ON ep.mint = ie.mint
+            WHERE ie.mint IS NOT NULL AND ie.mint != ''
+              AND ie.created_at >= ?
+            GROUP BY ie.mint
+            ORDER BY event_count DESC, MAX(ie.ROWID) DESC
             LIMIT ?
         """
-        cursor = await db.execute(sql, (limit,))
+        cursor = await db.execute(sql, (cutoff, cutoff, limit))
         rows = await cursor.fetchall()
         col_names = [d[0] for d in cursor.description]
         results = [dict(zip(col_names, row)) for row in rows]
