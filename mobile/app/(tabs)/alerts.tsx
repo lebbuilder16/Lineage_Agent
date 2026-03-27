@@ -14,14 +14,12 @@ import { ScreenHeader } from '../../src/components/ui/ScreenHeader';
 import { AlertCard } from '../../src/components/alerts';
 import { AlertFilterChips } from '../../src/components/alerts';
 import { useAlertsStore } from '../../src/store/alerts';
-import { useGraduations } from '../../src/lib/query';
 import { tokens } from '../../src/theme/tokens';
 import type { AlertItem } from '../../src/types/api';
 
-type QuickFilter = 'all' | 'critical' | 'unread' | 'live';
+type QuickFilter = 'all' | 'critical' | 'unread';
 const QUICK_FILTERS: { label: string; value: QuickFilter }[] = [
   { label: 'All', value: 'all' },
-  { label: 'Live', value: 'live' },
   { label: 'Critical', value: 'critical' },
   { label: 'Unread', value: 'unread' },
 ];
@@ -30,7 +28,6 @@ const CRITICAL_TYPES = new Set(['rug', 'death_clock', 'bundle', 'insider']);
 
 export default function AlertsScreen() {
   const alerts = useAlertsStore((s) => s.alerts);
-  const addAlert = useAlertsStore((s) => s.addAlert);
   const markRead = useAlertsStore((s) => s.markRead);
   const markAllRead = useAlertsStore((s) => s.markAllRead);
   const deleteAlert = useAlertsStore((s) => s.deleteAlert);
@@ -39,31 +36,6 @@ export default function AlertsScreen() {
   const [activeFilter, setActiveFilter] = useState<QuickFilter>('all');
   const [expandedEnrichments, setExpandedEnrichments] = useState<Set<string>>(new Set());
   const insets = useSafeAreaInsets();
-
-  // Poll graduations via REST (doesn't depend on WebSocket)
-  const { data: graduations } = useGraduations(20);
-  const seenGradRef = React.useRef<Set<string>>(new Set());
-  React.useEffect(() => {
-    if (!graduations?.length) return;
-    for (const g of graduations) {
-      if (seenGradRef.current.has(g.mint)) continue;
-      seenGradRef.current.add(g.mint);
-      // Inject as alert into the store
-      const displayName = g.name || g.symbol || g.mint.slice(0, 8);
-      addAlert({
-        id: `grad-${g.mint}-${g.timestamp}`,
-        type: 'token_graduated',
-        title: `${displayName} 🎓`,
-        token_name: displayName,
-        message: `Graduated to DEX — ${g.deployer?.slice(0, 8) ?? 'unknown'}...`,
-        mint: g.mint,
-        image_uri: g.image_uri || undefined,
-        deployer: g.deployer,
-        timestamp: new Date(g.timestamp * 1000).toISOString(),
-        read: false,
-      } as any);
-    }
-  }, [graduations, addAlert]);
 
   const toggleEnrichment = useCallback((id: string) => {
     setExpandedEnrichments((prev) => {
@@ -77,7 +49,6 @@ export default function AlertsScreen() {
     let list = alerts;
     if (activeFilter === 'critical') list = alerts.filter((a) => CRITICAL_TYPES.has(a.type));
     else if (activeFilter === 'unread') list = alerts.filter((a) => !a.read);
-    else if (activeFilter === 'live') list = alerts.filter((a) => a.type === 'token_graduated' || a.type === 'deployer_launch');
     // Smart triage: sort by mint (group), then risk score descending, unread first
     return [...list].sort((a, b) => {
       // Group by mint first (alerts for same token stay together)
@@ -167,7 +138,7 @@ export default function AlertsScreen() {
                 <Bell size={36} color={tokens.white60} />
               </View>
               <Text style={styles.emptyTitle}>
-                {activeFilter === 'critical' ? 'No critical alerts' : activeFilter === 'unread' ? 'All caught up' : activeFilter === 'live' ? 'No live graduations yet' : 'All clear for now'}
+                {activeFilter === 'critical' ? 'No critical alerts' : activeFilter === 'unread' ? 'All caught up' : 'All clear for now'}
               </Text>
               <Text style={styles.emptySubtitle}>
                 Your radar is silent. We will notify you when action happens.

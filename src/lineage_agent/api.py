@@ -274,13 +274,10 @@ async def lifespan(application: FastAPI):
     _schedule_briefing_loop()
     _schedule_wallet_monitor()
 
-    # ── Pump.fun real-time listener ───────────────────────────────────────
-    from .pump_fun_listener import schedule_pump_fun_listener, is_listener_active
-    _pf_task = schedule_pump_fun_listener()
-    if _pf_task:
-        logger.info("Pump.fun real-time listener: ACTIVE")
-    else:
-        logger.info("Pump.fun real-time listener: DISABLED (set HELIUS_API_KEY to enable)")
+    # ── Pump.fun real-time listener (disabled) ──────────────────────────
+    # from .pump_fun_listener import schedule_pump_fun_listener, is_listener_active
+    # _pf_task = schedule_pump_fun_listener()
+    logger.info("Pump.fun real-time listener: OFF (manually disabled)")
 
     # ── Log arq status ─────────────────────────────────────────────────────
     from config import ARQ_REDIS_URL  # noqa: PLC0415
@@ -307,8 +304,8 @@ async def lifespan(application: FastAPI):
     logger.info("Shutting down \u2013 closing HTTP clients \u2026")
     from .db import close_backend as _close_db
     await _close_db()
-    from .pump_fun_listener import cancel_pump_fun_listener
-    cancel_pump_fun_listener()
+    # from .pump_fun_listener import cancel_pump_fun_listener
+    # cancel_pump_fun_listener()
     cancel_rug_sweep()
     cancel_alert_sweep()
     _cancel_cartel_sweep()
@@ -530,13 +527,12 @@ async def admin_health() -> dict:
     except Exception:
         cache_info = {"backend": type(cache).__name__}
 
-    from .pump_fun_listener import get_listener_stats
     return {
         "status": "ok",
         "uptime_seconds": uptime_s,
         "cache": cache_info,
         "circuit_breakers": cb_statuses(),
-        "pump_fun_listener": get_listener_stats(),
+        "pump_fun_listener": {"active": False, "status": "manually disabled"},
     }
 
 
@@ -3015,19 +3011,15 @@ async def get_global_stats(request: Request) -> GlobalStats:
 # /graduations  — recent Pump.fun DEX graduations (from listener)
 # ---------------------------------------------------------------------------
 
+# Graduation listener disabled — endpoint kept but returns empty list
 @app.get("/graduations", tags=["intelligence"], summary="Recent Pump.fun tokens that graduated to DEX")
 @limiter.limit("60/minute")
 async def get_graduations(
     request: Request,
     limit: int = Query(20, ge=1, le=50),
 ):
-    """Return the most recent Pump.fun tokens that graduated to a DEX pool.
-
-    Populated in real-time by the background graduation listener.
-    Useful for mobile apps that cannot maintain a persistent WebSocket.
-    """
-    from .pump_fun_listener import get_recent_graduations
-    return get_recent_graduations(limit)
+    """Listener disabled — returns empty list."""
+    return []
 
 
 # /stats/top-tokens  — most scanned tokens in the last 24h

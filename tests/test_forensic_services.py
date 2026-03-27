@@ -221,6 +221,45 @@ class TestDeployerProfile:
         assert result is None
 
     @pytest.mark.asyncio
+    async def test_dead_tokens_separated_from_rug_count(self, cache):
+        """Dead tokens count in negative_outcome_count but NOT in rug_count."""
+        deployer = _DEPLOYER_A + "DEAD"
+        # 4 tokens: 1 rug + 1 dead token + 2 alive
+        await _seed_tokens(cache, deployer, 2, rug_count=1)
+        # Add a dead token manually
+        dead_mint = "DeadMintAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        created = _NOW - timedelta(days=1)
+        await cache.insert_event(
+            event_type="token_created",
+            mint=dead_mint,
+            deployer=deployer,
+            name="DeadToken",
+            symbol="DEAD",
+            narrative="meme",
+            mcap_usd=5_000,
+            liq_usd=800,
+            created_at=created.isoformat(),
+        )
+        await cache.insert_event(
+            event_type="token_rugged",
+            mint=dead_mint,
+            deployer=deployer,
+            liq_usd=100,
+            rugged_at=(created + timedelta(hours=6)).isoformat(),
+            created_at=created.isoformat(),
+            rug_mechanism="dead_token",
+            evidence_level="moderate",
+        )
+
+        from lineage_agent.deployer_service import compute_deployer_profile
+        result = await compute_deployer_profile(deployer)
+        assert result is not None
+        assert result.dead_token_count == 1
+        assert result.rug_count == 1  # only the actual rug, not the dead token
+        assert result.negative_outcome_count == 2  # rug + dead
+        assert result.negative_outcome_rate_pct > result.rug_rate_pct
+
+    @pytest.mark.asyncio
     async def test_legacy_pre_dex_rug_normalizes_to_unknown_not_confirmed(self, cache):
         deployer = _DEPLOYER_A + "PREDEX"
         mint = "LegacyPreDexMint" + "Z" * 29
@@ -293,6 +332,44 @@ class TestOperatorImpact:
         assert result.total_rug_count == 2
         assert result.total_confirmed_rug_count == 1
         assert result.estimated_extracted_usd > 0
+
+    @pytest.mark.asyncio
+    async def test_operator_impact_dead_tokens_separated(self, cache):
+        """Dead tokens appear in negative_outcome_count but not rug_count."""
+        deployer = _DEPLOYER_A + "OIDEAD"
+        await _seed_tokens(cache, deployer, 3, rug_count=1)
+        # Add a dead token
+        dead_mint = "OIDeadMintAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        created = _NOW - timedelta(days=1)
+        await cache.insert_event(
+            event_type="token_created",
+            mint=dead_mint,
+            deployer=deployer,
+            name="DeadOI",
+            symbol="DOI",
+            narrative="meme",
+            mcap_usd=3_000,
+            liq_usd=600,
+            created_at=created.isoformat(),
+        )
+        await cache.insert_event(
+            event_type="token_rugged",
+            mint=dead_mint,
+            deployer=deployer,
+            liq_usd=80,
+            rugged_at=(created + timedelta(hours=4)).isoformat(),
+            created_at=created.isoformat(),
+            rug_mechanism="dead_token",
+            evidence_level="moderate",
+        )
+
+        from lineage_agent.operator_impact_service import compute_operator_impact
+        result = await compute_operator_impact("deadfp1234567890", [deployer])
+        assert result is not None
+        assert result.total_dead_token_count == 1
+        assert result.total_rug_count == 1  # excludes dead token
+        assert result.total_negative_outcome_count == 2  # rug + dead
+        assert result.negative_outcome_rate_pct > result.rug_rate_pct
 
     @pytest.mark.asyncio
     async def test_returns_none_for_empty_wallets(self, cache):

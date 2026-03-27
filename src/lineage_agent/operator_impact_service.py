@@ -115,9 +115,15 @@ async def _build_impact(
 
     rugged_mints = {r["mint"] for r in rugged_rows}
     confirmed_rug_mints = {r["mint"] for r in rugged_rows if _is_confirmed_damage_event(r)}
+    dead_token_mints = {
+        r["mint"] for r in rugged_rows
+        if (r.get("rug_mechanism") or "") == RugMechanism.DEAD_TOKEN.value
+    }
     rug_mechanism_counts = Counter((r.get("rug_mechanism") or RugMechanism.UNKNOWN.value) for r in rugged_rows)
     total_tokens_launched = len(created_rows)
-    total_rug_count = len(rugged_mints)
+    total_negative_outcome_count = len(rugged_mints)
+    total_dead_token_count = len(dead_token_mints)
+    total_rug_count = total_negative_outcome_count - total_dead_token_count
     total_confirmed_rug_count = len(confirmed_rug_mints)
     rug_rate_pct = (
         total_rug_count / total_tokens_launched * 100.0
@@ -125,6 +131,10 @@ async def _build_impact(
     )
     confirmed_rug_rate_pct = (
         total_confirmed_rug_count / total_tokens_launched * 100.0
+        if total_tokens_launched > 0 else 0.0
+    )
+    negative_outcome_rate_pct = (
+        total_negative_outcome_count / total_tokens_launched * 100.0
         if total_tokens_launched > 0 else 0.0
     )
 
@@ -191,9 +201,11 @@ async def _build_impact(
         total_tokens_launched=total_tokens_launched,
         total_rug_count=total_rug_count,
         total_confirmed_rug_count=total_confirmed_rug_count,
-        total_negative_outcome_count=total_rug_count,
+        total_dead_token_count=total_dead_token_count,
+        total_negative_outcome_count=total_negative_outcome_count,
         rug_rate_pct=round(rug_rate_pct, 2),
         confirmed_rug_rate_pct=round(confirmed_rug_rate_pct, 2),
+        negative_outcome_rate_pct=round(negative_outcome_rate_pct, 2),
         estimated_extracted_usd=round(estimated_extracted_usd, 2),
         active_tokens=active_tokens,
         rug_mechanism_counts=dict(rug_mechanism_counts),

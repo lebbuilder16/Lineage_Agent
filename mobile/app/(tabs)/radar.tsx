@@ -38,7 +38,6 @@ const ALERT_ICONS: Record<AlertItem['type'], React.ReactNode> = {
   death_clock: <Skull size={14} color={tokens.risk.critical} />,
   deployer: <BookMarked size={14} color={tokens.secondary} />,
   narrative: <Bell size={14} color={tokens.secondary} />,
-  token_graduated: <TrendingUp size={14} color={tokens.success} />,
   deployer_launch: <BookMarked size={14} color={tokens.risk.medium} />,
   wallet_risk: <AlertTriangle size={14} color={tokens.risk.high} />,
 };

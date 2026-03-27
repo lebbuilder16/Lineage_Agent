@@ -656,10 +656,24 @@ class TestSanityCheck:
         assert any("CAVEAT" in f for f in result["key_findings"])
 
     def test_low_score_low_rug_rate_unchanged(self):
-        deployer_profile = _ns(total_tokens_deployed=10, rug_count=2)  # 20% rug rate
+        deployer_profile = _ns(total_tokens_deployed=10, rug_count=2, negative_outcome_count=2)  # 20% rug rate
         lineage = _ns(deployer_profile=deployer_profile)
         result = _sanity_check(self._result(score=20), lineage=lineage, bundle=None, sol_flow=None)
         assert result["risk_score"] == 20  # unchanged
+
+    def test_low_score_raised_on_high_outcome_rate(self):
+        """Low rug rate but high negative outcome rate (many dead tokens) → raise."""
+        deployer_profile = _ns(
+            total_tokens_launched=10,
+            total_tokens_deployed=10,
+            rug_count=1,
+            confirmed_rug_count=1,
+            negative_outcome_count=9,  # 90% outcome rate → triggers raise
+        )
+        lineage = _ns(deployer_profile=deployer_profile)
+        result = _sanity_check(self._result(score=20), lineage=lineage, bundle=None, sol_flow=None)
+        assert result["risk_score"] == 45  # 20 + 25
+        assert any("CAVEAT" in f for f in result["key_findings"])
 
     def test_caveats_prepended_to_existing_findings(self):
         result = _sanity_check(self._result(score=87), lineage=None, bundle=None, sol_flow=None)
