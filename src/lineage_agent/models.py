@@ -77,6 +77,7 @@ class RugMechanism(str, Enum):
     PRE_DEX_EXTRACTION_RUG = "pre_dex_extraction_rug"
     MARKET_DUMP = "market_dump"
     UNPROVEN_ABANDONMENT = "unproven_abandonment"
+    DEAD_TOKEN = "dead_token"
 
 
 # ---------------------------------------------------------------------------
@@ -666,9 +667,11 @@ class DeployerProfile(BaseModel):
     total_tokens_launched: int
     rug_count: int
     confirmed_rug_count: int = Field(0, description="Rugs with strong/moderate evidence")
-    negative_outcome_count: int = Field(0, description="Total negative outcomes (rugs + suspected)")
+    dead_token_count: int = Field(0, description="Tokens that faded on DEX without active extraction")
+    negative_outcome_count: int = Field(0, description="Total negative outcomes (rugs + dead tokens)")
     rug_rate_pct: float = Field(ge=0.0, le=100.0)
     confirmed_rug_rate_pct: float = Field(0.0, ge=0.0, le=100.0)
+    negative_outcome_rate_pct: float = Field(0.0, ge=0.0, le=100.0, description="(rugs + dead) / total")
     avg_lifespan_days: Optional[float] = None
     active_tokens: int
     rug_mechanism_counts: dict[str, int] = Field(default_factory=dict)
@@ -691,9 +694,11 @@ class OperatorImpactReport(BaseModel):
     total_tokens_launched: int
     total_rug_count: int
     total_confirmed_rug_count: int = Field(0, description="Rugs with strong/moderate evidence")
-    total_negative_outcome_count: int = Field(0, description="Total negative outcomes")
+    total_dead_token_count: int = Field(0, description="Tokens that faded on DEX without active extraction")
+    total_negative_outcome_count: int = Field(0, description="Total negative outcomes (rugs + dead)")
     rug_rate_pct: float = Field(ge=0.0, le=100.0)
     confirmed_rug_rate_pct: float = Field(0.0, ge=0.0, le=100.0)
+    negative_outcome_rate_pct: float = Field(0.0, ge=0.0, le=100.0, description="(rugs + dead) / total")
     estimated_extracted_usd: float = Field(
         ge=0.0, description="Conservative 15% of rugged mcap estimate"
     )

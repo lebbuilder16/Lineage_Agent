@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find /workspaces/Lineage_Agent/mobile -name .env* -o -name *.env)",
+      "Bash(flyctl ssh:*)",
+      "Bash(python -c \"import ast; ast.parse\\(open\\(''''src/lineage_agent/api.py''''\\).read\\(\\)\\); print\\(''''Syntax OK''''\\)\")",
+      "Bash(python -m pytest tests/test_agent_service.py -q)",
+      "Bash(grep -r \"pytest.mark\" /workspaces/Lineage_Agent/tests/*.py)",
+      "Bash(grep -r \"from unittest.mock import\" /workspaces/Lineage_Agent/tests/*.py)",
+      "Bash(python -m pytest tests/test_investigate_service.py -v)",
+      "Bash(rm -rf dist)",
+      "Bash(cp -r /tmp/expo-dist dist)",
+      "Bash(python3 -c \"import ast; ast.parse\\(open\\(''/workspaces/Lineage_Agent/src/lineage_agent/insider_sell_service.py''\\).read\\(\\)\\); print\\(''OK''\\)\")",
+      "Bash(python3 -c \"import ast; ast.parse\\(open\\(''''/workspaces/Lineage_Agent/src/lineage_agent/insider_sell_service.py''''\\).read\\(\\)\\); print\\(''''OK''''\\)\")",
+      "Bash(curl -s \"https://lineage-agent.fly.dev/lineage?mint=G492Y9hG9DzXxVj6FeqhrYaNngisiChMBeHTZ6NtXXsg&force_refresh=true\")",
+      "Bash(python3 -c \":*)",
+      "Bash(/home/codespace/.fly/bin/flyctl logs:*)",
+      "Bash(python3 -c \"import ast; ast.parse\\(open\\(''''/workspaces/Lineage_Agent/src/lineage_agent/forensic_pipeline.py''''\\).read\\(\\)\\); print\\(''''OK''''\\)\")",
+      "Bash(curl -s \"https://lineage-agent.fly.dev/lineage?mint=G492Y9hG9DzXxVj6FeqhrYaNngisiChMBeHTZ6NtXXsg\")",
+      "Bash(python3 -c \"import ast; ast.parse\\(open\\(''''/workspaces/Lineage_Agent/src/lineage_agent/api.py''''\\).read\\(\\)\\); print\\(''''OK''''\\)\")",
+      "Bash(python -m pytest tests/ -q)",
+      "Bash(python -m pytest tests/test_watchlist_monitor.py -x -q --tb=short)"
+    ]
+  }
+}

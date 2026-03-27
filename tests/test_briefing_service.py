@@ -53,7 +53,8 @@ async def _make_cache():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER NOT NULL,
             content TEXT NOT NULL,
-            created_at REAL NOT NULL
+            created_at REAL NOT NULL,
+            risk_snapshot TEXT
         )
         """
     )

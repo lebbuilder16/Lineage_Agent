@@ -153,6 +153,10 @@ async def _build_profile(deployer: str) -> Optional[DeployerProfile]:
         (r.get("rug_mechanism") or RugMechanism.UNKNOWN.value) for r in rugged_rows
     )
     confirmed_rug_count = sum(1 for row in rugged_rows if _is_confirmed_rug(row))
+    dead_token_count = sum(
+        1 for row in rugged_rows
+        if (row.get("rug_mechanism") or "") == RugMechanism.DEAD_TOKEN.value
+    )
 
     # Build individual token summaries
     summaries: list[DeployerTokenSummary] = []
@@ -183,7 +187,7 @@ async def _build_profile(deployer: str) -> Optional[DeployerProfile]:
 
     total = len(summaries)
     negative_outcome_count = len(rugged_map)
-    rug_count = negative_outcome_count
+    rug_count = negative_outcome_count - dead_token_count
 
     # Average lifespan of rugged tokens (hours → days)
     lifespans: list[float] = []
@@ -214,9 +218,11 @@ async def _build_profile(deployer: str) -> Optional[DeployerProfile]:
         total_tokens_launched=total,
         rug_count=rug_count,
         confirmed_rug_count=confirmed_rug_count,
+        dead_token_count=dead_token_count,
         negative_outcome_count=negative_outcome_count,
         rug_rate_pct=round(rug_count / total * 100, 1) if total else 0.0,
         confirmed_rug_rate_pct=round(confirmed_rug_count / total * 100, 1) if total else 0.0,
+        negative_outcome_rate_pct=round(negative_outcome_count / total * 100, 1) if total else 0.0,
         avg_lifespan_days=round(avg_lifespan, 2) if avg_lifespan is not None else None,
         active_tokens=max(0, active_tokens),
         rug_mechanism_counts=dict(rug_mechanism_counter),

@@ -39,11 +39,14 @@ _LOOKBACK_SECONDS = 48 * 3600     # scan tokens recorded in last 48 h
 _BATCH_CONCURRENCY = 3            # concurrent DexScreener lookups per sweep
 
 # Soft-rug / liquidity drain thresholds
-# A token that shed ≥90% of its recorded liquidity but stays above the absolute
-# floor (e.g. $80k → $4k) is still effectively rugged on Solana today.
-_DRAIN_RUG_MIN_RECORDED_LIQ = 5_000.0  # only apply to tokens that once had ≥$5k liq
-_DRAIN_RUG_PCT_STRONG       = 0.95      # ≥95% drain → STRONG evidence
-_DRAIN_RUG_PCT_MODERATE     = 0.90      # ≥90% drain → MODERATE evidence
+_DRAIN_RUG_MIN_RECORDED_LIQ = 1_000.0  # apply drain logic to tokens that once had ≥$1k liq
+_DRAIN_RUG_PCT_STRONG       = 0.90      # ≥90% drain → STRONG evidence
+_DRAIN_RUG_PCT_MODERATE     = 0.75      # ≥75% drain → MODERATE evidence
+
+# Dead token thresholds — tokens that faded on DEX without active extraction
+# These are NOT rugs (no malicious pull proven) but the token is effectively dead.
+_DEAD_TOKEN_LIQ_THRESHOLD   = 500.0     # current liq below this = dead
+_DEAD_TOKEN_MIN_DRAIN_PCT   = 0.60      # must have lost ≥60% from recorded peak
 
 _sweep_task: Optional[asyncio.Task] = None
 _RUG_SEMANTICS_VERSION = "rug-semantics-v1"
@@ -419,7 +422,12 @@ async def _run_rug_sweep() -> int:
                 pass  # non-critical — worst case we under-estimate drain this cycle
             recorded_liq = current_liq
 
-        # ── Classify the rug type ──────────────────────────────────────────
+        # ── Classify the outcome ─────────────────────────────────────────
+        drain_pct = (
+            (recorded_liq - current_liq) / recorded_liq
+            if recorded_liq > 0 else 0.0
+        )
+
         if current_liq < _RUG_LIQ_THRESHOLD:
             # Hard rug: absolute floor hit
             rug_mechanism = RugMechanism.DEX_LIQUIDITY_RUG.value
@@ -428,11 +436,9 @@ async def _run_rug_sweep() -> int:
 
         elif (
             recorded_liq >= _DRAIN_RUG_MIN_RECORDED_LIQ
-            and recorded_liq > 0
-            and (recorded_liq - current_liq) / recorded_liq >= _DRAIN_RUG_PCT_MODERATE
+            and drain_pct >= _DRAIN_RUG_PCT_MODERATE
         ):
-            # Soft rug: ≥90% relative liquidity drain (e.g. $80k → $4k)
-            drain_pct = (recorded_liq - current_liq) / recorded_liq
+            # Soft rug: ≥75% relative liquidity drain from ≥$1k peak
             rug_mechanism = RugMechanism.LIQUIDITY_DRAIN_RUG.value
             evidence_level = (
                 EvidenceLevel.STRONG.value
@@ -442,6 +448,19 @@ async def _run_rug_sweep() -> int:
             reason_codes = [
                 "dex_context_confirmed",
                 f"liquidity_drained_{int(drain_pct * 100)}pct",
+            ]
+
+        elif (
+            current_liq < _DEAD_TOKEN_LIQ_THRESHOLD
+            and drain_pct >= _DEAD_TOKEN_MIN_DRAIN_PCT
+        ):
+            # Dead token: faded below $500 with ≥60% drain, no active extraction proven
+            rug_mechanism = RugMechanism.DEAD_TOKEN.value
+            evidence_level = EvidenceLevel.MODERATE.value
+            reason_codes = [
+                "dex_context_confirmed",
+                "token_dead_natural_fade",
+                f"liquidity_faded_{int(drain_pct * 100)}pct",
             ]
 
         else:
@@ -467,13 +486,15 @@ async def _run_rug_sweep() -> int:
                 policy_version=_RUG_SEMANTICS_VERSION,
             )
             rugs_found += 1
+            _label = "Dead token" if rug_mechanism == RugMechanism.DEAD_TOKEN.value else "Rug detected"
             logger.info(
-                "Rug detected [%s]: %s (was $%.0f → now $%.0f)",
-                rug_mechanism, mint, recorded_liq, current_liq,
+                "%s [%s]: %s (was $%.0f → now $%.0f)",
+                _label, rug_mechanism, mint, recorded_liq, current_liq,
             )
             # Fire-and-forget: trace where the SOL went (Initiative 2)
+            # Skip SOL tracing for dead tokens — no active extraction to trace.
             _deployer = row.get("deployer", "")
-            if _deployer:
+            if _deployer and rug_mechanism != RugMechanism.DEAD_TOKEN.value:
                 try:
                     from .sol_flow_service import trace_sol_flow
                     from .data_sources._clients import bundle_report_query as _brq
