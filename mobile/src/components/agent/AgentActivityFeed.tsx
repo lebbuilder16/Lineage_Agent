@@ -2,9 +2,7 @@ import React, { useState, useMemo, useCallback } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { router } from 'expo-router';
 import {
-  Eye,
   Search,
-  AlertTriangle,
   Shield,
   Filter,
   ChevronDown,
@@ -12,14 +10,8 @@ import {
 } from 'lucide-react-native';
 import Animated, {
   FadeInDown,
-  useAnimatedStyle,
-  useSharedValue,
-  withSpring,
-  withTiming,
-  runOnJS,
   Layout,
 } from 'react-native-reanimated';
-import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { tokens } from '../../theme/tokens';
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -178,7 +170,7 @@ function RiskPill({ score }: { score: number }) {
 
 // ── Swipeable Compact Card ───────────────────────────────────────────────────
 
-function SwipeableCompactCard({
+function CompactCard({
   item,
   index,
   onMarkRead,
@@ -187,82 +179,43 @@ function SwipeableCompactCard({
   index: number;
   onMarkRead?: (id: string) => void;
 }) {
-  const translateX = useSharedValue(0);
-  const opacity = useSharedValue(1);
   const isUnread = item.read === false;
-
-  const markRead = useCallback(() => {
-    onMarkRead?.(item.id);
-  }, [item.id, onMarkRead]);
-
-  const pan = Gesture.Pan()
-    .activeOffsetX([-15, 15])
-    .failOffsetY([-10, 10])
-    .onUpdate((e) => {
-      // Only allow left swipe
-      if (e.translationX < 0) {
-        translateX.value = Math.max(e.translationX, -80);
-      }
-    })
-    .onEnd((e) => {
-      if (e.translationX < -50 && onMarkRead) {
-        translateX.value = withTiming(-80, { duration: 150 });
-        opacity.value = withTiming(0.5, { duration: 200 }, () => {
-          runOnJS(markRead)();
-          translateX.value = withSpring(0, tokens.timing.springSnappy);
-          opacity.value = withTiming(1, { duration: 200 });
-        });
-      } else {
-        translateX.value = withSpring(0, tokens.timing.springSnappy);
-      }
-    });
-
-  const animStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: translateX.value }],
-    opacity: opacity.value,
-  }));
-
   const Icon = item.icon;
   const score = item.riskScore ?? 0;
 
+  const handlePress = useCallback(() => {
+    if (isUnread) onMarkRead?.(item.id);
+    router.push(`/token/${item.mint}` as any);
+  }, [item.id, item.mint, isUnread, onMarkRead]);
+
   return (
-    <Animated.View entering={FadeInDown.delay(index * 15).duration(180)} layout={Layout.springify()}>
-      {/* Reveal layer behind the swipe */}
-      <View style={s.swipeReveal}>
-        <Text style={s.swipeRevealText}>Read</Text>
-        <Eye size={12} color={tokens.white60} />
-      </View>
+    <Animated.View entering={index < 15 ? FadeInDown.delay(index * 15).duration(180) : undefined} layout={Layout.springify()}>
+      <TouchableOpacity
+        onPress={handlePress}
+        activeOpacity={0.7}
+        style={s.compactCard}
+      >
+        {/* Unread dot */}
+        {isUnread && <View style={s.unreadDot} />}
 
-      <GestureDetector gesture={pan}>
-        <Animated.View style={animStyle}>
-          <TouchableOpacity
-            onPress={() => router.push(`/token/${item.mint}` as any)}
-            activeOpacity={0.7}
-            style={s.compactCard}
-          >
-            {/* Unread dot */}
-            {isUnread && <View style={s.unreadDot} />}
+        {/* Category dot */}
+        <View style={[s.catDot, { backgroundColor: item.color }]} />
+        <Icon size={12} color={item.color} strokeWidth={2.5} />
 
-            {/* Category dot */}
-            <View style={[s.catDot, { backgroundColor: item.color }]} />
-            <Icon size={12} color={item.color} strokeWidth={2.5} />
+        <View style={s.compactBody}>
+          <Text style={s.compactName} numberOfLines={1}>
+            {item.tokenName}
+            {item.tokenSymbol ? ` $${item.tokenSymbol}` : ''}
+          </Text>
+          <Text style={s.compactSummary} numberOfLines={2}>{item.summary}</Text>
+        </View>
 
-            <View style={s.compactBody}>
-              <Text style={s.compactName} numberOfLines={1}>
-                {item.tokenName}
-                {item.tokenSymbol ? ` $${item.tokenSymbol}` : ''}
-              </Text>
-              <Text style={s.compactSummary} numberOfLines={2}>{item.summary}</Text>
-            </View>
-
-            {/* Right column: risk + time stacked */}
-            <View style={s.compactRight}>
-              {score > 0 && <RiskPill score={score} />}
-              <Text style={s.compactTime}>{timeAgoShort(item.time)}</Text>
-            </View>
-          </TouchableOpacity>
-        </Animated.View>
-      </GestureDetector>
+        {/* Right column: risk + time stacked */}
+        <View style={s.compactRight}>
+          {score > 0 && <RiskPill score={score} />}
+          <Text style={s.compactTime}>{timeAgoShort(item.time)}</Text>
+        </View>
+      </TouchableOpacity>
     </Animated.View>
   );
 }
@@ -436,7 +389,7 @@ export function AgentActivityFeed({ feedItems, onMarkRead }: AgentActivityFeedPr
                 return score >= 50 ? (
                   <PromCard key={item.id} item={item} index={idx} />
                 ) : (
-                  <SwipeableCompactCard
+                  <CompactCard
                     key={item.id}
                     item={item}
                     index={idx}
@@ -503,25 +456,11 @@ const s = StyleSheet.create({
     marginTop: -3,
   },
 
-  // Swipe reveal (behind card)
-  swipeReveal: {
-    position: 'absolute', right: 0, top: 0, bottom: 0,
-    width: 80,
-    backgroundColor: `${tokens.secondary}12`,
-    borderRadius: tokens.radius.sm,
-    flexDirection: 'row',
-    alignItems: 'center', justifyContent: 'center', gap: 4,
-  },
-  swipeRevealText: {
-    fontFamily: 'Lexend-Medium', fontSize: 9,
-    color: tokens.white60,
-  },
-
   // Compact card
   compactCard: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
     paddingVertical: 10, paddingLeft: 16, paddingRight: 12,
-    backgroundColor: tokens.bgGlass,
+    backgroundColor: '#0a1128',
     borderRadius: tokens.radius.sm,
     borderWidth: 1, borderColor: tokens.borderSubtle,
   },
@@ -549,7 +488,7 @@ const s = StyleSheet.create({
 
   // Prominent card (high/critical)
   promCard: {
-    backgroundColor: tokens.bgGlass,
+    backgroundColor: '#0a1128',
     borderRadius: tokens.radius.sm,
     borderWidth: 1, overflow: 'hidden',
   },
