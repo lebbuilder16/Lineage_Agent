@@ -21,7 +21,7 @@ import { SkeletonBlock } from '../../src/components/ui/SkeletonLoader';
 import { ScreenHeader } from '../../src/components/ui/ScreenHeader';
 import { SettingsSheet } from '../../src/components/ui/SettingsSheet';
 import { useToast } from '../../src/components/ui/Toast';
-import { useWatches, useDeleteWatch, useAddWatch } from '../../src/lib/query';
+import { useWatches, useDeleteWatch, useAddWatch, useWatchlistFlags } from '../../src/lib/query';
 import { useAuthStore } from '../../src/store/auth';
 import { syncWatchlistCrons } from '../../src/lib/openclaw-cron';
 import { isOpenClawAvailable } from '../../src/lib/openclaw';
@@ -44,41 +44,21 @@ export default function WatchlistScreen() {
   const { showToast, toast } = useToast();
 
   const [sweeping, setSweeping] = useState(false);
-  const [flagCounts, setFlagCounts] = useState<Record<string, number>>({});
-  const [flagTypes, setFlagTypes] = useState<Record<string, string[]>>({});
-  const [tokenMeta, setTokenMeta] = useState<Record<string, { name?: string; symbol?: string; image?: string }>>({});
+  const { data: flagData, isLoading: flagsLoading } = useWatchlistFlags(apiKey);
+  const flagCounts = flagData?.counts ?? {};
+  const flagTypes = flagData?.types ?? {};
+  const tokenMeta = flagData?.meta ?? {};
 
-  // Fetch flag details + token metadata for all watched tokens
-  React.useEffect(() => {
-    if (!apiKey) return;
-    const BASE = (process.env.EXPO_PUBLIC_API_URL ?? 'https://lineage-agent.fly.dev').replace(/\/$/, '');
-    fetch(`${BASE}/agent/flags?limit=200`, { headers: { 'X-API-Key': apiKey } })
-      .then((r) => r.ok ? r.json() : null)
-      .then((d) => {
-        if (!d?.flags) return;
-        const counts: Record<string, number> = {};
-        const types: Record<string, string[]> = {};
-        const meta: Record<string, { name?: string; symbol?: string; image?: string }> = {};
-        for (const f of d.flags) {
-          if (!f.read) {
-            counts[f.mint] = (counts[f.mint] ?? 0) + 1;
-            if (!types[f.mint]) types[f.mint] = [];
-            if (!types[f.mint].includes(f.flagType)) types[f.mint].push(f.flagType);
-          }
-          // Extract token metadata from flag detail
-          if (f.detail && f.mint && !meta[f.mint]) {
-            const det = typeof f.detail === 'string' ? (() => { try { return JSON.parse(f.detail); } catch { return f.detail; } })() : f.detail;
-            if (det?.token_name || det?.symbol) {
-              meta[f.mint] = { name: det.token_name, symbol: det.symbol, image: det.image_uri };
-            }
-          }
-        }
-        setFlagCounts(counts);
-        setFlagTypes(types);
-        setTokenMeta((prev) => ({ ...prev, ...meta }));
-      })
-      .catch(() => {});
-  }, [apiKey, watches]);
+  // Sort watches: most flags first, then by risk (from investigation history)
+  const sortedWatches = React.useMemo(() => {
+    if (!watches) return [];
+    return [...watches].sort((a, b) => {
+      const fa = flagCounts[a.value] ?? 0;
+      const fb = flagCounts[b.value] ?? 0;
+      if (fa !== fb) return fb - fa;
+      return 0;
+    });
+  }, [watches, flagCounts]);
 
   const handleSweepAll = async () => {
     const mintWatches = (watches ?? []).filter((w) => w.sub_type === 'mint');
@@ -195,7 +175,12 @@ export default function WatchlistScreen() {
           title="Watchlist"
           rightAction={
             <View style={styles.headerActions}>
-              <Text style={styles.count}>{watches?.length ?? 0} items</Text>
+              <Text style={styles.count}>
+                {watches?.length ?? 0} items
+                {Object.values(flagCounts).reduce((s, c) => s + c, 0) > 0
+                  ? ` · ${Object.values(flagCounts).reduce((s, c) => s + c, 0)} flags`
+                  : ''}
+              </Text>
               {(watches ?? []).some((w) => w.sub_type === 'mint') && (
                 <TouchableOpacity
                   onPress={handleSweepAll}
@@ -246,7 +231,7 @@ export default function WatchlistScreen() {
               <GlassCard key={i}><SkeletonBlock lines={2} /></GlassCard>
             ))}
           </View>
-        ) : watches?.length === 0 ? (
+        ) : sortedWatches.length === 0 ? (
           <Animated.View entering={FadeInDown.springify()} style={styles.empty}>
             <GlassCard style={styles.emptyCard} noPadding={false}>
               <View style={styles.emptyIconWrapper}>
@@ -270,7 +255,7 @@ export default function WatchlistScreen() {
           </Animated.View>
         ) : (
           <FlatList
-            data={watches}
+            data={sortedWatches}
             keyExtractor={(item) => item.id}
             contentContainerStyle={[styles.listContent, { paddingBottom: Math.max(insets.bottom + 100, 120) }]}
             showsVerticalScrollIndicator={false}

@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { Text, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
 import { tokens } from '../../theme/tokens';
 
 // ── Props ────────────────────────────────────────────────────────────────────
@@ -23,7 +23,12 @@ export function AlertFilterChips<T extends string = string>({
   onFilterChange,
 }: AlertFilterChipsProps<T>) {
   return (
-    <View style={styles.chipsRow}>
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      contentContainerStyle={styles.chipsRow}
+      style={styles.scrollWrap}
+    >
       {filters.map((ft) => (
         <TouchableOpacity
           key={ft.value}
@@ -35,17 +40,21 @@ export function AlertFilterChips<T extends string = string>({
           </Text>
         </TouchableOpacity>
       ))}
-    </View>
+    </ScrollView>
   );
 }
 
 // ── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
+  scrollWrap: {
+    flexGrow: 0,
+    marginBottom: 8,
+  },
   chipsRow: {
     flexDirection: 'row',
     gap: 6,
-    paddingBottom: 8,
+    paddingRight: 16,
   },
   chip: {
     paddingHorizontal: 12,
