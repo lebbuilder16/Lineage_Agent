@@ -9,7 +9,6 @@ import {
   ScrollView,
   Alert,
   Pressable,
-  ActivityIndicator,
 } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -20,17 +19,14 @@ import {
   ChevronRight,
   ArrowLeft,
   Smartphone,
-  Wallet,
 } from 'lucide-react-native';
 import { useLoginWithEmail, usePrivy } from '@privy-io/expo';
 import type { User } from '@privy-io/api-types';
 import { HapticButton } from '../../src/components/ui/HapticButton';
 import { tokens } from '../../src/theme/tokens';
 import { syncPrivyUser } from '../../src/lib/privy-auth';
-import {
-  useExternalWalletAuth,
-  type WalletBrandId,
-} from '../../src/hooks/useExternalWalletAuth';
+// External wallet auth available but UI removed for now
+// import { useExternalWalletAuth, type WalletBrandId } from '../../src/hooks/useExternalWalletAuth';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -70,40 +66,6 @@ async function handlePrivyLoginSuccess(user: User) {
   }
 }
 
-// ── Wallet brand configs ─────────────────────────────────────────────────────
-
-interface WalletBrand {
-  id: WalletBrandId;
-  name: string;
-  color: string;
-  bgColor: string;
-  letter: string;
-}
-
-const WALLET_BRANDS: WalletBrand[] = [
-  {
-    id: 'phantom',
-    name: 'Phantom',
-    color: '#AB9FF2',
-    bgColor: 'rgba(171, 159, 242, 0.12)',
-    letter: 'P',
-  },
-  {
-    id: 'solflare',
-    name: 'Solflare',
-    color: '#FC7227',
-    bgColor: 'rgba(252, 114, 39, 0.12)',
-    letter: 'S',
-  },
-  {
-    id: 'backpack',
-    name: 'Backpack',
-    color: '#E33E3F',
-    bgColor: 'rgba(227, 62, 63, 0.12)',
-    letter: 'B',
-  },
-];
-
 // ── Login Screen ─────────────────────────────────────────────────────────────
 
 export default function LoginScreen() {
@@ -120,8 +82,7 @@ export default function LoginScreen() {
   // ── Privy hooks (wallet creation handled by WalletAutoCreate in _layout.tsx) ──
   const { user: privyUser, logout: privyLogout, isReady: privyReady } = usePrivy();
 
-  // ── External wallet auth (state machine) ──────────────────────────────────
-  const { state: walletState, connect: connectWallet, cancel: cancelWallet } = useExternalWalletAuth();
+  // External wallet auth kept as import for future use but UI removed
 
   // ── Force-clear Privy session on EVERY mount ──────────────────────────────
   useEffect(() => {
@@ -205,31 +166,6 @@ export default function LoginScreen() {
   const handleSkip = useCallback(() => {
     router.replace('/(tabs)/radar');
   }, []);
-
-  // ── Derived state for wallet cards ────────────────────────────────────────
-
-  const activeWalletId = walletState.status !== 'idle' && walletState.status !== 'done'
-    ? (walletState as any).walletId as WalletBrandId
-    : null;
-
-  const isWalletBusy = activeWalletId !== null;
-
-  function walletHintText(brandId: WalletBrandId): string {
-    if (activeWalletId !== brandId) return 'Tap to connect';
-    switch (walletState.status) {
-      case 'connecting':
-      case 'awaiting_callback':
-        return 'Connecting...';
-      case 'signing':
-        return 'Signing...';
-      case 'authenticating':
-        return 'Authenticating...';
-      case 'error':
-        return (walletState as any).error ?? 'Failed';
-      default:
-        return 'Tap to connect';
-    }
-  }
 
   return (
     <View style={styles.container}>
@@ -358,66 +294,6 @@ export default function LoginScreen() {
                 </Pressable>
               </>
             )}
-          </Animated.View>
-
-          {/* Divider */}
-          <Animated.View entering={FadeInDown.delay(500).duration(400)} style={styles.dividerRow}>
-            <View style={styles.dividerLine} />
-            <Text style={styles.dividerText}>OR</Text>
-            <View style={styles.dividerLine} />
-          </Animated.View>
-
-          {/* ── External wallet options (secondary) ──────────────────────── */}
-          <Animated.View entering={FadeInDown.delay(550).duration(500)} style={styles.walletSection}>
-            <View style={styles.walletTitleRow}>
-              <Wallet size={14} color={tokens.textTertiary} strokeWidth={2} />
-              <Text style={styles.walletSectionTitle}>External Wallet</Text>
-            </View>
-
-            <View style={styles.walletGrid}>
-              {WALLET_BRANDS.map((wallet, i) => (
-                <Animated.View
-                  key={wallet.id}
-                  entering={FadeInDown.delay(600 + i * 60).duration(400)}
-                >
-                  <Pressable
-                    onPress={() => {
-                      if (walletState.status === 'error') {
-                        cancelWallet();
-                      }
-                      connectWallet(wallet.id);
-                    }}
-                    disabled={isWalletBusy && activeWalletId !== wallet.id}
-                    style={({ pressed }) => [
-                      styles.walletCard,
-                      pressed && styles.walletCardPressed,
-                      activeWalletId === wallet.id && styles.walletCardActive,
-                      walletState.status === 'error' && activeWalletId === wallet.id && styles.walletCardError,
-                    ]}
-                  >
-                    <View style={[styles.walletIcon, { backgroundColor: wallet.bgColor }]}>
-                      <Text style={[styles.walletLetter, { color: wallet.color }]}>
-                        {wallet.letter}
-                      </Text>
-                    </View>
-                    <View style={styles.walletInfo}>
-                      <Text style={styles.walletName}>{wallet.name}</Text>
-                      <Text style={[
-                        styles.walletHint,
-                        walletState.status === 'error' && activeWalletId === wallet.id && styles.walletHintError,
-                      ]}>
-                        {walletHintText(wallet.id)}
-                      </Text>
-                    </View>
-                    {activeWalletId === wallet.id && walletState.status !== 'error' ? (
-                      <ActivityIndicator size="small" color={wallet.color} />
-                    ) : (
-                      <ChevronRight size={16} color={tokens.white20} strokeWidth={2} />
-                    )}
-                  </Pressable>
-                </Animated.View>
-              ))}
-            </View>
           </Animated.View>
 
           {/* Skip */}
@@ -560,88 +436,6 @@ const styles = StyleSheet.create({
     color: tokens.textTertiary,
     textDecorationLine: 'underline',
     textDecorationColor: tokens.white10,
-  },
-
-  // Divider
-  dividerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
-    marginBottom: 20,
-  },
-  dividerLine: {
-    flex: 1,
-    height: 1,
-    backgroundColor: tokens.borderSubtle,
-  },
-  dividerText: {
-    fontFamily: 'Lexend-SemiBold',
-    fontSize: tokens.font.tiny,
-    color: tokens.white20,
-    letterSpacing: 2,
-  },
-
-  // Wallet section
-  walletSection: { marginBottom: 24 },
-  walletTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 7,
-    marginBottom: 10,
-  },
-  walletSectionTitle: {
-    fontFamily: 'Lexend-SemiBold',
-    fontSize: tokens.font.small,
-    color: tokens.textTertiary,
-    letterSpacing: 0.5,
-  },
-  walletGrid: { gap: 8 },
-  walletCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
-    backgroundColor: tokens.bgGlass,
-    borderRadius: tokens.radius.md,
-    borderWidth: 1,
-    borderColor: tokens.borderSubtle,
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-  },
-  walletCardPressed: {
-    backgroundColor: tokens.bgGlass8,
-  },
-  walletCardActive: {
-    borderColor: tokens.borderActive,
-    backgroundColor: tokens.bgGlass8,
-  },
-  walletCardError: {
-    borderColor: `${tokens.error}40`,
-  },
-  walletIcon: {
-    width: 42,
-    height: 42,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  walletLetter: {
-    fontFamily: 'Lexend-Bold',
-    fontSize: 18,
-  },
-  walletInfo: { flex: 1 },
-  walletName: {
-    fontFamily: 'Lexend-SemiBold',
-    fontSize: tokens.font.subheading,
-    color: tokens.white100,
-    marginBottom: 2,
-  },
-  walletHint: {
-    fontFamily: 'Lexend-Regular',
-    fontSize: tokens.font.small,
-    color: tokens.textTertiary,
-  },
-  walletHintError: {
-    color: tokens.error,
   },
 
   // Skip
