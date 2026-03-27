@@ -93,8 +93,21 @@ async def run_investigation(
     bundle_res = report.bundle_report
     sol_res = report.sol_flow
 
+    # Enrich behavioral signals with narrative cluster membership
+    _behavioral: dict = {}
+    try:
+        from .memory_service import get_narrative_clusters_for_deployer  # noqa: PLC0415
+        _qt = getattr(lineage_res, "query_token", None)
+        _dep = getattr(_qt, "deployer", None) if _qt else None
+        if _dep:
+            _clusters = await get_narrative_clusters_for_deployer(_dep)
+            if _clusters:
+                _behavioral["narrative_cluster_avg_risk"] = max(c["avg_risk"] for c in _clusters)
+    except Exception:
+        pass
+
     # Compute heuristic pre-score
-    hscore = _heuristic_score(lineage_res, bundle_res, sol_res)
+    hscore = _heuristic_score(lineage_res, bundle_res, sol_res, behavioral_signals=_behavioral or None)
 
     # ── Free tier: stop after heuristic (with calibration) ──────────
     if not tier.has_ai_verdict:

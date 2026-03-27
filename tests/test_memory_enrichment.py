@@ -524,10 +524,12 @@ class TestMemoryBriefEnrichment:
         )
         await db.commit()
 
-        with patch("lineage_agent.data_sources._clients.cache", cache):
+        with patch("lineage_agent.data_sources._clients.cache", cache), \
+             patch("lineage_agent.memory_service._haiku_recommendation", new_callable=AsyncMock, return_value=""):
             brief = await build_memory_brief("some_mint", deployer=deployer)
 
-        assert "Anomalies" in brief
+        # Anomalies appear in the Threat Assessment section
+        assert "Threat Assessment" in brief
         assert "velocity" in brief.lower()
         await db.close()
 
@@ -547,9 +549,82 @@ class TestMemoryBriefEnrichment:
         )
         await db.commit()
 
-        with patch("lineage_agent.data_sources._clients.cache", cache):
+        with patch("lineage_agent.data_sources._clients.cache", cache), \
+             patch("lineage_agent.memory_service._haiku_recommendation", new_callable=AsyncMock, return_value=""):
             brief = await build_memory_brief("some_mint", deployer=deployer)
 
-        assert "Narrative" in brief
+        # Clusters appear in the Cross-Entity Intelligence section
+        assert "Cross-Entity" in brief
         assert "ai_agent" in brief
+        await db.close()
+
+    async def test_brief_recommended_focus_serial_rugger(self):
+        """Serial rugger should get focus on exits, skip compare_tokens."""
+        db = await _make_memory_db()
+        cache = _mock_cache(db)
+        deployer = "SerialRugger" + "J" * 24
+
+        # Entity knowledge: 70% rug rate
+        await db.execute(
+            "INSERT INTO entity_knowledge "
+            "(entity_type, entity_id, total_tokens, total_rugs, avg_risk_score, "
+            " confidence, updated_at) VALUES ('deployer', ?, 10, 7, 75, 'high', ?)",
+            (deployer, time.time()),
+        )
+        await db.commit()
+
+        with patch("lineage_agent.data_sources._clients.cache", cache), \
+             patch("lineage_agent.memory_service._haiku_recommendation", new_callable=AsyncMock, return_value=""):
+            brief = await build_memory_brief("some_mint", deployer=deployer)
+
+        assert "Recommended Focus" in brief
+        assert "sol_flow" in brief
+        assert "Skip" in brief
+        await db.close()
+
+    async def test_brief_first_entity_full_investigation(self):
+        """Unknown entity should get full investigation recommendation."""
+        db = await _make_memory_db()
+        cache = _mock_cache(db)
+        deployer = "NewDeployer" + "K" * 25
+
+        with patch("lineage_agent.data_sources._clients.cache", cache), \
+             patch("lineage_agent.memory_service._haiku_recommendation", new_callable=AsyncMock, return_value=""):
+            brief = await build_memory_brief("some_mint", deployer=deployer)
+
+        assert "Recommended Focus" in brief
+        assert "full investigation" in brief.lower()
+        await db.close()
+
+    async def test_recall_entity_includes_synthesis(self):
+        """recall_entity should include trend, threat_level, reliability."""
+        db = await _make_memory_db()
+        cache = _mock_cache(db)
+        deployer = "SynthDeployer" + "L" * 23
+
+        # Insert entity knowledge + episodes
+        await db.execute(
+            "INSERT INTO entity_knowledge "
+            "(entity_type, entity_id, total_tokens, total_rugs, avg_risk_score, "
+            " sample_count, confidence, updated_at) "
+            "VALUES ('deployer', ?, 8, 5, 70, 8, 'high', ?)",
+            (deployer, time.time()),
+        )
+        for i in range(6):
+            await _insert_episode(db, f"synth_mint_{i}", deployer,
+                                  risk_score=60 + i * 5,
+                                  created_at=time.time() - i * 86400)
+        await db.commit()
+
+        with patch("lineage_agent.data_sources._clients.cache", cache):
+            from lineage_agent.memory_service import recall_entity
+            result = await recall_entity("deployer", deployer)
+
+        assert "synthesis" in result
+        s = result["synthesis"]
+        assert s["threat_level"] in ("low", "medium", "high", "critical")
+        assert s["trend"] in ("improving", "stable", "degrading", "insufficient_data")
+        assert s["reliability"] in ("low", "medium", "high")
+        assert isinstance(s["active_anomalies"], list)
+        assert isinstance(s["cluster_membership"], list)
         await db.close()

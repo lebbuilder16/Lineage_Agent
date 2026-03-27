@@ -311,6 +311,13 @@ def _heuristic_score(
         if isinstance(_pc, dict) and (_pc.get("rugged_reuses") or 0) >= 1:
             score += 10
 
+        # Narrative cluster signal (injected by investigate_service)
+        _cluster_risk = behavioral_signals.get("narrative_cluster_avg_risk", 0) or 0
+        if _cluster_risk >= 80:
+            score += 15
+        elif _cluster_risk >= 60:
+            score += 8
+
     return min(score, 100)
 
 
