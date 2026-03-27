@@ -86,8 +86,8 @@ export default function AlertsScreen() {
 
   const handlePress = useCallback((alert: AlertItem) => {
     markRead(alert.id);
-    if (alert.mint) router.push(`/token/${alert.mint}` as any);
-  }, [markRead]);
+    toggleEnrichment(alert.id);
+  }, [markRead, toggleEnrichment]);
 
   return (
     <View style={styles.container}>
