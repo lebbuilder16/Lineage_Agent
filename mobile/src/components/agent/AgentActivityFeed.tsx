@@ -236,7 +236,7 @@ function SwipeableCompactCard({
       <GestureDetector gesture={pan}>
         <Animated.View style={animStyle}>
           <TouchableOpacity
-            onPress={() => router.push(`/investigate/${item.mint}` as any)}
+            onPress={() => router.push(`/token/${item.mint}` as any)}
             activeOpacity={0.7}
             style={s.compactCard}
           >
@@ -255,10 +255,11 @@ function SwipeableCompactCard({
               <Text style={s.compactSummary} numberOfLines={2}>{item.summary}</Text>
             </View>
 
-            {/* Risk pill — always visible */}
-            {score > 0 && <RiskPill score={score} />}
-
-            <Text style={s.compactTime}>{timeAgoShort(item.time)}</Text>
+            {/* Right column: risk + time stacked */}
+            <View style={s.compactRight}>
+              {score > 0 && <RiskPill score={score} />}
+              <Text style={s.compactTime}>{timeAgoShort(item.time)}</Text>
+            </View>
           </TouchableOpacity>
         </Animated.View>
       </GestureDetector>
@@ -283,7 +284,7 @@ function PromCard({
   return (
     <Animated.View entering={FadeInDown.delay(index * 20).duration(220)}>
       <TouchableOpacity
-        onPress={() => router.push(`/investigate/${item.mint}` as any)}
+        onPress={() => router.push(`/token/${item.mint}` as any)}
         activeOpacity={0.7}
         style={[s.promCard, { borderColor: `${rc}20` }]}
       >
@@ -304,8 +305,10 @@ function PromCard({
               </Text>
               <Text style={[s.promCategory, { color: rc }]}>{item.categoryLabel}</Text>
             </View>
-            {score > 0 && <RiskPill score={score} />}
-            <Text style={s.promTime}>{timeAgoShort(item.time)}</Text>
+            <View style={s.promRight}>
+              {score > 0 && <RiskPill score={score} />}
+              <Text style={s.promTime}>{timeAgoShort(item.time)}</Text>
+            </View>
           </View>
 
           {/* Summary */}
@@ -532,6 +535,7 @@ const s = StyleSheet.create({
     fontFamily: 'Lexend-Regular', fontSize: 10,
     color: tokens.white35, lineHeight: 14,
   },
+  compactRight: { alignItems: 'flex-end', gap: 4, minWidth: 44 },
   compactTime: { fontFamily: 'Lexend-Regular', fontSize: 9, color: tokens.white20 },
 
   // Risk pill (shared)
@@ -556,6 +560,7 @@ const s = StyleSheet.create({
     width: 28, height: 28, borderRadius: 14,
     alignItems: 'center', justifyContent: 'center',
   },
+  promRight: { alignItems: 'flex-end', gap: 4, minWidth: 44 },
   promNameCol: { flex: 1 },
   promName: {
     fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.body,
