@@ -145,20 +145,38 @@ export default function AccountScreen() {
 
   const handlePickAvatar = async () => {
     if (!apiKey) return;
-    const result = await ImagePicker.launchImageLibraryAsync({
+
+    // Ask user: camera or library
+    const choice = await new Promise<'camera' | 'library' | null>((resolve) => {
+      Alert.alert('Profile Photo', 'Choose a source', [
+        { text: 'Camera', onPress: () => resolve('camera') },
+        { text: 'Photo Library', onPress: () => resolve('library') },
+        { text: 'Cancel', style: 'cancel', onPress: () => resolve(null) },
+      ]);
+    });
+    if (!choice) return;
+
+    const opts: ImagePicker.ImagePickerOptions = {
       mediaTypes: ['images'],
       allowsEditing: true,
       aspect: [1, 1],
-      quality: 0.7,
+      quality: 0.5,
       base64: true,
-    });
+    };
+
+    const result = choice === 'camera'
+      ? await ImagePicker.launchCameraAsync(opts)
+      : await ImagePicker.launchImageLibraryAsync(opts);
+
     if (result.canceled || !result.assets?.[0]?.base64) return;
     setAvatarUploading(true);
     try {
       const dataUri = `data:image/jpeg;base64,${result.assets[0].base64}`;
       const updated = await updateProfile(apiKey, { avatar_url: dataUri });
       setUser(updated);
-    } catch { /* best-effort */ }
+    } catch (err) {
+      Alert.alert('Upload Failed', err instanceof Error ? err.message : 'Could not update profile photo.');
+    }
     setAvatarUploading(false);
   };
 

@@ -180,7 +180,7 @@ async def update_user_profile(cache, user_id: int, updates: dict) -> dict | None
             raise ValueError("display_name must be at least 1 character")
         allowed["display_name"] = dname
     if "avatar_url" in updates and updates["avatar_url"] is not None:
-        aurl = str(updates["avatar_url"])[:2000]
+        aurl = str(updates["avatar_url"])[:500_000]  # base64 images can be large
         allowed["avatar_url"] = aurl
 
     if not allowed:
