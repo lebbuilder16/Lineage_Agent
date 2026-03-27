@@ -912,6 +912,7 @@ class SQLiteCache:
             "ALTER TABLE users ADD COLUMN display_name TEXT",
             "ALTER TABLE users ADD COLUMN avatar_url TEXT",
             "ALTER TABLE users ADD COLUMN fcm_token TEXT",
+            "ALTER TABLE briefings ADD COLUMN risk_snapshot TEXT",
         ]:
             try:
                 await db.execute(col_sql)

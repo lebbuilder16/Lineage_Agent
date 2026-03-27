@@ -85,6 +85,12 @@ export function BriefingActionCard({
         </View>
 
         {/* Preview / Expanded text */}
+        {/* Lead with critical alert count in preview for better scannability */}
+        {!expanded && threatCount > 0 && (
+          <Text style={styles.criticalPreview}>
+            {threatCount} alert{threatCount > 1 ? 's' : ''} need attention
+          </Text>
+        )}
         <Text
           style={expanded ? styles.contentFull : styles.contentPreview}
           numberOfLines={expanded ? undefined : 2}
@@ -191,6 +197,13 @@ const styles = StyleSheet.create({
     fontFamily: 'Lexend-Bold',
     fontSize: 9,
     color: tokens.risk.critical,
+  },
+  criticalPreview: {
+    fontFamily: 'Lexend-SemiBold',
+    fontSize: tokens.font.small,
+    color: tokens.risk.high,
+    marginTop: 8,
+    marginBottom: 2,
   },
   contentPreview: {
     fontFamily: 'Lexend-Regular',

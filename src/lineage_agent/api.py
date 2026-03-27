@@ -3345,8 +3345,37 @@ async def get_stats_brief(request: Request) -> dict:
         except Exception:
             pass
 
+    # Sort watchlist_alerts by severity (critical first)
+    _sev_order = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
+    for sec in sections:
+        if sec["type"] in ("watchlist_alerts", "active_campaigns"):
+            sec["items"].sort(key=lambda x: _sev_order.get(x.get("severity", "info"), 5))
+
     return {"text": text, "generated_at": datetime.now(tz=timezone.utc).isoformat(),
             "sections": sections}
+
+
+# ------------------------------------------------------------------
+# On-demand briefing generation
+# ------------------------------------------------------------------
+
+@app.post("/stats/brief/generate", tags=["intelligence"])
+@limiter.limit("3/hour")
+async def generate_briefing_now(request: Request):
+    """Generate a fresh briefing on demand (max 3/hour). Requires X-API-Key."""
+    user = await _get_current_user(request)
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+    from .briefing_service import generate_briefing, store_briefing  # noqa: PLC0415
+
+    result = await generate_briefing(user["id"], _cache)
+    if result is None:
+        raise HTTPException(status_code=404, detail="No watchlist tokens or generation failed")
+
+    content, risk_snapshot = result
+    await store_briefing(_cache, user["id"], content, risk_snapshot)
+
+    return {"text": content, "generated_at": datetime.now(tz=timezone.utc).isoformat(),
+            "risk_snapshot": risk_snapshot}
 
 
 # ------------------------------------------------------------------
