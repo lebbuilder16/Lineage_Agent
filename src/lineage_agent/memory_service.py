@@ -467,9 +467,20 @@ async def get_active_anomalies(entity_type: str, entity_id: str) -> list[dict]:
 # ── Narrative Clustering ──────────────────────────────────────────────────────
 
 _NARRATIVE_STOPWORDS = frozenset({
+    # English stop words
     "token", "coin", "meme", "sol", "solana", "new", "the", "to", "and",
     "of", "a", "in", "on", "is", "it", "for", "my", "by", "up", "no",
     "go", "do", "so", "or", "an", "be", "at", "if", "ok", "v2", "v1",
+    # Verdict template words (appear in heuristic/AI verdicts, not real narratives)
+    "dex", "graduation", "auto-scan", "heuristic", "score", "scan",
+    "rule-based", "temporarily", "unavailable", "analysis", "risk",
+    "insufficient", "evidence", "minimal", "moderate", "high", "low",
+    "critical", "detected", "confirmed", "suspected", "unknown",
+    "with", "but", "not", "was", "has", "had", "are", "were", "been",
+    "from", "this", "that", "than", "very", "more", "less", "only",
+    "pre-dex", "post-launch", "early-stage", "0/100", "100",
+    "deployer", "wallet", "bundle", "liquidity", "market",
+    "via", "chain", "clean", "minimal_risk", "caution", "treat",
 })
 
 
@@ -548,15 +559,12 @@ async def detect_narrative_clusters(
                 }
                 clusters.append(cluster)
 
-        # Deactivate old clusters, write new ones
-        await db.execute(
-            "UPDATE narrative_clusters SET active = 0 WHERE window_end < ?",
-            (window_start,),
-        )
+        # Replace all active clusters atomically: delete old → insert fresh
+        await db.execute("DELETE FROM narrative_clusters WHERE active = 1")
 
         for c in clusters:
             await db.execute(
-                "INSERT OR REPLACE INTO narrative_clusters "
+                "INSERT INTO narrative_clusters "
                 "(narrative_key, deployer_count, token_count, deployers_json, mints_json, "
                 " avg_risk_score, window_start, window_end, active, created_at) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?)",
