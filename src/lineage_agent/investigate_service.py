@@ -134,6 +134,37 @@ async def run_investigation(
         return
 
     # ── Pro+ / Whale: agent investigation ───────────────────────────
+
+    # Token-saving: skip AI for clean re-scans (<6h, heuristic < 25)
+    if tier.has_agent and hscore < 25:
+        try:
+            from .memory_service import build_memory_brief as _bmb  # noqa: PLC0415
+            from .data_sources._clients import cache as _mc  # noqa: PLC0415
+            from .cache import SQLiteCache as _SC  # noqa: PLC0415
+            if isinstance(_mc, _SC):
+                _db = await _mc._get_conn()
+                _cur = await _db.execute(
+                    "SELECT risk_score, verdict_summary, created_at FROM investigation_episodes "
+                    "WHERE mint = ? ORDER BY created_at DESC LIMIT 1", (mint,),
+                )
+                _prev = await _cur.fetchone()
+                if _prev and (time.time() - _prev[2]) < 21600 and _prev[0] < 25:
+                    logger.info("[investigate] clean re-scan skip: %s (prev=%d, %dh ago)",
+                                mint[:12], _prev[0], int((time.time() - _prev[2]) / 3600))
+                    cached_verdict = _build_heuristic_verdict(hscore, mint)
+                    cached_verdict["verdict_summary"] = (
+                        f"Low-risk re-scan (previous: {_prev[0]}/100, {int((time.time() - _prev[2]) / 3600)}h ago). "
+                        f"{cached_verdict['verdict_summary']}"
+                    )
+                    yield _evtN("verdict", cached_verdict)
+                    yield _evtN("done", {
+                        "tier": _tier_name(tier), "turns_used": 0,
+                        "tokens_used": 0, "chat_available": tier.has_ai_chat,
+                    })
+                    return
+        except Exception:
+            pass  # fallthrough to normal investigation
+
     if tier.has_agent:
         yield _evtN("phase", {"phase": "agent", "status": "started"})
 

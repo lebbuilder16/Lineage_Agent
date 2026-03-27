@@ -41,8 +41,8 @@ _MAX_TURNS = 2
 _TOOL_TIMEOUT_DEFAULT = 8.0
 _TOOL_TIMEOUT_SCAN = 15.0
 _TOOL_TIMEOUT_COMPARE = 12.0
-_COMPRESS_THRESHOLD = 4000  # chars — compress tool results larger than this
-_MAX_TOKENS_BUDGET = 30_000  # total input + output tokens per investigation
+_COMPRESS_THRESHOLD = 2500  # chars — compress tool results larger than this (was 4000)
+_MAX_TOKENS_BUDGET = 20_000  # total input + output tokens per investigation (was 30_000)
 _TOKEN_BUDGET_WARNING_PCT = 0.80
 
 _TOOL_CALL_LIMITS: dict[str, int] = {
@@ -566,7 +566,11 @@ async def _execute_tool(name: str, args: dict, *, cache: Any) -> dict:
 
 
 def _build_agent_system_prompt(heuristic: int, *, scan_summary: dict | None = None) -> str:
-    """Build the system prompt for the agent, reusing scoring guide from ai_analyst."""
+    """Build the system prompt for the agent, reusing scoring guide from ai_analyst.
+
+    Token-saving: skip few-shot examples for low-risk tokens (heuristic < 30)
+    to reduce input tokens by ~200.
+    """
     # Extract the scoring guide portion from _SYSTEM_PROMPT
     scoring_section = ""
     for line in _SYSTEM_PROMPT.split("\n"):
@@ -574,6 +578,9 @@ def _build_agent_system_prompt(heuristic: int, *, scan_summary: dict | None = No
             scoring_section += line + "\n"
             if "Pre-DEX bonding-curve" in line:
                 break
+
+    # Skip few-shot examples for clearly low-risk tokens
+    examples = _FEW_SHOT_EXAMPLES if heuristic >= 30 else ""
 
     pre_scan_section = ""
     if scan_summary:
@@ -584,7 +591,7 @@ The scan pipeline has already collected the following data for this token.
 Use this data directly — do NOT call scan_token again for this mint.
 
 ```json
-{_json.dumps(scan_summary, default=str, indent=2)[:6000]}
+{_json.dumps(scan_summary, default=str)[:3000]}
 ```
 
 Based on this data, focus on:
@@ -610,7 +617,7 @@ Do NOT call scan_token or any individual tools — all data is already provided.
 Only call a tool if you need data about a DIFFERENT mint address (cross-reference).
 
 {scoring_section}
-{_FEW_SHOT_EXAMPLES}
+{examples}
 
 CRITICAL RULES:
 - Deliver your verdict using the forensic_report tool in THIS turn.
@@ -641,7 +648,7 @@ Your investigation loop:
 4. When you have enough evidence, deliver your verdict via forensic_report tool.
 
 {scoring_section}
-{_FEW_SHOT_EXAMPLES}
+{examples}
 
 CRITICAL RULES:
 - Call scan_token FIRST. It provides the baseline for everything.
@@ -1014,6 +1021,15 @@ async def run_agent(
             messages.append({"role": "user", "content": tool_result_contents})
 
             _compress_old_tool_results(messages, current_turn=turn)
+
+            # Early exit: if prescan was injected and Turn 1 only called recall_memory
+            # (no heavy tools), skip Turn 2 — verdict extraction is cheaper than another turn
+            if scan_summary and turn == 1:
+                _heavy_tools = {tu["name"] for tu in regular_tool_uses} - {"recall_memory"}
+                if not _heavy_tools:
+                    logger.info("[agent] skipping turn 2 — prescan sufficient, no heavy tools called")
+                    break
+
             continue  # Next turn
 
         # ── Text response (no tools) — agent is done ─────────────────────
