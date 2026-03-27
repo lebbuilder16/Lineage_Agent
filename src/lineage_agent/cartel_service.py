@@ -167,6 +167,15 @@ async def run_cartel_sweep() -> int:
         except Exception as nc_exc:
             logger.debug("Narrative clustering skipped: %s", nc_exc)
 
+        # Re-generate calibration rules from accumulated feedback
+        try:
+            from .memory_service import generate_calibration_rules
+            rules = await generate_calibration_rules()
+            if rules:
+                logger.info("Calibration: %d rule(s) regenerated", rules)
+        except Exception as cr_exc:
+            logger.debug("Calibration regeneration skipped: %s", cr_exc)
+
         return total
     except Exception:
         logger.exception("run_cartel_sweep failed")

@@ -2418,6 +2418,103 @@ async def auth_remove_cartel_monitor(cartel_id: str, request: Request):
 
 
 # ---------------------------------------------------------------------------
+# Anomaly alerts — proactive deviation detection
+# ---------------------------------------------------------------------------
+
+@app.get("/auth/anomalies", tags=["intelligence"])
+async def auth_anomalies(request: Request):
+    """Return active anomaly alerts for entities the user has investigated.
+
+    Returns alerts for deployers/operators where unusual behavior was detected
+    (velocity spikes, risk jumps, extraction spikes, rug rate inflections).
+    """
+    user = await _get_current_user(request)
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+    from .cache import SQLiteCache  # noqa: PLC0415
+    if not isinstance(_cache, SQLiteCache):
+        return []
+    db = await _cache._get_conn()
+    cursor = await db.execute(
+        "SELECT entity_type, entity_id, anomaly_type, severity, "
+        "baseline_value, current_value, description, created_at "
+        "FROM anomaly_alerts WHERE resolved = 0 "
+        "ORDER BY created_at DESC LIMIT 20",
+    )
+    rows = await cursor.fetchall()
+    return [
+        {
+            "entity_type": r[0], "entity_id": r[1],
+            "anomaly_type": r[2], "severity": r[3],
+            "baseline": r[4], "current": r[5],
+            "description": r[6],
+            "age_hours": round((time.time() - r[7]) / 3600, 1),
+        }
+        for r in rows
+    ]
+
+
+@app.get("/auth/anomalies/{entity_id}", tags=["intelligence"])
+async def auth_anomalies_for_entity(entity_id: str, request: Request):
+    """Return active anomaly alerts for a specific deployer or operator."""
+    await _get_current_user(request)
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+    from .cache import SQLiteCache  # noqa: PLC0415
+    if not isinstance(_cache, SQLiteCache):
+        return []
+    db = await _cache._get_conn()
+    cursor = await db.execute(
+        "SELECT entity_type, anomaly_type, severity, "
+        "baseline_value, current_value, description, created_at "
+        "FROM anomaly_alerts WHERE entity_id = ? AND resolved = 0 "
+        "ORDER BY created_at DESC LIMIT 10",
+        (entity_id,),
+    )
+    rows = await cursor.fetchall()
+    return [
+        {
+            "entity_type": r[0], "anomaly_type": r[1], "severity": r[2],
+            "baseline": r[3], "current": r[4],
+            "description": r[5],
+            "age_hours": round((time.time() - r[6]) / 3600, 1),
+        }
+        for r in rows
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Narrative clusters — cross-deployer thematic wave detection
+# ---------------------------------------------------------------------------
+
+@app.get("/narrative-clusters", tags=["intelligence"])
+async def get_narrative_clusters():
+    """Return active narrative clusters (coordinated thematic waves).
+
+    No auth required — public intelligence data.
+    """
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+    from .cache import SQLiteCache  # noqa: PLC0415
+    if not isinstance(_cache, SQLiteCache):
+        return []
+    db = await _cache._get_conn()
+    cursor = await db.execute(
+        "SELECT narrative_key, deployer_count, token_count, avg_risk_score, "
+        "window_start, window_end, created_at "
+        "FROM narrative_clusters WHERE active = 1 "
+        "ORDER BY deployer_count DESC LIMIT 20",
+    )
+    rows = await cursor.fetchall()
+    return [
+        {
+            "narrative": r[0], "deployer_count": r[1], "token_count": r[2],
+            "avg_risk_score": r[3],
+            "window_hours": round((r[5] - r[4]) / 3600, 1),
+            "age_hours": round((time.time() - r[6]) / 3600, 1),
+        }
+        for r in rows
+    ]
+
+
+# ---------------------------------------------------------------------------
 # Wallet connect pages — served to in-app browsers (Phantom, Solflare, Backpack)
 # ---------------------------------------------------------------------------
 
