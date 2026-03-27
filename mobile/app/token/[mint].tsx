@@ -200,6 +200,16 @@ export default function TokenScreen() {
           <Animated.View entering={FadeInDown.duration(350).springify()} style={styles.sections}>
             <HeroSection data={data} mint={mint ?? ''} riskScore={riskScore} riskColor={riskColor} displayRiskLevel={displayRiskLevel} watching={watching} onCopy={handleCopy} onWatch={handleWatch} />
 
+            {/* Critical info first — visible above the fold */}
+            <RiskSummaryCard data={data} displayRiskLevel={displayRiskLevel} riskColor={riskColor} riskSummary={riskSummary} />
+            <SweepAlertsBanner mint={mint ?? ''} />
+            <AgentSuggestions data={data} mint={mint ?? ''} />
+
+            {/* Primary CTA — right after risk context */}
+            <HapticButton variant="primary" size="lg" fullWidth onPress={() => router.push(`/investigate/${mint}` as any)} accessibilityRole="button" accessibilityLabel="Investigate token">
+              <Text style={styles.btnPrimaryText}>INVESTIGATE</Text>
+            </HapticButton>
+
             {previousInvestigation && (
               <TouchableOpacity onPress={() => router.push(`/investigate/${mint}` as any)} activeOpacity={0.75} accessibilityRole="button" accessibilityLabel="View previous investigation">
                 <GlassCard style={{ borderColor: `${tokens.secondary}20`, borderWidth: 1 }}>
@@ -216,10 +226,6 @@ export default function TokenScreen() {
               </TouchableOpacity>
             )}
 
-            <AgentSuggestions data={data} mint={mint ?? ''} />
-            <SweepAlertsBanner mint={mint ?? ''} />
-            <RiskSummaryCard data={data} displayRiskLevel={displayRiskLevel} riskColor={riskColor} riskSummary={riskSummary} />
-
             {/* Factory Bot Banner */}
             {data.factory_rhythm?.is_factory && (
               <View style={styles.factoryBanner}>
@@ -235,10 +241,6 @@ export default function TokenScreen() {
 
             <LivePulseCard data={data} />
             <OperatorDamageCard data={data} />
-
-            <HapticButton variant="primary" size="lg" fullWidth onPress={() => router.push(`/investigate/${mint}` as any)} accessibilityRole="button" accessibilityLabel="Investigate token">
-              <Text style={styles.btnPrimaryText}>INVESTIGATE</Text>
-            </HapticButton>
 
             <View style={styles.actionRow}>
               <TouchableOpacity style={styles.actionBtn} onPress={() => router.push(`/tree/${mint}` as any)} activeOpacity={0.75} accessibilityRole="button" accessibilityLabel="View family tree">

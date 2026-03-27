@@ -23,8 +23,10 @@ import Animated, {
 import { useQueryClient } from '@tanstack/react-query';
 import { analyzeStream } from '../../src/lib/api';
 import { HapticButton } from '../../src/components/ui/HapticButton';
+import { RiskBadge } from '../../src/components/ui/RiskBadge';
 import { tokens } from '../../src/theme/tokens';
 import { useAuthStore } from '../../src/store/auth';
+import { deriveRiskLevel, type RiskLevel } from '../../src/lib/risk';
 import type { AnalysisStep, LineageResult } from '../../src/types/api';
 
 // ─── Step config ──────────────────────────────────────────────────────────────
@@ -211,27 +213,50 @@ export default function AnalysisModal() {
           })}
         </ScrollView>
 
-        {/* Done */}
-        {done && (
-          <Animated.View entering={FadeInDown.duration(300).springify()} style={styles.doneSection}>
-            <View style={styles.doneTitleRow}>
-              <CheckCircle size={18} color={tokens.success} strokeWidth={2} />
-              <Text style={styles.doneTitle}>Analysis Complete</Text>
-            </View>
-            <HapticButton
-              variant="primary"
-              size="md"
-              fullWidth
-              onPress={() => {
-                queryClient.invalidateQueries({ queryKey: ['lineage', mint] });
-                setReportExpandMint(mint ?? null);
-                router.back();
-              }}
-            >
-              <Text style={styles.btnText}>VIEW FULL REPORT</Text>
-            </HapticButton>
-          </Animated.View>
-        )}
+        {/* Done — show verdict preview + CTA */}
+        {done && (() => {
+          const rl: RiskLevel = result ? deriveRiskLevel(result) : 'insufficient_data';
+          const verdictText = (() => {
+            if (!result) return null;
+            const ins = result.insider_sell as any;
+            const dp = result.deployer_profile as any;
+            if (ins?.verdict === 'insider_dump' && ins?.deployer_exited) return 'Deployer exited — insider dump confirmed';
+            if (ins?.verdict === 'insider_dump') return 'Insider dump detected';
+            if (dp?.rug_rate_pct != null && dp.rug_rate_pct > 30) return `Deployer rugged ${dp.confirmed_rug_count ?? '?'} tokens (${dp.rug_rate_pct.toFixed(0)}%)`;
+            const br = result.bundle_report as any;
+            if (br?.overall_verdict && br.overall_verdict !== 'early_buyers_no_link_proven') return br.overall_verdict.replace(/_/g, ' ');
+            if (rl === 'low') return 'No major threats detected';
+            return null;
+          })();
+          return (
+            <Animated.View entering={FadeInDown.duration(300).springify()} style={styles.doneSection}>
+              <View style={styles.doneTitleRow}>
+                <CheckCircle size={18} color={tokens.success} strokeWidth={2} />
+                <Text style={styles.doneTitle}>Analysis Complete</Text>
+              </View>
+              {rl !== 'insufficient_data' && (
+                <View style={styles.verdictPreview}>
+                  <RiskBadge level={rl === 'first_rug' ? 'high' : rl as any} size="sm" />
+                  {verdictText && (
+                    <Text style={styles.verdictText} numberOfLines={2}>{verdictText}</Text>
+                  )}
+                </View>
+              )}
+              <HapticButton
+                variant="primary"
+                size="md"
+                fullWidth
+                onPress={() => {
+                  queryClient.invalidateQueries({ queryKey: ['lineage', mint] });
+                  setReportExpandMint(mint ?? null);
+                  router.back();
+                }}
+              >
+                <Text style={styles.btnText}>VIEW FULL REPORT</Text>
+              </HapticButton>
+            </Animated.View>
+          );
+        })()}
       </Animated.View>
     </View>
   );
@@ -354,6 +379,23 @@ const styles = StyleSheet.create({
     fontSize: tokens.font.subheading,
     color: tokens.success,
     textAlign: 'center',
+  },
+  verdictPreview: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: tokens.bgGlass8,
+    borderRadius: tokens.radius.sm,
+    borderWidth: 1,
+    borderColor: tokens.borderSubtle,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  verdictText: {
+    fontFamily: 'Lexend-Regular',
+    fontSize: tokens.font.small,
+    color: tokens.white80,
+    flex: 1,
   },
   btnText: {
     fontFamily: 'Lexend-Bold',
