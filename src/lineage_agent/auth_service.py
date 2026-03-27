@@ -223,6 +223,26 @@ async def update_user_profile(cache, user_id: int, updates: dict) -> dict | None
         return None
 
 
+async def delete_user_account(cache, user_id: int) -> bool:
+    """Permanently delete a user account and all associated data."""
+    try:
+        db = await cache._get_conn()
+        # Delete related data first
+        for table in ("user_watches", "agent_history", "wallet_risk_history", "intelligence_events"):
+            try:
+                await db.execute(f"DELETE FROM {table} WHERE user_id = ?", (user_id,))
+            except Exception:
+                pass  # Table may not exist in all environments
+        # Delete user
+        await db.execute("DELETE FROM users WHERE id = ?", (user_id,))
+        await db.commit()
+        logger.info("Deleted user account id=%s", user_id)
+        return True
+    except Exception:
+        logger.warning("delete_user_account failed for user_id=%s", user_id, exc_info=True)
+        return False
+
+
 async def register_fcm_token(cache, user_id: int, fcm_token: str) -> bool:
     """
     Persist a Firebase Cloud Messaging device token for a user.

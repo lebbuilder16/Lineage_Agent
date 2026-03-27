@@ -143,6 +143,29 @@ export default function AccountScreen() {
     ]);
   };
 
+  const handleDeleteAccount = () => {
+    Alert.alert(
+      'Delete Account',
+      'This will permanently delete your account and all associated data (watchlist, history, alerts). This action cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Delete', style: 'destructive', onPress: async () => {
+          try {
+            const BASE = (process.env.EXPO_PUBLIC_API_URL ?? 'https://lineage-agent.fly.dev').replace(/\/$/, '');
+            const res = await fetch(`${BASE}/auth/me`, { method: 'DELETE', headers: { 'X-API-Key': apiKey! } });
+            if (!res.ok) throw new Error('Failed to delete account');
+            const { purgeUserData } = await import('../../src/lib/purge-user-data');
+            await purgeUserData();
+            setApiKey(null);
+            router.replace('/(auth)/welcome');
+          } catch (err) {
+            Alert.alert('Error', err instanceof Error ? err.message : 'Could not delete account.');
+          }
+        }},
+      ],
+    );
+  };
+
   const handlePickAvatar = async () => {
     if (!apiKey) return;
 
@@ -439,14 +462,29 @@ export default function AccountScreen() {
                 label="Rotate Key"
                 onPress={handleRotateKey}
               />
+              <View style={s.divider} />
+              <SettingsRow
+                icon={<ChevronRight size={16} color={tokens.textTertiary} />}
+                label="Privacy Policy"
+                onPress={() => router.push('/legal/privacy' as any)}
+              />
+              <View style={s.divider} />
+              <SettingsRow
+                icon={<ChevronRight size={16} color={tokens.textTertiary} />}
+                label="Terms of Service"
+                onPress={() => router.push('/legal/terms' as any)}
+              />
             </GlassCard>
           </Animated.View>
 
-          {/* ── Sign Out ──────────────────────────────────────────────────── */}
-          <Animated.View entering={FadeInDown.delay(300).duration(400)} style={{ marginTop: 8 }}>
+          {/* ── Sign Out + Delete ────────────────────────────────────────── */}
+          <Animated.View entering={FadeInDown.delay(300).duration(400)} style={{ marginTop: 8, gap: 8 }}>
             <HapticButton variant="ghost" size="md" fullWidth onPress={handleLogout}>
               <LogOut size={16} color={tokens.accent} />
               <Text style={s.logoutText}>Sign Out</Text>
+            </HapticButton>
+            <HapticButton variant="ghost" size="md" fullWidth onPress={handleDeleteAccount}>
+              <Text style={s.deleteText}>Delete Account</Text>
             </HapticButton>
           </Animated.View>
 
@@ -569,6 +607,7 @@ const s = StyleSheet.create({
 
   // Logout
   logoutText: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.body, color: tokens.accent },
+  deleteText: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.small, color: tokens.risk.critical },
   appVersion: {
     fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny,
     color: tokens.white20, textAlign: 'center', marginTop: 8,

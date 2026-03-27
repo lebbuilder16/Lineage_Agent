@@ -255,11 +255,11 @@ export default function PaywallScreen() {
             <Text style={styles.footerLink}>Restore Purchases</Text>
           </TouchableOpacity>
           <View style={styles.footerLegal}>
-            <TouchableOpacity onPress={comingSoon}>
+            <TouchableOpacity onPress={() => router.push('/legal/terms' as any)}>
               <Text style={styles.footerLegalText}>Terms of Service</Text>
             </TouchableOpacity>
             <Text style={styles.footerDot}>{'\u00B7'}</Text>
-            <TouchableOpacity onPress={comingSoon}>
+            <TouchableOpacity onPress={() => router.push('/legal/privacy' as any)}>
               <Text style={styles.footerLegalText}>Privacy Policy</Text>
             </TouchableOpacity>
           </View>

@@ -168,6 +168,11 @@ export default function TokenScreen() {
         </TouchableOpacity>
       </View>
 
+      {/* Financial disclaimer */}
+      <View style={styles.disclaimerBar}>
+        <Text style={styles.disclaimerText}>For informational purposes only. Not financial advice.</Text>
+      </View>
+
       <ScrollView
         contentContainerStyle={[styles.content, { paddingBottom: Math.max(insets.bottom + 80, 120) }]}
         showsVerticalScrollIndicator={false}
@@ -275,6 +280,8 @@ export default function TokenScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: tokens.bgMain },
+  disclaimerBar: { paddingHorizontal: tokens.spacing.screenPadding, paddingVertical: 6, backgroundColor: `${tokens.warning}08` },
+  disclaimerText: { fontFamily: 'Lexend-Regular', fontSize: 9, color: tokens.warning, textAlign: 'center', letterSpacing: 0.2 },
   navbar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: tokens.spacing.screenPadding, paddingBottom: 12 },
   navBtn: { minWidth: tokens.minTouchSize, minHeight: tokens.minTouchSize, justifyContent: 'center', alignItems: 'center' },
   navTitle: { fontFamily: 'Lexend-Bold', fontSize: tokens.font.small, color: tokens.white60, letterSpacing: 1.5 },

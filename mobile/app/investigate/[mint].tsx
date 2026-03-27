@@ -161,6 +161,11 @@ export default function InvestigateScreen() {
         </TouchableOpacity>
       </View>
 
+      {/* Financial disclaimer */}
+      <View style={styles.disclaimerBar}>
+        <Text style={styles.disclaimerText}>For informational purposes only. Not financial advice.</Text>
+      </View>
+
       {startedAt && <ElapsedTimer />}
 
       {/* Intent Preview */}
@@ -241,6 +246,8 @@ export default function InvestigateScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: tokens.bgMain },
+  disclaimerBar: { paddingHorizontal: tokens.spacing.screenPadding, paddingVertical: 6, backgroundColor: `${tokens.warning}08` },
+  disclaimerText: { fontFamily: 'Lexend-Regular', fontSize: 9, color: tokens.warning, textAlign: 'center', letterSpacing: 0.2 },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: tokens.spacing.screenPadding, paddingVertical: 12 },
   headerTitle: { fontFamily: 'Lexend-Bold', fontSize: tokens.font.sectionHeader, color: tokens.white100, letterSpacing: 1.5 },
   quota: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny, color: tokens.textTertiary, textAlign: 'center', marginBottom: 4 },

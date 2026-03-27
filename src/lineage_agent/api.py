@@ -2344,6 +2344,18 @@ async def auth_add_watch(body: _WatchRequest, request: Request):
     return watch
 
 
+@app.delete("/auth/me", tags=["auth"], summary="Delete current user account and all data")
+async def auth_delete_account(request: Request):
+    """Permanently delete the authenticated user's account and all associated data."""
+    user = await _get_current_user(request)
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+    from .auth_service import delete_user_account
+    deleted = await delete_user_account(_cache, user["id"])
+    if not deleted:
+        raise HTTPException(status_code=500, detail="Could not delete account")
+    return {"deleted": True}
+
+
 @app.delete("/auth/watches/{watch_id}", tags=["auth"])
 async def auth_remove_watch(watch_id: int, request: Request):
     """Delete a watch by id. Requires X-API-Key header."""
