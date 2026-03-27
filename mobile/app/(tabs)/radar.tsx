@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useCallback } from 'react';
-import { View, Text, ScrollView, StyleSheet, TouchableOpacity, RefreshControl, Pressable } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, TouchableOpacity, RefreshControl, Pressable, Image } from 'react-native';
 import { router } from 'expo-router';
 import { TrendingUp, AlertTriangle, Bell, Zap, Skull, BookMarked, ChevronRight, User, Shield } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -122,7 +122,13 @@ export default function RadarScreen() {
             </View>
           </View>
           <Pressable onPress={() => router.push('/(tabs)/account' as any)} hitSlop={8} style={styles.avatarBtn}>
-            <User size={18} color={tokens.white60} strokeWidth={2} />
+            {user?.avatar_url ? (
+              <Image source={{ uri: user.avatar_url }} style={styles.avatarImg} />
+            ) : (
+              <Text style={styles.avatarLetter}>{(user?.display_name ?? user?.username ?? 'A')[0]?.toUpperCase()}</Text>
+            )}
+            {/* Online ring */}
+            <View style={[styles.avatarRing, { borderColor: wsConnected ? tokens.success : tokens.risk.critical }]} />
           </Pressable>
         </View>
 
@@ -248,7 +254,10 @@ const styles = StyleSheet.create({
   statusRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   statusDot: { width: 6, height: 6, borderRadius: 3 },
   statusText: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny, color: tokens.textTertiary },
-  avatarBtn: { width: 36, height: 36, borderRadius: 10, backgroundColor: tokens.bgGlass8, borderWidth: 1, borderColor: tokens.borderSubtle, alignItems: 'center', justifyContent: 'center' },
+  avatarBtn: { width: 38, height: 38, borderRadius: 19, backgroundColor: tokens.bgGlass12, alignItems: 'center', justifyContent: 'center', position: 'relative' },
+  avatarImg: { width: 38, height: 38, borderRadius: 19 },
+  avatarLetter: { fontFamily: 'Lexend-Bold', fontSize: 15, color: tokens.white60 },
+  avatarRing: { position: 'absolute', top: -1, left: -1, right: -1, bottom: -1, borderRadius: 20, borderWidth: 2 },
   statsBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around', backgroundColor: tokens.bgGlass8, borderRadius: tokens.radius.md, borderWidth: 1, borderColor: tokens.borderSubtle, paddingVertical: 14, paddingHorizontal: 8 },
   statItem: { alignItems: 'center', flex: 1 },
   statValue: { fontFamily: 'Lexend-Bold', fontSize: tokens.font.subheading, color: tokens.white80 },
