@@ -177,6 +177,7 @@ export default function AgentScreen() {
         riskScore: effectiveRisk.score,
         time: inv.timestamp,
         color: effectiveRisk.color,
+        read: true,  // user-initiated — always read
       });
     }
 
@@ -195,6 +196,7 @@ export default function AgentScreen() {
         riskScore: alert.risk_score ?? undefined,
         time: ts,
         color: (alert.risk_score ?? 0) >= 75 ? tokens.risk.critical : tokens.risk.high,
+        read: false,  // push alerts are unread by default
       });
     }
 
@@ -263,6 +265,22 @@ export default function AgentScreen() {
   const unreadFlags = sweepFlags.filter((f) => !f.read).length;
   const walletRisky = useWalletMonitorStore((s) => s.totalRisky);
 
+  // Mark a feed item as read (flags only — investigations/alerts are auto-read)
+  const handleMarkRead = useCallback((id: string) => {
+    if (id.startsWith('flag-')) {
+      const flagId = Number(id.replace('flag-', ''));
+      setSweepFlags((prev) => prev.map((f) => f.id === flagId ? { ...f, read: true } : f));
+      // Best-effort: persist to backend
+      const key = apiKeyRef.current;
+      if (key) {
+        fetch(`${BASE_URL}/agent/flags/${flagId}/read`, {
+          method: 'POST',
+          headers: { 'X-API-Key': key },
+        }).catch(() => {});
+      }
+    }
+  }, []);
+
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
@@ -280,7 +298,7 @@ export default function AgentScreen() {
             totalCount={totalCount}
             accuratePct={accuratePct}
             lastSweep={serverStatus?.last_sweep ?? null}
-            unreadFlags={unreadFlags}
+            unreadFlags={unreadFlags} // hero shows inline chip if > 0
           />
 
           {/* Tab bar */}
@@ -323,7 +341,7 @@ export default function AgentScreen() {
 
           {activeTab === 'feed' && (
             <Animated.View entering={FadeInDown.delay(150).duration(300).springify()}>
-              <AgentActivityFeed feedItems={feedItems} />
+              <AgentActivityFeed feedItems={feedItems} onMarkRead={handleMarkRead} />
             </Animated.View>
           )}
 
