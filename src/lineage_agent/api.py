@@ -2194,6 +2194,10 @@ class _WatchRequest(BaseModel):
     value: str     # address
 
 
+class _CartelMonitorRequest(BaseModel):
+    cartel_id: str = ""
+
+
 async def _get_current_user(request: Request):
     """Dependency: parse X-API-Key header → user dict or raise 401."""
     api_key = request.headers.get("X-API-Key", "")
@@ -2353,6 +2357,64 @@ async def auth_remove_watch(watch_id: int, request: Request):
     if not deleted:
         raise HTTPException(status_code=404, detail="Watch not found")
     return {"deleted": True}
+
+
+# ---------------------------------------------------------------------------
+# Cartel monitors — CRUD for per-user cartel monitoring
+# ---------------------------------------------------------------------------
+
+@app.post("/auth/cartel-monitors", tags=["auth"])
+async def auth_add_cartel_monitor(body: _CartelMonitorRequest, request: Request):
+    """Start monitoring a cartel community. Requires X-API-Key header."""
+    if not body.cartel_id:
+        raise HTTPException(status_code=400, detail="cartel_id is required")
+    user = await _get_current_user(request)
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+    db = await _cache._get_conn()
+    # Check if already monitoring
+    cursor = await db.execute(
+        "SELECT id FROM user_watches WHERE user_id = ? AND sub_type = 'cartel' AND value = ?",
+        (user["id"], body.cartel_id),
+    )
+    if await cursor.fetchone():
+        return {"status": "already_monitoring"}
+    import time as _time  # noqa: PLC0415
+    await db.execute(
+        "INSERT INTO user_watches (user_id, sub_type, value, created_at) VALUES (?, 'cartel', ?, ?)",
+        (user["id"], body.cartel_id, _time.time()),
+    )
+    await db.commit()
+    return {"status": "monitoring_started", "cartel_id": body.cartel_id}
+
+
+@app.get("/auth/cartel-monitors", tags=["auth"])
+async def auth_cartel_monitors(request: Request):
+    """List cartel monitors for the current user. Requires X-API-Key header."""
+    user = await _get_current_user(request)
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+    db = await _cache._get_conn()
+    cursor = await db.execute(
+        "SELECT value FROM user_watches WHERE user_id = ? AND sub_type = 'cartel' ORDER BY created_at DESC",
+        (user["id"],),
+    )
+    rows = await cursor.fetchall()
+    return [{"cartel_id": r[0]} for r in rows]
+
+
+@app.delete("/auth/cartel-monitors/{cartel_id}", tags=["auth"])
+async def auth_remove_cartel_monitor(cartel_id: str, request: Request):
+    """Stop monitoring a cartel. Requires X-API-Key header."""
+    user = await _get_current_user(request)
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+    db = await _cache._get_conn()
+    cursor = await db.execute(
+        "DELETE FROM user_watches WHERE user_id = ? AND sub_type = 'cartel' AND value = ?",
+        (user["id"], cartel_id),
+    )
+    await db.commit()
+    if cursor.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Cartel monitor not found")
+    return {"status": "monitoring_stopped"}
 
 
 # ---------------------------------------------------------------------------
