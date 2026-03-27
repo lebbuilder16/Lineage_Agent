@@ -144,6 +144,8 @@ export default function LoginScreen() {
   const [email, setEmail] = useState('');
   const [otpCode, setOtpCode] = useState('');
   const [otpSent, setOtpSent] = useState(false);
+  const [emailFocused, setEmailFocused] = useState(false);
+  const [otpFocused, setOtpFocused] = useState(false);
 
   // ── Email OTP handlers ──────────────────────────────────────────────────
 
@@ -280,8 +282,8 @@ export default function LoginScreen() {
             {!otpSent ? (
               <>
                 {/* Email input */}
-                <View style={styles.inputRow}>
-                  <Mail size={16} color={tokens.textTertiary} strokeWidth={1.5} />
+                <View style={[styles.inputRow, emailFocused && styles.inputRowFocused]}>
+                  <Mail size={16} color={emailFocused ? tokens.secondary : tokens.textTertiary} strokeWidth={1.5} />
                   <TextInput
                     style={styles.input}
                     value={email}
@@ -293,6 +295,8 @@ export default function LoginScreen() {
                     keyboardType="email-address"
                     returnKeyType="done"
                     onSubmitEditing={handleSendOtp}
+                    onFocus={() => setEmailFocused(true)}
+                    onBlur={() => setEmailFocused(false)}
                   />
                 </View>
 
@@ -318,8 +322,8 @@ export default function LoginScreen() {
                 </View>
 
                 {/* OTP code input */}
-                <View style={styles.inputRow}>
-                  <ShieldCheck size={16} color={tokens.textTertiary} strokeWidth={1.5} />
+                <View style={[styles.inputRow, otpFocused && styles.inputRowFocused]}>
+                  <ShieldCheck size={16} color={otpFocused ? tokens.secondary : tokens.textTertiary} strokeWidth={1.5} />
                   <TextInput
                     style={[styles.input, styles.otpInput]}
                     value={otpCode}
@@ -331,6 +335,8 @@ export default function LoginScreen() {
                     autoFocus
                     returnKeyType="done"
                     onSubmitEditing={handleVerifyOtp}
+                    onFocus={() => setOtpFocused(true)}
+                    onBlur={() => setOtpFocused(false)}
                   />
                 </View>
 
@@ -494,10 +500,14 @@ const styles = StyleSheet.create({
     gap: 12,
     backgroundColor: tokens.bgGlass,
     borderRadius: tokens.radius.sm,
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderColor: tokens.borderSubtle,
     paddingHorizontal: 16,
     paddingVertical: 14,
+  },
+  inputRowFocused: {
+    borderColor: `${tokens.secondary}60`,
+    backgroundColor: tokens.bgGlass8,
   },
   input: {
     flex: 1,

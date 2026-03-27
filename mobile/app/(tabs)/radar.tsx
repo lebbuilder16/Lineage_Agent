@@ -3,7 +3,10 @@ import { View, Text, ScrollView, StyleSheet, TouchableOpacity, RefreshControl, P
 import { router } from 'expo-router';
 import { TrendingUp, AlertTriangle, Bell, Zap, Skull, BookMarked, ChevronRight, User, Shield } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Animated, { FadeInDown, FadeIn } from 'react-native-reanimated';
+import Animated, {
+  FadeInDown, FadeIn,
+  useSharedValue, useAnimatedStyle, withRepeat, withSequence, withTiming, Easing,
+} from 'react-native-reanimated';
 import { GlassCard } from '../../src/components/ui/GlassCard';
 import { SkeletonBlock } from '../../src/components/ui/SkeletonLoader';
 import { useGlobalStats, useTopTokens } from '../../src/lib/query';
@@ -100,6 +103,24 @@ export default function RadarScreen() {
   const displayedTokens = (topTokens ?? []).slice(0, 3);
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
+  const totalUnread = allAlerts.filter((a) => !a.read).length;
+
+  // Pulse animation for live dot
+  const pulseOpacity = useSharedValue(1);
+  useEffect(() => {
+    if (wsConnected) {
+      pulseOpacity.value = withRepeat(
+        withSequence(
+          withTiming(0.3, { duration: 1200, easing: Easing.inOut(Easing.ease) }),
+          withTiming(1, { duration: 1200, easing: Easing.inOut(Easing.ease) }),
+        ),
+        -1, false,
+      );
+    } else {
+      pulseOpacity.value = 1;
+    }
+  }, [wsConnected]);
+  const pulseDotStyle = useAnimatedStyle(() => ({ opacity: pulseOpacity.value }));
 
   return (
     <View style={styles.container}>
@@ -114,8 +135,8 @@ export default function RadarScreen() {
                 {greeting}{user?.username ? `, ${user.username}` : ''}
               </Text>
               <View style={styles.statusRow}>
-                <View style={[styles.statusDot, { backgroundColor: wsConnected ? tokens.success : tokens.risk.critical }]} />
-                <Text style={styles.statusText}>
+                <Animated.View style={[styles.statusDot, { backgroundColor: wsConnected ? tokens.success : tokens.risk.critical }, wsConnected && pulseDotStyle]} />
+                <Text style={[styles.statusText, wsConnected && { color: tokens.success }]}>
                   {wsConnected ? 'Live' : 'Offline'}
                 </Text>
               </View>
@@ -145,6 +166,18 @@ export default function RadarScreen() {
           showsVerticalScrollIndicator={false}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={tokens.secondary} />}
         >
+          {/* Hero stat */}
+          {!statsLoading && stats && (stats.tokens_rugged_24h ?? 0) > 0 && (
+            <Animated.View entering={FadeInDown.duration(300)}>
+              <View style={styles.heroStat}>
+                <AlertTriangle size={16} color={tokens.accent} />
+                <Text style={styles.heroStatText}>
+                  <Text style={styles.heroStatNum}>{stats.tokens_rugged_24h}</Text> rugs detected in the last 24h
+                </Text>
+              </View>
+            </Animated.View>
+          )}
+
           {/* Stats bar */}
           <Animated.View entering={FadeInDown.duration(300)}>
             <View style={styles.statsBar}>
@@ -232,6 +265,12 @@ export default function RadarScreen() {
                   </Animated.View>
                 ))}
               </View>
+              {totalUnread > 3 && (
+                <TouchableOpacity onPress={() => router.push('/(tabs)/alerts' as any)} style={styles.moreAlerts} activeOpacity={0.7}>
+                  <Text style={styles.moreAlertsText}>{totalUnread - 3} more alert{totalUnread - 3 > 1 ? 's' : ''}</Text>
+                  <ChevronRight size={12} color={tokens.secondary} />
+                </TouchableOpacity>
+              )}
             </Animated.View>
           )}
         </ScrollView>
@@ -258,6 +297,19 @@ const styles = StyleSheet.create({
   avatarImg: { width: 38, height: 38, borderRadius: 19 },
   avatarLetter: { fontFamily: 'Lexend-Bold', fontSize: 15, color: tokens.white60 },
   avatarRing: { position: 'absolute', top: -1, left: -1, right: -1, bottom: -1, borderRadius: 20, borderWidth: 2 },
+  heroStat: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: `${tokens.accent}10`, borderRadius: tokens.radius.sm,
+    borderWidth: 1, borderColor: `${tokens.accent}20`,
+    paddingHorizontal: 14, paddingVertical: 10,
+  },
+  heroStatText: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.small, color: tokens.accent, flex: 1 },
+  heroStatNum: { fontFamily: 'Lexend-Bold', fontSize: tokens.font.subheading },
+  moreAlerts: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 4, paddingVertical: 10, marginTop: 4,
+  },
+  moreAlertsText: { fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.small, color: tokens.secondary },
   statsBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around', backgroundColor: tokens.bgGlass8, borderRadius: tokens.radius.md, borderWidth: 1, borderColor: tokens.borderSubtle, paddingVertical: 14, paddingHorizontal: 8 },
   statItem: { alignItems: 'center', flex: 1 },
   statValue: { fontFamily: 'Lexend-Bold', fontSize: tokens.font.subheading, color: tokens.white80 },
