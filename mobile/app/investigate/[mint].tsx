@@ -118,6 +118,21 @@ export default function InvestigateScreen() {
 
   const isRunning = status === 'scanning' || status === 'analyzing' || status === 'reasoning';
 
+  // Auto-scroll to latest content as scan steps / agent steps arrive
+  const prevStepCountRef = useRef(0);
+  useEffect(() => {
+    const totalSteps = scanSteps.length + agentSteps.length;
+    if (totalSteps > prevStepCountRef.current) {
+      prevStepCountRef.current = totalSteps;
+      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
+    }
+  }, [scanSteps.length, agentSteps.length]);
+
+  // Also scroll when verdict arrives
+  useEffect(() => {
+    if (verdict) setTimeout(() => scrollRef.current?.scrollTo({ y: 0, animated: true }), 150);
+  }, [verdict]);
+
   return (
     <KeyboardAvoidingView style={[styles.container, { paddingTop: insets.top }]} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <Stack.Screen options={{ headerShown: false, animation: 'slide_from_right' }} />

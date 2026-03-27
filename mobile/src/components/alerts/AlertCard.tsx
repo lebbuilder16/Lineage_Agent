@@ -65,7 +65,7 @@ export interface AlertCardProps {
 
 // ── Component ────────────────────────────────────────────────────────────────
 
-export function AlertCard({
+export const AlertCard = React.memo(function AlertCard({
   item,
   isExpanded,
   groupHeader,
@@ -252,7 +252,13 @@ export function AlertCard({
       </Swipeable>
     </>
   );
-}
+}, (prev, next) =>
+  prev.item.id === next.item.id &&
+  prev.item.read === next.item.read &&
+  prev.isExpanded === next.isExpanded &&
+  prev.groupHeader === next.groupHeader &&
+  prev.item.enrichedData === next.item.enrichedData
+);
 
 // ── Styles ───────────────────────────────────────────────────────────────────
 

@@ -25,6 +25,7 @@ const QUICK_FILTERS: { label: string; value: QuickFilter }[] = [
 ];
 
 const CRITICAL_TYPES = new Set(['rug', 'death_clock', 'bundle', 'insider']);
+const keyExtractor = (item: AlertItem) => item.id;
 
 export default function AlertsScreen() {
   const alerts = useAlertsStore((s) => s.alerts);
@@ -32,7 +33,11 @@ export default function AlertsScreen() {
   const markAllRead = useAlertsStore((s) => s.markAllRead);
   const deleteAlert = useAlertsStore((s) => s.deleteAlert);
   const wsConnected = useAlertsStore((s) => s.wsConnected);
-  const unreadCount = useAlertsStore((s) => s.alerts.filter((a) => !a.read).length);
+  const unreadCount = useAlertsStore((s) => {
+    let count = 0;
+    for (let i = 0; i < s.alerts.length; i++) if (!s.alerts[i].read) count++;
+    return count;
+  });
   const [activeFilter, setActiveFilter] = useState<QuickFilter>('all');
   const [expandedEnrichments, setExpandedEnrichments] = useState<Set<string>>(new Set());
   const insets = useSafeAreaInsets();
@@ -153,9 +158,12 @@ export default function AlertsScreen() {
         ) : (
           <Animated.FlatList
             data={filtered}
-            keyExtractor={(item) => item.id}
+            keyExtractor={keyExtractor}
             contentContainerStyle={[styles.listContent, { paddingBottom: Math.max(insets.bottom + 100, 120) }]}
             showsVerticalScrollIndicator={false}
+            maxToRenderPerBatch={12}
+            windowSize={7}
+            removeClippedSubviews={true}
             renderItem={({ item, index }) => {
               const mintCount = item.mint ? (mintCounts.get(item.mint) ?? 0) : 0;
               const isFirstOfGroup = item.mint && mintCount > 1 &&
@@ -163,8 +171,7 @@ export default function AlertsScreen() {
 
               return (
                 <Animated.View
-                  exiting={FadeInDown}
-                  entering={FadeInDown.delay(index * tokens.timing.listItem).springify()}
+                  entering={index < 15 ? FadeInDown.delay(index * tokens.timing.listItem).springify() : undefined}
                   layout={LinearTransition.springify()}
                 >
                   <AlertCard
