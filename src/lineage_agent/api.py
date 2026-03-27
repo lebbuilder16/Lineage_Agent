@@ -2972,8 +2972,9 @@ async def get_global_stats(request: Request) -> GlobalStats:
                 columns="mint, rug_mechanism, evidence_level",
             )
 
-        # tokens_scanned = user investigations (token_scanned events), fallback to created events
-        tokens_scanned = len(scanned_rows) if scanned_rows else len(created_rows)
+        # tokens_scanned = user investigations if available, otherwise created events
+        # Use max of both to ensure rug_rate never exceeds 100%
+        tokens_scanned = max(len(scanned_rows), len(created_rows))
         tokens_negative_outcomes = len(rugged_rows)
         tokens_rugged = sum(1 for row in rugged_rows if _is_confirmed_rug_stats_row(row))
         rug_rate = round((tokens_rugged / tokens_scanned * 100) if tokens_scanned > 0 else 0.0, 2)
