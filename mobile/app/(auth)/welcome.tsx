@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { View, Text, StyleSheet, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Dimensions } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -82,7 +82,11 @@ export default function WelcomeScreen() {
 
   return (
     <View style={styles.container}>
-      <View style={[styles.content, { paddingTop: Math.max(insets.top + 24, 64), paddingBottom: Math.max(insets.bottom + 16, 32) }]}>
+      <ScrollView
+        contentContainerStyle={[styles.content, { paddingTop: Math.max(insets.top + 24, 64), paddingBottom: Math.max(insets.bottom + 16, 32) }]}
+        showsVerticalScrollIndicator={false}
+        bounces={false}
+      >
 
         {/* Hero */}
         <View style={styles.heroSection}>
@@ -135,8 +139,6 @@ export default function WelcomeScreen() {
           ))}
         </Animated.View>
 
-        <View style={{ flex: 1, minHeight: 24 }} />
-
         {/* Bottom CTAs */}
         <Animated.View entering={FadeInUp.delay(1000).duration(600)} style={styles.ctaBlock}>
           <View style={styles.trustRow}>
@@ -155,14 +157,14 @@ export default function WelcomeScreen() {
             <Text style={styles.exploreBtnText}>Explore without account</Text>
           </HapticButton>
         </Animated.View>
-      </View>
+      </ScrollView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: tokens.bgMain },
-  content: { flex: 1, paddingHorizontal: tokens.spacing.screenPadding + 4 },
+  content: { flexGrow: 1, paddingHorizontal: tokens.spacing.screenPadding + 4 },
 
   // Hero
   heroSection: { alignItems: 'center', marginTop: 16 },
@@ -214,7 +216,7 @@ const styles = StyleSheet.create({
   featureDesc: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.small, color: tokens.textTertiary },
 
   // CTA
-  ctaBlock: { gap: 10, alignItems: 'center' },
+  ctaBlock: { gap: 10, alignItems: 'center', marginTop: 32 },
   trustRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   trustText: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny, color: tokens.textTertiary, letterSpacing: 0.3 },
   ctaBtnText: { fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.subheading, color: tokens.white100, letterSpacing: 0.5 },
