@@ -1,13 +1,14 @@
 import React, { useState } from 'react';
 import {
-  View, Text, StyleSheet, ScrollView, Alert, Pressable, Image,
+  View, Text, StyleSheet, ScrollView, Alert, Pressable, Image, ActivityIndicator, Linking,
 } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import {
-  User, Crown, ChevronRight, LogOut, Key, Bell, RefreshCw, Shield, Scan, Eye, Award,
+  User, Crown, ChevronRight, LogOut, Key, Bell, RefreshCw, Shield, Scan, Eye, Award, Copy, Check,
 } from 'lucide-react-native';
+import * as Clipboard from 'expo-clipboard';
 import * as ImagePicker from 'expo-image-picker';
 import { GlassCard } from '../../src/components/ui/GlassCard';
 import { HapticButton } from '../../src/components/ui/HapticButton';
@@ -75,6 +76,8 @@ export default function AccountScreen() {
   const [sendVisible, setSendVisible] = useState(false);
   const [receiveVisible, setReceiveVisible] = useState(false);
   const [avatarUploading, setAvatarUploading] = useState(false);
+  const [keyCopied, setKeyCopied] = useState(false);
+  const [notifOpen, setNotifOpen] = useState(false);
 
   const isAuthenticated = !!apiKey;
   const displayName = user?.display_name ?? user?.username ?? user?.email?.split('@')[0] ?? 'Agent';
@@ -132,10 +135,21 @@ export default function AccountScreen() {
           const { regenerateApiKey } = await import('../../src/lib/api');
           const newKey = await regenerateApiKey(apiKey!);
           setApiKey(newKey);
-          Alert.alert('Done', 'Your API key has been rotated.');
-        } catch { Alert.alert('Error', 'Could not rotate key.'); }
+          const masked = `${newKey.slice(0, 8)}••••${newKey.slice(-4)}`;
+          Alert.alert('Key Rotated', `New key: ${masked}\n\nCopy it now — it won't be shown again.`, [
+            { text: 'Copy Key', onPress: () => Clipboard.setStringAsync(newKey) },
+            { text: 'OK' },
+          ]);
+        } catch { Alert.alert('Error', 'Could not rotate key. Please try again.'); }
       }},
     ]);
+  };
+
+  const handleCopyKey = async () => {
+    if (!apiKey) return;
+    await Clipboard.setStringAsync(apiKey);
+    setKeyCopied(true);
+    setTimeout(() => setKeyCopied(false), 2000);
   };
 
   const { balance: solBalance, refetch: refetchBalance } = useSolBalance(walletAddr);
@@ -190,12 +204,17 @@ export default function AccountScreen() {
           {/* ── Section 1: Profile Hero ──────────────────────────────────────── */}
           <Animated.View entering={FadeInDown.duration(400)}>
             <GlassCard style={styles.profileCard}>
-              <Pressable onPress={handlePickAvatar} disabled={avatarUploading}>
+              <Pressable onPress={handlePickAvatar} disabled={avatarUploading} style={styles.avatarWrap}>
                 {user?.avatar_url ? (
                   <Image source={{ uri: user.avatar_url }} style={styles.avatarImg} />
                 ) : (
                   <View style={[styles.avatar, { backgroundColor: `${bg1}25`, borderColor: `${bg1}50` }]}>
                     <Text style={[styles.avatarText, { color: bg1 }]}>{displayName[0]?.toUpperCase() ?? 'A'}</Text>
+                  </View>
+                )}
+                {avatarUploading && (
+                  <View style={styles.avatarSpinner}>
+                    <ActivityIndicator size="small" color={tokens.secondary} />
                   </View>
                 )}
               </Pressable>
@@ -280,6 +299,12 @@ export default function AccountScreen() {
                       <ChevronRight size={12} color={tokens.white20} />
                     </Pressable>
                   ))}
+                  {recentSearches.length > 3 && (
+                    <Pressable style={styles.viewAllRow} onPress={() => router.push('/(tabs)/scan' as any)}>
+                      <Text style={styles.viewAllText}>View all scans</Text>
+                      <ChevronRight size={12} color={tokens.secondary} />
+                    </Pressable>
+                  )}
                 </View>
               )}
             </GlassCard>
@@ -291,14 +316,19 @@ export default function AccountScreen() {
               <SettingsRow
                 icon={<Bell size={16} color={tokens.secondary} />}
                 label="Notifications"
-                onPress={() => {/* TODO: open AlertPrefsSheet */}}
+                onPress={() => router.push('/(tabs)/alerts' as any)}
               />
               <View style={styles.divider} />
-              <SettingsRow
-                icon={<Key size={16} color={tokens.secondary} />}
-                label="API Key"
-                value={apiKey ? `${apiKey.slice(0, 8)}••••${apiKey.slice(-4)}` : 'Not set'}
-              />
+              <Pressable style={styles.settingsRow} onPress={handleCopyKey}>
+                <View style={styles.settingsIcon}><Key size={16} color={tokens.secondary} /></View>
+                <Text style={styles.settingsLabel}>API Key</Text>
+                <Text style={styles.settingsValue} numberOfLines={1}>
+                  {apiKey ? `${apiKey.slice(0, 8)}••••${apiKey.slice(-4)}` : 'Not set'}
+                </Text>
+                {keyCopied
+                  ? <Check size={14} color={tokens.success} />
+                  : <Copy size={14} color={tokens.white20} />}
+              </Pressable>
               <View style={styles.divider} />
               <SettingsRow
                 icon={<RefreshCw size={16} color={tokens.warning} />}
@@ -351,9 +381,15 @@ const styles = StyleSheet.create({
   profileCard: { alignItems: 'center', paddingVertical: 24 },
   avatar: {
     width: 80, height: 80, borderRadius: 40,
-    borderWidth: 2, alignItems: 'center', justifyContent: 'center', marginBottom: 12,
+    borderWidth: 2, alignItems: 'center', justifyContent: 'center',
   },
-  avatarImg: { width: 80, height: 80, borderRadius: 40, marginBottom: 12 },
+  avatarWrap: { position: 'relative', marginBottom: 12 },
+  avatarImg: { width: 80, height: 80, borderRadius: 40 },
+  avatarSpinner: {
+    position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+    borderRadius: 40, backgroundColor: 'rgba(0,0,0,0.5)',
+    alignItems: 'center', justifyContent: 'center',
+  },
   avatarText: { fontFamily: 'Lexend-Bold', fontSize: 28 },
   nameRow: { alignItems: 'center', gap: 2 },
   profileName: { fontFamily: 'Lexend-Bold', fontSize: tokens.font.sectionHeader, color: tokens.white100 },
@@ -390,6 +426,11 @@ const styles = StyleSheet.create({
     paddingVertical: 8, paddingHorizontal: 4,
   },
   recentName: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.body, color: tokens.white60, flex: 1 },
+  viewAllRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 4, paddingVertical: 8, marginTop: 4,
+  },
+  viewAllText: { fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.small, color: tokens.secondary },
 
   // Settings
   settingsRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 6 },

@@ -63,12 +63,21 @@ export function SettingsSheet({ visible, onClose }: SettingsSheetProps) {
     useOpenClawStore.getState().reset();
   };
 
+  const [keyError, setKeyError] = useState('');
+
   const handleSave = () => {
     const trimmed = pendingKey.trim();
-    if (trimmed.length >= 8) {
-      setApiKey(trimmed);
-      onClose();
+    if (trimmed.length < 8) {
+      setKeyError('Key must be at least 8 characters');
+      return;
     }
+    if (!trimmed.startsWith('sk-') && !trimmed.startsWith('sk_')) {
+      setKeyError('Key should start with "sk-"');
+      return;
+    }
+    setKeyError('');
+    setApiKey(trimmed);
+    onClose();
   };
 
   const handleRemove = async () => {
@@ -123,9 +132,10 @@ export function SettingsSheet({ visible, onClose }: SettingsSheetProps) {
           <ApiKeySection
             apiKey={apiKey}
             pendingKey={pendingKey}
-            onPendingKeyChange={setPendingKey}
+            onPendingKeyChange={(v) => { setPendingKey(v); setKeyError(''); }}
             onSave={handleSave}
             onRemove={handleRemove}
+            error={keyError}
           />
 
           <OpenClawSection

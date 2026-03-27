@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, TextInput, StyleSheet } from 'react-native';
+import { View, Text, TextInput, StyleSheet, Linking, TouchableOpacity } from 'react-native';
 import { LogOut } from 'lucide-react-native';
 import { tokens } from '../../theme/tokens';
 import { HapticButton } from '../ui/HapticButton';
@@ -10,6 +10,7 @@ interface ApiKeySectionProps {
   onPendingKeyChange: (value: string) => void;
   onSave: () => void;
   onRemove: () => void;
+  error?: string;
 }
 
 export function ApiKeySection({
@@ -18,6 +19,7 @@ export function ApiKeySection({
   onPendingKeyChange,
   onSave,
   onRemove,
+  error,
 }: ApiKeySectionProps) {
   const maskedKey = apiKey
     ? `${apiKey.slice(0, 6)}${'•'.repeat(Math.max(0, apiKey.length - 10))}${apiKey.slice(-4)}`
@@ -51,6 +53,8 @@ export function ApiKeySection({
         accessibilityLabel="New API key input"
       />
 
+      {error ? <Text style={styles.errorText}>{error}</Text> : null}
+
       <HapticButton
         variant="secondary"
         size="md"
@@ -79,10 +83,12 @@ export function ApiKeySection({
         </HapticButton>
       )}
 
-      <Text style={styles.hint}>
-        Get your key at{' '}
-        <Text style={styles.hintLink}>lineage-agent.fly.dev/dashboard</Text>
-      </Text>
+      <TouchableOpacity onPress={() => Linking.openURL('https://lineage-agent.fly.dev/dashboard')} activeOpacity={0.7}>
+        <Text style={styles.hint}>
+          Get your key at{' '}
+          <Text style={styles.hintLink}>lineage-agent.fly.dev/dashboard</Text>
+        </Text>
+      </TouchableOpacity>
     </>
   );
 }
@@ -132,6 +138,12 @@ const styles = StyleSheet.create({
     fontFamily: 'Lexend-Regular',
     fontSize: tokens.font.body,
     color: tokens.white100,
+  },
+  errorText: {
+    fontFamily: 'Lexend-Regular',
+    fontSize: tokens.font.tiny,
+    color: tokens.risk.critical,
+    marginTop: 2,
   },
   saveBtn: { marginTop: 4 },
   removeInner: { flexDirection: 'row', alignItems: 'center', gap: 6 },
