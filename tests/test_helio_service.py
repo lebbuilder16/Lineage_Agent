@@ -120,6 +120,7 @@ class TestCreatePaymentLink:
         mock_response = httpx.Response(
             200,
             json={"url": "https://pay.hel.io/abc123"},
+            request=httpx.Request("POST", "https://api.hel.io/v1/pay"),
         )
 
         with patch("lineage_agent.helio_service.httpx.AsyncClient") as MockClient:

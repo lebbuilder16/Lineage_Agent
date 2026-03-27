@@ -158,6 +158,15 @@ async def run_cartel_sweep() -> int:
         # Populate community_lookup table for O(1) API lookups
         await _populate_community_lookup()
 
+        # Detect cross-deployer narrative waves
+        try:
+            from .memory_service import detect_narrative_clusters
+            clusters = await detect_narrative_clusters()
+            if clusters:
+                logger.info("Narrative clustering: %d thematic waves detected", len(clusters))
+        except Exception as nc_exc:
+            logger.debug("Narrative clustering skipped: %s", nc_exc)
+
         return total
     except Exception:
         logger.exception("run_cartel_sweep failed")

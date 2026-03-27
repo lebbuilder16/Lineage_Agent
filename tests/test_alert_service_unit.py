@@ -138,19 +138,22 @@ class TestSendAlert:
 class TestWebClients:
     def test_register_adds_client(self):
         import lineage_agent.alert_service as svc
-        original = set(svc._web_clients)
+        original = dict(svc._web_clients)
         ws = MagicMock()
-        register_web_client(ws)
-        assert ws in svc._web_clients
+        register_web_client(ws, user_id=1)
+        assert ws in svc._web_clients.get(1, set())
         svc._web_clients.clear()
         svc._web_clients.update(original)
 
     def test_unregister_removes_client(self):
         import lineage_agent.alert_service as svc
         ws = MagicMock()
-        svc._web_clients.add(ws)
+        svc._web_clients.setdefault(1, set()).add(ws)
         unregister_web_client(ws)
-        assert ws not in svc._web_clients
+        all_clients = set()
+        for clients in svc._web_clients.values():
+            all_clients.update(clients)
+        assert ws not in all_clients
 
     def test_unregister_nonexistent_is_noop(self):
         ws = MagicMock()
@@ -167,14 +170,14 @@ class TestBroadcastWebAlert:
         from lineage_agent.alert_service import _broadcast_web_alert
         ws = AsyncMock()
         import lineage_agent.alert_service as svc
-        svc._web_clients.add(ws)
+        svc._web_clients.setdefault(1, set()).add(ws)
         try:
             with patch.object(svc, "asyncio") as mock_asyncio:
                 mock_asyncio.ensure_future = MagicMock()
-                await _broadcast_web_alert({"event": "alert", "type": "test", "mint": None})
+                await _broadcast_web_alert({"event": "alert", "type": "test", "mint": None}, user_id=1)
             ws.send_json.assert_called_once()
         finally:
-            svc._web_clients.discard(ws)
+            svc._web_clients.get(1, set()).discard(ws)
 
     async def test_dead_client_removed(self):
         from lineage_agent.alert_service import _broadcast_web_alert
@@ -182,12 +185,15 @@ class TestBroadcastWebAlert:
         import lineage_agent.alert_service as svc
         dead_ws = AsyncMock()
         dead_ws.send_json = AsyncMock(side_effect=Exception("disconnected"))
-        svc._web_clients.add(dead_ws)
+        svc._web_clients.setdefault(1, set()).add(dead_ws)
         try:
-            await _broadcast_web_alert({"event": "alert", "type": "test", "mint": None})
-            assert dead_ws not in svc._web_clients
+            await _broadcast_web_alert({"event": "alert", "type": "test", "mint": None}, user_id=1)
+            all_clients = set()
+            for clients in svc._web_clients.values():
+                all_clients.update(clients)
+            assert dead_ws not in all_clients
         finally:
-            svc._web_clients.discard(dead_ws)
+            svc._web_clients.get(1, set()).discard(dead_ws)
 
 
 # ---------------------------------------------------------------------------
@@ -365,14 +371,14 @@ class TestGetFcmAccessToken:
         import lineage_agent.alert_service as svc
 
         original_project = svc._FIREBASE_PROJECT_ID
-        original_path = svc._FIREBASE_SA_JSON_PATH
+        original_path = svc._FIREBASE_SA_JSON_RAW
         try:
             svc._FIREBASE_PROJECT_ID = ""
-            svc._FIREBASE_SA_JSON_PATH = ""
+            svc._FIREBASE_SA_JSON_RAW = ""
             result = await _get_fcm_access_token()
         finally:
             svc._FIREBASE_PROJECT_ID = original_project
-            svc._FIREBASE_SA_JSON_PATH = original_path
+            svc._FIREBASE_SA_JSON_RAW = original_path
 
         assert result is None
 
@@ -382,18 +388,18 @@ class TestGetFcmAccessToken:
         import time
 
         original_project = svc._FIREBASE_PROJECT_ID
-        original_path = svc._FIREBASE_SA_JSON_PATH
+        original_path = svc._FIREBASE_SA_JSON_RAW
         original_token = svc._fcm_access_token
         original_expiry = svc._fcm_token_expiry
         try:
             svc._FIREBASE_PROJECT_ID = "test-project"
-            svc._FIREBASE_SA_JSON_PATH = "/fake/path.json"
+            svc._FIREBASE_SA_JSON_RAW = "/fake/path.json"
             svc._fcm_access_token = "cached_token_123"
             svc._fcm_token_expiry = time.monotonic() + 3600  # valid for 1 hour
             result = await _get_fcm_access_token()
         finally:
             svc._FIREBASE_PROJECT_ID = original_project
-            svc._FIREBASE_SA_JSON_PATH = original_path
+            svc._FIREBASE_SA_JSON_RAW = original_path
             svc._fcm_access_token = original_token
             svc._fcm_token_expiry = original_expiry
 
@@ -405,12 +411,12 @@ class TestGetFcmAccessToken:
         import sys
 
         original_project = svc._FIREBASE_PROJECT_ID
-        original_path = svc._FIREBASE_SA_JSON_PATH
+        original_path = svc._FIREBASE_SA_JSON_RAW
         original_token = svc._fcm_access_token
         original_expiry = svc._fcm_token_expiry
         try:
             svc._FIREBASE_PROJECT_ID = "test-project"
-            svc._FIREBASE_SA_JSON_PATH = "/fake/path.json"
+            svc._FIREBASE_SA_JSON_RAW = "/fake/path.json"
             svc._fcm_access_token = None
             svc._fcm_token_expiry = 0.0
             # Patch google.auth to raise ImportError
@@ -421,7 +427,7 @@ class TestGetFcmAccessToken:
                 result = await _get_fcm_access_token()
         finally:
             svc._FIREBASE_PROJECT_ID = original_project
-            svc._FIREBASE_SA_JSON_PATH = original_path
+            svc._FIREBASE_SA_JSON_RAW = original_path
             svc._fcm_access_token = original_token
             svc._fcm_token_expiry = original_expiry
 

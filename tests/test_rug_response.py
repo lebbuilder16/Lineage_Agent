@@ -29,14 +29,14 @@ async def test_handle_rug_event_with_lineage(base_alert):
     )
 
     with patch(
-        "lineage_agent.rug_response_service.get_cached_lineage_report",
+        "lineage_agent.lineage_detector.get_cached_lineage_report",
         new_callable=AsyncMock,
         return_value=lineage,
     ), patch(
-        "lineage_agent.rug_response_service.detect_lineage",
+        "lineage_agent.lineage_detector.detect_lineage",
         new_callable=AsyncMock,
     ), patch(
-        "lineage_agent.rug_response_service._get_client",
+        "lineage_agent.ai_analyst._get_client",
         side_effect=Exception("no API key"),
     ):
         result = await handle_rug_event("So1abc", base_alert, cache=None)
@@ -57,15 +57,15 @@ async def test_handle_rug_event_with_lineage(base_alert):
 async def test_handle_rug_event_no_lineage(base_alert):
     """When lineage is unavailable, the original alert is returned unchanged (plus ai_summary attempt)."""
     with patch(
-        "lineage_agent.rug_response_service.get_cached_lineage_report",
+        "lineage_agent.lineage_detector.get_cached_lineage_report",
         new_callable=AsyncMock,
         return_value=None,
     ), patch(
-        "lineage_agent.rug_response_service.detect_lineage",
+        "lineage_agent.lineage_detector.detect_lineage",
         new_callable=AsyncMock,
         side_effect=Exception("timeout"),
     ), patch(
-        "lineage_agent.rug_response_service._get_client",
+        "lineage_agent.ai_analyst._get_client",
         side_effect=Exception("no API key"),
     ):
         result = await handle_rug_event("So1abc", base_alert, cache=None)
