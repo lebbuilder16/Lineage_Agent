@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { router } from 'expo-router';
 import Animated, { FadeInDown, LinearTransition } from 'react-native-reanimated';
-import { Bookmark, Trash2, Plus, Settings, Search } from 'lucide-react-native';
+import { Bookmark, Trash2, Plus, Settings } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Clipboard from 'expo-clipboard';
 import { Swipeable } from 'react-native-gesture-handler';
@@ -43,8 +43,7 @@ export default function WatchlistScreen() {
   const swipeableRefs = useRef<Map<string, Swipeable | null>>(new Map());
   const { showToast, toast } = useToast();
 
-  const [sweeping, setSweeping] = useState(false);
-  const { data: flagData, isLoading: flagsLoading } = useWatchlistFlags(apiKey);
+  const { data: flagData } = useWatchlistFlags(apiKey);
   const flagCounts = flagData?.counts ?? {};
   const flagTypes = flagData?.types ?? {};
   const tokenMeta = flagData?.meta ?? {};
@@ -59,16 +58,6 @@ export default function WatchlistScreen() {
       return 0;
     });
   }, [watches, flagCounts]);
-
-  const handleSweepAll = async () => {
-    const mintWatches = (watches ?? []).filter((w) => w.sub_type === 'mint');
-    if (mintWatches.length === 0 || sweeping) return;
-    setSweeping(true);
-    try {
-      router.push(`/investigate/${mintWatches[0].value}` as any);
-    } catch { /* ignore */ }
-    setSweeping(false);
-  };
 
   const handleDelete = (id: string) => {
     Alert.alert(
@@ -173,33 +162,13 @@ export default function WatchlistScreen() {
         <ScreenHeader
           icon={<Bookmark size={26} color={tokens.secondary} strokeWidth={2.5} />}
           title="Watchlist"
+          subtitle={`${watches?.length ?? 0} items${Object.values(flagCounts).reduce((s, c) => s + c, 0) > 0 ? ` · ${Object.values(flagCounts).reduce((s, c) => s + c, 0)} flags` : ''}`}
           rightAction={
             <View style={styles.headerActions}>
-              <Text style={styles.count}>
-                {watches?.length ?? 0} items
-                {Object.values(flagCounts).reduce((s, c) => s + c, 0) > 0
-                  ? ` · ${Object.values(flagCounts).reduce((s, c) => s + c, 0)} flags`
-                  : ''}
-              </Text>
-              {(watches ?? []).some((w) => w.sub_type === 'mint') && (
-                <TouchableOpacity
-                  onPress={handleSweepAll}
-                  style={styles.sweepBtn}
-                  activeOpacity={0.7}
-                  disabled={sweeping}
-                  accessibilityRole="button"
-                  accessibilityLabel="Investigate all watched tokens"
-                >
-                  <Search size={13} color={sweeping ? tokens.textTertiary : tokens.secondary} />
-                  <Text style={[styles.sweepBtnText, sweeping && { color: tokens.textTertiary }]}>
-                    {sweeping ? 'Sweeping...' : 'Sweep'}
-                  </Text>
-                </TouchableOpacity>
-              )}
               <TouchableOpacity
                 onPress={() => setAddOpen(true)}
                 hitSlop={tokens.hitSlop}
-                style={{ minWidth: tokens.minTouchSize, minHeight: tokens.minTouchSize, justifyContent: 'center', alignItems: 'center' }}
+                style={styles.headerBtn}
                 accessibilityRole="button"
                 accessibilityLabel="Add to watchlist"
               >
@@ -208,7 +177,7 @@ export default function WatchlistScreen() {
               <TouchableOpacity
                 onPress={() => setSettingsOpen(true)}
                 hitSlop={tokens.hitSlop}
-                style={{ minWidth: tokens.minTouchSize, minHeight: tokens.minTouchSize, justifyContent: 'center', alignItems: 'center' }}
+                style={styles.headerBtn}
                 accessibilityRole="button"
                 accessibilityLabel="Open API key settings"
               >
@@ -305,21 +274,8 @@ export default function WatchlistScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: tokens.bgMain },
   safe: { flex: 1 },
-  count: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.small, color: tokens.white60 },
-  sweepBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderRadius: tokens.radius.pill,
-    borderWidth: 1,
-    borderColor: `${tokens.secondary}40`,
-    backgroundColor: `${tokens.secondary}10`,
-    minHeight: tokens.minTouchSize,
-  },
-  sweepBtnText: { fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.tiny, color: tokens.secondary },
-  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  headerBtn: { minWidth: tokens.minTouchSize, minHeight: tokens.minTouchSize, justifyContent: 'center', alignItems: 'center' },
   listContent: { gap: 8, paddingHorizontal: tokens.spacing.screenPadding },
   swipeDeleteBtn: {
     backgroundColor: tokens.risk.critical,
