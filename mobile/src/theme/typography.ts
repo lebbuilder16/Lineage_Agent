@@ -68,7 +68,7 @@ export const typography = {
     lineHeight: Math.round(tokens.font.small * 1.4), // 17px
     letterSpacing: 1.5,
     textTransform: 'uppercase',
-    color: tokens.primary,
+    color: tokens.secondary,
   } as TextStyle,
 
   // Tiny details (e.g. timestamps, very small tags)

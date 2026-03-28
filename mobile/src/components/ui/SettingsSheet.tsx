@@ -158,7 +158,7 @@ const styles = StyleSheet.create({
     pointerEvents: 'box-none',
   },
   sheet: {
-    backgroundColor: tokens.bgApp, // Figma: --bg-app #040816
+    backgroundColor: tokens.bgApp,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     paddingTop: 12,

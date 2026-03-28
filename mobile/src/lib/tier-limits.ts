@@ -172,7 +172,7 @@ export function tierLabel(plan: PlanTier): string {
 export function tierColor(plan: PlanTier): string {
   switch (plan) {
     case 'free': return '#6B7280'; // gray
-    case 'pro': return '#ADC8FF'; // secondary/blue
+    case 'pro': return '#CFE6E4'; // secondary/mint teal
     case 'pro_plus': return '#FF3366'; // accent/pink
     case 'whale': return '#00FF88'; // success/green
     default: return '#6B7280';

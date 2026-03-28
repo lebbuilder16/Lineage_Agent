@@ -1,41 +1,48 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Lineage Agent — Aurora Glass Design System Tokens
 // Single source of truth for all colors, radii, shadows, typography
+// Palette inspired by Solana Mobile (teal/mint on deep dark)
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const tokens = {
-  // ── Backgrounds (flat) — matched to Figma globals.css ─────────────────────
-  bgVoid: '#010410',      // near-void deep navy
-  bgMain: '#020617',      // Figma: --bg-main (deep navy-black)
-  bgApp:  '#040816',      // Figma: --bg-app
-  bgCard: 'rgba(255, 255, 255, 0.03)',  // Figma: --bg-card exact
-  bgGlass: 'rgba(255, 255, 255, 0.05)', // Figma: --bg-glass exact
+  // ── Backgrounds — deep dark layered surfaces ─────────────────────────────
+  bgVoid: '#010101',      // near-black (Solana Mobile root)
+  bgMain: '#0A0F12',      // primary background — dark charcoal with cool cast
+  bgApp:  '#101618',      // elevated surface — cards, tab bar (Solana Mobile card bg)
+  bgCard: 'rgba(255, 255, 255, 0.03)',  // glass card base
+  bgGlass: 'rgba(255, 255, 255, 0.05)', // glass surface
   bgGlass8: 'rgba(255, 255, 255, 0.08)',
   bgGlass12: 'rgba(255, 255, 255, 0.12)',
   bgInputBg: 'rgba(255, 255, 255, 0.05)',
   bgOverlay: 'rgba(0, 0, 0, 0.7)',
 
   // ── Semantic surfaces — contextual glass tints ────────────────────────────
-  bgCardAI: 'rgba(139, 92, 246, 0.06)',     // violet tint for AI verdict cards
-  bgCardWarn: 'rgba(249, 115, 22, 0.05)',    // warm orange tint for warning cards
-  bgCardSuccess: 'rgba(0, 255, 136, 0.04)', // faint green for positive cards
+  bgCardAI: 'rgba(139, 92, 246, 0.08)',     // violet tint for AI verdict cards
+  bgCardWarn: 'rgba(249, 115, 22, 0.06)',    // warm orange tint for warning cards
+  bgCardSuccess: 'rgba(0, 255, 136, 0.05)', // faint green for positive cards
+  bgCardDanger: 'rgba(255, 51, 102, 0.05)', // faint pink for critical alerts
+  bgCardCyan: 'rgba(6, 182, 212, 0.05)',    // faint cyan for sol_flow cards
+  bgCardGold: 'rgba(255, 214, 102, 0.05)',  // faint gold for premium/whale cards
 
-  // ── Brand Palette — matched to Figma globals.css ──────────────────────────
-  primary: '#091A7A',     // Figma: --color-primary (deep navy indigo)
-  secondary: '#ADC8FF',   // Figma: --color-secondary (ice blue accent)
+  // ── Brand Palette — Solana Mobile inspired ───────────────────────────────
+  primary: '#10282C',     // deep teal dark (Solana Mobile dark section bg)
+  secondary: '#CFE6E4',   // mint/teal — primary accent (Solana Mobile CTA, glow)
   success: '#00FF88',
   accent: '#FF3366',
   error: '#FF0033',
   warning: '#FF9933',
   neutral: '#6B7280',
 
-  // ── Extended accents — bioluminescent 2026 ────────────────────────────────
+  // ── Extended accents ─────────────────────────────────────────────────────
   lavender: '#C4B5FD',    // warm violet glow — AI/agent indicators
   violet: '#8B5CF6',      // rich purple — verdict, intelligence
   indigo: '#6366F1',      // deep indigo — buttons, links
-  cyan: '#06B6D4',        // electric cyan — sol_flow traces
+  cyan: '#95D2E6',        // light blue (Solana Mobile heading color)
   gold: '#FFD666',        // premium amber — whale tier, achievements
   peach: '#FDA4AF',       // soft coral — soft warnings
+  rose: '#F43F5E',        // warm rose — hot alerts
+  teal: '#61AFBD',        // medium teal (Solana Mobile mid accent)
+  amber: '#F59E0B',       // warm amber — warnings, warm contrast
 
   // ── White Opacities (flat) ─────────────────────────────────────────────────
   white100: '#FFFFFF',
@@ -47,21 +54,21 @@ export const tokens = {
   white5: 'rgba(255, 255, 255, 0.05)',
   white3: 'rgba(255, 255, 255, 0.03)',
 
-  // ── Tinted text — softer than pure white, less eye strain ─────────────────
-  // WCAG 2.2 AA compliant on bgMain (#020617)
-  textPrimary: '#F1F5F9',   // slate-100 — headings (~16:1)
-  textBody: 'rgba(203, 213, 225, 0.92)',  // slate-300 — body copy (~13:1)
-  textMuted: 'rgba(148, 163, 184, 0.65)', // slate-400 — labels, hints (~5.2:1)
-  textTertiary: 'rgba(255, 255, 255, 0.55)',  // ~7.5:1 on bgMain — replaces white35 for text
-  textDisabled: 'rgba(255, 255, 255, 0.30)',  // ~3.5:1 — large text (≥18px bold) or decorative only
-  textPlaceholder: 'rgba(255, 255, 255, 0.35)', // placeholder text — exempt from WCAG contrast requirements
+  // ── Tinted text — Solana Mobile text hierarchy ───────────────────────────
+  // WCAG 2.2 AA compliant on bgMain (#0A0F12)
+  textPrimary: '#F6F6F5',   // off-white (Solana Mobile primary text) (~16:1)
+  textBody: 'rgba(246, 246, 245, 0.85)',  // off-white at 85% for body (~13:1)
+  textMuted: '#99B3BE',      // blue-gray muted (Solana Mobile muted text) (~5.5:1)
+  textTertiary: 'rgba(153, 179, 190, 0.70)',  // muted blue-gray at 70%
+  textDisabled: 'rgba(255, 255, 255, 0.30)',  // decorative only
+  textPlaceholder: 'rgba(156, 163, 175, 0.60)', // cool gray placeholder
 
   // ── Risk Colors ────────────────────────────────────────────────────────────
   risk: {
-    low: '#00FF88',    // Figma: --color-success
-    medium: '#F59E0B', // Figma: Tailwind amber-500 (design DailyStreak)
-    high: '#FF9933',   // Figma: --color-warning
-    critical: '#FF3366', // Figma: --color-neon-pink
+    low: '#00FF88',
+    medium: '#F59E0B',
+    high: '#FF9933',
+    critical: '#FF3366',
   },
 
   // ── Pipeline step colors — unique per analysis type ────────────────────────
@@ -78,12 +85,16 @@ export const tokens = {
     operator_impact: '#FB923C', // orange-400
   },
 
-  // ── Border (flat) ──────────────────────────────────────────────────────────
-  borderSubtle: 'rgba(255, 255, 255, 0.10)',
-  borderMedium: 'rgba(255, 255, 255, 0.15)',
-  borderActive: 'rgba(173, 200, 255, 0.40)',  // Figma: secondary (#ADC8FF) at 40%
-  borderPrimary: 'rgba(173, 200, 255, 0.15)', // Figma: secondary at 15%
+  // ── Border — Solana Mobile dark gray borders ──────────────────────────────
+  borderSubtle: 'rgba(55, 60, 62, 0.60)',    // #373c3e at 60% (Solana Mobile border)
+  borderMedium: 'rgba(55, 60, 62, 0.85)',    // #373c3e at 85%
+  borderActive: 'rgba(207, 230, 228, 0.40)', // secondary (#CFE6E4) at 40%
+  borderPrimary: 'rgba(207, 230, 228, 0.15)', // secondary at 15%
   borderViolet: 'rgba(139, 92, 246, 0.25)',   // violet glow border for AI cards
+  borderSuccess: 'rgba(0, 255, 136, 0.20)',
+  borderDanger: 'rgba(255, 51, 102, 0.20)',
+  borderGold: 'rgba(255, 214, 102, 0.20)',
+  borderCyan: 'rgba(149, 210, 230, 0.20)',    // cyan at 20%
 
   // ── Radius ─────────────────────────────────────────────────────────────────
   radius: {
@@ -98,7 +109,7 @@ export const tokens = {
   // ── Shadows ────────────────────────────────────────────────────────────────
   shadow: {
     glow: {
-      shadowColor: '#ADC8FF', // Figma: --color-secondary exact
+      shadowColor: '#CFE6E4', // mint teal glow (Solana Mobile CTA glow)
       shadowOffset: { width: 0, height: 0 },
       shadowOpacity: 0.25,
       shadowRadius: 15,
@@ -132,17 +143,65 @@ export const tokens = {
       shadowRadius: 12,
       elevation: 6,
     },
+    // ── Colored content-aware shadows ──────────────────────────────────────
+    riskLow: {
+      shadowColor: '#00FF88',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.18,
+      shadowRadius: 14,
+      elevation: 8,
+    },
+    riskHigh: {
+      shadowColor: '#FF9933',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.20,
+      shadowRadius: 14,
+      elevation: 8,
+    },
+    riskCritical: {
+      shadowColor: '#FF3366',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.25,
+      shadowRadius: 16,
+      elevation: 10,
+    },
+    cyan: {
+      shadowColor: '#95D2E6',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.22,
+      shadowRadius: 14,
+      elevation: 8,
+    },
+    gold: {
+      shadowColor: '#FFD666',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.22,
+      shadowRadius: 14,
+      elevation: 8,
+    },
+    mint: {
+      shadowColor: '#CFE6E4',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.20,
+      shadowRadius: 14,
+      elevation: 8,
+    },
   },
 
-  // ── Gradients (color stops — consumed by LinearGradient components) ───────
+  // ── Gradients ─────────────────────────────────────────────────────────────
   gradient: {
-    primaryCTA: ['#2D1B69', '#4F46E5', '#818CF8'],  // violet → indigo → periwinkle
-    investigate: ['#1A0B3E', '#4F46E5', '#ADC8FF'],  // deep purple → indigo → ice
-    verdict: ['#1E1145', '#4C1D95', '#7C3AED'],      // royal purple mesh
-    success: ['#064E3B', '#059669', '#00FF88'],       // emerald depth → neon
-    danger: ['#4C0519', '#DC2626', '#FF3366'],        // crimson depth → neon pink
-    gold: ['#78350F', '#D97706', '#FFD666'],          // amber depth → gold
-    glass: ['rgba(255,255,255,0.06)', 'rgba(255,255,255,0.00)'], // existing glass highlight
+    primaryCTA: ['#10282C', '#1A4A52', '#CFE6E4'],   // deep teal → mint (Solana Mobile)
+    investigate: ['#10282C', '#61AFBD', '#CFE6E4'],   // deep teal → medium teal → mint
+    verdict: ['#1E1145', '#4C1D95', '#7C3AED'],       // royal purple mesh
+    success: ['#064E3B', '#059669', '#00FF88'],        // emerald depth → neon
+    danger: ['#4C0519', '#DC2626', '#FF3366'],         // crimson depth → neon pink
+    gold: ['#78350F', '#D97706', '#FFD666'],           // amber depth → gold
+    glass: ['rgba(207,230,228,0.06)', 'rgba(207,230,228,0.00)'], // mint glass highlight
+    // ── Warm/cool mixed gradients ─────────────────────────────────────────
+    purpleAmber: ['#2D1B69', '#8B5CF6', '#F59E0B'],
+    cyanRose: ['#10282C', '#95D2E6', '#F43F5E'],      // teal dark → light blue → hot rose
+    violetPeach: ['#4C1D95', '#8B5CF6', '#FDA4AF'],
+    tealGold: ['#10282C', '#CFE6E4', '#FFD666'],       // deep teal → mint → gold
   },
 
   // ── Typography ─────────────────────────────────────────────────────────────
@@ -154,7 +213,7 @@ export const tokens = {
     body: 14,
     small: 12,
     tiny: 10,
-    badge: 11,        // badges, pills, chips — never below 11
+    badge: 11,
   },
 
   // ── Icon sizes ────────────────────────────────────────────────────────────
@@ -168,25 +227,18 @@ export const tokens = {
 
   // ── Animation timing ──────────────────────────────────────────────────────
   timing: {
-    // Durations (ms)
     instant: 100,
     fast: 150,
     normal: 250,
     slow: 400,
-    xSlow: 600,       // page transitions, hero reveals
-    verySlow: 1200,    // number tickers, gauge fills
-
-    // Spring presets (Reanimated withSpring config)
-    spring: { damping: 15, stiffness: 400 },       // general purpose
-    springBouncy: { damping: 8, stiffness: 300 },   // tab press, watch toggle
-    springSnappy: { damping: 12, stiffness: 300 },  // scale pops, quick bounce
-    springGentle: { damping: 20, stiffness: 200 },  // sheets, modals
-
-    // Stagger delays (ms)
-    listItem: 30,      // between list items
-    sectionEntry: 80,  // between major sections
-
-    // Entry animation durations (ms)
+    xSlow: 600,
+    verySlow: 1200,
+    spring: { damping: 15, stiffness: 400 },
+    springBouncy: { damping: 8, stiffness: 300 },
+    springSnappy: { damping: 12, stiffness: 300 },
+    springGentle: { damping: 20, stiffness: 200 },
+    listItem: 30,
+    sectionEntry: 80,
     fadeIn: 200,
     slideIn: 300,
   },
@@ -203,7 +255,7 @@ export const tokens = {
 
   // ── Touch targets ─────────────────────────────────────────────────────────
   hitSlop: { top: 10, bottom: 10, left: 10, right: 10 },
-  minTouchSize: 44,  // Apple HIG minimum
+  minTouchSize: 44,
 
   // ── Spacing ────────────────────────────────────────────────────────────────
   spacing: {
@@ -213,18 +265,17 @@ export const tokens = {
     itemGap: 8,
     rowPadding: 12,
     compactPadding: 8,
-    // Semantic spacing
     xs: 4,
     sm: 8,
     md: 12,
     lg: 16,
     xl: 24,
     xxl: 32,
-    inlinePadding: 12,    // horizontal padding of inline elements
-    touchMinSize: 44,     // minimum interactive element size (Apple HIG)
-    listItemGap: 6,       // between list items
-    panelGap: 14,         // between panels in detail screens
-    headerBottom: 20,     // space below section headers
+    inlinePadding: 12,
+    touchMinSize: 44,
+    listItemGap: 6,
+    panelGap: 14,
+    headerBottom: 20,
   },
 } as const;
 

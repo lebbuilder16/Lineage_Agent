@@ -161,7 +161,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     borderWidth: 1,
     borderColor: tokens.borderMedium,
-    // Glow shadow — Figma secondary (ice blue)
+    // Glow shadow — secondary (mint teal)
     shadowColor: tokens.secondary,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.2,
@@ -193,7 +193,7 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     // Figma: bg-secondary/12 rounded-full
-    backgroundColor: 'rgba(173, 200, 255, 0.12)',
+    backgroundColor: 'rgba(207, 230, 228, 0.12)',
     borderRadius: tokens.radius.pill,
   },
   iconWrap: { position: 'relative', alignItems: 'center', justifyContent: 'center' },
@@ -203,7 +203,7 @@ const styles = StyleSheet.create({
     width: 28,
     height: 28,
     borderRadius: 14,
-    backgroundColor: 'rgba(173, 200, 255, 0.30)',
+    backgroundColor: 'rgba(207, 230, 228, 0.25)',
     // Note: true blur not available on RN Views, we simulate with radial opacity
   },
   badge: {
