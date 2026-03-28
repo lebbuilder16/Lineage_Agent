@@ -164,11 +164,7 @@ const css = `
   }
   @media (max-width: 640px) { .sm-hero { padding: 130px 0 70px; } }
   .sm-hero-inner {
-    display: grid; grid-template-columns: 1fr 1fr;
-    gap: 40px; align-items: center;
-  }
-  @media (max-width: 900px) {
-    .sm-hero-inner { grid-template-columns: 1fr; text-align: center; }
+    display: flex; flex-direction: column; align-items: center; text-align: center;
   }
   .sm-hero-glow {
     position: absolute; top: -80px; left: 30%; width: 600px; height: 400px;
@@ -197,12 +193,11 @@ const css = `
     opacity: 0; animation: sm-fadeUp .7s var(--ease) .6s forwards;
     text-wrap: pretty;
   }
-  @media (max-width: 900px) { .sm-hero-sub { margin-left: auto; margin-right: auto; } }
+  .sm-hero-sub { margin-left: auto; margin-right: auto; }
   .sm-hero-actions {
-    display: flex; gap: 14px; flex-wrap: wrap;
+    display: flex; gap: 14px; flex-wrap: wrap; justify-content: center;
     opacity: 0; animation: sm-fadeUp .7s var(--ease) .8s forwards;
   }
-  @media (max-width: 900px) { .sm-hero-actions { justify-content: center; } }
 
   /* ══ BUTTONS ══ */
   .sm-btn {
