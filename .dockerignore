@@ -31,7 +31,9 @@ frontend/node_modules
 # CI / Docker (no need in context)
 .github
 Dockerfile
+Dockerfile.fly
 docker-compose.yml
+docker-compose.prod.yml
 .dockerignore
 
 # Data / output
@@ -39,3 +41,17 @@ data/
 docs/
 *.md
 *.log
+
+# Directories not needed in Docker build context
+design/
+/public/
+mobile/
+tests/
+scripts/
+
+# Misc project files not needed at build time
+app.json
+.figmaexportrc.js
+.gitbook.yaml
+*.toml
+/package-lock.json
