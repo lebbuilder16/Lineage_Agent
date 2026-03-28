@@ -22,21 +22,19 @@ import {
 import { tokens } from '../../theme/tokens';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
 
-// High-performance Aurora Background using Skia + Reanimated
-// Replaces opaque circles with True Gaussian Blurs + Grain effect
+// Aurora Background — Solana Mobile inspired teal/mint + violet palette
+// Soft drifting blobs on deep dark canvas for premium depth
 
 export function AuroraBackground() {
   const { width, height } = useWindowDimensions();
   const reducedMotion = useReducedMotion();
 
-  // Shared values for animation physics (0 to 1)
   const drift1 = useSharedValue(0);
   const drift2 = useSharedValue(0);
   const drift3 = useSharedValue(0);
 
   useEffect(() => {
     if (reducedMotion) {
-      // Park blobs at midpoints for a pleasant static composition
       cancelAnimation(drift1);
       cancelAnimation(drift2);
       cancelAnimation(drift3);
@@ -65,12 +63,11 @@ export function AuroraBackground() {
     );
   }, [drift1, drift2, drift3, reducedMotion]);
 
-  // Derived positions — match Figma DynamicBackground radial positions
-  // Blob 1: upper-left 20%/30% → drifts right
+  // Blob 1: upper-left → drifts right
   const cx1 = useDerivedValue(() => width * 0.2 + drift1.value * (width * 0.25));
   const cy1 = useDerivedValue(() => height * 0.25 + drift1.value * (height * 0.08));
 
-  // Blob 2: lower-right 80%/70% → drifts left  
+  // Blob 2: lower-right → drifts left
   const cx2 = useDerivedValue(() => width * 0.8 - drift2.value * (width * 0.3));
   const cy2 = useDerivedValue(() => height * 0.65 + drift2.value * (height * 0.1));
 
@@ -78,30 +75,29 @@ export function AuroraBackground() {
   const cx3 = useDerivedValue(() => width * 0.5 + drift3.value * (width * 0.15));
   const cy3 = useDerivedValue(() => height * 0.45 - drift3.value * (height * 0.1));
 
-  // Radii — large soft halos as in Figma (50% viewport)
   const r1 = width * 0.65;
   const r2 = width * 0.55;
   const r3 = width * 0.4;
 
-  // Multi-hue aurora — ice blue + warm violet for premium warm/cool contrast
-  const icyBlue = 'rgba(173, 200, 255, 0.15)';
-  const warmViolet = 'rgba(139, 92, 246, 0.10)';  // warm accent blob
-  const icyBlueFaint = 'rgba(173, 200, 255, 0.08)';
+  // Solana Mobile palette — mint teal + warm violet for warm/cool contrast
+  const mintTeal = 'rgba(207, 230, 228, 0.12)';     // #CFE6E4 — Solana Mobile primary
+  const warmViolet = 'rgba(139, 92, 246, 0.09)';     // #8B5CF6 — warm contrast blob
+  const lightBlue = 'rgba(149, 210, 230, 0.08)';     // #95D2E6 — Solana Mobile cyan
 
   return (
     <View style={styles.container} pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
       <Canvas style={StyleSheet.absoluteFill}>
         <Group>
-          {/* Blob 1: soft ice-blue upper-left — Figma "circle at 20% 30%" */}
+          {/* Blob 1: mint teal upper-left — Solana Mobile primary accent */}
           <Circle cx={cx1} cy={cy1} r={r1} blendMode="screen">
             <SweepGradient
               c={vec(width / 2, height / 2)}
-              colors={[icyBlue, 'rgba(0,0,0,0)', icyBlue]}
+              colors={[mintTeal, 'rgba(0,0,0,0)', mintTeal]}
             />
             <BlurMask blur={80} style="normal" />
           </Circle>
 
-          {/* Blob 2: warm violet lower-right — breaks cold monotony */}
+          {/* Blob 2: warm violet lower-right — warm/cool contrast */}
           <Circle cx={cx2} cy={cy2} r={r2} blendMode="screen">
             <SweepGradient
               c={vec(width / 2, height / 2)}
@@ -110,17 +106,16 @@ export function AuroraBackground() {
             <BlurMask blur={90} style="normal" />
           </Circle>
 
-          {/* Blob 3: faint center ellipse — Figma "ellipse at center" */}
+          {/* Blob 3: light blue center — Solana Mobile heading color */}
           <Circle cx={cx3} cy={cy3} r={r3} blendMode="screen">
             <SweepGradient
               c={vec(width / 2, height / 2)}
-              colors={[icyBlueFaint, 'rgba(0,0,0,0)', icyBlueFaint]}
+              colors={[lightBlue, 'rgba(0,0,0,0)', lightBlue]}
             />
             <BlurMask blur={100} style="normal" />
           </Circle>
         </Group>
       </Canvas>
-      {/* Very light overlay — lets the navy base + blue halos shine */}
       <View style={styles.noiseOverlay} />
     </View>
   );
@@ -129,10 +124,10 @@ export function AuroraBackground() {
 const styles = StyleSheet.create({
   container: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#020617', // Figma: --bg-main deep navy
+    backgroundColor: '#0A0F12', // bgMain — dark charcoal
   },
   noiseOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.25)', // lighter mask — halos must breathe
+    backgroundColor: 'rgba(0,0,0,0.25)',
   },
 });
