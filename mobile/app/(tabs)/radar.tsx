@@ -190,7 +190,7 @@ export default function RadarScreen() {
                       </Animated.View>
                     ))}
                     {displayedTokens.length >= 3 && (
-                      <TouchableOpacity onPress={() => router.push('/(tabs)/scan' as any)} style={styles.feedSeeAll} activeOpacity={0.7}>
+                      <TouchableOpacity onPress={() => router.push('/trending' as any)} style={styles.feedSeeAll} activeOpacity={0.7}>
                         <Text style={styles.feedSeeAllText}>See all</Text>
                         <ChevronRight size={14} color={tokens.secondary} strokeWidth={2} />
                       </TouchableOpacity>
