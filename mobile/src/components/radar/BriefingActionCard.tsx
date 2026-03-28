@@ -63,7 +63,7 @@ export function BriefingActionCard({
 
   return (
     <TouchableOpacity onPress={handlePress} activeOpacity={0.8}>
-      <GlassCard style={styles.card} noPadding={false}>
+      <GlassCard variant="briefing" style={styles.card} noPadding={false}>
         {/* Header */}
         <View style={styles.header}>
           <View style={styles.headerLeft}>
@@ -153,6 +153,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: `${tokens.secondary}20`,
     backgroundColor: `${tokens.secondary}06`,
+    ...tokens.shadow.violet,
   },
   header: {
     flexDirection: 'row',
@@ -165,10 +166,10 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   title: {
-    fontFamily: 'Lexend-SemiBold',
+    fontFamily: 'SpaceGrotesk-SemiBold',
     fontSize: tokens.font.tiny,
     color: tokens.secondary,
-    letterSpacing: 1.2,
+    letterSpacing: 1.8,
   },
   unreadDot: {
     width: 5,

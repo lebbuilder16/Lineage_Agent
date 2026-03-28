@@ -66,8 +66,9 @@ const styles = StyleSheet.create({
     gap: 16,
   },
   title: {
-    fontFamily: 'Lexend-Bold',
+    fontFamily: 'SpaceGrotesk-Bold',
     fontSize: 20,
+    letterSpacing: -0.5,
     color: tokens.white100,
     textAlign: 'center',
   },

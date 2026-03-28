@@ -12,8 +12,8 @@ import { tokens } from '../../theme/tokens';
 const AnimatedTextInput = Animated.createAnimatedComponent(TextInput);
 
 /**
- * Animated number counter that runs entirely on the UI thread.
- * Uses Reanimated animatedProps instead of requestAnimationFrame + setState.
+ * Animated number counter with Space Grotesk display font.
+ * Uses Reanimated animatedProps for UI-thread animation.
  */
 export function NumberTicker({ value, color }: { value: number | null; color: string }) {
   const animatedValue = useSharedValue(0);
@@ -47,10 +47,11 @@ export function NumberTicker({ value, color }: { value: number | null; color: st
 
 const styles = StyleSheet.create({
   statValue: {
-    fontFamily: 'Lexend-Bold',
-    fontSize: tokens.font.subheading,
+    fontFamily: 'SpaceGrotesk-Bold',
+    fontSize: 18,
     color: tokens.white80,
     padding: 0,
     margin: 0,
+    letterSpacing: -0.5,
   },
 });

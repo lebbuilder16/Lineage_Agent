@@ -96,7 +96,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   cardTitle: {
-    fontFamily: 'Lexend-Bold',
+    fontFamily: 'SpaceGrotesk-Bold',
     fontSize: tokens.font.subheading,
     color: tokens.white100,
   },

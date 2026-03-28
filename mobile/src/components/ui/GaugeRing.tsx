@@ -97,8 +97,9 @@ export function GaugeRing({
 const styles = StyleSheet.create({
   labels: { alignItems: 'center' },
   label: {
-    fontFamily: 'Lexend-Bold',
+    fontFamily: 'SpaceGrotesk-Bold',
     fontSize: tokens.font.heading,
+    letterSpacing: -0.5,
     lineHeight: tokens.font.heading * 1.1,
   },
   sublabel: {

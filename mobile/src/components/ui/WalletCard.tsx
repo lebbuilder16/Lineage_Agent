@@ -93,7 +93,7 @@ const styles = StyleSheet.create({
   },
   balBody: { flex: 1 },
   balLabel: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.small, color: tokens.textTertiary },
-  balValue: { fontFamily: 'Lexend-Bold', fontSize: tokens.font.sectionHeader, color: tokens.white100 },
+  balValue: { fontFamily: 'SpaceGrotesk-Bold', fontSize: tokens.font.sectionHeader, letterSpacing: -0.5, color: tokens.white100 },
   balUnit: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.body, color: tokens.textTertiary },
   addrRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',

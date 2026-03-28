@@ -2,37 +2,42 @@ import { TextStyle } from 'react-native';
 import { tokens } from './tokens';
 
 /**
- * Pixel-perfect typography mapped directly from Figma.
- * Fixes the "Android Default" basic gap by enforcing strict line-heights,
- * proper font weights (via our loaded Lexend fonts), and accurate letter spacing.
+ * Aurora Glass Design System — Typography
+ * Dual-font system: Space Grotesk (display) + Lexend (body)
+ * Space Grotesk for hero numbers, headings, scores — high personality
+ * Lexend for body, labels, meta — clean readability
  */
 export const typography = {
-  // Hero (Numbers/Big titles)
+  // ── Display font (Space Grotesk) — headings & hero numbers ────────────────
+
+  // Hero numbers / big scores (risk %, accuracy, price)
   hero: {
-    fontFamily: 'Lexend-Bold',
-    fontSize: tokens.font.hero, // 36
-    lineHeight: Math.round(tokens.font.hero * 1.2), // 43px
-    letterSpacing: -0.5,
+    fontFamily: 'SpaceGrotesk-Bold',
+    fontSize: tokens.font.hero, // 48
+    lineHeight: Math.round(tokens.font.hero * 1.1), // 53px — tight
+    letterSpacing: -1.5,
     color: tokens.white100,
   } as TextStyle,
 
-  // Page Headers
+  // Page headers
   heading: {
-    fontFamily: 'Lexend-Bold',
-    fontSize: tokens.font.heading, // 28
-    lineHeight: Math.round(tokens.font.heading * 1.3), // 36px
-    letterSpacing: -0.3,
+    fontFamily: 'SpaceGrotesk-Bold',
+    fontSize: tokens.font.heading, // 32
+    lineHeight: Math.round(tokens.font.heading * 1.2), // 38px
+    letterSpacing: -0.8,
     color: tokens.white100,
   } as TextStyle,
 
   // Section / Card Headers
   sectionHeader: {
-    fontFamily: 'Lexend-SemiBold',
+    fontFamily: 'SpaceGrotesk-SemiBold',
     fontSize: tokens.font.sectionHeader, // 20
-    lineHeight: Math.round(tokens.font.sectionHeader * 1.4), // 28px
-    letterSpacing: 0,
+    lineHeight: Math.round(tokens.font.sectionHeader * 1.3), // 26px
+    letterSpacing: -0.3,
     color: tokens.white100,
   } as TextStyle,
+
+  // ── Body font (Lexend) — readable content ─────────────────────────────────
 
   // Emphasized body / subtitles
   subheading: {
@@ -63,12 +68,12 @@ export const typography = {
 
   // Overlines, CAPS locking labels (like "SCAN TOKEN")
   overline: {
-    fontFamily: 'Lexend-SemiBold',
+    fontFamily: 'SpaceGrotesk-SemiBold',
     fontSize: tokens.font.small, // 12
     lineHeight: Math.round(tokens.font.small * 1.4), // 17px
-    letterSpacing: 1.5,
+    letterSpacing: 2.0,
     textTransform: 'uppercase',
-    color: tokens.primary,
+    color: tokens.secondary,
   } as TextStyle,
 
   // Tiny details (e.g. timestamps, very small tags)
@@ -80,13 +85,22 @@ export const typography = {
     color: tokens.textTertiary,
   } as TextStyle,
 
-  // Values in rows/tables (clean numbers)
+  // Values in rows/tables (clean numbers — display font for numeric clarity)
   value: {
-    fontFamily: 'Lexend-Medium',
+    fontFamily: 'SpaceGrotesk-Medium',
     fontSize: tokens.font.body, // 14
     lineHeight: Math.round(tokens.font.body * 1.5), // 21px
     letterSpacing: 0,
-    fontVariant: ['tabular-nums'], 
+    fontVariant: ['tabular-nums'],
+    color: tokens.white100,
+  } as TextStyle,
+
+  // Score / metric display (medium size, for stat pills, gauge labels)
+  metric: {
+    fontFamily: 'SpaceGrotesk-Bold',
+    fontSize: 24,
+    lineHeight: 30,
+    letterSpacing: -0.5,
     color: tokens.white100,
   } as TextStyle,
 };
