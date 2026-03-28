@@ -16,9 +16,12 @@ export const tokens = {
   bgOverlay: 'rgba(0, 0, 0, 0.7)',
 
   // ── Semantic surfaces — contextual glass tints ────────────────────────────
-  bgCardAI: 'rgba(139, 92, 246, 0.06)',     // violet tint for AI verdict cards
-  bgCardWarn: 'rgba(249, 115, 22, 0.05)',    // warm orange tint for warning cards
-  bgCardSuccess: 'rgba(0, 255, 136, 0.04)', // faint green for positive cards
+  bgCardAI: 'rgba(139, 92, 246, 0.08)',     // violet tint for AI verdict cards
+  bgCardWarn: 'rgba(249, 115, 22, 0.06)',    // warm orange tint for warning cards
+  bgCardSuccess: 'rgba(0, 255, 136, 0.05)', // faint green for positive cards
+  bgCardDanger: 'rgba(255, 51, 102, 0.05)', // faint pink for critical alerts
+  bgCardCyan: 'rgba(6, 182, 212, 0.05)',    // faint cyan for sol_flow cards
+  bgCardGold: 'rgba(255, 214, 102, 0.05)',  // faint gold for premium/whale cards
 
   // ── Brand Palette — matched to Figma globals.css ──────────────────────────
   primary: '#091A7A',     // Figma: --color-primary (deep navy indigo)
@@ -36,6 +39,9 @@ export const tokens = {
   cyan: '#06B6D4',        // electric cyan — sol_flow traces
   gold: '#FFD666',        // premium amber — whale tier, achievements
   peach: '#FDA4AF',       // soft coral — soft warnings
+  rose: '#F43F5E',        // warm rose — hot alerts, Revolut-style warm accent
+  teal: '#2DD4BF',        // neon teal — DeFi/web3 vibe, Phantom-inspired
+  amber: '#F59E0B',       // warm amber — warnings, warm contrast to ice-blue
 
   // ── White Opacities (flat) ─────────────────────────────────────────────────
   white100: '#FFFFFF',
@@ -84,6 +90,10 @@ export const tokens = {
   borderActive: 'rgba(173, 200, 255, 0.40)',  // Figma: secondary (#ADC8FF) at 40%
   borderPrimary: 'rgba(173, 200, 255, 0.15)', // Figma: secondary at 15%
   borderViolet: 'rgba(139, 92, 246, 0.25)',   // violet glow border for AI cards
+  borderSuccess: 'rgba(0, 255, 136, 0.20)',   // green glow border for success cards
+  borderDanger: 'rgba(255, 51, 102, 0.20)',   // pink glow border for critical cards
+  borderGold: 'rgba(255, 214, 102, 0.20)',    // gold border for premium elements
+  borderCyan: 'rgba(6, 182, 212, 0.20)',      // cyan border for trace/flow cards
 
   // ── Radius ─────────────────────────────────────────────────────────────────
   radius: {
@@ -132,6 +142,42 @@ export const tokens = {
       shadowRadius: 12,
       elevation: 6,
     },
+    // ── Colored content-aware shadows — match content color ────────────────
+    riskLow: {
+      shadowColor: '#00FF88',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.18,
+      shadowRadius: 14,
+      elevation: 8,
+    },
+    riskHigh: {
+      shadowColor: '#FF9933',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.20,
+      shadowRadius: 14,
+      elevation: 8,
+    },
+    riskCritical: {
+      shadowColor: '#FF3366',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.25,
+      shadowRadius: 16,
+      elevation: 10,
+    },
+    cyan: {
+      shadowColor: '#06B6D4',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.22,
+      shadowRadius: 14,
+      elevation: 8,
+    },
+    gold: {
+      shadowColor: '#FFD666',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.22,
+      shadowRadius: 14,
+      elevation: 8,
+    },
   },
 
   // ── Gradients (color stops — consumed by LinearGradient components) ───────
@@ -143,6 +189,11 @@ export const tokens = {
     danger: ['#4C0519', '#DC2626', '#FF3366'],        // crimson depth → neon pink
     gold: ['#78350F', '#D97706', '#FFD666'],          // amber depth → gold
     glass: ['rgba(255,255,255,0.06)', 'rgba(255,255,255,0.00)'], // existing glass highlight
+    // ── Warm/cool mixed gradients — 2026 premium contrast ─────────────────
+    purpleAmber: ['#2D1B69', '#8B5CF6', '#F59E0B'],  // cool purple → warm amber (Revolut-style)
+    cyanRose: ['#064E3B', '#06B6D4', '#F43F5E'],     // teal depth → electric cyan → hot rose
+    violetPeach: ['#4C1D95', '#8B5CF6', '#FDA4AF'],   // violet depth → soft coral
+    iceGold: ['#091A7A', '#ADC8FF', '#FFD666'],        // navy → ice → gold
   },
 
   // ── Typography ─────────────────────────────────────────────────────────────

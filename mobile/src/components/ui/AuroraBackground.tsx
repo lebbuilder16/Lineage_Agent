@@ -83,9 +83,9 @@ export function AuroraBackground() {
   const r2 = width * 0.55;
   const r3 = width * 0.4;
 
-  // Figma secondary color (#ADC8FF) as low-opacity blobs on deep navy base
-  const icyBlue = 'rgba(173, 200, 255, 0.15)'; // matches Figma: rgba(173,200,255,0.15)
-  const icyBlueMid = 'rgba(173, 200, 255, 0.10)';
+  // Multi-hue aurora — ice blue + warm violet for premium warm/cool contrast
+  const icyBlue = 'rgba(173, 200, 255, 0.15)';
+  const warmViolet = 'rgba(139, 92, 246, 0.10)';  // warm accent blob
   const icyBlueFaint = 'rgba(173, 200, 255, 0.08)';
 
   return (
@@ -101,11 +101,11 @@ export function AuroraBackground() {
             <BlurMask blur={80} style="normal" />
           </Circle>
 
-          {/* Blob 2: softer ice-blue lower-right — Figma "circle at 80% 70%" */}
+          {/* Blob 2: warm violet lower-right — breaks cold monotony */}
           <Circle cx={cx2} cy={cy2} r={r2} blendMode="screen">
             <SweepGradient
               c={vec(width / 2, height / 2)}
-              colors={[icyBlueMid, 'rgba(0,0,0,0)', icyBlueMid]}
+              colors={[warmViolet, 'rgba(0,0,0,0)', warmViolet]}
             />
             <BlurMask blur={90} style="normal" />
           </Circle>
