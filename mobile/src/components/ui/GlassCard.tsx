@@ -60,7 +60,7 @@ export function GlassCard({ children, style, intensity = 24, noPadding }: GlassC
               colors={[
                 'rgba(255, 255, 255, 0.45)', // Sharp bright edge (top-left reflection)
                 'rgba(255, 255, 255, 0.05)', // Fades to translucent
-                tokens.primary + '60',       // Hint of neon purple/primary color
+                tokens.secondary + '30',     // Hint of mint teal accent
                 'rgba(255, 255, 255, 0.0)'   // Fades to nothing
               ]}
               positions={[0, 0.3, 0.75, 1]}

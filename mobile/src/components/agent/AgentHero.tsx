@@ -54,7 +54,7 @@ export function AgentHero({
   return (
     <Animated.View entering={FadeIn.duration(400)}>
       <LinearGradient
-        colors={['rgba(139,92,246,0.12)', 'rgba(99,102,241,0.06)', 'transparent']}
+        colors={['rgba(207,230,228,0.10)', 'rgba(149,210,230,0.05)', 'transparent']}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         style={styles.heroGradient}

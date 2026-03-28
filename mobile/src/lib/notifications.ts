@@ -59,7 +59,7 @@ export async function registerForPushNotifications(): Promise<string | null> {
       name: 'Lineage Alerts',
       importance: Notifications.AndroidImportance.HIGH,
       vibrationPattern: [0, 250, 250, 250],
-      lightColor: '#ADC8FF',
+      lightColor: '#CFE6E4',
       sound: 'default',
     });
   }
