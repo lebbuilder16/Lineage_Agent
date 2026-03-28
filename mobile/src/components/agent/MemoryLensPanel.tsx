@@ -443,9 +443,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   statValue: {
-    fontFamily: 'SpaceGrotesk-Bold',
+    fontFamily: 'Lexend-Bold',
     fontSize: tokens.font.sectionHeader,
-    letterSpacing: -0.5,
   },
   statLabel: {
     fontFamily: 'Lexend-Regular',

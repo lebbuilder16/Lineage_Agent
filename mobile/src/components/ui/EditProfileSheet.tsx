@@ -119,7 +119,7 @@ const styles = StyleSheet.create({
   },
   handle: { width: 36, height: 4, borderRadius: 2, backgroundColor: tokens.white20, alignSelf: 'center', marginTop: 10, marginBottom: 16 },
   titleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
-  title: { fontFamily: 'SpaceGrotesk-Bold', fontSize: tokens.font.sectionHeader, letterSpacing: -0.5, color: tokens.white100 },
+  title: { fontFamily: 'Lexend-Bold', fontSize: tokens.font.sectionHeader, color: tokens.white100 },
   fieldLabel: { fontFamily: 'Lexend-Medium', fontSize: tokens.font.small, color: tokens.textTertiary, marginBottom: 6, marginTop: 14 },
   input: {
     fontFamily: 'Lexend-Regular', fontSize: tokens.font.body, color: tokens.white100,

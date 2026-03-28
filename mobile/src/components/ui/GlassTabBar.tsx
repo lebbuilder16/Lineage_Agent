@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect } from 'react';
+import React from 'react';
 import {
   View,
   Text,
@@ -6,7 +6,6 @@ import {
   StyleSheet,
   Platform,
   ViewStyle,
-  LayoutChangeEvent,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BlurView } from 'expo-blur';
@@ -15,7 +14,6 @@ import Animated, {
   useAnimatedStyle,
   withSpring,
   withTiming,
-  interpolateColor,
 } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import {
@@ -31,7 +29,16 @@ import { useReducedMotion } from '../../hooks/useReducedMotion';
 
 export type TabName = 'radar' | 'scan' | 'agent' | 'alerts' | 'watchlist';
 
+/**
+ * Visual height of the tab bar pill (icon + label when active + vertical padding).
+ * Used by _layout.tsx to reserve space so screens never render behind the bar.
+ */
 export const TAB_BAR_INNER_HEIGHT = 64;
+
+/**
+ * The gap (px) between the bottom of the pill and the safe-area bottom offset.
+ * Matches the `+ 12` in the wrapper's `bottom` style.
+ */
 export const TAB_BAR_BOTTOM_MARGIN = 12;
 
 interface Tab {
@@ -62,45 +69,12 @@ export function GlassTabBar({
   style,
 }: GlassTabBarProps) {
   const insets = useSafeAreaInsets();
+  // Clearance above phone's home indicator / gesture bar
   const bottomOffset = Math.max(insets.bottom, Platform.select({ ios: 8, android: 8 }) ?? 8);
-
-  // Sliding indicator position
-  const activeIndex = TABS.findIndex((t) => t.name === activeTab);
-  const indicatorX = useSharedValue(0);
-  const tabWidth = useSharedValue(0);
-  const reducedMotion = useReducedMotion();
-
-  useEffect(() => {
-    if (tabWidth.value > 0) {
-      const target = activeIndex * tabWidth.value;
-      indicatorX.value = reducedMotion
-        ? withTiming(target, { duration: 0 })
-        : withSpring(target, { damping: 18, stiffness: 280 });
-    }
-  }, [activeIndex, tabWidth.value, reducedMotion]);
-
-  const onTabLayout = useCallback((e: LayoutChangeEvent) => {
-    const w = e.nativeEvent.layout.width;
-    if (w > 0 && tabWidth.value === 0) {
-      tabWidth.value = w;
-      indicatorX.value = activeIndex * w;
-    }
-  }, [activeIndex]);
-
-  const indicatorStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: indicatorX.value }],
-    width: tabWidth.value,
-  }));
-
   return (
     <View style={[styles.wrapper, { bottom: bottomOffset + TAB_BAR_BOTTOM_MARGIN }, style]}>
       <BlurView intensity={80} tint="dark" style={styles.blur}>
         <View style={styles.inner}>
-          {/* Sliding glow indicator */}
-          <Animated.View style={[styles.slidingIndicator, indicatorStyle]}>
-            <View style={styles.slidingIndicatorInner} />
-          </Animated.View>
-
           {TABS.map((tab) => (
             <TabButton
               key={tab.name}
@@ -111,7 +85,6 @@ export function GlassTabBar({
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                 onPress(tab.name);
               }}
-              onLayout={tab.name === TABS[0].name ? onTabLayout : undefined}
             />
           ))}
         </View>
@@ -125,10 +98,9 @@ interface TabButtonProps {
   isActive: boolean;
   badge: number;
   onPress: () => void;
-  onLayout?: (e: LayoutChangeEvent) => void;
 }
 
-function TabButton({ tab, isActive, badge, onPress, onLayout }: TabButtonProps) {
+function TabButton({ tab, isActive, badge, onPress }: TabButtonProps) {
   const scale = useSharedValue(1);
   const reducedMotion = useReducedMotion();
 
@@ -138,6 +110,7 @@ function TabButton({ tab, isActive, badge, onPress, onLayout }: TabButtonProps) 
 
   const handlePress = () => {
     if (reducedMotion) {
+      // Skip spring animation — instant visual feedback only
       scale.value = withTiming(0.95, { duration: 0 }, () => {
         scale.value = withTiming(1, { duration: 0 });
       });
@@ -152,22 +125,17 @@ function TabButton({ tab, isActive, badge, onPress, onLayout }: TabButtonProps) 
   const Icon = tab.icon;
 
   return (
-    <Pressable
-      onPress={handlePress}
-      onLayout={onLayout}
-      style={styles.tabButton}
-      accessibilityRole="button"
-      accessibilityLabel={tab.label}
-      accessibilityState={{ selected: isActive }}
-    >
+    <Pressable onPress={handlePress} style={styles.tabButton} accessibilityRole="button" accessibilityLabel={tab.label} accessibilityState={{ selected: isActive }}>
       <Animated.View style={[styles.tabInner, animStyle]}>
+        {/* Active bubble — Figma: bg-secondary/12 */}
+        {isActive && <View style={styles.activeIndicator} />}
         <View style={styles.iconWrap}>
           <Icon
             size={isActive ? 22 : 20}
             color={isActive ? tokens.secondary : tokens.textTertiary}
             strokeWidth={isActive ? 2.5 : 1.8}
           />
-          {/* Icon glow behind active icon */}
+          {/* Icon glow — Figma: bg-secondary blur-md opacity-30 */}
           {isActive && <View style={styles.iconGlow} />}
           {badge > 0 && (
             <View style={styles.badge}>
@@ -175,10 +143,10 @@ function TabButton({ tab, isActive, badge, onPress, onLayout }: TabButtonProps) 
             </View>
           )}
         </View>
-        {/* Label with animated opacity */}
-        <Text style={[styles.label, isActive ? styles.labelActive : styles.labelInactive]}>
-          {tab.label}
-        </Text>
+        {/* Label only appears when active — matches Figma animation */}
+        {isActive && (
+          <Text style={styles.labelActive}>{tab.label}</Text>
+        )}
       </Animated.View>
     </Pressable>
   );
@@ -193,6 +161,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     borderWidth: 1,
     borderColor: tokens.borderMedium,
+    // Glow shadow — Figma secondary (ice blue)
     shadowColor: tokens.secondary,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.2,
@@ -202,45 +171,40 @@ const styles = StyleSheet.create({
   blur: { borderRadius: tokens.radius.xl },
   inner: {
     flexDirection: 'row',
-    paddingHorizontal: 4,
-    paddingVertical: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 8,
     backgroundColor: `${tokens.bgApp}F0`,
-  },
-  // Sliding indicator that follows active tab
-  slidingIndicator: {
-    position: 'absolute',
-    top: 4,
-    bottom: 4,
-    left: 4,
-    zIndex: 0,
-  },
-  slidingIndicatorInner: {
-    flex: 1,
-    backgroundColor: 'rgba(173, 200, 255, 0.10)',
-    borderRadius: tokens.radius.lg,
-    // Subtle glow border
-    borderWidth: 1,
-    borderColor: 'rgba(173, 200, 255, 0.15)',
   },
   tabButton: {
     flex: 1,
     alignItems: 'center',
-    zIndex: 1,
   },
   tabInner: {
     alignItems: 'center',
-    paddingVertical: 6,
+    paddingVertical: 4,
     paddingHorizontal: 8,
     borderRadius: tokens.radius.md,
     minWidth: 52,
   },
+  activeIndicator: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    // Figma: bg-secondary/12 rounded-full
+    backgroundColor: 'rgba(173, 200, 255, 0.12)',
+    borderRadius: tokens.radius.pill,
+  },
   iconWrap: { position: 'relative', alignItems: 'center', justifyContent: 'center' },
   iconGlow: {
+    // Figma: absolute inset-0 bg-secondary blur-md opacity-30
     position: 'absolute',
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: 'rgba(173, 200, 255, 0.20)',
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(173, 200, 255, 0.30)',
+    // Note: true blur not available on RN Views, we simulate with radial opacity
   },
   badge: {
     position: 'absolute',
@@ -255,22 +219,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 3,
   },
   badgeText: {
-    fontFamily: 'SpaceGrotesk-Bold',
+    fontFamily: 'Lexend-Bold',
     fontSize: 10,
     color: tokens.white100,
     lineHeight: 13,
   },
-  label: {
-    fontFamily: 'Lexend-Medium',
-    fontSize: 9,
-    marginTop: 3,
-    letterSpacing: 0.3,
-  },
   labelActive: {
-    color: tokens.secondary,
-  },
-  labelInactive: {
-    color: tokens.textTertiary,
-    opacity: 0.6,
+    fontFamily: 'Lexend-SemiBold',
+    fontSize: 10,
+    marginTop: 2,
+    letterSpacing: 0.5,
+    color: tokens.secondary, // Figma: text-secondary for active
   },
 });

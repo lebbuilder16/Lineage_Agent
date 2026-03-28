@@ -98,7 +98,7 @@ export const tokens = {
   // ── Shadows ────────────────────────────────────────────────────────────────
   shadow: {
     glow: {
-      shadowColor: '#ADC8FF',
+      shadowColor: '#ADC8FF', // Figma: --color-secondary exact
       shadowOffset: { width: 0, height: 0 },
       shadowOpacity: 0.25,
       shadowRadius: 15,
@@ -132,49 +132,6 @@ export const tokens = {
       shadowRadius: 12,
       elevation: 6,
     },
-    // ── Colored content-aware shadows ──────────────────────────────────────
-    riskLow: {
-      shadowColor: '#00FF88',
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: 0.20,
-      shadowRadius: 16,
-      elevation: 8,
-    },
-    riskMedium: {
-      shadowColor: '#F59E0B',
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: 0.20,
-      shadowRadius: 16,
-      elevation: 8,
-    },
-    riskHigh: {
-      shadowColor: '#FF9933',
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: 0.25,
-      shadowRadius: 16,
-      elevation: 8,
-    },
-    riskCritical: {
-      shadowColor: '#FF3366',
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: 0.30,
-      shadowRadius: 18,
-      elevation: 10,
-    },
-    cyan: {
-      shadowColor: '#06B6D4',
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.25,
-      shadowRadius: 14,
-      elevation: 8,
-    },
-    gold: {
-      shadowColor: '#FFD666',
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.25,
-      shadowRadius: 14,
-      elevation: 8,
-    },
   },
 
   // ── Gradients (color stops — consumed by LinearGradient components) ───────
@@ -190,8 +147,8 @@ export const tokens = {
 
   // ── Typography ─────────────────────────────────────────────────────────────
   font: {
-    hero: 48,       // 2026 premium — large display numbers
-    heading: 32,
+    hero: 36,
+    heading: 28,
     sectionHeader: 20,
     subheading: 16,
     body: 14,

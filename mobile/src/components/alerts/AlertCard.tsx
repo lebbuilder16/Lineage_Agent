@@ -23,7 +23,7 @@ import {
   Rocket,
 } from 'lucide-react-native';
 import { Swipeable } from 'react-native-gesture-handler';
-import { GlassCard, type GlassCardVariant } from '../ui/GlassCard';
+import { GlassCard } from '../ui/GlassCard';
 import { tokens } from '../../theme/tokens';
 import { timeAgo } from '../../lib/format';
 import { haptic } from '../../lib/haptics';
@@ -51,39 +51,12 @@ const ALERT_ICONS: Record<string, React.ReactNode> = {
   wallet_risk: <AlertTriangle size={18} color={tokens.risk.high} />,
 };
 
-// Map alert types to card variants for visual differentiation
-const ALERT_VARIANT: Record<string, GlassCardVariant> = {
-  rug: 'alert',
-  death_clock: 'alert',
-  bundle: 'alert',
-  insider: 'alert',
-  zombie: 'alert',
-  wallet_risk: 'alert',
-  token_graduated: 'success',
-  deployer: 'token',
-  deployer_launch: 'token',
-  narrative: 'ai',
-};
-
-// Accent stripe colors per alert severity
-const ALERT_ACCENT: Record<string, string> = {
-  rug: tokens.risk.critical,
-  death_clock: tokens.risk.critical,
-  bundle: tokens.risk.high,
-  insider: tokens.risk.medium,
-  zombie: tokens.accent,
-  wallet_risk: tokens.risk.high,
-  token_graduated: tokens.success,
-  deployer: tokens.secondary,
-  deployer_launch: tokens.warning,
-  narrative: tokens.violet,
-};
-
 // ── Props ────────────────────────────────────────────────────────────────────
 
 export interface AlertCardProps {
   item: AlertItem;
   isExpanded: boolean;
+  /** Group header label shown above the first alert when mint has > 1 alerts */
   groupHeader?: string;
   onPress: (alert: AlertItem) => void;
   onToggleEnrichment: (id: string) => void;
@@ -100,9 +73,6 @@ export function AlertCard({
   onToggleEnrichment,
   onDelete,
 }: AlertCardProps) {
-  const variant = ALERT_VARIANT[item.type] ?? 'default';
-  const accentColor = ALERT_ACCENT[item.type] ?? tokens.secondary;
-
   return (
     <>
       {groupHeader != null && (
@@ -143,16 +113,12 @@ export function AlertCard({
           accessibilityLabel={`${item.type} alert: ${item.title ?? item.token_name ?? item.type}. ${item.read ? 'Read' : 'Unread'}`}
         >
           <GlassCard
-            variant={variant}
             style={[styles.alertCard, !item.read && styles.alertCardUnread]}
             noPadding
           >
-            {/* Accent stripe — left edge color-coded by alert type */}
-            <View style={[styles.accentStripe, { backgroundColor: accentColor }]} />
-
             {/* Main row */}
             <View style={styles.alertInner}>
-              <View style={[styles.alertIcon, { backgroundColor: `${accentColor}12` }]}>
+              <View style={styles.alertIcon}>
                 {item.image_uri ? (
                   <Image source={item.image_uri} style={styles.alertTokenImg} contentFit="cover" transition={200} />
                 ) : (
@@ -186,7 +152,7 @@ export function AlertCard({
                 <Text style={styles.alertTime}>
                   {timeAgo(item.timestamp ?? item.created_at ?? '')}
                 </Text>
-                {!item.read && <View style={[styles.unreadDot, { backgroundColor: accentColor }]} />}
+                {!item.read && <View style={styles.unreadDot} />}
                 {/* Risk delta badge */}
                 {item.enrichedData?.riskDelta != null && item.enrichedData.riskDelta !== 0 && (
                   <View style={[styles.riskDeltaBadge, {
@@ -220,7 +186,7 @@ export function AlertCard({
             {item.mint && (
               <View style={styles.quickActions}>
                 <TouchableOpacity
-                  style={[styles.quickActionBtn, { borderColor: `${accentColor}30` }]}
+                  style={styles.quickActionBtn}
                   onPress={(e) => {
                     e.stopPropagation?.();
                     router.push(`/investigate/${item.mint}` as any);
@@ -248,7 +214,7 @@ export function AlertCard({
             {item.enrichedData && isExpanded && (
               <View style={styles.enrichPanel}>
                 <View style={styles.enrichHeader}>
-                  <Bot size={12} color={tokens.lavender} />
+                  <Bot size={12} color={tokens.secondary} />
                   <Text style={styles.enrichLabel}>AI Context</Text>
                 </View>
                 <Text style={styles.enrichSummary}>{item.enrichedData.summary}</Text>
@@ -257,6 +223,7 @@ export function AlertCard({
                     → {item.enrichedData.recommendedAction}
                   </Text>
                 )}
+                {/* Proposed actions from rug auto-response */}
                 {item.actions && item.actions.length > 0 && (
                   <View style={styles.actionsRow}>
                     {item.actions.map((act, i) => (
@@ -290,37 +257,27 @@ export function AlertCard({
 // ── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  alertCard: { borderWidth: 0 },
-  alertCardUnread: { borderWidth: 1, borderColor: 'rgba(173, 200, 255, 0.20)' },
-  // Left accent stripe for visual type identification
-  accentStripe: {
-    position: 'absolute',
-    left: 0,
-    top: 0,
-    bottom: 0,
-    width: 3,
-    borderTopLeftRadius: tokens.radius.lg,
-    borderBottomLeftRadius: tokens.radius.lg,
-  },
+  alertCard: { borderWidth: 1, borderColor: 'transparent' },
+  alertCardUnread: { borderColor: `${tokens.secondary}30` },
   alertInner: {
     flexDirection: 'row',
     padding: tokens.spacing.cardPadding,
-    paddingLeft: tokens.spacing.cardPadding + 4, // account for accent stripe
     gap: 12,
     alignItems: 'flex-start',
   },
   alertIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: tokens.radius.md,
+    width: 36,
+    height: 36,
+    borderRadius: tokens.radius.sm,
+    backgroundColor: tokens.bgGlass8,
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
   },
   alertTokenImg: {
-    width: 40,
-    height: 40,
-    borderRadius: tokens.radius.md,
+    width: 36,
+    height: 36,
+    borderRadius: tokens.radius.sm,
   },
   alertBody: { flex: 1 },
   alertTitle: {
@@ -333,19 +290,18 @@ const styles = StyleSheet.create({
     fontSize: tokens.font.small,
     color: tokens.white60,
     marginTop: 4,
-    lineHeight: 17,
   },
   alertMeta: { alignItems: 'flex-end', gap: 6 },
   alertTime: {
-    fontFamily: 'SpaceGrotesk-Medium',
+    fontFamily: 'Lexend-Regular',
     fontSize: tokens.font.tiny,
     color: tokens.textTertiary,
-    letterSpacing: 0.3,
   },
   unreadDot: {
     width: 8,
     height: 8,
     borderRadius: 4,
+    backgroundColor: tokens.secondary,
   },
   riskDeltaBadge: {
     paddingHorizontal: 6,
@@ -354,7 +310,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   riskDeltaText: {
-    fontFamily: 'SpaceGrotesk-Bold',
+    fontFamily: 'Lexend-Bold',
     fontSize: 10,
     letterSpacing: 0.3,
   },
@@ -394,12 +350,11 @@ const styles = StyleSheet.create({
   // AI enrichment panel
   enrichPanel: {
     marginHorizontal: tokens.spacing.cardPadding,
-    marginLeft: tokens.spacing.cardPadding + 4,
     marginBottom: tokens.spacing.cardPadding,
-    backgroundColor: 'rgba(139, 92, 246, 0.06)',
+    backgroundColor: `${tokens.secondary}0A`,
     borderRadius: tokens.radius.sm,
     borderWidth: 1,
-    borderColor: 'rgba(139, 92, 246, 0.20)',
+    borderColor: `${tokens.secondary}25`,
     padding: 10,
     gap: 6,
   },
@@ -409,10 +364,10 @@ const styles = StyleSheet.create({
     gap: 5,
   },
   enrichLabel: {
-    fontFamily: 'SpaceGrotesk-SemiBold',
+    fontFamily: 'Lexend-SemiBold',
     fontSize: tokens.font.tiny,
-    color: tokens.lavender,
-    letterSpacing: 0.8,
+    color: tokens.secondary,
+    letterSpacing: 0.5,
   },
   enrichSummary: {
     fontFamily: 'Lexend-Regular',
@@ -448,7 +403,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
     paddingHorizontal: 16,
-    paddingLeft: 20,
     paddingBottom: 12,
   },
   quickActionBtn: {
@@ -473,10 +427,9 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   groupHeaderText: {
-    fontFamily: 'SpaceGrotesk-SemiBold',
+    fontFamily: 'Lexend-SemiBold',
     fontSize: tokens.font.tiny,
     color: tokens.textTertiary,
-    letterSpacing: 1.0,
-    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
 });

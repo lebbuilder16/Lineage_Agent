@@ -89,7 +89,7 @@ const styles = StyleSheet.create({
     backgroundColor: tokens.white20, alignSelf: 'center', marginTop: 10, marginBottom: 16,
   },
   titleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
-  title: { fontFamily: 'SpaceGrotesk-Bold', fontSize: tokens.font.sectionHeader, letterSpacing: -0.5, color: tokens.white100 },
+  title: { fontFamily: 'Lexend-Bold', fontSize: tokens.font.sectionHeader, color: tokens.white100 },
   qrWrap: { alignSelf: 'center', marginBottom: 20 },
   qrBg: { backgroundColor: '#fff', borderRadius: 16, padding: 4, overflow: 'hidden' },
   addrLabel: { fontFamily: 'Lexend-Medium', fontSize: tokens.font.small, color: tokens.textTertiary, marginBottom: 6 },

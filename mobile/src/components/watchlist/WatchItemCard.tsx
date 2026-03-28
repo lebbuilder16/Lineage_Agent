@@ -156,7 +156,7 @@ const styles = StyleSheet.create({
   },
   tokenImg: { width: 40, height: 40 },
   tokenImgFallback: {
-    fontFamily: 'SpaceGrotesk-Bold',
+    fontFamily: 'Lexend-Bold',
     fontSize: tokens.font.subheading,
   },
   watchBody: { flex: 1, gap: 3 },

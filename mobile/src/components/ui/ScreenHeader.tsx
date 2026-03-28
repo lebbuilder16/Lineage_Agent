@@ -91,10 +91,10 @@ const styles = StyleSheet.create({
     borderRadius: 100,
   },
   title: {
-    fontFamily: 'SpaceGrotesk-Bold',
-    fontSize: 28,
+    fontFamily: 'Lexend-Bold',
+    fontSize: 26,
     color: tokens.white100,
-    letterSpacing: -0.8,
+    letterSpacing: -0.52,
   },
   subtitle: {
     fontFamily: 'Lexend-Regular',

@@ -4,7 +4,6 @@ import { router } from 'expo-router';
 import { Search, ScanLine, Shield, ChevronRight } from 'lucide-react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { tokens } from '../../theme/tokens';
-import { AnimatedEmptyState } from '../ui/AnimatedEmptyState';
 
 // ── Hardcoded example tokens ────────────────────────────────────────────────
 const EXAMPLE_TOKENS = [
@@ -34,20 +33,21 @@ const STEPS = [
 
 export function ScanOnboarding() {
   return (
-    <View style={styles.container}>
-      {/* Animated hero illustration */}
-      <AnimatedEmptyState
-        variant="scan"
-        title="Paste any Solana token address"
-        subtitle="Scan any token to reveal its forensic risk profile"
-      />
+    <Animated.View entering={FadeInDown.duration(400).springify()} style={styles.container}>
+      {/* Hero text */}
+      <View style={styles.heroSection}>
+        <Text style={styles.title}>Paste any Solana token address</Text>
+        <Text style={styles.subtitle}>
+          Scan any token to reveal its forensic risk profile
+        </Text>
+      </View>
 
       {/* Example tokens */}
       <View style={styles.examplesSection}>
         {EXAMPLE_TOKENS.map((token, index) => (
           <Animated.View
             key={token.mint}
-            entering={FadeInDown.delay(300 + index * tokens.timing.listItem).duration(300).springify()}
+            entering={FadeInDown.delay(100 + index * tokens.timing.listItem).duration(300).springify()}
           >
             <TouchableOpacity
               style={styles.exampleCard}
@@ -78,7 +78,7 @@ export function ScanOnboarding() {
 
       {/* Micro-tutorial steps */}
       <Animated.View
-        entering={FadeInDown.delay(500).duration(350).springify()}
+        entering={FadeInDown.delay(250).duration(350).springify()}
         style={styles.stepsSection}
       >
         {STEPS.map((step, index) => {
@@ -89,9 +89,7 @@ export function ScanOnboarding() {
                 <ChevronRight size={14} color={tokens.textTertiary} style={styles.stepChevron} />
               )}
               <View style={styles.stepCard}>
-                <View style={styles.stepIconWrap}>
-                  <IconComponent size={18} color={tokens.secondary} />
-                </View>
+                <IconComponent size={18} color={tokens.secondary} />
                 <View style={styles.stepTextWrap}>
                   <Text style={styles.stepTitle}>{step.title}</Text>
                   <Text style={styles.stepDesc}>{step.description}</Text>
@@ -101,14 +99,34 @@ export function ScanOnboarding() {
           );
         })}
       </Animated.View>
-    </View>
+    </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    gap: 20,
+    paddingTop: 24,
+    gap: 28,
+  },
+
+  // ── Hero ───────────────────────────────────────────────────────────────────
+  heroSection: {
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 8,
+  },
+  title: {
+    fontFamily: 'Lexend-SemiBold',
+    fontSize: tokens.font.sectionHeader,
+    color: tokens.white100,
+    textAlign: 'center',
+  },
+  subtitle: {
+    fontFamily: 'Lexend-Regular',
+    fontSize: tokens.font.body,
+    color: tokens.textTertiary,
+    textAlign: 'center',
   },
 
   // ── Example token cards ────────────────────────────────────────────────────
@@ -120,11 +138,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     backgroundColor: tokens.bgGlass,
-    borderRadius: tokens.radius.md,
+    borderRadius: tokens.radius.sm,
     borderWidth: 1,
     borderColor: tokens.borderSubtle,
-    paddingVertical: 14,
-    paddingHorizontal: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
   },
   exampleLeft: {
     flexDirection: 'row',
@@ -133,22 +151,20 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   symbolBadge: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     backgroundColor: tokens.bgGlass12,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(173, 200, 255, 0.15)',
   },
   symbolText: {
-    fontFamily: 'SpaceGrotesk-Bold',
-    fontSize: 16,
+    fontFamily: 'Lexend-Bold',
+    fontSize: tokens.font.body,
     color: tokens.secondary,
   },
   exampleInfo: {
-    gap: 3,
+    gap: 2,
     flex: 1,
   },
   exampleSymbol: {
@@ -157,21 +173,20 @@ const styles = StyleSheet.create({
     color: tokens.white100,
   },
   exampleMint: {
-    fontFamily: 'SpaceGrotesk-Regular',
+    fontFamily: 'Lexend-Regular',
     fontSize: tokens.font.tiny,
     color: tokens.textTertiary,
-    letterSpacing: 0.5,
   },
   tryBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: `${tokens.secondary}12`,
+    backgroundColor: `${tokens.secondary}15`,
     borderRadius: tokens.radius.pill,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
     borderWidth: 1,
-    borderColor: `${tokens.secondary}25`,
+    borderColor: `${tokens.secondary}30`,
   },
   tryText: {
     fontFamily: 'Lexend-SemiBold',
@@ -185,40 +200,29 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     justifyContent: 'center',
     backgroundColor: tokens.bgGlass,
-    borderRadius: tokens.radius.md,
+    borderRadius: tokens.radius.sm,
     borderWidth: 1,
     borderColor: tokens.borderSubtle,
-    paddingVertical: 18,
-    paddingHorizontal: 14,
+    paddingVertical: 16,
+    paddingHorizontal: 12,
   },
   stepChevron: {
-    marginTop: 12,
+    marginTop: 10,
     marginHorizontal: 4,
   },
   stepCard: {
     alignItems: 'center',
-    gap: 8,
+    gap: 6,
     flex: 1,
-  },
-  stepIconWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: `${tokens.secondary}12`,
-    borderWidth: 1,
-    borderColor: `${tokens.secondary}20`,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   stepTextWrap: {
     alignItems: 'center',
     gap: 2,
   },
   stepTitle: {
-    fontFamily: 'SpaceGrotesk-SemiBold',
+    fontFamily: 'Lexend-SemiBold',
     fontSize: tokens.font.small,
     color: tokens.white100,
-    letterSpacing: -0.2,
   },
   stepDesc: {
     fontFamily: 'Lexend-Regular',

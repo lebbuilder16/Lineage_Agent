@@ -7,9 +7,7 @@ import {
   BlurMask,
   SweepGradient,
   vec,
-  Rect,
-  FractalNoise,
-  Blend,
+  BlendMode,
   ColorMatrix,
 } from '@shopify/react-native-skia';
 import {
@@ -121,24 +119,6 @@ export function AuroraBackground() {
             <BlurMask blur={100} style="normal" />
           </Circle>
         </Group>
-
-        {/* Film grain / noise texture — 2026 anti-flat trend */}
-        <Rect x={0} y={0} width={width} height={height} opacity={0.035}>
-          <FractalNoise
-            freqX={0.7}
-            freqY={0.7}
-            octaves={4}
-            seed={42}
-          />
-          <ColorMatrix
-            matrix={[
-              1, 0, 0, 0, 0,
-              0, 1, 0, 0, 0,
-              0, 0, 1, 0, 0,
-              0, 0, 0, 18, -7,
-            ]}
-          />
-        </Rect>
       </Canvas>
       {/* Very light overlay — lets the navy base + blue halos shine */}
       <View style={styles.noiseOverlay} />
