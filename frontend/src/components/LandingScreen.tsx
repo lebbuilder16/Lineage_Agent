@@ -159,10 +159,10 @@ const css = `
 
   /* ══ HERO ══ */
   .sm-hero {
-    padding: 160px 0 100px;
+    min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    padding: 120px 0 80px;
     position: relative; overflow: hidden;
   }
-  @media (max-width: 640px) { .sm-hero { padding: 130px 0 70px; } }
   .sm-hero-inner {
     display: flex; flex-direction: column; align-items: center; text-align: center;
   }
@@ -180,30 +180,30 @@ const css = `
     animation: sm-wordReveal .5s var(--ease) forwards;
   }
   .sm-hero-headline {
-    font-size: clamp(34px, 5.5vw, 52px);
-    font-weight: 600; letter-spacing: 0px; line-height: 110%;
-    margin: 0 0 24px; color: var(--text-warm);
+    font-size: clamp(40px, 6vw, 72px);
+    font-weight: 600; letter-spacing: -1px; line-height: 105%;
+    margin: 0 0 32px; color: var(--text-warm);
     text-wrap: balance;
   }
   .sm-hero-headline em { font-style: normal; color: var(--accent); }
   .sm-hero-sub {
-    font-size: 16px; color: var(--text-muted);
-    line-height: 150%; margin: 0 0 40px; max-width: 460px;
+    font-size: 18px; color: var(--text-muted);
+    line-height: 160%; margin: 0 0 56px; max-width: 540px;
     letter-spacing: -.32px;
     opacity: 0; animation: sm-fadeUp .7s var(--ease) .6s forwards;
     text-wrap: pretty;
   }
   .sm-hero-sub { margin-left: auto; margin-right: auto; }
   .sm-hero-actions {
-    display: flex; gap: 14px; flex-wrap: wrap; justify-content: center;
+    display: flex; gap: 20px; flex-wrap: wrap; justify-content: center;
     opacity: 0; animation: sm-fadeUp .7s var(--ease) .8s forwards;
   }
 
   /* ══ BUTTONS ══ */
   .sm-btn {
-    display: inline-flex; align-items: center; gap: 10px;
-    padding: 14px 32px; border-radius: var(--r-pill);
-    font-size: 16px; font-weight: 400;
+    display: inline-flex; align-items: center; gap: 14px;
+    padding: 18px 40px; border-radius: var(--r-pill);
+    font-size: 17px; font-weight: 400;
     cursor: pointer; text-decoration: none;
     letter-spacing: 0px; border: 1px solid var(--accent);
     transition: all .3s var(--ease);
