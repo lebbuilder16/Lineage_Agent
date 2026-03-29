@@ -540,6 +540,50 @@ async def admin_health() -> dict:
     }
 
 
+@app.get("/admin/sweep-status", tags=["system"])
+async def admin_sweep_status() -> dict:
+    """Sweep monitor status — intelligence_events counts and rug detection stats."""
+    from .data_sources._clients import cache as _cache
+    from .cache import SQLiteCache
+
+    if not isinstance(_cache, SQLiteCache):
+        return {"error": "requires SQLiteCache backend"}
+
+    db = await _cache._get_conn()
+
+    # Event counts by type
+    cur = await db.execute(
+        "SELECT event_type, COUNT(*) FROM intelligence_events GROUP BY event_type"
+    )
+    event_counts = {row[0]: row[1] for row in await cur.fetchall()}
+
+    # Recent rugs (last 48h)
+    cur = await db.execute(
+        "SELECT COUNT(*) FROM intelligence_events WHERE event_type = 'token_rugged' "
+        "AND recorded_at > ?", (time.time() - 48 * 3600,)
+    )
+    recent_rugs = (await cur.fetchone())[0]
+
+    # Total tokens monitored (created in last 48h)
+    cur = await db.execute(
+        "SELECT COUNT(*) FROM intelligence_events WHERE event_type = 'token_created' "
+        "AND recorded_at > ?", (time.time() - 48 * 3600,)
+    )
+    recent_created = (await cur.fetchone())[0]
+
+    # Operator mappings
+    cur = await db.execute("SELECT COUNT(DISTINCT fingerprint), COUNT(DISTINCT wallet) FROM operator_mappings")
+    om_row = await cur.fetchone()
+
+    from .rug_detector import get_sweep_stats
+    return {
+        "intelligence_events": event_counts,
+        "recent_48h": {"tokens_created": recent_created, "tokens_rugged": recent_rugs},
+        "operator_mappings": {"fingerprints": om_row[0], "wallets": om_row[1]},
+        "sweep": get_sweep_stats(),
+    }
+
+
 @app.get("/admin/memory-stats", tags=["system"])
 async def admin_memory_stats() -> dict:
     """Return enrichment state of the agent memory system."""

@@ -132,6 +132,14 @@ class TokenMetadata(BaseModel):
         EvidenceLevel.WEAK,
         description="Strength of evidence supporting the market context classification",
     )
+    # DexScreener market signals — populated by pairs_to_metadata
+    volume_24h_usd: Optional[float] = Field(None, description="24h trading volume in USD")
+    txns_24h_buys: Optional[int] = Field(None, description="24h buy transaction count")
+    txns_24h_sells: Optional[int] = Field(None, description="24h sell transaction count")
+    price_change_24h: Optional[float] = Field(None, description="24h price change %")
+    price_change_1h: Optional[float] = Field(None, description="1h price change %")
+    boost_count: Optional[int] = Field(None, description="DexScreener active boost count")
+    socials: list[dict] = Field(default_factory=list, description="Social links [{type, url}]")
 
 
 # ---------------------------------------------------------------------------

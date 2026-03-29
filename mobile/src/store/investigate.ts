@@ -46,6 +46,18 @@ interface InvestigateState {
   // Scan phase
   scanSteps: ScanStep[];
   heuristicScore: number | null;
+  riskLevel: 'low' | 'medium' | 'high' | 'critical' | null;
+  findings: string[];
+
+  // Market data (from identity_ready event)
+  marketData: {
+    price_usd?: number | null;
+    market_cap_usd?: number | null;
+    liquidity_usd?: number | null;
+    volume_24h_usd?: number | null;
+    price_change_24h?: number | null;
+    boost_count?: number | null;
+  } | null;
 
   // Agent phase (Pro+ only)
   agentSteps: AgentStep[];
@@ -70,10 +82,11 @@ interface InvestigateState {
   startInvestigation: (mint: string, tier: PlanTier) => void;
   confirmInvestigation: () => void;
   addScanStep: (step: ScanStep) => void;
+  setMarketData: (data: InvestigateState['marketData']) => void;
   setScanningDone: () => void;
   setAnalyzing: () => void;
   setReasoning: () => void;
-  setHeuristicComplete: (score: number) => void;
+  setHeuristicComplete: (score: number, riskLevel?: string, findings?: string[]) => void;
   addAgentStep: (step: AgentStep) => void;
   setVerdict: (verdict: AgentVerdict, turnsUsed: number, tokensUsed: number) => void;
   setDone: (chatAvailable: boolean) => void;
@@ -91,6 +104,9 @@ const INITIAL_STATE = {
   tier: 'free' as PlanTier,
   scanSteps: [] as ScanStep[],
   heuristicScore: null as number | null,
+  riskLevel: null as InvestigateState['riskLevel'],
+  findings: [] as string[],
+  marketData: null as InvestigateState['marketData'],
   agentSteps: [] as AgentStep[],
   verdict: null as AgentVerdict | null,
   turnsUsed: 0,
@@ -121,6 +137,9 @@ export const useInvestigateStore = create<InvestigateState>((set, get) => ({
   addScanStep: (step) =>
     set((s) => ({ scanSteps: [...s.scanSteps, step] })),
 
+  setMarketData: (data) =>
+    set({ marketData: data }),
+
   setScanningDone: () => {
     const { status } = get();
     if (status === 'scanning') set({ status: 'scanning' }); // stays scanning until phase change
@@ -132,8 +151,13 @@ export const useInvestigateStore = create<InvestigateState>((set, get) => ({
   setReasoning: () =>
     set({ status: 'reasoning' }),
 
-  setHeuristicComplete: (score) =>
-    set({ heuristicScore: score, status: 'done' }),
+  setHeuristicComplete: (score, riskLevel, findings) =>
+    set({
+      heuristicScore: score,
+      riskLevel: (riskLevel as InvestigateState['riskLevel']) ?? null,
+      findings: findings ?? [],
+      status: 'done',
+    }),
 
   addAgentStep: (step) =>
     set((s) => ({ agentSteps: [...s.agentSteps, step] })),

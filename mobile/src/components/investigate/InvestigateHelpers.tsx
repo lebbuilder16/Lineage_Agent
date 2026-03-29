@@ -54,6 +54,7 @@ export function VerdictSkeleton() {
 export function HeuristicCard({ score }: { score: number }) {
   const color = riskColor(score);
   const level = riskLevel(score);
+  const findings = useInvestigateStore((s) => s.findings);
   return (
     <Animated.View entering={FadeInDown.duration(400).springify()}>
       <GlassCard>
@@ -63,7 +64,16 @@ export function HeuristicCard({ score }: { score: number }) {
             <RiskBadge level={level} size="md" />
           </View>
         </View>
-        <Text style={styles.heuristicInfo}>This is a rule-based pre-score. Upgrade to Pro to unlock AI-powered analysis with deeper insights.</Text>
+        {findings.length > 0 ? (
+          <View style={styles.findingsContainer}>
+            {findings.map((f, i) => (
+              <Text key={i} style={styles.findingText}>{'\u2022'} {f}</Text>
+            ))}
+          </View>
+        ) : (
+          <Text style={styles.heuristicInfo}>This is a rule-based pre-score. Upgrade to Pro to unlock AI-powered analysis with deeper insights.</Text>
+        )}
+        <Text style={styles.heuristicUpgrade}>Upgrade to Pro for full AI-powered analysis</Text>
       </GlassCard>
     </Animated.View>
   );
@@ -103,6 +113,9 @@ const styles = StyleSheet.create({
   verdictHeroCenter: { alignItems: 'center', gap: 8, marginBottom: 16 },
   verdictBadgeRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 },
   heuristicInfo: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.small, color: tokens.white60, lineHeight: 20, textAlign: 'center' },
+  heuristicUpgrade: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny, color: tokens.textTertiary, textAlign: 'center', marginTop: 12, fontStyle: 'italic' },
+  findingsContainer: { gap: 6, marginBottom: 4 },
+  findingText: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.small, color: tokens.white80, lineHeight: 20 },
   timerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginBottom: 12 },
   timerText: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny, color: tokens.textTertiary, letterSpacing: 0.3 },
 });

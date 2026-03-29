@@ -51,6 +51,7 @@ class ForensicReport:
     operator_impact: Any = None
     liquidity_arch: Any = None
     zombie_alert: Any = None
+    funding_source: str = ""  # address of first SOL funder of deployer
     timings: dict = field(default_factory=dict)
 
 
@@ -104,17 +105,33 @@ async def run_forensic_pipeline(
     id_ms = int((time.monotonic() - t0) * 1000)
     yield _evt("step", {"step": "identity", "status": "done", "ms": id_ms})
 
+    # Extract market data from the identity's underlying metadata
+    _qm = identity._query_meta
     yield _evt("identity_ready", {
         "name": identity.name,
         "symbol": identity.symbol,
         "deployer": identity.deployer[:12] if identity.deployer else "",
         "created_at": str(identity.created_at) if identity.created_at else None,
         "ms": id_ms,
+        "price_usd": identity.price_usd,
+        "market_cap_usd": identity.market_cap_usd,
+        "liquidity_usd": identity.liquidity_usd,
+        "volume_24h_usd": getattr(_qm, "volume_24h_usd", None) if _qm else None,
+        "price_change_24h": getattr(_qm, "price_change_24h", None) if _qm else None,
+        "boost_count": getattr(_qm, "boost_count", None) if _qm else None,
     })
 
     deployer = identity.deployer
     report = ForensicReport(identity=identity)
     report.timings["identity"] = id_ms
+
+    # Liquidity architecture (zero RPC — uses DexScreener pairs already fetched)
+    if identity.pairs:
+        try:
+            from .liquidity_arch import analyze_liquidity_architecture
+            report.liquidity_arch = analyze_liquidity_architecture(identity.pairs, identity.mint)
+        except Exception as _la_exc:
+            logger.debug("[pipeline] liquidity_arch failed: %s", _la_exc)
 
     if not identity.name and not identity.symbol:
         # Unknown token -- can't search for family
@@ -178,12 +195,21 @@ async def run_forensic_pipeline(
             _sub_step("death_clock", "running")
             t = time.monotonic()
             try:
+                _qm = identity._query_meta
                 meta = TokenMetadata(
                     mint=identity.mint,
                     name=identity.name,
                     symbol=identity.symbol,
                     deployer=deployer,
                     created_at=identity.created_at,
+                    liquidity_usd=identity.liquidity_usd,
+                    market_cap_usd=identity.market_cap_usd,
+                    price_usd=identity.price_usd,
+                    volume_24h_usd=getattr(_qm, "volume_24h_usd", None) if _qm else None,
+                    txns_24h_buys=getattr(_qm, "txns_24h_buys", None) if _qm else None,
+                    txns_24h_sells=getattr(_qm, "txns_24h_sells", None) if _qm else None,
+                    price_change_1h=getattr(_qm, "price_change_1h", None) if _qm else None,
+                    price_change_24h=getattr(_qm, "price_change_24h", None) if _qm else None,
                 )
                 results["death_clock"] = await asyncio.wait_for(
                     compute_death_clock(deployer, identity.created_at, token_metadata=meta),
@@ -230,9 +256,40 @@ async def run_forensic_pipeline(
                 logger.warning("[pipeline] fingerprint failed: %s", e)
                 _sub_step("operator_fingerprint", "done", ms=int((time.monotonic() - t) * 1000), ok=False)
 
-        # Run all 4 in parallel
+        async def _funding_source() -> None:
+            """Lightweight check: who funded this deployer? (1 RPC call)"""
+            try:
+                from .data_sources._clients import get_rpc_client
+                _rpc = get_rpc_client()
+                # Get first few signatures on deployer — look for incoming SOL
+                sigs = await _rpc._call(
+                    "getSignaturesForAddress",
+                    [deployer, {"limit": 5, "commitment": "finalized"}],
+                )
+                if not sigs:
+                    return
+                # Check the oldest signature for the funder
+                oldest_sig = sigs[-1]["signature"]
+                tx = await _rpc._call(
+                    "getTransaction",
+                    [oldest_sig, {"encoding": "jsonParsed", "maxSupportedTransactionVersion": 0}],
+                )
+                if not tx or not isinstance(tx, dict):
+                    return
+                keys = tx.get("transaction", {}).get("message", {}).get("accountKeys", [])
+                for key in keys:
+                    addr = key.get("pubkey", "") if isinstance(key, dict) else key
+                    is_signer = key.get("signer", False) if isinstance(key, dict) else False
+                    if addr and is_signer and addr != deployer:
+                        results["funding_source"] = addr
+                        break
+            except Exception:
+                pass  # non-critical — best effort
+
+        # Run all 5 in parallel
         await asyncio.gather(
             _deployer_profile(), _death_clock(), _factory(), _fingerprint(),
+            _funding_source(),
             return_exceptions=True,
         )
         return results
@@ -328,12 +385,16 @@ async def run_forensic_pipeline(
             from .insider_sell_service import analyze_insider_sell
             from .data_sources._clients import get_rpc_client
             rpc = get_rpc_client()
+            from .models import MarketSurface, LifecycleStage, EvidenceLevel
             result = await asyncio.wait_for(
                 analyze_insider_sell(
                     mint, deployer, [],  # no linked_wallets yet — enriched later if available
                     identity.pairs, rpc,
                     launch_platform=identity.launch_platform,
-                    lifecycle_stage=identity.lifecycle_stage,
+                    lifecycle_stage=identity.lifecycle_stage or LifecycleStage.UNKNOWN,
+                    market_surface=identity.market_surface or MarketSurface.NO_MARKET_OBSERVED,
+                    reason_codes=identity.reason_codes or [],
+                    evidence_level=identity.evidence_level or EvidenceLevel.WEAK,
                 ),
                 timeout=15.0,
             )
@@ -433,6 +494,7 @@ async def run_forensic_pipeline(
         report.death_clock = deployer_results.get("death_clock")
         report.factory_rhythm = deployer_results.get("factory_rhythm")
         report.operator_fingerprint = deployer_results.get("operator_fingerprint")
+        report.funding_source = deployer_results.get("funding_source") or ""
 
     if isinstance(chain_results, dict):
         report.sol_flow = chain_results.get("sol_flow")

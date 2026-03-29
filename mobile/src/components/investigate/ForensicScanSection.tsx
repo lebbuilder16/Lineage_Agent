@@ -23,26 +23,26 @@ import { tokens } from '../../theme/tokens';
 // ─── Scan step metadata ──────────────────────────────────────────────────────
 
 const SCAN_STEPS: Record<string, { label: string; Icon: React.ElementType; color: string }> = {
+  // Phase 1: Identity
   identity:             { label: 'Token Identity',        Icon: Search,         color: tokens.step.identity },
+  // Phase 2: Parallel branches (group markers + sub-steps)
   family_search:        { label: 'Family Search',         Icon: Search,         color: tokens.step.identity },
-  lineage:              { label: 'Lineage Trace',         Icon: Search,         color: tokens.step.identity },
+  deployer_forensics:   { label: 'Deployer Forensics',    Icon: User,           color: tokens.step.deployer_profile },
+  chain_traces:         { label: 'Chain Traces',          Icon: ArrowRightLeft, color: tokens.cyan },
   deployer_profile:     { label: 'Deployer Profile',      Icon: User,           color: tokens.step.deployer_profile },
-  deployer:             { label: 'Deployer Profile',      Icon: User,           color: tokens.step.deployer_profile },
   death_clock:          { label: 'Death Clock',           Icon: Clock,          color: tokens.step.death_clock },
   factory_rhythm:       { label: 'Factory Rhythm',        Icon: Network,        color: tokens.step.factory_rhythm },
-  operator_fingerprint: { label: 'Operator Fingerprint',  Icon: User,           color: tokens.step.operator_fingerprint },
+  operator_fingerprint: { label: 'Operator Fingerprint',  Icon: Fingerprint,    color: tokens.step.operator_fingerprint },
   cartel:               { label: 'Cartel Detection',      Icon: Network,        color: tokens.step.cartel },
   bundle:               { label: 'Bundle Analysis',       Icon: Package,        color: tokens.step.bundle },
   sol_flow:             { label: 'SOL Flow Trace',        Icon: ArrowRightLeft, color: tokens.step.sol_flow },
   insider_sell:         { label: 'Insider Sell',           Icon: ArrowRightLeft, color: tokens.step.insider_sell },
-  operator_impact:      { label: 'Operator Impact',       Icon: User,           color: tokens.step.operator_impact },
+  // Phase 3: Conditional (only emitted when operator has linked wallets)
   dependent_enrichers:  { label: 'Deep Analysis',         Icon: Brain,          color: tokens.violet },
-  deployer_forensics:   { label: 'Deployer Forensics',    Icon: User,           color: tokens.step.deployer_profile },
-  chain_traces:         { label: 'Chain Traces',          Icon: ArrowRightLeft, color: tokens.cyan },
+  operator_impact:      { label: 'Operator Impact',       Icon: User,           color: tokens.step.operator_impact },
+  // AI phase (Pro/Pro+ only)
   ai:                   { label: 'AI Analysis',           Icon: Brain,          color: tokens.lavender },
 };
-
-const SCAN_STEP_COUNT = Object.keys(SCAN_STEPS).length;
 
 // ─── ScanStepCard ─────────────────────────────────────────────────────────────
 
@@ -84,7 +84,11 @@ function ScanStepCard({ step }: { step: ScanStep }) {
 
 export function ForensicScanSection({ steps, isRunning }: { steps: ScanStep[]; isRunning: boolean }) {
   const [expanded, setExpanded] = useState(true);
-  const doneCount = steps.filter(s => s.status === 'done').length;
+  // Count unique step names that have been emitted (done) vs total unique steps seen
+  const uniqueDone = new Set(steps.filter(s => s.status === 'done').map(s => s.step));
+  const uniqueTotal = new Set(steps.map(s => s.step));
+  const doneCount = uniqueDone.size;
+  const totalCount = uniqueTotal.size;
 
   // Auto-collapse 500ms after scan finishes
   useEffect(() => {
@@ -102,12 +106,12 @@ export function ForensicScanSection({ steps, isRunning }: { steps: ScanStep[]; i
           style={styles.sectionHeaderRow}
           activeOpacity={0.7}
           accessibilityRole="button"
-          accessibilityLabel={`Forensic scan, ${doneCount} of ${SCAN_STEP_COUNT} complete`}
+          accessibilityLabel={`Forensic scan, ${doneCount} of ${totalCount} complete`}
           accessibilityState={{ expanded }}
         >
           <Text style={styles.sectionLabel}>FORENSIC SCAN</Text>
           <View style={styles.sectionHeaderRight}>
-            <Text style={styles.sectionMeta}>{doneCount}/{SCAN_STEP_COUNT}</Text>
+            <Text style={styles.sectionMeta}>{doneCount}/{totalCount}</Text>
             {isRunning && <Spinner size={14} color={tokens.secondary} />}
             <ChevronDown
               size={16}
@@ -121,6 +125,12 @@ export function ForensicScanSection({ steps, isRunning }: { steps: ScanStep[]; i
             {steps.map((step, i) => (
               <ScanStepCard key={`scan-${step.step}-${step.status}-${i}`} step={step} />
             ))}
+            {!isRunning && steps.length > 0 && !uniqueTotal.has('dependent_enrichers') && (
+              <Text style={styles.skipNote}>Deep analysis skipped — no linked wallets found</Text>
+            )}
+            {!isRunning && steps.length > 0 && !uniqueTotal.has('ai') && (
+              <Text style={styles.skipNote}>AI analysis requires Pro tier</Text>
+            )}
           </View>
         )}
       </GlassCard>
@@ -155,5 +165,9 @@ const styles = StyleSheet.create({
   scanStepDone: { color: tokens.white60 },
   scanStepMs: {
     fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny, color: tokens.textTertiary,
+  },
+  skipNote: {
+    fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny,
+    color: tokens.textTertiary, fontStyle: 'italic', marginTop: 4,
   },
 });

@@ -404,7 +404,7 @@ class SolanaRpcClient:
                         is_signer = (
                             key.get("signer", False) if isinstance(key, dict) else True
                         )
-                        if addr and is_signer and addr not in _PROGRAM_ADDRESSES:
+                        if addr and is_signer and addr not in _PROGRAM_ADDRESSES and addr != mint:
                             deployer = addr
                             break
                 if deployer:

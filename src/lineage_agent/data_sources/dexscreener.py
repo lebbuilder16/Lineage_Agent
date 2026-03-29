@@ -193,6 +193,35 @@ class DexScreenerClient:
                     market_cap = fdv
                     break
 
+        # Extract volume, transactions, price changes from best pair
+        _vol = best.get("volume") or {}
+        _txns = best.get("txns") or {}
+        _price_change = best.get("priceChange") or {}
+        _txns_h24 = _txns.get("h24") or {}
+
+        # Aggregate 24h volume across all Solana pairs (same logic as liquidity)
+        vol_24h_sum = sum(
+            _safe_float((p.get("volume") or {}).get("h24")) or 0.0
+            for p in solana_pairs
+        )
+
+        # Extract boost count and social links
+        _boost_count = None
+        _boosts = best.get("boosts")
+        if isinstance(_boosts, (int, float)):
+            _boost_count = int(_boosts)
+        elif isinstance(_boosts, list):
+            _boost_count = len(_boosts)
+
+        _socials: list[dict] = []
+        for _s in (info.get("socials") or []):
+            if isinstance(_s, dict) and _s.get("type") and _s.get("url"):
+                _socials.append({"type": _s["type"], "url": _s["url"]})
+        _websites = info.get("websites") or []
+        for _w in _websites:
+            if isinstance(_w, dict) and _w.get("url"):
+                _socials.append({"type": "website", "url": _w["url"]})
+
         return TokenMetadata(
             mint=mint,
             name=token_info.get("name", ""),
@@ -207,6 +236,13 @@ class DexScreenerClient:
             # sig-walk) from "first listed on DEX" (pair_created_at, stable).
             pair_created_at=created_at,
             dex_url=best.get("url", ""),
+            volume_24h_usd=vol_24h_sum if vol_24h_sum > 0 else None,
+            txns_24h_buys=int(_txns_h24["buys"]) if _txns_h24.get("buys") else None,
+            txns_24h_sells=int(_txns_h24["sells"]) if _txns_h24.get("sells") else None,
+            price_change_24h=_safe_float(_price_change.get("h24")),
+            price_change_1h=_safe_float(_price_change.get("h1")),
+            boost_count=_boost_count,
+            socials=_socials,
         )
 
     def pairs_to_search_results(

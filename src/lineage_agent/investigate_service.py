@@ -111,7 +111,20 @@ async def run_investigation(
                             _cal_off, hscore, calibrated_hscore, mint[:12])
         except Exception:
             pass
-        yield _evtN("heuristic_complete", {"heuristic_score": calibrated_hscore, "tier": tier_name})
+        # Generate human-readable findings from forensic flags (zero LLM cost)
+        _findings = _build_heuristic_findings(report, lineage_res, calibrated_hscore)
+        _risk_level = (
+            "critical" if calibrated_hscore >= 75
+            else "high" if calibrated_hscore >= 50
+            else "medium" if calibrated_hscore >= 25
+            else "low"
+        )
+        yield _evtN("heuristic_complete", {
+            "heuristic_score": calibrated_hscore,
+            "tier": tier_name,
+            "risk_level": _risk_level,
+            "findings": _findings,
+        })
         yield _evtN("done", {
             "tier": tier_name,
             "turns_used": 0,
@@ -265,6 +278,148 @@ async def _record_memory_episode(mint: str, verdict: dict, lineage_res: Any) -> 
     except Exception as exc:
         import logging
         logging.getLogger(__name__).debug("[memory] record failed: %s", exc)
+
+
+def _build_heuristic_findings(report: Any, lineage_res: Any, hscore: int) -> list[str]:
+    """Generate human-readable findings from forensic flags. Zero LLM cost."""
+    findings: list[str] = []
+
+    # ── Identity ─────────────────────────────────────────────────────────
+    identity = getattr(report, "identity", None) if report else None
+    if identity:
+        name = getattr(identity, "name", "") or "Unknown"
+        platform = getattr(identity, "launch_platform", None) or "unknown platform"
+        findings.append(f"Token \"{name}\" launched on {platform}.")
+
+    # ── Deployer profile ─────────────────────────────────────────────────
+    dp = getattr(report, "deployer_profile", None) if report else None
+    if dp:
+        total = getattr(dp, "total_tokens_launched", 0) or 0
+        rugs = getattr(dp, "rug_count", 0) or 0
+        if total <= 1 and rugs == 0:
+            findings.append("First-time deployer — no prior token history on record.")
+        elif rugs >= 3:
+            rate = getattr(dp, "rug_rate_pct", 0) or 0
+            findings.append(f"Serial deployer: {total} tokens launched, {rugs} rugs ({rate:.0f}% rug rate).")
+        elif rugs >= 1:
+            findings.append(f"Deployer launched {total} tokens with {rugs} confirmed rug(s).")
+        elif total > 1:
+            findings.append(f"Deployer has launched {total} tokens with no confirmed rugs.")
+
+    # ── Insider sell ─────────────────────────────────────────────────────
+    ins = getattr(report, "insider_sell", None) if report else None
+    if ins:
+        flags = getattr(ins, "flags", []) or []
+        verdict = getattr(ins, "verdict", "") or ""
+        if "DEPLOYER_DUMP_RISK" in flags:
+            # Extract context from wallet events
+            for we in (getattr(ins, "wallet_events", []) or []):
+                ctx = getattr(we, "balance_context", "") or ""
+                if ctx.strip():
+                    findings.append(f"Dump risk — {ctx.strip()}")
+                    break
+        elif "DEPLOYER_HOLDS_SIGNIFICANT_SUPPLY" in flags:
+            for we in (getattr(ins, "wallet_events", []) or []):
+                ctx = getattr(we, "balance_context", "") or ""
+                if ctx.strip():
+                    findings.append(f"Creator still holds tokens. {ctx.strip()}")
+                    break
+        elif verdict == "insider_dump":
+            findings.append("Insider dump detected — deployer exited with high sell pressure.")
+        elif verdict == "suspicious":
+            findings.append("Suspicious sell activity detected around deployer wallet.")
+        elif getattr(ins, "deployer_exited", False):
+            findings.append("Deployer has fully exited their position.")
+        else:
+            exited = getattr(ins, "deployer_exited", None)
+            if exited is False:
+                findings.append("Deployer has not exited — still holding tokens.")
+
+    # ── Bundle ───────────────────────────────────────────────────────────
+    bundle = getattr(report, "bundle_report", None) if report else None
+    if bundle:
+        bv = getattr(bundle, "overall_verdict", "") or ""
+        if "confirmed" in bv:
+            findings.append("Confirmed team extraction via coordinated bundle buying.")
+        elif "suspected" in bv:
+            findings.append("Suspected coordinated bundle activity at launch.")
+        elif "coordinated" in bv:
+            findings.append("Coordinated early buying detected — source unclear.")
+
+    # ── SOL flow ─────────────────────────────────────────────────────────
+    sol = getattr(report, "sol_flow", None) if report else None
+    if sol:
+        extracted = getattr(sol, "total_extracted_sol", 0) or 0
+        if extracted >= 20:
+            findings.append(f"Large capital extraction: {extracted:.1f} SOL traced leaving the token.")
+        elif extracted >= 5:
+            findings.append(f"Moderate capital flow: {extracted:.1f} SOL traced from the token.")
+
+    # ── Death clock ──────────────────────────────────────────────────────
+    dc = getattr(report, "death_clock", None) if report else None
+    if dc:
+        risk = getattr(dc, "risk_level", "") or ""
+        if risk == "critical":
+            findings.append("Death clock: critical — rug predicted within the forecast window.")
+        elif risk == "high":
+            findings.append("Death clock: high risk — deployer pattern suggests near-term rug.")
+        elif risk == "insufficient_data":
+            pass  # Already covered by deployer profile first-time message
+
+    # ── Family / clones ──────────────────────────────────────────────────
+    if lineage_res:
+        derivs = getattr(lineage_res, "derivatives", []) or []
+        if len(derivs) >= 3:
+            findings.append(f"{len(derivs)} clone tokens detected — this token has been widely copied.")
+        elif len(derivs) >= 1:
+            findings.append(f"{len(derivs)} clone(s) of this token found on-chain.")
+
+    # ── Cartel ───────────────────────────────────────────────────────────
+    cartel = getattr(report, "cartel_report", None) if report else None
+    if cartel:
+        dc_comm = getattr(cartel, "deployer_community", None)
+        if dc_comm:
+            size = getattr(dc_comm, "community_size", 0) or 0
+            if size >= 5:
+                findings.append(f"Part of a {size}-wallet cartel network with shared liquidity.")
+            elif size >= 2:
+                findings.append(f"Deployer linked to {size} other wallets via shared patterns.")
+
+    # ── Factory ──────────────────────────────────────────────────────────
+    fr = getattr(report, "factory_rhythm", None) if report else None
+    if fr and getattr(fr, "is_factory", False):
+        findings.append("Factory pattern detected — deployer uses automated token deployment.")
+
+    # ── Zombie ───────────────────────────────────────────────────────────
+    if report and getattr(report, "zombie_alert", None):
+        findings.append("Zombie alert — this token resembles a previously rugged token that was relaunched.")
+
+    # ── Operator fingerprint ─────────────────────────────────────────────
+    fp = getattr(report, "operator_fingerprint", None) if report else None
+    if fp:
+        linked = getattr(fp, "linked_wallets", []) or []
+        if len(linked) >= 2:
+            findings.append(f"Operator fingerprint links {len(linked)} wallets — possible wallet rotation.")
+
+    # ── Market data ──────────────────────────────────────────────────────
+    if identity:
+        _qm = getattr(identity, "_query_meta", None)
+        liq = getattr(identity, "liquidity_usd", None)
+        vol = getattr(_qm, "volume_24h_usd", None) if _qm else None
+        if liq and vol and liq > 0 and vol / liq > 10:
+            findings.append(f"High volume-to-liquidity ratio ({vol / liq:.0f}x) — thin liquidity relative to trading activity.")
+
+    # ── Risk level summary ───────────────────────────────────────────────
+    if hscore >= 75:
+        findings.append("Overall: critical risk. Multiple independent red flags detected.")
+    elif hscore >= 50:
+        findings.append("Overall: elevated risk. Proceed with extreme caution.")
+    elif hscore >= 25:
+        findings.append("Overall: moderate risk. Some signals warrant attention.")
+    else:
+        findings.append("Overall: low risk based on available signals. Limited data may apply.")
+
+    return findings
 
 
 def _build_heuristic_verdict(hscore: int, mint: str) -> dict:

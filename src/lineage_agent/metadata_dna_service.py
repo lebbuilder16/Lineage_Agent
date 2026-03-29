@@ -29,6 +29,7 @@ from .data_sources._clients import (
     cache_set,
     event_query,
     get_img_client,
+    operator_mapping_query,
     operator_mapping_upsert,
 )
 from .models import DeployerTokenSummary, EvidenceLevel, OperatorFingerprint, RugMechanism
@@ -205,7 +206,49 @@ async def build_operator_fingerprint(
         for m, d, u in mints_deployers_uris
         if d and u and d not in _SYSTEM_ADDRESSES
     ]
-    if len(valid) < 2:
+    if not valid:
+        return None
+
+    # Single-token deployer: compute fingerprint and check operator_mappings
+    # DB for known associations. This catches wallet-rotating operators who
+    # reuse campaign tags (Discord/Twitter/Telegram links in metadata).
+    if len(valid) == 1:
+        mint, deployer, uri = valid[0]
+        result = await _get_fingerprint(mint, uri)
+        if result is None:
+            return None
+        fp, desc_norm = result
+        service = _detect_service(uri)
+
+        # Check if this fingerprint is already linked to other wallets
+        try:
+            existing = await operator_mapping_query(fp)
+            known_wallets = [r["wallet"] for r in existing if r.get("wallet") and r["wallet"] != deployer]
+        except Exception:
+            known_wallets = []
+
+        # Persist this wallet→fingerprint mapping for future lookups
+        try:
+            await operator_mapping_upsert(fp, deployer)
+        except Exception as _e:
+            logger.debug("operator_mapping_upsert failed for %s: %s", deployer, _e)
+
+        if known_wallets:
+            # Known operator — this wallet shares a fingerprint with others
+            linked = [deployer] + known_wallets
+            linked_wallet_tokens = await _fetch_linked_wallet_tokens(linked)
+            return OperatorFingerprint(
+                fingerprint=fp,
+                linked_wallets=linked,
+                upload_service=service,
+                description_pattern=desc_norm if desc_norm else fp[:16] + "...",
+                confidence="probable",
+                linked_wallet_tokens=linked_wallet_tokens,
+            )
+
+        # No known associations yet — still return fingerprint (without
+        # linked_wallets) so downstream can use it for operator_impact
+        # when the DB grows. Return None for now (no actionable intel).
         return None
 
     # Fetch + compute fingerprints concurrently (bounded)

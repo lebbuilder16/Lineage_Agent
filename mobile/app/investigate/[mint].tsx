@@ -33,6 +33,7 @@ import { tokens } from '../../src/theme/tokens';
 
 import { VerdictHero } from '../../src/components/investigate/VerdictHero';
 import { ForensicScanSection } from '../../src/components/investigate/ForensicScanSection';
+import { MarketDataStrip } from '../../src/components/investigate/MarketDataStrip';
 import { AgentReasoningSection } from '../../src/components/investigate/AgentReasoningSection';
 import { ChatPanel } from '../../src/components/investigate/ChatPanel';
 import { VerdictFeedback } from '../../src/components/investigate/VerdictFeedback';
@@ -77,8 +78,18 @@ export default function InvestigateScreen() {
       case 'step':
         s.addScanStep({ step: event.data.step, status: event.data.status, ms: event.data.ms, heuristic: event.data.heuristic, timestamp: Date.now() });
         break;
+      case 'identity_ready':
+        s.setMarketData({
+          price_usd: event.data.price_usd,
+          market_cap_usd: event.data.market_cap_usd,
+          liquidity_usd: event.data.liquidity_usd,
+          volume_24h_usd: event.data.volume_24h_usd,
+          price_change_24h: event.data.price_change_24h,
+          boost_count: event.data.boost_count,
+        });
+        break;
       case 'heuristic_complete':
-        s.setHeuristicComplete(event.data.heuristic_score);
+        s.setHeuristicComplete(event.data.heuristic_score, event.data.risk_level, event.data.findings);
         break;
       case 'thinking': case 'tool_call': case 'tool_result': case 'text':
         s.addAgentStep({ type: event.type, turn: (event.data as { turn: number }).turn ?? 0, data: event.data as unknown as Record<string, unknown>, timestamp: Date.now() });
@@ -192,6 +203,7 @@ export default function InvestigateScreen() {
         )}
 
         {scanSteps.length > 0 && <ForensicScanSection steps={scanSteps} isRunning={status === 'scanning'} />}
+        <MarketDataStrip />
         {agentSteps.length > 0 && <AgentReasoningSection steps={agentSteps} isReasoning={status === 'reasoning'} />}
         {isRunning && scanSteps.length === 0 && agentSteps.length === 0 && <GlassCard><SkeletonBlock lines={4} gap={10} /></GlassCard>}
 
