@@ -114,13 +114,7 @@ function CompactCard({ item, index }: { item: FeedItem; index: number }) {
   const rc = score > 0 ? riskColor(score) : tokens.white35;
   const [expanded, setExpanded] = useState(false);
 
-  const handlePress = () => {
-    if (item.category === 'flag' && item.detail) {
-      setExpanded((e) => !e);
-    } else {
-      router.push(`/investigate/${item.mint}` as any);
-    }
-  };
+  const handlePress = () => setExpanded((e) => !e);
 
   return (
     <Animated.View entering={FadeInDown.delay(index * 20).duration(200)}>
@@ -136,18 +130,18 @@ function CompactCard({ item, index }: { item: FeedItem; index: number }) {
             {fmtName(item.tokenName, item.tokenSymbol, item.mint)}
             {item.tokenSymbol ? ` ${fmtSym(item.tokenSymbol)}` : ''}
           </Text>
-          <Text style={s.compactSummary} numberOfLines={1}>{item.summary}</Text>
+          <Text style={s.compactSummary} numberOfLines={expanded ? 20 : 1}>{item.summary}</Text>
         </View>
         {score > 0 && (
           <Text style={[s.compactScore, { color: rc }]}>{score}</Text>
         )}
         <Text style={s.compactTime}>{timeAgoShort(item.time)}</Text>
       </TouchableOpacity>
-      {expanded && item.detail && (
+      {expanded && (
         <View style={s.expandedDetail}>
-          <Text style={s.expandedText}>{item.detail}</Text>
+          {item.detail && <Text style={s.expandedText}>{item.detail}</Text>}
           <TouchableOpacity onPress={() => router.push(`/investigate/${item.mint}` as any)} activeOpacity={0.7} style={s.expandedCta}>
-            <Text style={s.expandedCtaText}>Investigate</Text>
+            <Text style={s.expandedCtaText}>{item.category === 'investigation' ? 'View Report' : 'Investigate'}</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -163,13 +157,7 @@ function PromCard({ item, index }: { item: FeedItem; index: number }) {
   const rc = score > 0 ? riskColor(score) : item.color;
   const [expanded, setExpanded] = useState(false);
 
-  const handlePress = () => {
-    if (item.category === 'flag') {
-      setExpanded((e) => !e);
-    } else {
-      router.push(`/investigate/${item.mint}` as any);
-    }
-  };
+  const handlePress = () => setExpanded((e) => !e);
 
   return (
     <Animated.View entering={FadeInDown.delay(index * 25).duration(250)}>
@@ -204,19 +192,18 @@ function PromCard({ item, index }: { item: FeedItem; index: number }) {
           </View>
 
           {/* Summary */}
-          <Text style={s.promSummary} numberOfLines={2}>{item.summary}</Text>
+          <Text style={s.promSummary} numberOfLines={expanded ? 20 : 2}>{item.summary}</Text>
 
           {/* Detail (if available) */}
           {item.detail && (
-            <Text style={s.promDetail} numberOfLines={expanded ? 10 : 1}>{item.detail}</Text>
+            <Text style={s.promDetail} numberOfLines={expanded ? 20 : 1}>{item.detail}</Text>
           )}
 
-          {/* Expanded: full summary + investigate CTA for flags */}
-          {expanded && item.category === 'flag' && (
+          {/* Expanded: CTA to view full report */}
+          {expanded && (
             <View style={s.expandedDetail}>
-              <Text style={s.expandedText}>{item.summary}</Text>
               <TouchableOpacity onPress={() => router.push(`/investigate/${item.mint}` as any)} activeOpacity={0.7} style={s.expandedCta}>
-                <Text style={s.expandedCtaText}>Full Investigation</Text>
+                <Text style={s.expandedCtaText}>{item.category === 'investigation' ? 'View Report' : 'Full Investigation'}</Text>
               </TouchableOpacity>
             </View>
           )}
