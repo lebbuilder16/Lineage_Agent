@@ -402,6 +402,23 @@ async def run_wallet_monitor_sweep(
     current = await fetch_wallet_holdings(wallet_address)
     current_mints = {h["mint"] for h in current}
 
+    # Safety: if RPC returned empty but we had previous holdings, this is
+    # likely an RPC failure — skip the cleanup to avoid wiping the portfolio.
+    _rpc_likely_failed = len(current) == 0
+    if _rpc_likely_failed:
+        cursor_count = await db.execute(
+            "SELECT COUNT(*) FROM wallet_holdings WHERE user_id = ? AND wallet_address = ?",
+            (user_id, wallet_address),
+        )
+        _prev_count = (await cursor_count.fetchone())[0]
+        if _prev_count > 0:
+            logger.warning(
+                "[wallet_monitor] RPC returned 0 holdings for %s but DB has %d — "
+                "likely RPC failure, skipping cleanup",
+                wallet_address[:12], _prev_count,
+            )
+            return {"holdings_count": _prev_count, "risky_count": 0, "alerts_sent": 0}
+
     # 2. Load previous holdings from DB
     cursor = await db.execute(
         "SELECT mint, risk_score, risk_level, last_scanned, token_name, token_symbol, "
@@ -546,28 +563,29 @@ async def run_wallet_monitor_sweep(
                     _bundle_str = _rf
                     break
             try:
-                _narrative = await generate_token_narrative(
-                    token_name=meta.get("token_name", mint[:8]),
-                    risk_score=score,
-                    risk_flags=risk_flags,
-                    liquidity_usd=meta.get("liquidity_usd"),
-                    price_usd=meta.get("price_usd"),
-                    prev_price_usd=p.get("price_usd") if p else None,
-                    bundle_info=_bundle_str,
+                _narrative = await asyncio.wait_for(
+                    generate_token_narrative(
+                        token_name=meta.get("token_name", mint[:8]),
+                        risk_score=score,
+                        risk_flags=risk_flags,
+                        liquidity_usd=meta.get("liquidity_usd"),
+                        price_usd=meta.get("price_usd"),
+                        prev_price_usd=p.get("price_usd") if p else None,
+                        bundle_info=_bundle_str,
+                    ),
+                    timeout=10.0,
                 )
                 if _narrative:
                     _narrative_at = now
-            except Exception:
-                pass
+            except (asyncio.TimeoutError, Exception):
+                pass  # keep old narrative on timeout
 
         # Compute status delta (with hysteresis to prevent oscillation)
-        # Use 15-point threshold: score must change by ≥15 to flip status.
-        # This prevents rapid risk_up → risk_down → risk_up cycles when
-        # score hovers around a boundary (e.g. 49 → 51 → 48 → 52).
         _HYSTERESIS = 15
         is_new = p is None
         if is_new:
-            status = "new"
+            # New token: if already risky, mark as risk_up so it stands out
+            status = "risk_up" if score >= threshold else "new"
         elif old_score is not None and score > old_score + _HYSTERESIS:
             status = "risk_up"
         elif old_score is not None and score < old_score - _HYSTERESIS:
