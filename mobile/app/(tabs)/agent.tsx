@@ -30,6 +30,7 @@ import { useSubscriptionStore } from '../../src/store/subscription';
 import { useAgentPrefsStore } from '../../src/store/agent-prefs';
 import { tokens } from '../../src/theme/tokens';
 import { AgentHero, AgentActivityFeed, AgentSettingsPanel, WalletHoldingsPanel, MemoryLensPanel } from '../../src/components/agent';
+import { tokenName as fmtName, shortAddr } from '../../src/lib/token-display';
 import { useBriefingStore } from '../../src/lib/openclaw-briefing';
 import { BriefingActionCard } from '../../src/components/radar/BriefingActionCard';
 import { useMemoryEntities, useAgentMemory } from '../../src/lib/query';
@@ -265,7 +266,7 @@ export default function AgentScreen() {
     const items: FeedItem[] = [];
 
     for (const inv of investigations.slice(0, 8)) {
-      const name = inv.name ?? inv.mint.slice(0, 8);
+      const name = fmtName(inv.name, inv.symbol, inv.mint);
       const symbol = inv.symbol ?? '';
       // Determine effective risk from score + forensic signals in verdict/findings
       const effectiveRisk = _deriveEffectiveRisk(inv.riskScore, inv.verdict, inv.keyFindings);
@@ -310,7 +311,7 @@ export default function AgentScreen() {
         (flag.detail?.name as string) ??
         (flag.detail?.symbol as string) ??
         _extractNameFromTitle(flag.title) ??
-        flag.mint.slice(0, 6) + '…' + flag.mint.slice(-4);
+        shortAddr(flag.mint);
       const flagSymbol = (flag.detail?.symbol as string) ?? '';
       const summary = _buildFlagSummary(flag);
 
