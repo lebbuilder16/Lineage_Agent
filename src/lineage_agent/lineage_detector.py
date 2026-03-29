@@ -549,7 +549,7 @@ async def _detect_lineage_impl(
     if force_refresh:
         await _cache_delete(_lineage_cache_key(mint_address))
         await _cache_delete(_legacy_lineage_cache_key(mint_address))
-        await _cache_delete(f"rpc:deployer:v6:{mint_address}")
+        await _cache_delete(f"rpc:deployer:v7:{mint_address}")
         await _cache_delete(f"rpc:asset:{mint_address}")
         logger.info("[force_refresh] cleared lineage + RPC caches for %s", mint_address)
 
@@ -1061,16 +1061,11 @@ async def _detect_lineage_impl(
     # ------------------------------------------------------------------
     # Forensic enrichment — non-blocking, failures are silent
     # ------------------------------------------------------------------
-    # When called with skip_forensic_enrichment=True (from forensic_pipeline),
-    # return the family tree immediately — enrichments are handled by the DAG.
-    if skip_forensic_enrichment:
-        result.scanned_at = datetime.now(timezone.utc)
-        await _cache_set(_lineage_cache_key(mint_address), result, ttl=CACHE_TTL_LINEAGE_SECONDS)
-        return result
-
-    await _progress("Running forensic analysis", 92)
-
-    # Record this token in the intelligence_events store (fire-and-forget)
+    # Record this token in the intelligence_events store (fire-and-forget).
+    # MUST happen BEFORE the skip_forensic_enrichment early-return so that
+    # the forensic pipeline (which sets skip_forensic_enrichment=True) still
+    # populates intelligence_events — otherwise deployer_profile, death_clock,
+    # factory_rhythm, and cartel detection have no historical data.
     try:
         await record_token_creation(root_meta)
     except Exception as _e:
@@ -1082,12 +1077,7 @@ async def _detect_lineage_impl(
         except Exception as _e:
             logger.debug("record_token_creation (query) failed: %s", _e)
 
-    # Determine which deployer to profile: always the SCANNED token's deployer.
-    # Fall back to root deployer only if query deployer is unavailable.
-    _scan_deployer = (query_meta.deployer if query_meta and query_meta.deployer else root_meta.deployer)
-    _scan_mint     = (query_meta.mint     if query_meta else root_meta.mint)
-
-    # Record confirmed derivatives (deployer_score == 1.0) as well
+    # Record confirmed derivatives (deployer_score == 1.0)
     for _d in result.derivatives:
         if _d.evidence.deployer_score >= 0.99:
             try:
@@ -1104,6 +1094,20 @@ async def _detect_lineage_impl(
                 await record_token_creation(_d_meta)
             except Exception as _e:
                 logger.debug("record_token_creation (derivative) failed: %s", _e)
+
+    # When called with skip_forensic_enrichment=True (from forensic_pipeline),
+    # return the family tree immediately — enrichments are handled by the DAG.
+    if skip_forensic_enrichment:
+        result.scanned_at = datetime.now(timezone.utc)
+        await _cache_set(_lineage_cache_key(mint_address), result, ttl=CACHE_TTL_LINEAGE_SECONDS)
+        return result
+
+    await _progress("Running forensic analysis", 92)
+
+    # Determine which deployer to profile: always the SCANNED token's deployer.
+    # Fall back to root deployer only if query deployer is unavailable.
+    _scan_deployer = (query_meta.deployer if query_meta and query_meta.deployer else root_meta.deployer)
+    _scan_mint     = (query_meta.mint     if query_meta else root_meta.mint)
 
     # ── DAS bootstrap: fire-and-forget — no longer blocks the forensics phase ─
     # Previously awaited (up to 8 s) so enrichers would see full history on the
@@ -1769,9 +1773,10 @@ async def _get_deployer_cached(
     caller-provided pairCreatedAt for the timestamp.  This trades a
     small accuracy loss on creation_at for a massive latency win.
     """
-    # v6: cache bust — v5 could persist the mint address itself as deployer
-    # (InitializeMint signs with the mint account; must exclude mint from candidates).
-    cache_key = f"rpc:deployer:v6:{mint}"
+    # v7: cache bust — v6 could persist a sniper/migration bot as deployer
+    # for pump.fun tokens (DAS creators[] empty, sig-walk misresolution).
+    # v7 adds pump.fun API as authoritative creator source.
+    cache_key = f"rpc:deployer:v7:{mint}"
     cached = await _cache_get(cache_key)
     if cached is not None:
         # SQLite cache returns lists; convert datetime string back
@@ -1790,6 +1795,35 @@ async def _get_deployer_cached(
     deployer = ""
     ua = ""
     created_at: Any = None
+
+    # --- Pump.fun creator API (authoritative for pump.fun tokens) ---
+    # The pump.fun API returns the real creator wallet directly, avoiding
+    # DAS/sig-walk misresolution where a sniper or migration bot is
+    # incorrectly identified as the deployer.
+    _pumpfun_creator = ""
+    if mint.endswith("pump"):
+        try:
+            import httpx as _httpx  # noqa: PLC0415
+            async with _httpx.AsyncClient(timeout=5.0) as _pf_http:
+                _pf_resp = await _pf_http.get(
+                    f"https://frontend-api-v3.pump.fun/coins/{mint}"
+                )
+                if _pf_resp.status_code == 200:
+                    _pf_data = _pf_resp.json()
+                    _pf_creator = _pf_data.get("creator", "")
+                    if (
+                        _pf_creator
+                        and _pf_creator not in _NON_DEPLOYER_AUTHORITIES
+                        and _pf_creator != mint
+                    ):
+                        _pumpfun_creator = _pf_creator
+                        deployer = _pf_creator
+                        logger.info(
+                            "Pump.fun API resolved creator for %s: %s",
+                            mint[:12], _pf_creator[:12],
+                        )
+        except Exception as _pf_exc:
+            logger.debug("Pump.fun API failed for %s: %s", mint[:12], _pf_exc)
 
     # --- DAS-first path (O(1), works for all token standards) ---
     asset = await rpc.get_asset(mint)
@@ -1814,6 +1848,9 @@ async def _get_deployer_cached(
         creators = asset.get("creators") or []
 
         # 1) Canonical source: creators[] (Solscan-style creator identity)
+        #    BUT: if pump.fun API already resolved the creator, trust it —
+        #    DAS creators[] is unreliable for pump.fun tokens (often empty
+        #    or populated with a non-creator address).
         _verified_creator = next(
             (
                 c.get("address", "")
@@ -1830,7 +1867,16 @@ async def _get_deployer_cached(
             ),
             "",
         )
-        deployer = _verified_creator or _first_creator
+        _das_deployer = _verified_creator or _first_creator
+        if not _pumpfun_creator:
+            # No pump.fun API result — use DAS as primary
+            deployer = _das_deployer
+        elif _das_deployer and _das_deployer != _pumpfun_creator:
+            logger.info(
+                "Pump.fun creator (%s) differs from DAS creators[] (%s) for %s — "
+                "trusting pump.fun API.",
+                _pumpfun_creator[:12], _das_deployer[:12], mint[:12],
+            )
 
         # 2) Ignore update-authority as identity source (it can drift over time)
         ua = ""

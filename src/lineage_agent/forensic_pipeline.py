@@ -116,6 +116,14 @@ async def run_forensic_pipeline(
     report = ForensicReport(identity=identity)
     report.timings["identity"] = id_ms
 
+    # Liquidity architecture (zero RPC — uses DexScreener pairs already fetched)
+    if identity.pairs:
+        try:
+            from .liquidity_arch import analyze_liquidity_architecture
+            report.liquidity_arch = analyze_liquidity_architecture(identity.pairs, identity.mint)
+        except Exception as _la_exc:
+            logger.debug("[pipeline] liquidity_arch failed: %s", _la_exc)
+
     if not identity.name and not identity.symbol:
         # Unknown token -- can't search for family
         yield _evt("phase", {"phase": "scan", "status": "done"})

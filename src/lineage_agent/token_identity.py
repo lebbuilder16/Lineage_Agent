@@ -80,7 +80,7 @@ async def resolve_token_identity(
     if force_refresh:
         await _cache_delete(_lineage_cache_key(mint))
         await _cache_delete(_legacy_lineage_cache_key(mint))
-        await _cache_delete(f"rpc:deployer:v6:{mint}")
+        await _cache_delete(f"rpc:deployer:v7:{mint}")
         await _cache_delete(f"rpc:asset:{mint}")
 
     # Step 1: Fetch DexScreener pairs
