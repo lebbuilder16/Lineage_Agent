@@ -1807,10 +1807,15 @@ async def _get_deployer_cached(
     # incorrectly identified as the deployer.
     # Cached 24h — creator is immutable on-chain.
     _pumpfun_creator = ""
-    if mint.endswith("pump"):
+    # Try pump.fun API for any token — not just *pump suffix.
+    # Many pump.fun tokens (Token-2022, older launches) don't end with "pump".
+    # The API returns 404 for non-pump.fun tokens, which is safe and fast.
+    if True:  # Always try pump.fun first — 5s call vs 50s+ sig-walk
         _pf_cache_key = f"pumpfun:creator:{mint}"
         _pf_cached = await _cache_get(_pf_cache_key)
-        if isinstance(_pf_cached, str) and _pf_cached:
+        if _pf_cached == "_NOT_PUMPFUN":
+            pass  # Cached negative — skip API call
+        elif isinstance(_pf_cached, str) and _pf_cached:
             _pumpfun_creator = _pf_cached
             deployer = _pf_cached
         else:
@@ -1836,6 +1841,12 @@ async def _get_deployer_cached(
                                 "Pump.fun API resolved creator for %s: %s",
                                 mint[:12], _pf_creator[:12],
                             )
+                    else:
+                        # 200 but no creator — cache negative to avoid re-trying
+                        await _cache_set(_pf_cache_key, "_NOT_PUMPFUN", ttl=86400)
+                    if _pf_resp.status_code == 404:
+                        # Not a pump.fun token — cache to skip future attempts
+                        await _cache_set(_pf_cache_key, "_NOT_PUMPFUN", ttl=86400)
             except Exception as _pf_exc:
                 logger.debug("Pump.fun API failed for %s: %s", mint[:12], _pf_exc)
 
