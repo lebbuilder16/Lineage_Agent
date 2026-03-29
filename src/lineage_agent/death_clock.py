@@ -448,6 +448,40 @@ def _compute_market_signals(
                 liq_mcap_ratio, _LOW_LIQ_MCAP_RATIO,
             )
 
+    # Signal 3 — sell pressure from transaction ratios
+    sell_pressure_pct: Optional[float] = None
+    buys = getattr(metadata, "txns_24h_buys", None)
+    sells = getattr(metadata, "txns_24h_sells", None)
+    if buys is not None and sells is not None:
+        total = buys + sells
+        if total > 0:
+            sell_pressure_pct = round((sells / total) * 100, 1)
+            if sell_pressure_pct > 65:
+                boost += 1.0
+                logger.debug(
+                    "[death_clock] market signal: sell_pressure=%.1f%% > 65%% → boost +1",
+                    sell_pressure_pct,
+                )
+
+    # Signal 4 — negative price momentum (1h)
+    price_h1 = getattr(metadata, "price_change_1h", None)
+    if price_h1 is not None and price_h1 < -15.0:
+        boost += 0.5
+        logger.debug(
+            "[death_clock] market signal: price_change_1h=%.1f%% < -15%% → boost +0.5",
+            price_h1,
+        )
+
+    # Signal 5 — near-zero volume (token abandoned)
+    vol_24h = getattr(metadata, "volume_24h_usd", None)
+    volume_trend: str = "stable"
+    if vol_24h is not None:
+        if vol_24h < 500:
+            boost += 0.5
+            volume_trend = "declining"
+        elif vol_24h > 50000:
+            volume_trend = "rising"
+
     # Cap boost at 3 (matches model Field constraint)
     boost = min(3.0, boost)
 
@@ -455,6 +489,10 @@ def _compute_market_signals(
         liquidity_usd=liq,
         market_cap_usd=mcap,
         liq_to_mcap_ratio=round(liq_mcap_ratio, 6) if liq_mcap_ratio is not None else None,
+        price_change_h1_pct=price_h1,
+        volume_h1_usd=None,  # DexScreener only provides h24 aggregation
+        sell_pressure_pct=sell_pressure_pct,
+        volume_trend=volume_trend,
         adjusted_risk_boost=boost,
     )
 

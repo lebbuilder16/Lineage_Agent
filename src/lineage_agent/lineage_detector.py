@@ -1800,30 +1800,39 @@ async def _get_deployer_cached(
     # The pump.fun API returns the real creator wallet directly, avoiding
     # DAS/sig-walk misresolution where a sniper or migration bot is
     # incorrectly identified as the deployer.
+    # Cached 24h — creator is immutable on-chain.
     _pumpfun_creator = ""
     if mint.endswith("pump"):
-        try:
-            import httpx as _httpx  # noqa: PLC0415
-            async with _httpx.AsyncClient(timeout=5.0) as _pf_http:
-                _pf_resp = await _pf_http.get(
-                    f"https://frontend-api-v3.pump.fun/coins/{mint}"
-                )
-                if _pf_resp.status_code == 200:
-                    _pf_data = _pf_resp.json()
-                    _pf_creator = _pf_data.get("creator", "")
-                    if (
-                        _pf_creator
-                        and _pf_creator not in _NON_DEPLOYER_AUTHORITIES
-                        and _pf_creator != mint
-                    ):
-                        _pumpfun_creator = _pf_creator
-                        deployer = _pf_creator
-                        logger.info(
-                            "Pump.fun API resolved creator for %s: %s",
-                            mint[:12], _pf_creator[:12],
-                        )
-        except Exception as _pf_exc:
-            logger.debug("Pump.fun API failed for %s: %s", mint[:12], _pf_exc)
+        _pf_cache_key = f"pumpfun:creator:{mint}"
+        _pf_cached = await _cache_get(_pf_cache_key)
+        if isinstance(_pf_cached, str) and _pf_cached:
+            _pumpfun_creator = _pf_cached
+            deployer = _pf_cached
+        else:
+            try:
+                import httpx as _httpx  # noqa: PLC0415
+                async with _httpx.AsyncClient(timeout=5.0) as _pf_http:
+                    _pf_resp = await _pf_http.get(
+                        f"https://frontend-api-v3.pump.fun/coins/{mint}"
+                    )
+                    if _pf_resp.status_code == 200:
+                        _pf_data = _pf_resp.json()
+                        _pf_creator = _pf_data.get("creator", "")
+                        if (
+                            _pf_creator
+                            and _pf_creator not in _NON_DEPLOYER_AUTHORITIES
+                            and _pf_creator != mint
+                        ):
+                            _pumpfun_creator = _pf_creator
+                            deployer = _pf_creator
+                            # Cache for 24h — creator is immutable
+                            await _cache_set(_pf_cache_key, _pf_creator, ttl=86400)
+                            logger.info(
+                                "Pump.fun API resolved creator for %s: %s",
+                                mint[:12], _pf_creator[:12],
+                            )
+            except Exception as _pf_exc:
+                logger.debug("Pump.fun API failed for %s: %s", mint[:12], _pf_exc)
 
     # --- DAS-first path (O(1), works for all token standards) ---
     asset = await rpc.get_asset(mint)

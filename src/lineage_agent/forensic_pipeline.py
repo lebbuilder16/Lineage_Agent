@@ -195,12 +195,21 @@ async def run_forensic_pipeline(
             _sub_step("death_clock", "running")
             t = time.monotonic()
             try:
+                _qm = identity._query_meta
                 meta = TokenMetadata(
                     mint=identity.mint,
                     name=identity.name,
                     symbol=identity.symbol,
                     deployer=deployer,
                     created_at=identity.created_at,
+                    liquidity_usd=identity.liquidity_usd,
+                    market_cap_usd=identity.market_cap_usd,
+                    price_usd=identity.price_usd,
+                    volume_24h_usd=getattr(_qm, "volume_24h_usd", None) if _qm else None,
+                    txns_24h_buys=getattr(_qm, "txns_24h_buys", None) if _qm else None,
+                    txns_24h_sells=getattr(_qm, "txns_24h_sells", None) if _qm else None,
+                    price_change_1h=getattr(_qm, "price_change_1h", None) if _qm else None,
+                    price_change_24h=getattr(_qm, "price_change_24h", None) if _qm else None,
                 )
                 results["death_clock"] = await asyncio.wait_for(
                     compute_death_clock(deployer, identity.created_at, token_metadata=meta),

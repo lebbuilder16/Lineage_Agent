@@ -51,6 +51,16 @@ async def record_token_creation(token: TokenMetadata) -> None:
         except Exception:
             pass
 
+    # Persist social links for cross-referencing against rugged tokens
+    if token.socials:
+        extra_data["socials"] = token.socials
+
+    # Persist market signals for death clock and historical analysis
+    if token.volume_24h_usd is not None:
+        extra_data["volume_24h_usd"] = token.volume_24h_usd
+    if token.boost_count is not None:
+        extra_data["boost_count"] = token.boost_count
+
     try:
         await event_insert(
             event_type="token_created",
