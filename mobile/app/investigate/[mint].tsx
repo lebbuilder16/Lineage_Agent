@@ -122,14 +122,39 @@ export default function InvestigateScreen() {
 
   const startInvestigation = useCallback(() => { if (mint) useInvestigateStore.getState().startInvestigation(mint, plan); }, [mint, plan]);
 
-  // On mount: try loading cached result first, only start fresh investigation if no cache
+  // On mount: try loading cached result first, then history store, only start fresh investigation if nothing found
   useEffect(() => {
     let cancelled = false;
     (async () => {
       if (!mint) return;
+      // 1. Try AsyncStorage cache (full verdict + market data, 1h TTL)
       const loaded = await useInvestigateStore.getState().loadCached(mint);
       if (loaded || cancelled) return;
-      startInvestigation();
+      // 2. Try history store (has verdict summary + findings, no TTL)
+      const histRecord = useHistoryStore.getState().getByMint(mint);
+      if (histRecord && !cancelled) {
+        useInvestigateStore.setState({
+          ...useInvestigateStore.getState(),
+          mint,
+          status: 'done',
+          heuristicScore: histRecord.riskScore,
+          riskLevel: histRecord.riskScore >= 75 ? 'critical' : histRecord.riskScore >= 50 ? 'high' : histRecord.riskScore >= 25 ? 'medium' : 'low',
+          findings: histRecord.keyFindings ?? [],
+          verdict: histRecord.verdict ? {
+            risk_score: histRecord.riskScore,
+            confidence: 'medium' as const,
+            rug_pattern: '',
+            verdict_summary: histRecord.verdict,
+            narrative: { observation: '', pattern: '', risk: '' },
+            key_findings: histRecord.keyFindings ?? [],
+            conviction_chain: '',
+            operator_hypothesis: null,
+          } : null,
+        });
+        return;
+      }
+      // 3. No cache at all — start fresh investigation
+      if (!cancelled) startInvestigation();
     })();
     return () => { cancelled = true; cancelRef.current?.(); if (retryTimerRef.current) clearTimeout(retryTimerRef.current); };
   }, [mint]);
