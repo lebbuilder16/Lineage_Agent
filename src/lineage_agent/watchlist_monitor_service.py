@@ -409,9 +409,26 @@ async def run_single_rescan(watch_id: int, user_id: int, cache) -> dict | None:
         # Extract new forensic snapshot
         new_forensic = _extract_forensic_snapshot(lin)
 
-        dc = getattr(lin, "death_clock", None)
-        new_risk = getattr(dc, "risk_level", "unknown") if dc else "unknown"
-        new_score = getattr(dc, "rug_probability_pct", 0) or 0 if dc else 0
+        # Compute heuristic score (the real risk indicator) — not death_clock's
+        # rug_probability_pct which is often 0 for tokens with insufficient data.
+        from .ai_analyst import _heuristic_score
+        br = getattr(lin, "bundle_report", None)
+        sf = getattr(lin, "sol_flow", None)
+        new_score = _heuristic_score(lin, br, sf)
+
+        # Risk level from heuristic score (consistent with investigation)
+        if new_score >= 75:
+            new_risk = "critical"
+        elif new_score >= 50:
+            new_risk = "high"
+        elif new_score >= 25:
+            new_risk = "medium"
+        else:
+            new_risk = "low"
+
+        # Inject into snapshot so _generate_flags can detect risk_level changes
+        new_forensic["risk_level"] = new_risk
+        new_forensic["heuristic_score"] = new_score
 
         # Store risk snapshot
         for _attempt in range(3):
