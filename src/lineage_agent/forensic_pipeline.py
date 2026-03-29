@@ -90,8 +90,46 @@ async def run_forensic_pipeline(
         if _cache_age < _REPORT_CACHE_TTL:
             cached_report = _cached[1]
             logger.info("[pipeline] cache hit for %s (%.0fs old)", mint[:12], _cache_age)
+
+            # Always refresh market data (price/mcap/liq) from DexScreener
+            # even on cache hit — prices move fast, this is a single HTTP call.
+            try:
+                from .data_sources._clients import get_dex_client
+                _dex = get_dex_client()
+                _fresh_pairs = await _dex.get_token_pairs_with_fallback(mint)
+                if _fresh_pairs:
+                    _fresh_meta = _dex.pairs_to_metadata(mint, _fresh_pairs)
+                    cached_report.identity.price_usd = _fresh_meta.price_usd
+                    cached_report.identity.market_cap_usd = _fresh_meta.market_cap_usd
+                    cached_report.identity.liquidity_usd = _fresh_meta.liquidity_usd
+                    cached_report.identity.pairs = _fresh_pairs
+                    if cached_report.identity._query_meta:
+                        cached_report.identity._query_meta.price_usd = _fresh_meta.price_usd
+                        cached_report.identity._query_meta.market_cap_usd = _fresh_meta.market_cap_usd
+                        cached_report.identity._query_meta.liquidity_usd = _fresh_meta.liquidity_usd
+                        cached_report.identity._query_meta.volume_24h_usd = _fresh_meta.volume_24h_usd
+                        cached_report.identity._query_meta.price_change_24h = _fresh_meta.price_change_24h
+            except Exception:
+                pass  # keep cached data if refresh fails
+
             yield _evt("phase", {"phase": "scan", "status": "started"})
             yield _evt("step", {"step": "identity", "status": "done", "ms": 0})
+            # Emit identity_ready with fresh market data even on cache hit
+            _ci = cached_report.identity
+            _cqm = _ci._query_meta if hasattr(_ci, "_query_meta") else None
+            yield _evt("identity_ready", {
+                "name": _ci.name,
+                "symbol": getattr(_ci, "symbol", ""),
+                "deployer": _ci.deployer[:12] if _ci.deployer else "",
+                "created_at": str(_ci.created_at) if _ci.created_at else None,
+                "ms": 0,
+                "price_usd": _ci.price_usd,
+                "market_cap_usd": _ci.market_cap_usd,
+                "liquidity_usd": _ci.liquidity_usd,
+                "volume_24h_usd": getattr(_cqm, "volume_24h_usd", None) if _cqm else None,
+                "price_change_24h": getattr(_cqm, "price_change_24h", None) if _cqm else None,
+                "boost_count": getattr(_cqm, "boost_count", None) if _cqm else None,
+            })
             yield _evt("phase", {"phase": "scan", "status": "done"})
             yield {"event": "_report", "data": cached_report}
             return
