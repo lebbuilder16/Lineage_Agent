@@ -460,6 +460,117 @@ const css = `
   @keyframes sm-pulse {
     0%, 100% { opacity: 1; } 50% { opacity: .3; }
   }
+  /* ══ LIVE DEMO ══ */
+  .sm-demo { padding: 120px 0; position: relative; border-top: 1px solid var(--border); }
+  .sm-demo-box {
+    max-width: 640px; margin: 0 auto;
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: var(--r-card); padding: 40px 32px;
+  }
+  .sm-demo-input-row { display: flex; gap: 12px; margin-bottom: 24px; }
+  .sm-demo-input {
+    flex: 1; padding: 14px 20px; border-radius: var(--r-pill);
+    background: rgba(255,255,255,.04); border: 1px solid var(--border);
+    color: var(--text); font-family: var(--font); font-size: 15px;
+    outline: none; transition: border-color .2s;
+  }
+  .sm-demo-input::placeholder { color: var(--text-dim); }
+  .sm-demo-input:focus { border-color: var(--accent); box-shadow: var(--glow-sm); }
+  .sm-demo-btn {
+    padding: 14px 28px; border-radius: var(--r-pill);
+    background: var(--accent); color: var(--black);
+    border: none; font-family: var(--font); font-size: 15px; font-weight: 500;
+    cursor: pointer; transition: all .2s; white-space: nowrap;
+  }
+  .sm-demo-btn:hover { box-shadow: var(--glow-lg); transform: translateY(-1px); }
+  .sm-demo-btn:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+  .sm-demo-result {
+    border-top: 1px solid var(--border); padding-top: 24px;
+  }
+  .sm-demo-score {
+    display: flex; align-items: center; gap: 16px; margin-bottom: 16px;
+  }
+  .sm-demo-score-num {
+    font-size: 48px; font-weight: 700; line-height: 1;
+  }
+  .sm-demo-score-meta { display: flex; flex-direction: column; gap: 4px; }
+  .sm-demo-risk-badge {
+    display: inline-block; padding: 4px 14px; border-radius: var(--r-pill);
+    font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em;
+  }
+  .sm-demo-finding {
+    font-size: 14px; color: var(--text-muted); line-height: 1.6;
+    padding: 4px 0 4px 16px; border-left: 2px solid var(--border);
+    margin-bottom: 8px;
+  }
+  .sm-demo-spinner {
+    display: flex; align-items: center; justify-content: center; gap: 12px;
+    padding: 32px 0; color: var(--text-muted); font-size: 14px;
+  }
+  @keyframes sm-spin { to { transform: rotate(360deg); } }
+  .sm-demo-spin {
+    width: 20px; height: 20px; border: 2px solid var(--border);
+    border-top-color: var(--accent); border-radius: 50%;
+    animation: sm-spin .8s linear infinite;
+  }
+  @media (max-width: 640px) {
+    .sm-demo-input-row { flex-direction: column; }
+    .sm-demo-box { padding: 28px 20px; }
+  }
+
+  /* ══ RESULTS SHOWCASE ══ */
+  .sm-results-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; max-width: 800px; margin: 0 auto; }
+  @media (max-width: 768px) { .sm-results-grid { grid-template-columns: 1fr; } }
+  .sm-result-card {
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--r-card);
+    padding: 28px 24px; transition: all .3s var(--ease);
+  }
+  .sm-result-card:hover { border-color: var(--accent); box-shadow: var(--glow-sm); }
+  .sm-result-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+  .sm-result-name { font-size: 16px; font-weight: 600; color: var(--text-warm); }
+  .sm-result-score { font-size: 28px; font-weight: 700; }
+  .sm-result-findings { display: flex; flex-direction: column; gap: 6px; }
+  .sm-result-finding { font-size: 13px; color: var(--text-muted); line-height: 1.5; }
+
+  /* ══ PRICING ══ */
+  .sm-pricing-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; max-width: 960px; margin: 0 auto; }
+  @media (max-width: 768px) { .sm-pricing-grid { grid-template-columns: 1fr; } }
+  .sm-price-card {
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--r-card);
+    padding: 36px 28px; text-align: center; transition: all .3s var(--ease);
+    position: relative;
+  }
+  .sm-price-card--featured {
+    border-color: var(--accent); box-shadow: var(--glow-sm);
+  }
+  .sm-price-card:hover { transform: translateY(-4px); box-shadow: 0 12px 40px rgba(0,0,0,.3); }
+  .sm-price-badge {
+    position: absolute; top: -12px; left: 50%; transform: translateX(-50%);
+    background: var(--accent); color: var(--black); padding: 4px 16px;
+    border-radius: var(--r-pill); font-size: 11px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: .08em;
+  }
+  .sm-price-tier { font-size: 14px; font-weight: 500; color: var(--accent); text-transform: uppercase; letter-spacing: .1em; margin: 0 0 8px; }
+  .sm-price-amount { font-size: 36px; font-weight: 700; color: var(--text-warm); margin: 0 0 4px; }
+  .sm-price-period { font-size: 13px; color: var(--text-dim); margin: 0 0 24px; }
+  .sm-price-features { list-style: none; padding: 0; margin: 0 0 28px; text-align: left; }
+  .sm-price-feature {
+    font-size: 14px; color: var(--text-muted); padding: 8px 0;
+    border-bottom: 1px solid rgba(55,60,62,.5);
+    display: flex; align-items: center; gap: 10px;
+  }
+  .sm-price-feature::before { content: '✓'; color: var(--accent); font-weight: 600; }
+  .sm-price-btn {
+    display: block; width: 100%; padding: 14px;
+    border-radius: var(--r-pill); font-family: var(--font);
+    font-size: 15px; font-weight: 500; cursor: pointer;
+    text-decoration: none; text-align: center; transition: all .2s;
+  }
+  .sm-price-btn--primary { background: var(--accent); color: var(--black); border: 1px solid var(--accent); }
+  .sm-price-btn--primary:hover { box-shadow: var(--glow-lg); }
+  .sm-price-btn--ghost { background: transparent; color: var(--accent); border: 1px solid var(--border); }
+  .sm-price-btn--ghost:hover { border-color: var(--accent); background: rgba(207,230,228,.04); }
+
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after {
       animation-duration: 0.01ms !important;
@@ -486,9 +597,63 @@ function HeroWords({ text, baseDelay = 0 }: { text: string; baseDelay?: number }
    COMPONENT
 ═══════════════════════════════════════════ */
 
+/* ─── Live demo types ─── */
+interface DemoResult { score: number; risk_level: string; findings: string[]; }
+
+const RISK_COLORS: Record<string, string> = {
+  critical: '#ff4d4d', high: '#ff8c42', medium: '#ffc844', low: '#44cc88',
+};
+
+/* ─── Real results data ─── */
+const SHOWCASE_RESULTS = [
+  {
+    name: 'TRASHCAN', score: 100, risk: 'critical',
+    findings: [
+      'Coordinated early buying detected',
+      '206 SOL traced leaving the token',
+      '10 clone tokens detected',
+    ],
+  },
+  {
+    name: 'Lost ($LOST)', score: 41, risk: 'medium',
+    findings: [
+      'Creator holds ~1% of supply (~$5K)',
+      '10 clones — widely copied',
+      'High vol/liq ratio (12x)',
+    ],
+  },
+];
+
+
 export function LandingScreen() {
   const [stats, setStats] = useState<GlobalStats | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [demoMint, setDemoMint] = useState('');
+  const [demoLoading, setDemoLoading] = useState(false);
+  const [demoResult, setDemoResult] = useState<DemoResult | null>(null);
+  const [demoError, setDemoError] = useState('');
+
+  const runDemo = async () => {
+    const mint = demoMint.trim();
+    if (!mint || mint.length < 30) { setDemoError('Paste a valid Solana token address'); return; }
+    setDemoLoading(true); setDemoResult(null); setDemoError('');
+    try {
+      const res = await fetch(`https://lineage-agent.fly.dev/investigate/${encodeURIComponent(mint)}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' }, body: '{}',
+      });
+      const text = await res.text();
+      // Parse SSE: find heuristic_complete event
+      const match = text.match(/event: heuristic_complete\ndata: (.+)/);
+      if (match) {
+        const data = JSON.parse(match[1]);
+        setDemoResult({ score: data.heuristic_score, risk_level: data.risk_level || 'low', findings: data.findings || [] });
+      } else {
+        setDemoError('Analysis completed but no score returned. Try another token.');
+      }
+    } catch {
+      setDemoError('Network error — try again.');
+    } finally { setDemoLoading(false); }
+  };
 
   useEffect(() => {
     const obs = new IntersectionObserver(
@@ -523,8 +688,9 @@ export function LandingScreen() {
           Lineage
         </a>
         <div className="sm-nav-links">
+          <a href="#demo" className="sm-nav-link">Try it</a>
           <a href="#how" className="sm-nav-link">How it works</a>
-          <a href="#stats" className="sm-nav-link">Stats</a>
+          <a href="#pricing" className="sm-nav-link">Pricing</a>
           <a href="#download" className="sm-nav-cta">Download App</a>
         </div>
         <button className="sm-nav-burger" aria-label="Open menu" aria-expanded={menuOpen}
@@ -534,8 +700,9 @@ export function LandingScreen() {
       </nav>
 
       <div className={`sm-mobile-menu${menuOpen ? ' open' : ''}`} role="navigation" aria-label="Mobile navigation">
+        <a href="#demo" className="sm-nav-link" onClick={() => setMenuOpen(false)}>Try it</a>
         <a href="#how" className="sm-nav-link" onClick={() => setMenuOpen(false)}>How it works</a>
-        <a href="#stats" className="sm-nav-link" onClick={() => setMenuOpen(false)}>Stats</a>
+        <a href="#pricing" className="sm-nav-link" onClick={() => setMenuOpen(false)}>Pricing</a>
         <a href="#download" className="sm-nav-cta" style={{ justifyContent: 'center' }} onClick={() => setMenuOpen(false)}>Download App</a>
       </div>
 
@@ -602,6 +769,134 @@ export function LandingScreen() {
                 <p className="sm-card-desc">{item.desc}</p>
               </article>
             ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Live Demo */}
+      <section id="demo" className="sm-demo">
+        <div className="sm-container">
+          <p className="sm-section-label sm-reveal">Try it now</p>
+          <h2 className="sm-section-title sm-reveal">Scan any Solana token in seconds</h2>
+          <div className="sm-demo-box sm-reveal">
+            <div className="sm-demo-input-row">
+              <input
+                className="sm-demo-input"
+                placeholder="Paste a token address..."
+                value={demoMint}
+                onChange={e => { setDemoMint(e.target.value); setDemoError(''); }}
+                onKeyDown={e => e.key === 'Enter' && !demoLoading && runDemo()}
+              />
+              <button className="sm-demo-btn" onClick={runDemo} disabled={demoLoading}>
+                {demoLoading ? 'Scanning...' : 'Scan'}
+              </button>
+            </div>
+            {demoError && <p style={{ color: '#ff4d4d', fontSize: 14, margin: '0 0 16px' }}>{demoError}</p>}
+            {demoLoading && (
+              <div className="sm-demo-spinner">
+                <div className="sm-demo-spin" />
+                Running forensic analysis...
+              </div>
+            )}
+            {demoResult && (
+              <div className="sm-demo-result">
+                <div className="sm-demo-score">
+                  <span className="sm-demo-score-num" style={{ color: RISK_COLORS[demoResult.risk_level] || RISK_COLORS.low }}>
+                    {demoResult.score}
+                  </span>
+                  <div className="sm-demo-score-meta">
+                    <span style={{ fontSize: 14, color: 'var(--text-muted)' }}>/100</span>
+                    <span className="sm-demo-risk-badge" style={{
+                      background: `${RISK_COLORS[demoResult.risk_level] || RISK_COLORS.low}22`,
+                      color: RISK_COLORS[demoResult.risk_level] || RISK_COLORS.low,
+                    }}>
+                      {demoResult.risk_level}
+                    </span>
+                  </div>
+                </div>
+                {demoResult.findings.map((f, i) => (
+                  <p key={i} className="sm-demo-finding">{f}</p>
+                ))}
+                <p style={{ fontSize: 13, color: 'var(--text-dim)', marginTop: 16, fontStyle: 'italic' }}>
+                  Free tier analysis — upgrade to Pro for AI-powered deep investigation
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+      </section>
+
+      {/* Real Results */}
+      <section className="sm-section">
+        <div className="sm-container">
+          <p className="sm-section-label sm-reveal">Real results</p>
+          <h2 className="sm-section-title sm-reveal">What Lineage catches that you don't</h2>
+          <div className="sm-results-grid sm-stagger">
+            {SHOWCASE_RESULTS.map((r, i) => (
+              <article key={i} className="sm-result-card sm-reveal">
+                <div className="sm-result-header">
+                  <span className="sm-result-name">{r.name}</span>
+                  <span className="sm-result-score" style={{ color: RISK_COLORS[r.risk] || '#fff' }}>
+                    {r.score}<span style={{ fontSize: 14, color: 'var(--text-dim)' }}>/100</span>
+                  </span>
+                </div>
+                <div className="sm-result-findings">
+                  {r.findings.map((f, j) => (
+                    <p key={j} className="sm-result-finding">• {f}</p>
+                  ))}
+                </div>
+              </article>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Pricing */}
+      <section id="pricing" className="sm-section">
+        <div className="sm-container">
+          <p className="sm-section-label sm-reveal">Plans</p>
+          <h2 className="sm-section-title sm-reveal">Pick your level of paranoia</h2>
+          <div className="sm-pricing-grid sm-stagger">
+            <div className="sm-price-card sm-reveal">
+              <p className="sm-price-tier">Free</p>
+              <p className="sm-price-amount">$0</p>
+              <p className="sm-price-period">forever</p>
+              <ul className="sm-price-features">
+                <li className="sm-price-feature">Heuristic risk score</li>
+                <li className="sm-price-feature">Forensic findings</li>
+                <li className="sm-price-feature">Clone detection</li>
+                <li className="sm-price-feature">Market data strip</li>
+                <li className="sm-price-feature">Unlimited scans</li>
+              </ul>
+              <a href="#download" className="sm-price-btn sm-price-btn--ghost">Get Started</a>
+            </div>
+            <div className="sm-price-card sm-price-card--featured sm-reveal">
+              <span className="sm-price-badge">Most Popular</span>
+              <p className="sm-price-tier">Pro</p>
+              <p className="sm-price-amount">$14.99</p>
+              <p className="sm-price-period">/month</p>
+              <ul className="sm-price-features">
+                <li className="sm-price-feature">Everything in Free</li>
+                <li className="sm-price-feature">AI-powered analysis</li>
+                <li className="sm-price-feature">Full verdict + narrative</li>
+                <li className="sm-price-feature">Daily briefings</li>
+                <li className="sm-price-feature">Rug push alerts</li>
+              </ul>
+              <a href="#download" className="sm-price-btn sm-price-btn--primary">Upgrade to Pro</a>
+            </div>
+            <div className="sm-price-card sm-reveal">
+              <p className="sm-price-tier">Whale</p>
+              <p className="sm-price-amount">$44.99</p>
+              <p className="sm-price-period">/month</p>
+              <ul className="sm-price-features">
+                <li className="sm-price-feature">Everything in Pro</li>
+                <li className="sm-price-feature">Agent multi-turn investigation</li>
+                <li className="sm-price-feature">Follow-up chat with AI</li>
+                <li className="sm-price-feature">Priority scanning</li>
+                <li className="sm-price-feature">Wallet monitoring</li>
+              </ul>
+              <a href="#download" className="sm-price-btn sm-price-btn--ghost">Go Whale</a>
+            </div>
           </div>
         </div>
       </section>
