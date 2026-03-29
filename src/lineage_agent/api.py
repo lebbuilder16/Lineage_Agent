@@ -3884,7 +3884,7 @@ async def get_wallet_holdings(
     db = await _cache._get_conn()
     # Force WAL checkpoint read so we see latest writes from background sweep
     try:
-        await db.execute("PRAGMA wal_checkpoint(PASSIVE)")
+        await db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
     except Exception:
         pass
 
@@ -3932,6 +3932,7 @@ async def get_wallet_holdings(
             risky_usd += usd_value or 0
         elif score >= 25:
             risk_dist["medium"] += 1
+            risky_usd += usd_value or 0
         else:
             risk_dist["low"] += 1
 
