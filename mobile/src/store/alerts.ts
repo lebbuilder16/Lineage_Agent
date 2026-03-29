@@ -3,7 +3,7 @@ import { persist, createJSONStorage } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { AlertItem } from '../types/api';
 
-const MAX_ALERTS = 500;
+const MAX_ALERTS = 50;  // Reduced from 500 — large alert lists cause UI freeze due to AsyncStorage writes + re-renders
 
 interface AlertsState {
   alerts: AlertItem[];

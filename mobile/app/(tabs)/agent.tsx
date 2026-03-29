@@ -83,10 +83,13 @@ function IntelTab() {
   const apiKey = useAuthStore((s) => s.apiKey);
   const { data: entities, isLoading } = useMemoryEntities(apiKey);
   const [selected, setSelected] = useState<{ type: string; id: string } | null>(null);
-  const { data: memory } = useAgentMemory(apiKey, {
+  // Memoize params to prevent infinite re-render loop —
+  // a new object ref each render would make React Query think the key changed.
+  const memoryParams = useMemo(() => ({
     entity_type: selected?.type,
     entity_id: selected?.id,
-  }, !!selected);
+  }), [selected?.type, selected?.id]);
+  const { data: memory } = useAgentMemory(apiKey, memoryParams, !!selected);
 
   if (isLoading) {
     return (
@@ -437,7 +440,14 @@ export default function AgentScreen() {
 
           {activeTab === 'intel' && (
             <Animated.View entering={FadeInDown.delay(150).duration(300).springify()}>
-              <IntelTab />
+              {/* IntelTab lazy-mounts only when selected to avoid background fetches */}
+              <React.Suspense fallback={
+                <View style={{ alignItems: 'center', padding: 32 }}>
+                  <Text style={{ color: tokens.textTertiary, fontFamily: 'Lexend-Regular', fontSize: 14 }}>Loading...</Text>
+                </View>
+              }>
+                <IntelTab />
+              </React.Suspense>
             </Animated.View>
           )}
 
