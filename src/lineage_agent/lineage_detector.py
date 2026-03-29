@@ -1743,11 +1743,16 @@ _NON_DEPLOYER_AUTHORITIES: frozenset[str] = frozenset({
     # Raydium DEX programs (can appear as fee-payers in mint creation TXs)
     "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8",    # Raydium AMM V4
     "5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1",    # Raydium Authority V4
+    "routeUGWgWzqBWFcrCfv8tritsYFkRYMGAkxTidQ2DqN",    # Raydium Route (old)
+    "roUteHjDohtkatXTb79PJ99bbxkTipgo3GJ4EJZ1YpB",     # Raydium Route (current)
     "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK",    # Raydium CLMM
     "CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C",    # Raydium CPMM
     # Raydium Launchpad (2025) — confirmed authority for DoBAMMq... token mint
     "WLHv2UAZm6z4KyaaELi5pjdbJh6RESMva1Rnn8pJVVh",     # Raydium Launchpad authority
     "LanMV9sAd7wArD6GNnABFhv4Vf8W4N9xCRbTPgP3czj",    # Raydium Launchpad program
+    # PumpSwap / PumpFun migration
+    "39azUYFWPz3VHgKCf3VChUwbpURdCHRxjWVowf5jUJjg",    # PumpFun Migration Authority
+    "PSwapMdSai8tjrEXcxFeQth87xC4rRsa4VA5mhGhXkP",     # PumpSwap Program
 })
 
 

@@ -91,11 +91,22 @@ SKIP_PROGRAMS: frozenset[str] = frozenset({
     MEMO_PROGRAM,
     WSOL_MINT,
     METAPLEX_METADATA,
-    # DEX / AMM programs
+    # DEX / AMM programs + routers (must be excluded from LP provider detection
+    # to avoid false-positive cartel edges — every token on Raydium would share
+    # the Raydium Route address as "LP wallet" otherwise)
     "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8",    # Raydium AMM V4
-    "5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1",    # Raydium Authority
+    "5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1",    # Raydium Authority V4
+    "routeUGWgWzqBWFcrCfv8tritsYFkRYMGAkxTidQ2DqN",    # Raydium Route (old)
+    "roUteHjDohtkatXTb79PJ99bbxkTipgo3GJ4EJZ1YpB",     # Raydium Route (current)
+    "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK",    # Raydium CLMM
+    "CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C",    # Raydium CPMM
+    "WLHv2UAZm6z4KyaaELi5pjdbJh6RESMva1Rnn8pJVVh",     # Raydium Launchpad Authority
+    "LanMV9sAd7wArD6GNnABFhv4Vf8W4N9xCRbTPgP3czj",    # Raydium Launchpad Program
+    "39azUYFWPz3VHgKCf3VChUwbpURdCHRxjWVowf5jUJjg",    # PumpFun Migration Authority
+    "PSwapMdSai8tjrEXcxFeQth87xC4rRsa4VA5mhGhXkP",     # PumpSwap Program
     "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc",     # Orca Whirlpool
     "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4",     # Jupiter V6
+    "JUP4Fb2cqiRUcaTHdrPC8h2gNsA2ETXiPDD33WcGuJB",     # Jupiter V4
     "srmqPvymJeFKQ4zGQed1GFppgkRHL9kaELCbyksJtPX",      # Serum DEX
     # Launchpad programs
     "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBymtzbm",    # PumpFun Program
