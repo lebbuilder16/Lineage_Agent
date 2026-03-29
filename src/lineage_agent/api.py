@@ -4422,36 +4422,6 @@ async def _watchlist_sweep_loop():
             logger.exception("[sweep] loop error: %s", exc)
 
 
-async def _briefing_loop():
-    """Generate daily briefings at the configured hour."""
-    from .briefing_service import generate_briefing
-    from .data_sources._clients import cache as _cache  # noqa: PLC0415
-    while True:
-        await asyncio.sleep(3600)  # check every hour
-        try:
-            now = datetime.now(tz=timezone.utc)
-            db = await _cache._get_conn()
-            cursor = await db.execute(
-                "SELECT user_id, briefing_hour FROM agent_prefs WHERE daily_briefing = 1"
-            )
-            rows = await cursor.fetchall()
-            for user_id, hour in rows:
-                if now.hour == (hour or 8):
-                    try:
-                        content = await generate_briefing(user_id, _cache)
-                        if content:
-                            await db.execute(
-                                "INSERT INTO briefings (user_id, content, created_at) VALUES (?, ?, ?)",
-                                (user_id, content, time.time()),
-                            )
-                            await db.commit()
-                            logger.info("[briefing] generated for user %d", user_id)
-                    except Exception as exc:
-                        logger.warning("[briefing] user %d failed: %s", user_id, exc)
-        except Exception as exc:
-            logger.exception("[briefing] loop error: %s", exc)
-
-
 async def _auto_investigate_token(mint: str, user_id: int, cache):
     """Run auto-investigation and store result in investigations table."""
     try:
