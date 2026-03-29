@@ -549,7 +549,7 @@ async def _detect_lineage_impl(
     if force_refresh:
         await _cache_delete(_lineage_cache_key(mint_address))
         await _cache_delete(_legacy_lineage_cache_key(mint_address))
-        await _cache_delete(f"rpc:deployer:v7:{mint_address}")
+        await _cache_delete(f"rpc:deployer:v8:{mint_address}")
         await _cache_delete(f"rpc:asset:{mint_address}")
         logger.info("[force_refresh] cleared lineage + RPC caches for %s", mint_address)
 
@@ -1773,10 +1773,10 @@ async def _get_deployer_cached(
     caller-provided pairCreatedAt for the timestamp.  This trades a
     small accuracy loss on creation_at for a massive latency win.
     """
-    # v7: cache bust — v6 could persist a sniper/migration bot as deployer
-    # for pump.fun tokens (DAS creators[] empty, sig-walk misresolution).
-    # v7 adds pump.fun API as authoritative creator source.
-    cache_key = f"rpc:deployer:v7:{mint}"
+    # v8: cache bust — v7 could persist empty deployer with long TTL for
+    # non-launchpad tokens where sig-walk timed out. v8 ensures empty
+    # deployers get short TTL (120s) so they retry on next scan.
+    cache_key = f"rpc:deployer:v8:{mint}"
     cached = await _cache_get(cache_key)
     if cached is not None:
         # SQLite cache returns lists; convert datetime string back
