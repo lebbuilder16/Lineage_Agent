@@ -218,8 +218,9 @@ export const useInvestigateStore = create<InvestigateState>((set, get) => ({
       const raw = await AsyncStorage.getItem(`investigate-result:${mint}`);
       if (!raw) return false;
       const data = JSON.parse(raw);
-      // Only use cache if less than 24 hours old
-      if (Date.now() - (data.timestamp || 0) > 86_400_000) return false;
+      // Only use cache if less than 30 minutes old — short enough to catch
+      // deployer resolution changes, long enough to avoid rescans in a session
+      if (Date.now() - (data.timestamp || 0) > 1_800_000) return false;
       set({
         ...INITIAL_STATE,
         mint,
