@@ -811,10 +811,10 @@ async def run_agent(
             tools_for_call = AGENT_TOOLS
             tool_choice_arg = {"type": "auto"}
 
-        gen_span = _lf.start_generation(name=f"claude_turn_{turn}", model=_MODEL, input_data={"turn": turn, "messages_count": len(messages)}, trace=trace)
+        gen_span = _lf.start_generation(name=f"claude_turn_{turn}", model=_MODEL_SONNET, input_data={"turn": turn, "messages_count": len(messages)}, trace=trace)
         try:
             async with client.messages.stream(
-                model=_MODEL,
+                model=_MODEL_SONNET,
                 max_tokens=2048,
                 temperature=0,
                 system=system_prompt,
@@ -922,7 +922,7 @@ async def run_agent(
                 # This IS the verdict — extract directly, no execution needed
                 verdict_from_tool = tu["input"]
                 verdict_from_tool["mint"] = mint
-                verdict_from_tool["model"] = _MODEL
+                verdict_from_tool["model"] = _MODEL_SONNET
             else:
                 regular_tool_uses.append(tu)
 
@@ -1150,7 +1150,7 @@ async def _extract_verdict(
         # Use streaming so httpx yields control to the event loop every token,
         # allowing sse-starlette's ping task to fire and keep the connection alive.
         async with client.messages.stream(
-            model=_MODEL,
+            model=_MODEL_SONNET,
             max_tokens=2000,
             temperature=0,
             system=system,

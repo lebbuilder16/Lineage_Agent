@@ -19,6 +19,7 @@ import {
   Zap,
   Settings,
   Wallet,
+  Brain,
 } from 'lucide-react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { useIsFocused } from '@react-navigation/native';
@@ -28,7 +29,10 @@ import { useAuthStore } from '../../src/store/auth';
 import { useSubscriptionStore } from '../../src/store/subscription';
 import { useAgentPrefsStore } from '../../src/store/agent-prefs';
 import { tokens } from '../../src/theme/tokens';
-import { AgentHero, AgentActivityFeed, AgentSettingsPanel, WalletHoldingsPanel } from '../../src/components/agent';
+import { AgentHero, AgentActivityFeed, AgentSettingsPanel, WalletHoldingsPanel, MemoryLensPanel } from '../../src/components/agent';
+import { useBriefingStore } from '../../src/lib/openclaw-briefing';
+import { BriefingActionCard } from '../../src/components/radar/BriefingActionCard';
+import { useMemoryEntities, useAgentMemory } from '../../src/lib/query';
 import { useWalletMonitorStore } from '../../src/store/wallet-monitor';
 import type { FeedItem } from '../../src/components/agent/AgentActivityFeed';
 
@@ -52,7 +56,108 @@ interface SweepFlag {
   read: boolean;
 }
 
-type TabId = 'feed' | 'wallet' | 'settings';
+type TabId = 'feed' | 'intel' | 'wallet' | 'settings';
+
+/* ─── Briefing card (inline — pulls from briefing store) ─── */
+function BriefingCard() {
+  const latest = useBriefingStore((s) => s.latest);
+  const generatedAt = useBriefingStore((s) => s.generatedAt);
+  const sections = useBriefingStore((s) => s.sections);
+  const unread = useBriefingStore((s) => s.unread);
+  const markRead = useBriefingStore((s) => s.markRead);
+  if (!latest) return null;
+  return (
+    <BriefingActionCard
+      text={latest}
+      generatedAt={generatedAt}
+      sections={sections}
+      unread={unread}
+      onMarkRead={markRead}
+    />
+  );
+}
+
+/* ─── Intel tab (memory entities + selected entity detail) ─── */
+function IntelTab() {
+  const apiKey = useAuthStore((s) => s.apiKey);
+  const { data: entities, isLoading } = useMemoryEntities(apiKey);
+  const [selected, setSelected] = useState<{ type: string; id: string } | null>(null);
+  const { data: memory } = useAgentMemory(apiKey, {
+    entity_type: selected?.type,
+    entity_id: selected?.id,
+  }, !!selected);
+
+  if (isLoading) {
+    return (
+      <View style={{ alignItems: 'center', padding: 32 }}>
+        <Text style={{ color: tokens.textTertiary, fontFamily: 'Lexend-Regular', fontSize: 14 }}>Loading intelligence...</Text>
+      </View>
+    );
+  }
+
+  const entityList = entities?.entities ?? [];
+
+  if (entityList.length === 0) {
+    return (
+      <View style={{ alignItems: 'center', padding: 32, gap: 8 }}>
+        <Brain size={28} color={tokens.textTertiary} />
+        <Text style={{ color: tokens.white60, fontFamily: 'Lexend-Medium', fontSize: 15, textAlign: 'center' }}>No intelligence yet</Text>
+        <Text style={{ color: tokens.textTertiary, fontFamily: 'Lexend-Regular', fontSize: 13, textAlign: 'center' }}>
+          Investigate tokens to build deployer and operator profiles
+        </Text>
+      </View>
+    );
+  }
+
+  if (selected && memory) {
+    return (
+      <View style={{ gap: 10 }}>
+        <TouchableOpacity onPress={() => setSelected(null)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingBottom: 8 }}>
+          <Text style={{ color: tokens.secondary, fontFamily: 'Lexend-Medium', fontSize: 13 }}>{'\u2190'} Back to entities</Text>
+        </TouchableOpacity>
+        <MemoryLensPanel data={memory} />
+      </View>
+    );
+  }
+
+  return (
+    <View style={{ gap: 8 }}>
+      <Text style={{ color: tokens.white60, fontFamily: 'Lexend-SemiBold', fontSize: 11, letterSpacing: 0.5, textTransform: 'uppercase' }}>
+        KNOWN ENTITIES ({entityList.length})
+      </Text>
+      {entityList.map((e: any, i: number) => (
+        <TouchableOpacity
+          key={`${e.entity_type}-${e.entity_id}-${i}`}
+          onPress={() => setSelected({ type: e.entity_type, id: e.entity_id })}
+          style={{
+            flexDirection: 'row', alignItems: 'center', gap: 12,
+            padding: 14, borderRadius: 12,
+            backgroundColor: 'rgba(255,255,255,0.03)',
+            borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)',
+          }}
+          activeOpacity={0.7}
+        >
+          <View style={{
+            width: 36, height: 36, borderRadius: 10,
+            backgroundColor: e.entity_type === 'deployer' ? 'rgba(207,230,228,0.08)' : 'rgba(149,210,230,0.08)',
+            alignItems: 'center', justifyContent: 'center',
+          }}>
+            <Brain size={16} color={e.entity_type === 'deployer' ? tokens.step.deployer_profile : tokens.lavender} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: tokens.white80, fontFamily: 'Lexend-Medium', fontSize: 14 }} numberOfLines={1}>
+              {e.entity_id.slice(0, 8)}...{e.entity_id.slice(-4)}
+            </Text>
+            <Text style={{ color: tokens.textTertiary, fontFamily: 'Lexend-Regular', fontSize: 12 }}>
+              {e.entity_type} · {e.total_tokens ?? 0} tokens · {e.total_rugs ?? 0} rugs
+            </Text>
+          </View>
+          <Text style={{ color: tokens.textTertiary, fontSize: 16 }}>{'\u203A'}</Text>
+        </TouchableOpacity>
+      ))}
+    </View>
+  );
+}
 
 export default function AgentScreen() {
   const insets = useSafeAreaInsets();
@@ -288,6 +393,7 @@ export default function AgentScreen() {
             <View style={styles.tabBar}>
               {([
                 { id: 'feed' as TabId, icon: Zap, label: 'Activity' },
+                { id: 'intel' as TabId, icon: Brain, label: 'Intel' },
                 { id: 'wallet' as TabId, icon: Wallet, label: 'Wallet' },
                 { id: 'settings' as TabId, icon: Settings, label: 'Settings' },
               ]).map(({ id, icon: TabIcon, label }) => {
@@ -322,8 +428,15 @@ export default function AgentScreen() {
           </Animated.View>
 
           {activeTab === 'feed' && (
-            <Animated.View entering={FadeInDown.delay(150).duration(300).springify()}>
+            <Animated.View entering={FadeInDown.delay(150).duration(300).springify()} style={{ gap: 10 }}>
+              <BriefingCard />
               <AgentActivityFeed feedItems={feedItems} />
+            </Animated.View>
+          )}
+
+          {activeTab === 'intel' && (
+            <Animated.View entering={FadeInDown.delay(150).duration(300).springify()}>
+              <IntelTab />
             </Animated.View>
           )}
 
