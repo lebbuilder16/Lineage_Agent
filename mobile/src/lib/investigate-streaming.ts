@@ -40,6 +40,8 @@ export interface IdentityReadyEvent {
 export interface HeuristicCompleteEvent {
   heuristic_score: number;
   tier: string;
+  risk_level?: 'low' | 'medium' | 'high' | 'critical';
+  findings?: string[];
 }
 
 export interface ThinkingEvent {

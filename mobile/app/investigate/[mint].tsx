@@ -89,7 +89,7 @@ export default function InvestigateScreen() {
         });
         break;
       case 'heuristic_complete':
-        s.setHeuristicComplete(event.data.heuristic_score);
+        s.setHeuristicComplete(event.data.heuristic_score, event.data.risk_level, event.data.findings);
         break;
       case 'thinking': case 'tool_call': case 'tool_result': case 'text':
         s.addAgentStep({ type: event.type, turn: (event.data as { turn: number }).turn ?? 0, data: event.data as unknown as Record<string, unknown>, timestamp: Date.now() });
