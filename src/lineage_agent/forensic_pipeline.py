@@ -376,12 +376,16 @@ async def run_forensic_pipeline(
             from .insider_sell_service import analyze_insider_sell
             from .data_sources._clients import get_rpc_client
             rpc = get_rpc_client()
+            from .models import MarketSurface, LifecycleStage, EvidenceLevel
             result = await asyncio.wait_for(
                 analyze_insider_sell(
                     mint, deployer, [],  # no linked_wallets yet — enriched later if available
                     identity.pairs, rpc,
                     launch_platform=identity.launch_platform,
-                    lifecycle_stage=identity.lifecycle_stage,
+                    lifecycle_stage=identity.lifecycle_stage or LifecycleStage.UNKNOWN,
+                    market_surface=identity.market_surface or MarketSurface.NO_MARKET_OBSERVED,
+                    reason_codes=identity.reason_codes or [],
+                    evidence_level=identity.evidence_level or EvidenceLevel.WEAK,
                 ),
                 timeout=15.0,
             )

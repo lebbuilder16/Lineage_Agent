@@ -541,7 +541,10 @@ async def _sweep_loop() -> None:
     while True:
         try:
             count = await _run_rug_sweep()
+            _sweep_stats["runs"] += 1
+            _sweep_stats["last_run_at"] = time.time()
             if count:
+                _sweep_stats["total_rugs_found"] += count
                 logger.info("Rug sweep complete: %d new rug(s) recorded", count)
             else:
                 logger.debug("Rug sweep complete: 0 new rugs")
@@ -569,3 +572,16 @@ def cancel_rug_sweep() -> None:
     if _sweep_task is not None and not _sweep_task.done():
         _sweep_task.cancel()
         _sweep_task = None
+
+
+# ── Sweep stats for /admin/sweep-status ──────────────────────────────────
+_sweep_stats: dict = {"runs": 0, "total_rugs_found": 0, "last_run_at": None}
+
+
+def get_sweep_stats() -> dict:
+    """Return current sweep loop statistics."""
+    return {
+        **_sweep_stats,
+        "task_running": _sweep_task is not None and not _sweep_task.done(),
+        "interval_seconds": _SWEEP_INTERVAL_SECONDS,
+    }
