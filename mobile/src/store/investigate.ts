@@ -95,6 +95,7 @@ interface InvestigateState {
   setChatBusy: (busy: boolean) => void;
   cancel: () => void;
   reset: () => void;
+  loadCached: (mint: string) => Promise<boolean>;
 }
 
 const INITIAL_STATE = {
@@ -151,13 +152,28 @@ export const useInvestigateStore = create<InvestigateState>((set, get) => ({
   setReasoning: () =>
     set({ status: 'reasoning' }),
 
-  setHeuristicComplete: (score, riskLevel, findings) =>
+  setHeuristicComplete: (score, riskLevel, findings) => {
     set({
       heuristicScore: score,
       riskLevel: (riskLevel as InvestigateState['riskLevel']) ?? null,
       findings: findings ?? [],
       status: 'done',
-    }),
+    });
+    // Persist heuristic result for re-display on return
+    const { mint, marketData } = get();
+    if (mint) {
+      AsyncStorage.setItem(
+        `investigate-result:${mint}`,
+        JSON.stringify({
+          heuristicScore: score,
+          riskLevel,
+          findings: findings ?? [],
+          marketData,
+          timestamp: Date.now(),
+        }),
+      ).catch(() => {});
+    }
+  },
 
   addAgentStep: (step) =>
     set((s) => ({ agentSteps: [...s.agentSteps, step] })),
@@ -165,12 +181,16 @@ export const useInvestigateStore = create<InvestigateState>((set, get) => ({
   setVerdict: (verdict, turnsUsed, tokensUsed) => {
     set({ verdict, turnsUsed, tokensUsed });
 
-    // Persist verdict
-    const { mint } = get();
+    // Persist verdict + market data for re-display on return
+    const { mint, marketData, heuristicScore, riskLevel, findings } = get();
     if (mint) {
       AsyncStorage.setItem(
         `investigate-result:${mint}`,
-        JSON.stringify({ verdict, turnsUsed, tokensUsed, timestamp: Date.now() }),
+        JSON.stringify({
+          verdict, turnsUsed, tokensUsed, marketData,
+          heuristicScore, riskLevel, findings,
+          timestamp: Date.now(),
+        }),
       ).catch(() => {});
     }
   },
@@ -192,4 +212,29 @@ export const useInvestigateStore = create<InvestigateState>((set, get) => ({
 
   reset: () =>
     set({ ...INITIAL_STATE }),
+
+  loadCached: async (mint: string): Promise<boolean> => {
+    try {
+      const raw = await AsyncStorage.getItem(`investigate-result:${mint}`);
+      if (!raw) return false;
+      const data = JSON.parse(raw);
+      // Only use cache if less than 1 hour old
+      if (Date.now() - (data.timestamp || 0) > 3600_000) return false;
+      set({
+        ...INITIAL_STATE,
+        mint,
+        status: 'done',
+        verdict: data.verdict ?? null,
+        heuristicScore: data.heuristicScore ?? data.verdict?.risk_score ?? null,
+        riskLevel: data.riskLevel ?? null,
+        findings: data.findings ?? [],
+        marketData: data.marketData ?? null,
+        turnsUsed: data.turnsUsed ?? 0,
+        tokensUsed: data.tokensUsed ?? 0,
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  },
 }));

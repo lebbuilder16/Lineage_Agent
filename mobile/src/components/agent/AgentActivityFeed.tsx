@@ -112,11 +112,20 @@ function CompactCard({ item, index }: { item: FeedItem; index: number }) {
   const Icon = item.icon;
   const score = item.riskScore ?? 0;
   const rc = score > 0 ? riskColor(score) : tokens.white35;
+  const [expanded, setExpanded] = useState(false);
+
+  const handlePress = () => {
+    if (item.category === 'flag' && item.detail) {
+      setExpanded((e) => !e);
+    } else {
+      router.push(`/investigate/${item.mint}` as any);
+    }
+  };
 
   return (
     <Animated.View entering={FadeInDown.delay(index * 20).duration(200)}>
       <TouchableOpacity
-        onPress={() => router.push(`/investigate/${item.mint}` as any)}
+        onPress={handlePress}
         activeOpacity={0.7}
         style={s.compactCard}
       >
@@ -134,6 +143,14 @@ function CompactCard({ item, index }: { item: FeedItem; index: number }) {
         )}
         <Text style={s.compactTime}>{timeAgoShort(item.time)}</Text>
       </TouchableOpacity>
+      {expanded && item.detail && (
+        <View style={s.expandedDetail}>
+          <Text style={s.expandedText}>{item.detail}</Text>
+          <TouchableOpacity onPress={() => router.push(`/investigate/${item.mint}` as any)} activeOpacity={0.7} style={s.expandedCta}>
+            <Text style={s.expandedCtaText}>Investigate</Text>
+          </TouchableOpacity>
+        </View>
+      )}
     </Animated.View>
   );
 }
@@ -144,11 +161,20 @@ function PromCard({ item, index }: { item: FeedItem; index: number }) {
   const Icon = item.icon;
   const score = item.riskScore ?? 0;
   const rc = score > 0 ? riskColor(score) : item.color;
+  const [expanded, setExpanded] = useState(false);
+
+  const handlePress = () => {
+    if (item.category === 'flag') {
+      setExpanded((e) => !e);
+    } else {
+      router.push(`/investigate/${item.mint}` as any);
+    }
+  };
 
   return (
     <Animated.View entering={FadeInDown.delay(index * 25).duration(250)}>
       <TouchableOpacity
-        onPress={() => router.push(`/investigate/${item.mint}` as any)}
+        onPress={handlePress}
         activeOpacity={0.7}
         style={[s.promCard, { borderColor: `${rc}25` }]}
       >
@@ -182,7 +208,17 @@ function PromCard({ item, index }: { item: FeedItem; index: number }) {
 
           {/* Detail (if available) */}
           {item.detail && (
-            <Text style={s.promDetail} numberOfLines={1}>{item.detail}</Text>
+            <Text style={s.promDetail} numberOfLines={expanded ? 10 : 1}>{item.detail}</Text>
+          )}
+
+          {/* Expanded: full summary + investigate CTA for flags */}
+          {expanded && item.category === 'flag' && (
+            <View style={s.expandedDetail}>
+              <Text style={s.expandedText}>{item.summary}</Text>
+              <TouchableOpacity onPress={() => router.push(`/investigate/${item.mint}` as any)} activeOpacity={0.7} style={s.expandedCta}>
+                <Text style={s.expandedCtaText}>Full Investigation</Text>
+              </TouchableOpacity>
+            </View>
           )}
         </View>
       </TouchableOpacity>
@@ -383,5 +419,21 @@ const s = StyleSheet.create({
   },
   noResultsText: {
     fontFamily: 'Lexend-Regular', fontSize: tokens.font.small, color: tokens.white35,
+  },
+  expandedDetail: {
+    marginTop: 8, paddingTop: 8, borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.06)',
+  },
+  expandedText: {
+    fontFamily: 'Lexend-Regular', fontSize: tokens.font.small,
+    color: tokens.white60, lineHeight: 20, marginBottom: 8,
+  },
+  expandedCta: {
+    alignSelf: 'flex-start', paddingHorizontal: 14, paddingVertical: 6,
+    borderRadius: 20, borderWidth: 1, borderColor: 'rgba(207,230,228,0.2)',
+    backgroundColor: 'rgba(207,230,228,0.06)',
+  },
+  expandedCtaText: {
+    fontFamily: 'Lexend-Medium', fontSize: 12, color: tokens.secondary,
   },
 });

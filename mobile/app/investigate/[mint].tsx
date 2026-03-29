@@ -122,7 +122,17 @@ export default function InvestigateScreen() {
 
   const startInvestigation = useCallback(() => { if (mint) useInvestigateStore.getState().startInvestigation(mint, plan); }, [mint, plan]);
 
-  useEffect(() => { startInvestigation(); return () => { cancelRef.current?.(); if (retryTimerRef.current) clearTimeout(retryTimerRef.current); }; }, [mint]);
+  // On mount: try loading cached result first, only start fresh investigation if no cache
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!mint) return;
+      const loaded = await useInvestigateStore.getState().loadCached(mint);
+      if (loaded || cancelled) return;
+      startInvestigation();
+    })();
+    return () => { cancelled = true; cancelRef.current?.(); if (retryTimerRef.current) clearTimeout(retryTimerRef.current); };
+  }, [mint]);
 
   const handleAbort = () => { cancelRef.current?.(); useInvestigateStore.getState().cancel(); };
   const handleRetry = () => { cancelRef.current?.(); useInvestigateStore.getState().reset(); startInvestigation(); retryTimerRef.current = setTimeout(() => launchStream(), 50); };
