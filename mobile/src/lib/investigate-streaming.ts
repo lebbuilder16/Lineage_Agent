@@ -23,6 +23,20 @@ export interface StepEvent {
   heuristic?: number;
 }
 
+export interface IdentityReadyEvent {
+  name: string;
+  symbol: string;
+  deployer: string;
+  created_at: string | null;
+  ms: number;
+  price_usd?: number | null;
+  market_cap_usd?: number | null;
+  liquidity_usd?: number | null;
+  volume_24h_usd?: number | null;
+  price_change_24h?: number | null;
+  boost_count?: number | null;
+}
+
 export interface HeuristicCompleteEvent {
   heuristic_score: number;
   tier: string;
@@ -71,6 +85,7 @@ export interface InvestigateErrorEvent {
 export type InvestigateEvent =
   | { type: 'phase'; data: PhaseEvent }
   | { type: 'step'; data: StepEvent }
+  | { type: 'identity_ready'; data: IdentityReadyEvent }
   | { type: 'heuristic_complete'; data: HeuristicCompleteEvent }
   | { type: 'thinking'; data: ThinkingEvent }
   | { type: 'tool_call'; data: ToolCallEvent }
@@ -100,6 +115,9 @@ function parseEvent(eventType: string, data: string): InvestigateEvent | null {
 
       case 'step':
         return { type: 'step', data: parsed as unknown as StepEvent };
+
+      case 'identity_ready':
+        return { type: 'identity_ready', data: parsed as unknown as IdentityReadyEvent };
 
       case 'heuristic_complete':
         return { type: 'heuristic_complete', data: parsed as unknown as HeuristicCompleteEvent };

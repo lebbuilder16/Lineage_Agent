@@ -310,6 +310,27 @@ def _heuristic_score(
         _pc = behavioral_signals.get("phash_cluster") or {}
         if isinstance(_pc, dict) and (_pc.get("rugged_reuses") or 0) >= 1:
             score += 10
+        # Social link reuse — same Discord/Twitter/Telegram as a rugged token
+        _sr = behavioral_signals.get("social_reuse") or {}
+        if isinstance(_sr, dict) and (_sr.get("count") or 0) >= 1:
+            score += 15
+
+    # ── Insider holding dump risk ─────────────────────────────────────────
+    if lineage:
+        _ins = getattr(lineage, "insider_sell", None)
+        if _ins:
+            _ins_flags = getattr(_ins, "flags", []) or []
+            if "DEPLOYER_DUMP_RISK" in _ins_flags:
+                score += 12
+            elif "DEPLOYER_HOLDS_SIGNIFICANT_SUPPLY" in _ins_flags:
+                score += 5
+
+    # ── DexScreener boost + cartel signal ─────────────────────────────────
+    if lineage:
+        _qt = getattr(lineage, "query_token", None)
+        _boost = getattr(_qt, "boost_count", None) if _qt else None
+        if _boost and _boost >= 50 and getattr(lineage, "cartel_report", None):
+            score += 10
 
     return min(score, 100)
 
@@ -376,8 +397,31 @@ async def analyze_token(
     _hscore = _heuristic_score(lineage_result, bundle_report, sol_flow_report,
                                behavioral_signals)
 
+    # ── Memory brief (episodic + entity knowledge) ─────────────────────────
+    _memory_brief = ""
+    try:
+        from .memory_service import build_memory_brief
+        _deployer = _extract_deployer(lineage_result)
+        _op_fp = None
+        _comm_id = None
+        if lineage_result:
+            _op = getattr(lineage_result, "operator_fingerprint", None)
+            if _op:
+                _op_fp = getattr(_op, "fingerprint", None)
+            _cr = getattr(lineage_result, "cartel_report", None)
+            if _cr:
+                _dc = getattr(_cr, "deployer_community", None)
+                if _dc:
+                    _comm_id = getattr(_dc, "community_id", None)
+        _memory_brief = await build_memory_brief(
+            mint, deployer=_deployer, operator_fp=_op_fp, community_id=_comm_id
+        )
+    except Exception:
+        pass  # memory unavailable — continue without
+
     prompt = _build_prompt(mint, lineage_result, bundle_report, sol_flow_report,
-                           deployer_history, behavioral_signals, heuristic_score=_hscore)
+                           deployer_history, behavioral_signals, heuristic_score=_hscore,
+                           memory_brief=_memory_brief)
 
     # ── Adaptive model selection: sonnet for moderate-to-high-risk tokens ────
     _call_model = _MODEL
@@ -526,8 +570,13 @@ def _build_prompt(
     deployer_history: Optional[list] = None,
     behavioral_signals: Optional[dict] = None,
     heuristic_score: Optional[int] = None,
+    memory_brief: Optional[str] = None,
 ) -> str:
     parts: list[str] = [f"Token mint: {mint}\n"]
+
+    # ── Memory brief (episodic + entity knowledge) ───────────────────────
+    if memory_brief:
+        parts.append(f"## Intelligence Brief (from prior investigations)\n{memory_brief}\n")
 
     # ── Data availability header ──────────────────────────────────────────
     _has_lin = "✓" if lineage else "✗"
@@ -1427,6 +1476,40 @@ async def _gather_behavioral_signals(
             timing = _compute_timing_fingerprint(timing_rows)
             if timing:
                 signals["timing_pattern"] = timing
+    except Exception:
+        pass
+
+    # ── Signal 4: social link cross-reference ────────────────────────────
+    # Check if the token's social links (Discord, Twitter, Telegram) appear
+    # in metadata of previously rugged tokens.
+    try:
+        _qt = getattr(lineage, "query_token", None) if lineage else None
+        _socials = getattr(_qt, "socials", []) if _qt else []
+        if _socials:
+            _social_matches: list[dict] = []
+            for social in _socials:
+                url = social.get("url", "") if isinstance(social, dict) else ""
+                if not url or len(url) < 10:
+                    continue
+                # Search for this URL in extra_json of rugged tokens
+                matches = await cache.query_events(
+                    where="event_type = 'token_rugged' AND extra_json LIKE ?",
+                    params=(f"%{url}%",),
+                    columns="mint, name, deployer",
+                    limit=3,
+                )
+                for m in matches:
+                    if m.get("mint") != mint:
+                        _social_matches.append({
+                            "url": url,
+                            "rugged_mint": m["mint"],
+                            "rugged_name": m.get("name", ""),
+                        })
+            if _social_matches:
+                signals["social_reuse"] = {
+                    "matches": _social_matches,
+                    "count": len(_social_matches),
+                }
     except Exception:
         pass
 

@@ -125,6 +125,12 @@ export function ForensicScanSection({ steps, isRunning }: { steps: ScanStep[]; i
             {steps.map((step, i) => (
               <ScanStepCard key={`scan-${step.step}-${step.status}-${i}`} step={step} />
             ))}
+            {!isRunning && steps.length > 0 && !uniqueTotal.has('dependent_enrichers') && (
+              <Text style={styles.skipNote}>Deep analysis skipped — no linked wallets found</Text>
+            )}
+            {!isRunning && steps.length > 0 && !uniqueTotal.has('ai') && (
+              <Text style={styles.skipNote}>AI analysis requires Pro tier</Text>
+            )}
           </View>
         )}
       </GlassCard>
@@ -159,5 +165,9 @@ const styles = StyleSheet.create({
   scanStepDone: { color: tokens.white60 },
   scanStepMs: {
     fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny, color: tokens.textTertiary,
+  },
+  skipNote: {
+    fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny,
+    color: tokens.textTertiary, fontStyle: 'italic', marginTop: 4,
   },
 });

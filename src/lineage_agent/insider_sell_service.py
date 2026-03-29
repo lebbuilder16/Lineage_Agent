@@ -47,6 +47,8 @@ _SELL_PRESSURE_ELEVATED   = 0.65   # >65 %
 _PRICE_CRASH_SUSPICIOUS   = -30.0  # % — notable price fall
 _PRICE_CRASH_SEVERE       = -50.0  # % — severe price fall
 _VOLUME_SPIKE_THRESHOLD   = 3.0    # 1 h vol > 3× avg hourly vol
+_DEPLOYER_SUPPLY_PCT_WARN = 0.5    # deployer holds ≥0.5% of supply
+_DEPLOYER_HOLDING_LIQ_RATIO = 0.10 # deployer holding ≥10% of liquidity (dump risk)
 
 
 # ── Public entry point ────────────────────────────────────────────────────
@@ -153,7 +155,7 @@ async def analyze_insider_sell(
             report.deployer_exited = deployer_event.exited
 
     # ── Step 3: Build flags ───────────────────────────────────────────────
-    _apply_flags(report)
+    _apply_flags(report, pairs=pairs)
 
     # ── Step 4: Risk score and verdict ───────────────────────────────────
     report.risk_score = _compute_risk_score(report)
@@ -555,7 +557,7 @@ async def _fill_onchain_activity(
         logger.debug("on-chain activity probe failed for %s", mint[:8], exc_info=True)
 
 
-def _apply_flags(report: InsiderSellReport) -> None:
+def _apply_flags(report: InsiderSellReport, pairs: Optional[list[dict]] = None) -> None:
     """Populate ``report.flags`` based on thresholds."""
     flags: list[str] = []
 
@@ -590,6 +592,37 @@ def _apply_flags(report: InsiderSellReport) -> None:
     )
     if report.deployer_exited is True and not deployer_expected_zero:
         flags.append("DEPLOYER_EXITED")
+
+    # Deployer holds significant balance — potential dump risk
+    # Compare deployer's holding value against pool liquidity
+    deployer_event = next(
+        (e for e in report.wallet_events if e.role == "deployer" and e.balance_now > 0),
+        None,
+    )
+    if deployer_event and pairs:
+        _best_pair = max(
+            [p for p in pairs if (p.get("chainId") or "").lower() == "solana"] or pairs,
+            key=lambda p: (p.get("liquidity") or {}).get("usd") or 0,
+            default=None,
+        )
+        if _best_pair:
+            _price = float(_best_pair.get("priceUsd") or 0)
+            _liq = float((_best_pair.get("liquidity") or {}).get("usd") or 0)
+            _mcap = float(_best_pair.get("marketCap") or _best_pair.get("fdv") or 0)
+            if _price > 0:
+                _holding_usd = deployer_event.balance_now * _price
+                if _mcap > 0:
+                    _supply_pct = (deployer_event.balance_now * _price / _mcap) * 100
+                    if _supply_pct >= _DEPLOYER_SUPPLY_PCT_WARN:
+                        flags.append("DEPLOYER_HOLDS_SIGNIFICANT_SUPPLY")
+                        deployer_event.balance_context = (
+                            deployer_event.balance_context or ""
+                        ) + f" Holds ~{_supply_pct:.1f}% of supply (~${_holding_usd:,.0f})."
+                if _liq > 0 and _holding_usd / _liq >= _DEPLOYER_HOLDING_LIQ_RATIO:
+                    flags.append("DEPLOYER_DUMP_RISK")
+                    deployer_event.balance_context = (
+                        deployer_event.balance_context or ""
+                    ) + f" Holding = {_holding_usd / _liq:.0%} of pool liquidity."
 
     # The most serious combined flag
     deployer_exited = report.deployer_exited is True
@@ -635,6 +668,12 @@ def _compute_risk_score(report: InsiderSellReport) -> float:
     elif report.deployer_exited is False:
         # Deployer still holding — reduce suspicion slightly
         score = max(0.0, score - 0.10)
+
+    # Deployer dump risk — large holding relative to liquidity
+    if "DEPLOYER_DUMP_RISK" in report.flags:
+        score += 0.15
+    elif "DEPLOYER_HOLDS_SIGNIFICANT_SUPPLY" in report.flags:
+        score += 0.08
 
     return round(min(1.0, score), 3)
 
