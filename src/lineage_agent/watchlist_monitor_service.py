@@ -486,6 +486,25 @@ async def run_single_rescan(watch_id: int, user_id: int, cache) -> dict | None:
                         len(flags), mint[:12],
                         ", ".join(f["flag_type"] for f in flags))
 
+            # ── Push notification to user for critical/warning flags ─────
+            try:
+                from .alert_service import _push_fcm_to_watchers
+                critical_flags = [f for f in flags if f["severity"] in ("critical", "warning")]
+                if critical_flags:
+                    top = critical_flags[0]
+                    _token_name = detail_dict.get("token_name") or detail_dict.get("name") or mint[:12]
+                    asyncio.create_task(
+                        _push_fcm_to_watchers(
+                            mint=mint,
+                            title=top["title"],
+                            body=f"{_token_name} — {top['flag_type'].replace('_', ' ')}",
+                            alert_type="sweep_flag",
+                        ),
+                        name=f"sweep_push_{mint[:8]}",
+                    )
+            except Exception:
+                pass  # best-effort, never block sweep
+
         # Record memory episode from sweep (enriches agent memory passively)
         try:
             from .memory_service import record_episode

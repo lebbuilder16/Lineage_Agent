@@ -560,13 +560,17 @@ async def run_wallet_monitor_sweep(
             except Exception:
                 pass
 
-        # Compute status delta
+        # Compute status delta (with hysteresis to prevent oscillation)
+        # Use 15-point threshold: score must change by ≥15 to flip status.
+        # This prevents rapid risk_up → risk_down → risk_up cycles when
+        # score hovers around a boundary (e.g. 49 → 51 → 48 → 52).
+        _HYSTERESIS = 15
         is_new = p is None
         if is_new:
             status = "new"
-        elif old_score is not None and score > old_score + 10:
+        elif old_score is not None and score > old_score + _HYSTERESIS:
             status = "risk_up"
-        elif old_score is not None and score < old_score - 10:
+        elif old_score is not None and score < old_score - _HYSTERESIS:
             status = "risk_down"
         else:
             status = "held"

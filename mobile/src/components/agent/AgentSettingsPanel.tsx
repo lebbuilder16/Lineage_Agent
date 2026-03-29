@@ -6,6 +6,7 @@ import {
   StyleSheet,
   Switch,
   TextInput,
+  Alert,
 } from 'react-native';
 import { router } from 'expo-router';
 import { Zap, Clock, Lock, Crown, Wallet, Search } from 'lucide-react-native';
@@ -35,6 +36,18 @@ interface AgentSettingsPanelProps {
 }
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
+
+function showUpgradeAlert(required: PlanTier) {
+  const label = tierLabel(required);
+  Alert.alert(
+    `${label}+ Feature`,
+    `This setting requires a ${label} plan or higher.`,
+    [
+      { text: 'Not now', style: 'cancel' },
+      { text: 'View Plans', onPress: () => router.push('/paywall' as any) },
+    ],
+  );
+}
 
 function TierLock({ required }: { required: PlanTier }) {
   return (
@@ -154,7 +167,13 @@ export function AgentSettingsPanel({ plan }: AgentSettingsPanelProps) {
             return (
               <TouchableOpacity
                 key={opt.key}
-                onPress={() => prefs.toggleAlertType(opt.key)}
+                onPress={() => {
+                  if (proPlus && !canAccess(plan, 'pro_plus')) {
+                    showUpgradeAlert('pro_plus');
+                    return;
+                  }
+                  prefs.toggleAlertType(opt.key);
+                }}
                 style={[
                   styles.alertChip,
                   on && styles.alertChipOn,
@@ -196,7 +215,13 @@ export function AgentSettingsPanel({ plan }: AgentSettingsPanelProps) {
             return (
               <TouchableOpacity
                 key={opt.value}
-                onPress={() => prefs.setInvestigationDepth(opt.value)}
+                onPress={() => {
+                  if (needsWhale && !canAccess(plan, 'whale')) {
+                    showUpgradeAlert('whale');
+                    return;
+                  }
+                  prefs.setInvestigationDepth(opt.value);
+                }}
                 style={[
                   styles.depthChip,
                   on && styles.depthChipOn,
@@ -233,7 +258,13 @@ export function AgentSettingsPanel({ plan }: AgentSettingsPanelProps) {
             return (
               <TouchableOpacity
                 key={opt.value}
-                onPress={() => prefs.setSweepInterval(opt.value)}
+                onPress={() => {
+                  if (needsProPlus && !canAccess(plan, 'pro_plus')) {
+                    showUpgradeAlert('pro_plus');
+                    return;
+                  }
+                  prefs.setSweepInterval(opt.value);
+                }}
                 style={[
                   styles.hourChip,
                   on && styles.hourChipOn,
