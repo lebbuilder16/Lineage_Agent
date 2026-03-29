@@ -413,25 +413,34 @@ async def _check_anomalies(
             logger.info("[anomaly] %s %s: %s", entity_type, entity_id[:12], a["description"])
 
         # Auto-resolve old anomalies where metric returned to within 1.5x of baseline
+        _atype_to_field = {
+            "velocity_spike": "launch_velocity",
+            "risk_jump": "avg_risk_score",
+            "extraction_spike": "total_extracted_sol",
+            "rug_rate_inflection": "rug_rate",
+        }
         cursor = await db.execute(
             "SELECT id, anomaly_type, baseline_value FROM anomaly_alerts "
             "WHERE entity_type = ? AND entity_id = ? AND resolved = 0",
             (entity_type, entity_id),
         )
         open_alerts = await cursor.fetchall()
+        resolved_any = False
         for alert_id, atype, baseline in open_alerts:
-            current = new.get({
-                "velocity_spike": "launch_velocity",
-                "risk_jump": "avg_risk_score",
-                "extraction_spike": "total_extracted_sol",
-            }.get(atype, ""), 0)
-            if baseline and current <= baseline * 1.5:
+            field = _atype_to_field.get(atype)
+            if not field:
+                continue
+            current = new.get(field, 0)
+            if baseline and baseline > 0 and current <= baseline * 1.5:
                 await db.execute(
                     "UPDATE anomaly_alerts SET resolved = 1, resolved_at = ? WHERE id = ?",
                     (now, alert_id),
                 )
+                resolved_any = True
+                logger.info("[anomaly] auto-resolved %s for %s %s (baseline=%.1f, current=%.1f)",
+                            atype, entity_type, entity_id[:12], baseline, current)
 
-        if anomalies:
+        if anomalies or resolved_any:
             await db.commit()
 
     except Exception as exc:
