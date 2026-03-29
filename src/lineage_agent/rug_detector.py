@@ -528,6 +528,32 @@ async def _run_rug_sweep() -> int:
                     )
                 except Exception as _te:
                     logger.debug("trace_sol_flow task launch failed: %s", _te)
+
+            # ── Push notification to watchers ────────────────────────────
+            try:
+                from .alert_service import _push_fcm_to_watchers
+                _name = row.get("name") or mint[:12]
+                _symbol = row.get("symbol") or ""
+                _token_label = f"{_name} ({_symbol})" if _symbol else _name
+                if rug_mechanism == RugMechanism.DEAD_TOKEN.value:
+                    _title = f"{_token_label} — Token Dead"
+                    _body = f"Liquidity dropped to ${current_liq:,.0f}. Token appears abandoned."
+                    _urgency = "low"
+                else:
+                    _title = f"{_token_label} — Rug Detected"
+                    _body = f"Liquidity drained from ${recorded_liq:,.0f} to ${current_liq:,.0f}."
+                    _urgency = "high"
+                asyncio.create_task(
+                    _push_fcm_to_watchers(
+                        mint=mint,
+                        title=_title,
+                        body=_body,
+                        alert_type="rug_detected",
+                    ),
+                    name=f"rug_push_{mint[:8]}",
+                )
+            except Exception as _push_exc:
+                logger.debug("rug push notification failed: %s", _push_exc)
         except Exception:
             logger.debug("Failed to record rug for %s", mint, exc_info=True)
 

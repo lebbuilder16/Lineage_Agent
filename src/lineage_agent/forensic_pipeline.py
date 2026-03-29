@@ -122,6 +122,25 @@ async def run_forensic_pipeline(
     })
 
     deployer = identity.deployer
+
+    # If deployer is empty, attempt a force-refresh (sig-walk may have timed out
+    # on the first resolution and cached an empty result with short TTL).
+    if not deployer:
+        try:
+            from .lineage_detector import _get_deployer_cached
+            from .data_sources._clients import get_rpc_client
+            _retry_deployer, _retry_ts = await asyncio.wait_for(
+                _get_deployer_cached(get_rpc_client(), mint), timeout=15.0,
+            )
+            if _retry_deployer:
+                deployer = _retry_deployer
+                identity.deployer = _retry_deployer
+                if _retry_ts and (identity.created_at is None or _retry_ts < identity.created_at):
+                    identity.created_at = _retry_ts
+                logger.info("[pipeline] deployer retry resolved %s for %s", deployer[:12], mint[:12])
+        except Exception as _retry_exc:
+            logger.debug("[pipeline] deployer retry failed for %s: %s", mint[:12], _retry_exc)
+
     report = ForensicReport(identity=identity)
     report.timings["identity"] = id_ms
 
