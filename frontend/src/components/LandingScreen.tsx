@@ -643,7 +643,7 @@ export function LandingScreen() {
       });
       const text = await res.text();
       // Parse SSE: find heuristic_complete event
-      const match = text.match(/event: heuristic_complete\ndata: (.+)/);
+      const match = text.match(/event: heuristic_complete\r?\ndata: (.+)/);
       if (match) {
         const data = JSON.parse(match[1]);
         setDemoResult({ score: data.heuristic_score, risk_level: data.risk_level || 'low', findings: data.findings || [] });
