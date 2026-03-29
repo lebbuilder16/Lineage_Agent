@@ -267,8 +267,11 @@ export default function AgentScreen() {
 
   const feedItems = useMemo(() => {
     const items: FeedItem[] = [];
+    const seenMints = new Set<string>();  // dedup: one entry per mint per category
 
     for (const inv of investigations.slice(0, 8)) {
+      if (seenMints.has(`inv-${inv.mint}`)) continue;
+      seenMints.add(`inv-${inv.mint}`);
       const name = fmtName(inv.name, inv.symbol, inv.mint);
       const symbol = inv.symbol ?? '';
       // Determine effective risk from score + forensic signals in verdict/findings
@@ -307,7 +310,9 @@ export default function AgentScreen() {
       });
     }
 
-    for (const flag of sweepFlags.slice(0, 8)) {
+    for (const flag of sweepFlags.slice(0, 12)) {
+      if (seenMints.has(`flag-${flag.mint}`)) continue;
+      seenMints.add(`flag-${flag.mint}`);
       // Extract token name from flag detail or title
       const flagName =
         (flag.detail?.token_name as string) ??
