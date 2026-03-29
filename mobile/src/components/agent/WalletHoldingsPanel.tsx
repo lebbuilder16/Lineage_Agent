@@ -25,6 +25,7 @@ import { tokens } from '../../theme/tokens';
 import { useWalletMonitorStore } from '../../store/wallet-monitor';
 import { useAgentPrefsStore } from '../../store/agent-prefs';
 import { canAccess, type PlanTier } from '../../lib/tier-limits';
+import { tokenName as fmtName } from '../../lib/token-display';
 import type { WalletHolding, ScanResult } from '../../store/wallet-monitor';
 import { Brain, Zap } from 'lucide-react-native';
 
@@ -169,7 +170,7 @@ function AgentInsights({ holdings }: { holdings: WalletHolding[] }) {
   for (const h of analyzed) {
     const score = h.risk_score ?? 0;
     const flags = h.risk_flags ?? [];
-    const name = h.token_name || h.token_symbol || h.mint.slice(0, 8);
+    const name = fmtName(h.token_name, h.token_symbol, h.mint);
     const rc = score >= 75 ? tokens.risk.critical : score >= 50 ? tokens.risk.high : score >= 25 ? tokens.risk.medium : tokens.risk.low;
 
     const { forensic, market } = _extractInsight(flags);
@@ -380,7 +381,7 @@ function HoldingCard({ h, index, onWatch, walletLabel }: { h: WalletHolding; ind
           {/* Info */}
           <View style={s.holdingInfo}>
             <View style={s.holdingTopRow}>
-              <Text style={s.holdingName} numberOfLines={1}>{h.token_name || h.mint.slice(0, 8)}</Text>
+              <Text style={s.holdingName} numberOfLines={1}>{fmtName(h.token_name, h.token_symbol, h.mint)}</Text>
               {h.token_symbol ? <Text style={s.holdingSymbol}>${h.token_symbol}</Text> : null}
               <StatusBadge status={h.status} prevScore={h.prev_risk_score} score={score} />
             </View>
@@ -682,7 +683,7 @@ export function WalletHoldingsPanel({ plan }: WalletHoldingsPanelProps) {
                     <Coins size={10} color={tokens.white20} />
                   </View>
                 )}
-                <Text style={s.dustName} numberOfLines={1}>{h.token_name || h.mint.slice(0, 12)}</Text>
+                <Text style={s.dustName} numberOfLines={1}>{fmtName(h.token_name, h.token_symbol, h.mint)}</Text>
                 {h.token_symbol ? <Text style={s.dustSymbol}>${h.token_symbol}</Text> : null}
                 <Text style={s.dustAmt}>{formatAmount(h.ui_amount)}</Text>
               </View>

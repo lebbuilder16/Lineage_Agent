@@ -10,6 +10,7 @@ import {
 } from 'lucide-react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { tokens } from '../../theme/tokens';
+import { tokenName as fmtName, tokenSymbol as fmtSym } from '../../lib/token-display';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -123,8 +124,8 @@ function CompactCard({ item, index }: { item: FeedItem; index: number }) {
         <Icon size={12} color={item.color} strokeWidth={2.5} />
         <View style={s.compactBody}>
           <Text style={s.compactName} numberOfLines={1}>
-            {item.tokenName}
-            {item.tokenSymbol ? ` $${item.tokenSymbol}` : ''}
+            {fmtName(item.tokenName, item.tokenSymbol, item.mint)}
+            {item.tokenSymbol ? ` ${fmtSym(item.tokenSymbol)}` : ''}
           </Text>
           <Text style={s.compactSummary} numberOfLines={1}>{item.summary}</Text>
         </View>
