@@ -406,8 +406,20 @@ def _build_heuristic_findings(report: Any, lineage_res: Any, hscore: int) -> lis
         _qm = getattr(identity, "_query_meta", None)
         liq = getattr(identity, "liquidity_usd", None)
         vol = getattr(_qm, "volume_24h_usd", None) if _qm else None
+        pc24 = getattr(_qm, "price_change_24h", None) if _qm else None
         if liq and vol and liq > 0 and vol / liq > 10:
             findings.append(f"High volume-to-liquidity ratio ({vol / liq:.0f}x) — thin liquidity relative to trading activity.")
+        if pc24 is not None and pc24 >= 500:
+            findings.append(f"Extreme price pump: +{pc24:.0f}% in 24h — classic pump-and-dump setup pattern.")
+        elif pc24 is not None and pc24 >= 200:
+            findings.append(f"Major price surge: +{pc24:.0f}% in 24h — elevated dump risk.")
+        if liq is not None and liq < 1000 and vol and vol > 5000:
+            findings.append("Near-zero liquidity with active volume — possible rug aftermath or liquidity trap.")
+
+    # ── Deployer unresolved ──────────────────────────────────────────────
+    _deployer = getattr(identity, "deployer", "") if identity else ""
+    if not _deployer:
+        findings.append("Deployer wallet unresolved — forensic signals limited. Retry may resolve.")
 
     # ── Risk level summary ───────────────────────────────────────────────
     if hscore >= 75:

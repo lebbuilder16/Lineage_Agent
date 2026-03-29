@@ -1969,9 +1969,15 @@ async def _get_deployer_cached(
         )
 
     result = (deployer, created_at)
-    # Long TTL: deployer/timestamp are immutable on-chain
     from config import CACHE_TTL_RPC_DEPLOYER_SECONDS, CACHE_STALE_TTL_RPC_DEPLOYER_SECONDS  # noqa: PLC0415
-    await _cache_set(cache_key, result, ttl=CACHE_TTL_RPC_DEPLOYER_SECONDS, stale_ttl=CACHE_STALE_TTL_RPC_DEPLOYER_SECONDS)
+    if deployer:
+        # Long TTL: deployer/timestamp are immutable on-chain
+        await _cache_set(cache_key, result, ttl=CACHE_TTL_RPC_DEPLOYER_SECONDS, stale_ttl=CACHE_STALE_TTL_RPC_DEPLOYER_SECONDS)
+    else:
+        # Short TTL for failed resolution — retry on next scan instead of
+        # caching an empty deployer for hours (which disables all forensics)
+        await _cache_set(cache_key, result, ttl=120, stale_ttl=300)
+        logger.warning("Deployer unresolved for %s — caching with short TTL (120s)", mint[:12])
     return result
 
 

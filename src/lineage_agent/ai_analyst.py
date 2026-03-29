@@ -332,6 +332,37 @@ def _heuristic_score(
         if _boost and _boost >= 50 and getattr(lineage, "cartel_report", None):
             score += 10
 
+    # ── Market anomaly floor ─────────────────────────────────────────────
+    # Pure market signals that don't require deployer resolution.
+    # A token with extreme vol/liq ratio or price pump should never be 0.
+    if lineage:
+        _qt = getattr(lineage, "query_token", None)
+        if _qt:
+            _liq = getattr(_qt, "liquidity_usd", None)
+            _vol24 = getattr(_qt, "volume_24h_usd", None)
+            _pc24 = getattr(_qt, "price_change_24h", None)
+
+            # Extreme volume-to-liquidity ratio (wash trading / pump signal)
+            if _liq and _vol24 and _liq > 0:
+                _vl_ratio = _vol24 / _liq
+                if _vl_ratio >= 50:
+                    score += 15
+                elif _vl_ratio >= 20:
+                    score += 8
+                elif _vl_ratio >= 10:
+                    score += 4
+
+            # Extreme price pump in 24h (>500% = likely pump-and-dump setup)
+            if _pc24 is not None:
+                if _pc24 >= 500:
+                    score += 10
+                elif _pc24 >= 200:
+                    score += 5
+
+            # Near-zero liquidity with active volume (rug aftermath or trap)
+            if _liq is not None and _liq < 1000 and _vol24 and _vol24 > 5000:
+                score += 10
+
     return min(score, 100)
 
 
