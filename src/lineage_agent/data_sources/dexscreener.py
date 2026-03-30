@@ -63,6 +63,35 @@ class DexScreenerClient:
 
     async def get_token_pairs(self, mint: str) -> list[dict[str, Any]]:
         """Return all DEX pairs for a given Solana token mint."""
+        # Try Redis cache first (60s TTL for price data)
+        try:
+            from ..redis_cache import redis_getjson, redis_setjson, is_redis_enabled
+            if is_redis_enabled():
+                cached = await redis_getjson(f"dex:pairs:{mint[:20]}")
+                if cached is not None:
+                    return cached
+        except Exception:
+            pass
+
+        url = f"{self._base_url}/latest/dex/tokens/{mint}"
+        data = await self._get(url)
+        if data is None:
+            return []
+
+        pairs = data.get("pairs") or []
+
+        # Cache result in Redis (60s TTL)
+        try:
+            from ..redis_cache import redis_setjson, is_redis_enabled
+            if is_redis_enabled() and pairs:
+                await redis_setjson(f"dex:pairs:{mint[:20]}", pairs, ex=60)
+        except Exception:
+            pass
+
+        return pairs
+
+    async def _get_token_pairs_nocache(self, mint: str) -> list[dict[str, Any]]:
+        """Return pairs without Redis cache (for internal use)."""
         url = f"{self._base_url}/latest/dex/tokens/{mint}"
         data = await self._get(url)
         if data is None:

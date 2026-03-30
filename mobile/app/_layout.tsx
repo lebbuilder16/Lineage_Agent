@@ -4,7 +4,7 @@ import { useFonts } from 'expo-font';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
-import { QueryClientProvider } from '@tanstack/react-query';
+import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { StyleSheet, View, AppState } from 'react-native';
 import * as Linking from 'expo-linking';
@@ -78,7 +78,7 @@ function WalletAutoCreate({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-import { queryClient } from '../src/lib/query-client';
+import { queryClient, queryPersister } from '../src/lib/query-client';
 
 export default function RootLayout() {
   const [fontsLoaded, fontError] = useFonts({
@@ -271,7 +271,7 @@ export default function RootLayout() {
   const appContent = (
     <GestureHandlerRootView style={styles.root}>
       <AuroraBackground />
-      <QueryClientProvider client={queryClient}>
+      <PersistQueryClientProvider client={queryClient} persistOptions={{ persister: queryPersister, maxAge: 1000 * 60 * 60 * 24 }}>
         <View style={styles.root}>
           <StatusBar style="light" />
           <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: tokens.bgMain } }}>
@@ -320,7 +320,7 @@ export default function RootLayout() {
             />
           </Stack>
         </View>
-      </QueryClientProvider>
+      </PersistQueryClientProvider>
     </GestureHandlerRootView>
   );
 

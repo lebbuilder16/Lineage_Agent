@@ -528,6 +528,13 @@ async def health() -> dict:
     except Exception:
         pass
 
+    # Redis cache status
+    try:
+        from .redis_cache import redis_health
+        sweep_info["redis"] = await redis_health()
+    except Exception:
+        pass
+
     return {
         "status": "ok",
         "uptime_seconds": uptime_s,
