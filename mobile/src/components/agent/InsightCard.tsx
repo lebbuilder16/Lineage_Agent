@@ -26,9 +26,10 @@ export function InsightCard({ insight, onPress }: InsightCardProps) {
   const Icon = ICON_MAP[insight.type] ?? AlertTriangle;
   const accentColor = COLOR_MAP[insight.severity] ?? tokens.secondary;
 
-  const mints = (insight.detail.mints as string[]) ?? [];
-  const deployer = insight.detail.deployer as string | undefined;
-  const rugCount = insight.detail.rug_count as number | undefined;
+  const detail = (insight.detail ?? {}) as Record<string, unknown>;
+  const mints = (detail.mints as string[]) ?? [];
+  const deployer = detail.deployer as string | undefined;
+  const rugCount = detail.rug_count as number | undefined;
 
   return (
     <TouchableOpacity onPress={onPress} activeOpacity={onPress ? 0.7 : 1} disabled={!onPress}>

@@ -55,7 +55,7 @@ function TimelineEntry({ event, index }: { event: any; index: number }) {
       <View style={styles.timelineContent}>
         <View style={styles.timelineRow}>
           <Text style={styles.timelineType} numberOfLines={1}>
-            {String(event.event_type ?? event.type ?? 'Event').replace(/_/g, ' ')}
+            {String(event.event ?? event.event_type ?? event.type ?? 'Event').replace(/_/g, ' ')}
           </Text>
           {event.risk_score != null && (
             <Text style={[styles.timelineRisk, { color: riskColor }]}>{event.risk_score}</Text>
@@ -167,7 +167,7 @@ export function MemoryLensPanel({ data }: MemoryLensPanelProps) {
               <BookOpen size={12} color={tokens.secondary} />
               <Text style={styles.briefLabel}>INTEL BRIEF</Text>
             </View>
-            <Text style={styles.briefText}>{data.memory_brief}</Text>
+            <Text style={styles.briefText} numberOfLines={12}>{data.memory_brief}</Text>
           </GlassCard>
         </Animated.View>
       )}
