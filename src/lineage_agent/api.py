@@ -2966,7 +2966,9 @@ def _is_confirmed_rug_stats_row(row: dict) -> bool:
     evidence_level = str(row.get("evidence_level") or "").strip().lower()
     if not mechanism:
         return True
-    if mechanism not in {"dex_liquidity_rug", "pre_dex_extraction_rug", "liquidity_drain_rug"}:
+    # Include dead_token with moderate+ evidence (tokens that lost 50%+ liquidity)
+    accepted = {"dex_liquidity_rug", "pre_dex_extraction_rug", "liquidity_drain_rug", "dead_token"}
+    if mechanism not in accepted:
         return False
     if not evidence_level:
         return True

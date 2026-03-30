@@ -34,19 +34,18 @@ logger = logging.getLogger(__name__)
 
 _SWEEP_INTERVAL_SECONDS = 15 * 60  # 15 minutes
 _RUG_LIQ_THRESHOLD = DEAD_LIQUIDITY_USD  # USD — below this we consider it rugged
-_MIN_RECORDED_LIQ = 500.0         # only consider tokens that once had real liquidity
-_LOOKBACK_SECONDS = 48 * 3600     # scan tokens recorded in last 48 h
+_MIN_RECORDED_LIQ = 200.0         # tokens that once had ≥$200 liq (was $500 — missed most pump.fun tokens)
+_LOOKBACK_SECONDS = 7 * 24 * 3600 # scan tokens recorded in last 7 days (was 48h — missed slow-burn rugs)
 _BATCH_CONCURRENCY = 3            # concurrent DexScreener lookups per sweep
 
-# Soft-rug / liquidity drain thresholds
-_DRAIN_RUG_MIN_RECORDED_LIQ = 1_000.0  # apply drain logic to tokens that once had ≥$1k liq
-_DRAIN_RUG_PCT_STRONG       = 0.90      # ≥90% drain → STRONG evidence
-_DRAIN_RUG_PCT_MODERATE     = 0.75      # ≥75% drain → MODERATE evidence
+# Soft-rug / liquidity drain thresholds (lowered to catch more pump.fun rugs)
+_DRAIN_RUG_MIN_RECORDED_LIQ = 500.0    # apply drain logic to tokens that once had ≥$500 liq (was $1k)
+_DRAIN_RUG_PCT_STRONG       = 0.75      # ≥75% drain → STRONG evidence (was 90%)
+_DRAIN_RUG_PCT_MODERATE     = 0.50      # ≥50% drain → MODERATE evidence (was 75%)
 
 # Dead token thresholds — tokens that faded on DEX without active extraction
-# These are NOT rugs (no malicious pull proven) but the token is effectively dead.
 _DEAD_TOKEN_LIQ_THRESHOLD   = 500.0     # current liq below this = dead
-_DEAD_TOKEN_MIN_DRAIN_PCT   = 0.60      # must have lost ≥60% from recorded peak
+_DEAD_TOKEN_MIN_DRAIN_PCT   = 0.50      # must have lost ≥50% from recorded peak (was 60%)
 
 _sweep_task: Optional[asyncio.Task] = None
 _RUG_SEMANTICS_VERSION = "rug-semantics-v1"
