@@ -44,7 +44,7 @@ function IntelSection() {
     entity_type: selected?.type,
     entity_id: selected?.id,
   }), [selected?.type, selected?.id]);
-  const { data: memory } = useAgentMemory(apiKey, memoryParams, !!selected);
+  const { data: memory, isLoading: memoryLoading, error: memoryError } = useAgentMemory(apiKey, memoryParams, !!selected);
 
   if (isLoading) {
     return (
@@ -68,15 +68,50 @@ function IntelSection() {
     );
   }
 
-  if (selected && memory) {
-    return (
-      <View style={{ gap: 10 }}>
-        <TouchableOpacity onPress={() => setSelected(null)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingBottom: 4 }}>
-          <Text style={{ color: tokens.secondary, fontFamily: 'Lexend-Medium', fontSize: 13 }}>{'\u2190'} Back</Text>
-        </TouchableOpacity>
-        <MemoryLensPanel data={memory} />
-      </View>
-    );
+  // Selected entity — show loading, error, or memory detail
+  if (selected) {
+    if (memoryLoading) {
+      return (
+        <View style={{ gap: 10 }}>
+          <TouchableOpacity onPress={() => setSelected(null)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingBottom: 4 }}>
+            <Text style={{ color: tokens.secondary, fontFamily: 'Lexend-Medium', fontSize: 13 }}>{'\u2190'} Back</Text>
+          </TouchableOpacity>
+          <View style={{ alignItems: 'center', padding: 32, gap: 8 }}>
+            <Text style={{ color: tokens.textTertiary, fontFamily: 'Lexend-Regular', fontSize: 13 }}>Loading entity memory...</Text>
+          </View>
+        </View>
+      );
+    }
+
+    if (memoryError) {
+      return (
+        <View style={{ gap: 10 }}>
+          <TouchableOpacity onPress={() => setSelected(null)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingBottom: 4 }}>
+            <Text style={{ color: tokens.secondary, fontFamily: 'Lexend-Medium', fontSize: 13 }}>{'\u2190'} Back</Text>
+          </TouchableOpacity>
+          <View style={{ alignItems: 'center', padding: 32, gap: 8 }}>
+            <Text style={{ color: tokens.risk.critical, fontFamily: 'Lexend-Medium', fontSize: 13 }}>Failed to load entity memory</Text>
+            <Text style={{ color: tokens.textTertiary, fontFamily: 'Lexend-Regular', fontSize: 12, textAlign: 'center' }}>
+              {(memoryError as Error)?.message || 'Unknown error'}
+            </Text>
+            <TouchableOpacity onPress={() => setSelected(null)} style={{ marginTop: 8 }}>
+              <Text style={{ color: tokens.secondary, fontFamily: 'Lexend-Medium', fontSize: 13 }}>Go back</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      );
+    }
+
+    if (memory) {
+      return (
+        <View style={{ gap: 10 }}>
+          <TouchableOpacity onPress={() => setSelected(null)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingBottom: 4 }}>
+            <Text style={{ color: tokens.secondary, fontFamily: 'Lexend-Medium', fontSize: 13 }}>{'\u2190'} Back</Text>
+          </TouchableOpacity>
+          <MemoryLensPanel data={memory} />
+        </View>
+      );
+    }
   }
 
   return (
