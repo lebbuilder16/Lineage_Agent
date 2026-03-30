@@ -20,12 +20,12 @@ export const ALERT_TYPE_OPTIONS = [
 ] as const;
 
 export const SWEEP_INTERVAL_OPTIONS = [
+  { value: 900, label: '15min' },
   { value: 1800, label: '30min' },
+  { value: 2700, label: '45min' },
   { value: 3600, label: '1h' },
   { value: 7200, label: '2h' },
   { value: 14400, label: '4h' },
-  { value: 21600, label: '6h' },
-  { value: 43200, label: '12h' },
 ] as const;
 
 export const DEPTH_OPTIONS = [
@@ -113,7 +113,7 @@ export const useAgentPrefsStore = create<AgentPrefsState>((set, get) => ({
   riskThreshold: 70,
   alertTypes: ['deployer_exit', 'bundle', 'sol_extraction', 'price_crash', 'cartel', 'operator_match', 'deployer_rug'],
   solExtractionMin: 20,
-  sweepInterval: 7200,
+  sweepInterval: 2700,
   investigationDepth: 'standard',
   quietHoursStart: null,
   quietHoursEnd: null,

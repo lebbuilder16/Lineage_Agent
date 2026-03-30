@@ -9,7 +9,14 @@ from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
-SWEEP_INTERVAL_SECONDS = 7200  # 2 hours
+SWEEP_INTERVAL_SECONDS = 2700  # 45 minutes (was 2h — too slow to catch rapid crashes)
+
+# ── Market pulse — lightweight price check between full forensic sweeps ────
+PULSE_INTERVAL_SECONDS = 600   # 10 minutes
+# Thresholds for triggering immediate full rescan from pulse
+PULSE_DROP_VS_LAST_PCT = -25      # -25% since last snapshot → urgent rescan
+PULSE_DROP_VS_REF_PCT = -40       # -40% since reference (first watch) → urgent rescan
+PULSE_LIQ_DROP_VS_LAST_PCT = -35  # -35% liquidity drop → urgent rescan
 
 
 # ── Flag generation — compare old snapshot vs new scan ────────────────────────
@@ -71,8 +78,12 @@ def _extract_forensic_snapshot(lin: Any) -> dict:
     return snapshot
 
 
-def _generate_flags(old: dict, new: dict, mint: str) -> list[dict]:
-    """Compare old and new forensic snapshots and return intelligence flags."""
+def _generate_flags(old: dict, new: dict, mint: str, *, ref: Optional[dict] = None) -> list[dict]:
+    """Compare old and new forensic snapshots and return intelligence flags.
+
+    *ref* is the reference snapshot taken when the token was first watched.
+    When provided, cumulative deterioration flags are also generated.
+    """
     flags: list[dict] = []
 
     def _flag(flag_type: str, severity: str, title: str, detail: Optional[dict] = None):
@@ -182,6 +193,52 @@ def _generate_flags(old: dict, new: dict, mint: str) -> list[dict]:
     correlated = _cross_reference(deltas, old, new)
     for c in correlated:
         _flag(c["type"], c["severity"], c["title"], c["detail"])
+
+    # ── Cumulative deterioration (vs reference snapshot) ──────────────
+    if ref:
+        ref_price = ref.get("price_usd") or 0
+        new_price = new.get("price_usd") or 0
+        ref_liq = ref.get("liq_usd") or 0
+        new_liq = new.get("liq_usd") or 0
+
+        # Cumulative price crash since first watched
+        if ref_price > 0 and new_price > 0:
+            cum_pct = (new_price - ref_price) / ref_price * 100
+            if cum_pct <= -50:
+                _flag("CUMULATIVE_PRICE_CRASH", "critical",
+                      f"Price {cum_pct:+.0f}% since first watched",
+                      {"ref_price": ref_price, "now_price": new_price,
+                       "pct": round(cum_pct, 1)})
+            elif cum_pct <= -30:
+                _flag("CUMULATIVE_PRICE_DECLINE", "warning",
+                      f"Price {cum_pct:+.0f}% since first watched",
+                      {"ref_price": ref_price, "now_price": new_price,
+                       "pct": round(cum_pct, 1)})
+
+        # Cumulative liquidity drain
+        if ref_liq > 0 and new_liq > 0:
+            liq_pct = (new_liq - ref_liq) / ref_liq * 100
+            if liq_pct <= -50:
+                _flag("CUMULATIVE_LIQ_DRAIN", "critical",
+                      f"Liquidity {liq_pct:+.0f}% since first watched",
+                      {"ref_liq": ref_liq, "now_liq": new_liq,
+                       "pct": round(liq_pct, 1)})
+
+        # Forensic deterioration since reference
+        ref_sol = ref.get("sol_extracted") or 0
+        new_sol_total = new.get("sol_extracted") or 0
+        if new_sol_total > ref_sol + 20:
+            _flag("CUMULATIVE_SOL_EXTRACTION", "critical",
+                  f"{new_sol_total - ref_sol:.0f} SOL extracted since first watched",
+                  {"ref_sol": ref_sol, "now_sol": new_sol_total})
+
+        # Deployer exited since reference (catches gradual exit)
+        if new.get("deployer_exited") and not ref.get("deployer_exited"):
+            # Only flag if delta check didn't already catch it
+            if not any(f["flag_type"] == "DEPLOYER_EXITED" for f in flags):
+                _flag("DEPLOYER_EXITED", "critical",
+                      "Deployer exited position since first watched",
+                      {"ref_deployed": True})
 
     return flags
 
@@ -381,6 +438,15 @@ async def run_single_rescan(watch_id: int, user_id: int, cache) -> dict | None:
 
         mint = row[0]
 
+        # Get reference snapshot (first-ever snapshot for this watch)
+        cursor = await db.execute(
+            "SELECT detail FROM sweep_flags WHERE watch_id = ? AND flag_type = '_REFERENCE' "
+            "ORDER BY created_at ASC LIMIT 1",
+            (watch_id,),
+        )
+        ref_row = await cursor.fetchone()
+        ref_forensic = json.loads(ref_row[0]) if ref_row else None
+
         # Get previous forensic snapshot
         cursor = await db.execute(
             "SELECT detail FROM sweep_flags WHERE watch_id = ? AND flag_type = '_SNAPSHOT' "
@@ -454,8 +520,8 @@ async def run_single_rescan(watch_id: int, user_id: int, cache) -> dict | None:
             new_forensic["bundle_exits_new"] = bundle_activity["new_exits"]
             new_forensic["bundle_exit_wallets"] = bundle_activity["exit_wallets"]
 
-        # Generate intelligence flags
-        flags = _generate_flags(old_forensic, new_forensic, mint)
+        # Generate intelligence flags (with reference for cumulative detection)
+        flags = _generate_flags(old_forensic, new_forensic, mint, ref=ref_forensic)
         now = time.time()
 
         # Enrich flag details with token name/symbol for mobile display
@@ -490,6 +556,15 @@ async def run_single_rescan(watch_id: int, user_id: int, cache) -> dict | None:
                     "VALUES (?, ?, ?, '_SNAPSHOT', 'info', 'snapshot', ?, ?, 1)",
                     (watch_id, mint, user_id, json.dumps(new_forensic, default=str), now),
                 )
+                # Store reference snapshot on first-ever scan (immutable baseline)
+                if ref_forensic is None:
+                    await db.execute(
+                        "INSERT INTO sweep_flags "
+                        "(watch_id, mint, user_id, flag_type, severity, title, detail, created_at, read) "
+                        "VALUES (?, ?, ?, '_REFERENCE', 'info', 'reference', ?, ?, 1)",
+                        (watch_id, mint, user_id, json.dumps(new_forensic, default=str), now),
+                    )
+                    logger.info("[sweep] stored reference snapshot for %s", mint[:12])
                 await db.commit()
                 break
             except Exception as e:
@@ -594,3 +669,175 @@ async def run_single_rescan(watch_id: int, user_id: int, cache) -> dict | None:
     except Exception as exc:
         logger.warning("run_single_rescan failed for watch %d: %s", watch_id, exc)
         return None
+
+
+# ── Market Pulse — lightweight price check between full sweeps ─────────────
+
+async def run_market_pulse(cache) -> list[dict]:
+    """Fast price check for all watched tokens (runs every ~10 min).
+
+    Fetches current prices from DexScreener (1 API call per token — no
+    full forensic pipeline).  Compares against reference + last snapshot:
+    - Large drop vs last snapshot → trigger immediate full rescan
+    - Large cumulative drop vs reference → trigger immediate full rescan
+
+    Returns list of {mint, watch_id, user_id, trigger, pct} for triggered rescans.
+    """
+    from .data_sources._clients import get_dex_client
+
+    try:
+        db = await cache._get_conn()
+
+        # Get all active mint watches with their latest snapshot prices
+        cursor = await db.execute(
+            "SELECT uw.id, uw.user_id, uw.value AS mint "
+            "FROM user_watches uw WHERE uw.sub_type = 'mint'"
+        )
+        watches = await cursor.fetchall()
+        if not watches:
+            return []
+
+        triggered: list[dict] = []
+        dex = get_dex_client()
+
+        # Process in batches of 8 to avoid hammering DexScreener
+        sem = asyncio.Semaphore(8)
+
+        async def _check_one(watch_id: int, user_id: int, mint: str):
+            async with sem:
+                try:
+                    pairs = await asyncio.wait_for(
+                        dex.get_token_pairs(mint), timeout=10.0,
+                    )
+                    if not pairs:
+                        return
+                    meta = dex.pairs_to_metadata(mint, pairs)
+                    now_price = meta.price_usd or 0
+                    now_liq = meta.liquidity_usd or 0
+                    now_mcap = meta.market_cap_usd or 0
+
+                    if now_price <= 0:
+                        return
+
+                    # Load last snapshot price
+                    c2 = await db.execute(
+                        "SELECT detail FROM sweep_flags "
+                        "WHERE watch_id = ? AND flag_type = '_SNAPSHOT' "
+                        "ORDER BY created_at DESC LIMIT 1",
+                        (watch_id,),
+                    )
+                    snap_row = await c2.fetchone()
+                    last_snap = json.loads(snap_row[0]) if snap_row else {}
+
+                    # Load reference snapshot
+                    c3 = await db.execute(
+                        "SELECT detail FROM sweep_flags "
+                        "WHERE watch_id = ? AND flag_type = '_REFERENCE' "
+                        "ORDER BY created_at ASC LIMIT 1",
+                        (watch_id,),
+                    )
+                    ref_row = await c3.fetchone()
+                    ref_snap = json.loads(ref_row[0]) if ref_row else {}
+
+                    trigger_reason = None
+
+                    # Check vs last snapshot
+                    last_price = last_snap.get("price_usd") or 0
+                    if last_price > 0:
+                        delta_pct = (now_price - last_price) / last_price * 100
+                        if delta_pct <= PULSE_DROP_VS_LAST_PCT:
+                            trigger_reason = f"price {delta_pct:+.0f}% vs last scan"
+
+                    last_liq = last_snap.get("liq_usd") or 0
+                    if not trigger_reason and last_liq > 0 and now_liq > 0:
+                        liq_pct = (now_liq - last_liq) / last_liq * 100
+                        if liq_pct <= PULSE_LIQ_DROP_VS_LAST_PCT:
+                            trigger_reason = f"liquidity {liq_pct:+.0f}% vs last scan"
+
+                    # Check vs reference
+                    ref_price = ref_snap.get("price_usd") or 0
+                    if not trigger_reason and ref_price > 0:
+                        ref_pct = (now_price - ref_price) / ref_price * 100
+                        if ref_pct <= PULSE_DROP_VS_REF_PCT:
+                            trigger_reason = f"price {ref_pct:+.0f}% since first watched"
+
+                    if trigger_reason:
+                        logger.warning(
+                            "[pulse] ⚡ %s triggered urgent rescan: %s (now=$%.6f)",
+                            mint[:12], trigger_reason, now_price,
+                        )
+                        triggered.append({
+                            "mint": mint,
+                            "watch_id": watch_id,
+                            "user_id": user_id,
+                            "trigger": trigger_reason,
+                            "now_price": now_price,
+                            "now_liq": now_liq,
+                        })
+                    else:
+                        logger.debug("[pulse] %s OK (price=$%.6f)", mint[:12], now_price)
+
+                except asyncio.TimeoutError:
+                    logger.debug("[pulse] timeout fetching %s", mint[:12])
+                except Exception as exc:
+                    logger.debug("[pulse] error checking %s: %s", mint[:12], exc)
+
+        await asyncio.gather(*[
+            _check_one(w[0], w[1], w[2]) for w in watches
+        ])
+
+        # Trigger full rescans for flagged tokens
+        for t in triggered:
+            try:
+                result = await run_single_rescan(t["watch_id"], t["user_id"], cache)
+                if result:
+                    logger.info(
+                        "[pulse] rescan complete for %s: %d flags, risk %s→%s",
+                        t["mint"][:12], result.get("flags_count", 0),
+                        result.get("old_risk"), result.get("new_risk"),
+                    )
+                    # Push FCM for pulse-triggered flags
+                    if result.get("flags"):
+                        try:
+                            from .alert_service import _push_fcm_to_watchers
+                            top_flag = result["flags"][0]
+                            asyncio.create_task(
+                                _push_fcm_to_watchers(
+                                    mint=t["mint"],
+                                    title=top_flag["title"],
+                                    body=f"⚡ Pulse: {t['trigger']}",
+                                    alert_type="pulse_flag",
+                                ),
+                                name=f"pulse_push_{t['mint'][:8]}",
+                            )
+                        except Exception:
+                            pass
+                    # Also push the pulse trigger itself if no flags generated
+                    # (price crash alone is worth alerting on)
+                    elif abs(t.get("now_price", 0)) > 0:
+                        try:
+                            from .alert_service import _push_fcm_to_watchers
+                            asyncio.create_task(
+                                _push_fcm_to_watchers(
+                                    mint=t["mint"],
+                                    title=f"⚡ {t['trigger']}",
+                                    body=f"Price: ${t['now_price']:.6f}",
+                                    alert_type="pulse_alert",
+                                ),
+                                name=f"pulse_alert_{t['mint'][:8]}",
+                            )
+                        except Exception:
+                            pass
+            except Exception as exc:
+                logger.warning("[pulse] rescan failed for %s: %s", t["mint"][:12], exc)
+
+        if triggered:
+            logger.info("[pulse] %d/%d watches triggered urgent rescan", len(triggered), len(watches))
+        else:
+            logger.debug("[pulse] all %d watches stable", len(watches))
+
+        return triggered
+
+    except Exception as exc:
+        logger.warning("[pulse] market pulse failed: %s", exc)
+        return []

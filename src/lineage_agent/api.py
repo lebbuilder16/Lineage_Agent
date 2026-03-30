@@ -271,6 +271,7 @@ async def lifespan(application: FastAPI):
     schedule_db_maintenance()
 
     _schedule_watchlist_sweep()
+    _schedule_market_pulse()
     _schedule_briefing_loop()
     _schedule_wallet_monitor()
 
@@ -314,6 +315,7 @@ async def lifespan(application: FastAPI):
     _cancel_cartel_sweep()
     cancel_db_maintenance()
     _cancel_watchlist_sweep()
+    _cancel_market_pulse()
     _cancel_briefing_loop()
     _cancel_wallet_monitor()
     _cancel_wallet_label_refresh()
@@ -3389,7 +3391,7 @@ class _AgentPrefsBody(BaseModel):
     riskThreshold: int = 70
     alertTypes: list[str] = ["deployer_exit", "bundle", "sol_extraction", "price_crash", "cartel", "operator_match", "deployer_rug"]
     solExtractionMin: float = 20.0
-    sweepInterval: int = 7200
+    sweepInterval: int = 2700
     investigationDepth: str = "standard"
     quietHoursStart: Optional[int] = None
     quietHoursEnd: Optional[int] = None
@@ -3448,7 +3450,7 @@ async def get_agent_prefs(request: Request):
         "riskThreshold": 70,
         "alertTypes": ["deployer_exit", "bundle", "sol_extraction", "price_crash", "cartel", "operator_match", "deployer_rug"],
         "solExtractionMin": 20.0,
-        "sweepInterval": 7200,
+        "sweepInterval": 2700,
         "investigationDepth": "standard",
         "quietHoursStart": None,
         "quietHoursEnd": None,
@@ -3470,7 +3472,7 @@ async def get_agent_prefs(request: Request):
         "riskThreshold": row[5] if row[5] is not None else 70,
         "alertTypes": alert_types,
         "solExtractionMin": row[7] if row[7] is not None else 20.0,
-        "sweepInterval": row[8] if row[8] is not None else 7200,
+        "sweepInterval": row[8] if row[8] is not None else 2700,
         "investigationDepth": row[9] or "standard",
         "quietHoursStart": row[10],
         "quietHoursEnd": row[11],
@@ -4332,7 +4334,7 @@ async def _watchlist_sweep_loop():
     from .data_sources._clients import cache as _cache  # noqa: PLC0415
     # Sweep loop runs every 30min. Per-user sweep_interval is respected
     # by checking when each user's last sweep was.
-    _LOOP_INTERVAL = 1800  # 30 min check cycle
+    _LOOP_INTERVAL = 900  # 15 min check cycle (was 30 min)
     first_run = True
     while True:
         await asyncio.sleep(60 if first_run else _LOOP_INTERVAL)
@@ -4341,7 +4343,7 @@ async def _watchlist_sweep_loop():
             db = await _cache._get_conn()
             cursor = await db.execute(
                 "SELECT uw.id, uw.user_id, uw.value, "
-                "COALESCE(ap.sweep_interval, 7200) as sweep_interval "
+                "COALESCE(ap.sweep_interval, 2700) as sweep_interval "
                 "FROM user_watches uw "
                 "LEFT JOIN agent_prefs ap ON uw.user_id = ap.user_id "
                 "WHERE uw.sub_type = 'mint'"
@@ -4550,13 +4552,80 @@ async def _notify_investigation_complete(user_id: int, mint: str, verdict: dict)
 def _schedule_watchlist_sweep():
     global _watchlist_sweep_task
     _watchlist_sweep_task = asyncio.create_task(_watchlist_sweep_loop())
-    logger.info("Watchlist sweep scheduled (every 2h)")
+    logger.info("Watchlist sweep scheduled (every 45min)")
 
 
 def _cancel_watchlist_sweep():
     global _watchlist_sweep_task
     if _watchlist_sweep_task:
         _watchlist_sweep_task.cancel()
+
+
+# ── Market Pulse (fast price check between full sweeps) ────────────────────
+_market_pulse_task: Optional[asyncio.Task] = None
+
+
+async def _market_pulse_loop():
+    """Lightweight price check every 10 min — triggers urgent rescan on drops."""
+    from .watchlist_monitor_service import run_market_pulse, PULSE_INTERVAL_SECONDS
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+
+    await asyncio.sleep(120)  # wait 2 min after startup before first pulse
+    while True:
+        try:
+            triggered = await run_market_pulse(_cache)
+            if triggered:
+                # Broadcast pulse-triggered alerts via WebSocket
+                for t in triggered:
+                    try:
+                        from .alert_service import _broadcast_web_alert, _send_fcm_push
+                        await _broadcast_web_alert({
+                            "type": "pulse_alert",
+                            "alert_type": "price_movement",
+                            "title": f"⚡ {t['trigger']}",
+                            "message": t["trigger"],
+                            "body": f"Price: ${t['now_price']:.6f}",
+                            "mint": t["mint"],
+                            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                            "id": f"pulse-{t['mint'][:8]}-{int(time.time())}",
+                            "read": False,
+                        }, user_id=t["user_id"])
+                        # Direct FCM push
+                        db = await _cache._get_conn()
+                        _user_cursor = await db.execute(
+                            "SELECT fcm_token FROM users WHERE id = ? AND fcm_token IS NOT NULL",
+                            (t["user_id"],),
+                        )
+                        _user_row = await _user_cursor.fetchone()
+                        if _user_row and _user_row[0]:
+                            asyncio.create_task(_send_fcm_push(
+                                _user_row[0],
+                                title=f"⚡ {t['trigger']}",
+                                body=f"Price: ${t['now_price']:.6f}",
+                                data={
+                                    "type": "pulse_alert",
+                                    "mint": t["mint"],
+                                    "urgency": "high",
+                                },
+                            ))
+                    except Exception:
+                        pass
+        except Exception as exc:
+            logger.warning("[pulse-loop] error: %s", exc)
+
+        await asyncio.sleep(PULSE_INTERVAL_SECONDS)
+
+
+def _schedule_market_pulse():
+    global _market_pulse_task
+    _market_pulse_task = asyncio.create_task(_market_pulse_loop())
+    logger.info("Market pulse scheduled (every 10min)")
+
+
+def _cancel_market_pulse():
+    global _market_pulse_task
+    if _market_pulse_task:
+        _market_pulse_task.cancel()
 
 
 def _schedule_briefing_loop():

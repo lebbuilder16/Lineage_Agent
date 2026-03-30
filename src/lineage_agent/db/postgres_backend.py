@@ -291,7 +291,7 @@ class PostgresBackend(DatabaseBackend):
                     risk_threshold INTEGER DEFAULT 70,
                     alert_types TEXT DEFAULT 'deployer_exit,bundle,sol_extraction,price_crash,cartel,operator_match,deployer_rug',
                     sol_extraction_min REAL DEFAULT 20,
-                    sweep_interval INTEGER DEFAULT 7200,
+                    sweep_interval INTEGER DEFAULT 2700,
                     investigation_depth TEXT DEFAULT 'standard',
                     quiet_hours_start INTEGER,
                     quiet_hours_end INTEGER
