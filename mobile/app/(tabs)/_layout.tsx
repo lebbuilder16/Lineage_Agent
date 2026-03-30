@@ -24,7 +24,7 @@ const PATH_TO_TAB: Record<string, TabName> = {
 export default function TabLayout() {
   const pathname = usePathname();
   const insets = useSafeAreaInsets();
-  const unreadFlags = useSweepFlagsStore((s) => s.getUnreadCount());
+  const unreadFlags = useSweepFlagsStore((s) => s.flags.filter((f) => !f.read).length);
 
   const tabBarClearance =
     TAB_BAR_INNER_HEIGHT +

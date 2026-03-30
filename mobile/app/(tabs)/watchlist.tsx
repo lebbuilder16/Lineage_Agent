@@ -18,7 +18,8 @@ import { GlassCard } from '../../src/components/ui/GlassCard';
 import { SkeletonBlock } from '../../src/components/ui/SkeletonLoader';
 import { ScreenHeader } from '../../src/components/ui/ScreenHeader';
 import { useToast } from '../../src/components/ui/Toast';
-import { useWatches, useDeleteWatch, useAddWatch, useWatchTimeline } from '../../src/lib/query';
+import { useWatches, useDeleteWatch, useAddWatch } from '../../src/lib/query';
+import { getWatchTimeline } from '../../src/lib/api';
 import { useAuthStore } from '../../src/store/auth';
 import { useSweepFlagsStore } from '../../src/store/sweep-flags';
 import { syncWatchlistCrons } from '../../src/lib/openclaw-cron';
@@ -42,12 +43,6 @@ function SearchResultRow({ item, onPress }: { item: any; onPress: () => void }) 
   );
 }
 
-/* ─── Expanded card timeline loader ─── */
-function TimelineLoader({ apiKey, mint }: { apiKey: string; mint: string }) {
-  const { data } = useWatchTimeline(apiKey, mint);
-  return data ?? null;
-}
-
 export default function WatchlistScreen() {
   const insets = useSafeAreaInsets();
   const isFocused = useIsFocused();
@@ -57,14 +52,19 @@ export default function WatchlistScreen() {
   const deleteMutation = useDeleteWatch(apiKey);
   const addMutation = useAddWatch(apiKey);
   const [addOpen, setAddOpen] = useState(false);
+  const [pendingKey, setPendingKey] = useState('');
   const { showToast, toast } = useToast();
 
-  // Sweep flags from centralized store
+  // Sweep flags from centralized store — derive values from flags array
   const flags = useSweepFlagsStore((s) => s.flags);
   const urgentMints = useSweepFlagsStore((s) => s.urgentMints);
   const fetchFlags = useSweepFlagsStore((s) => s.fetchFlags);
-  const getCriticalCount = useSweepFlagsStore((s) => s.getCriticalCount);
-  const getByMint = useSweepFlagsStore((s) => s.getByMint);
+
+  // Derived counts (computed from flags, not store methods)
+  const criticalCount = useMemo(
+    () => flags.filter((f) => !f.read && f.severity === 'critical').length,
+    [flags],
+  );
 
   // Inline search
   const [searchOpen, setSearchOpen] = useState(false);
@@ -100,7 +100,7 @@ export default function WatchlistScreen() {
     }
   }, [urgentMints, watches]);
 
-  // Fetch timeline for expanded mints
+  // Fetch timeline for expanded mints via shared API function
   useEffect(() => {
     if (!apiKey) return;
     const expandedMints = (watches ?? [])
@@ -108,11 +108,7 @@ export default function WatchlistScreen() {
       .map((w) => w.value);
 
     for (const mint of expandedMints) {
-      const BASE = (process.env.EXPO_PUBLIC_API_URL ?? 'https://lineage-agent.fly.dev').replace(/\/$/, '');
-      fetch(`${BASE}/agent/watch-timeline/${mint}`, {
-        headers: { 'X-API-Key': apiKey },
-      })
-        .then((r) => r.ok ? r.json() : null)
+      getWatchTimeline(apiKey, mint)
         .then((data) => {
           if (data) setTimelineData((prev) => ({ ...prev, [mint]: data }));
         })
@@ -121,7 +117,6 @@ export default function WatchlistScreen() {
   }, [expandedIds, apiKey, watches]);
 
   // Urgency banner data
-  const criticalCount = getCriticalCount();
   const affectedTokenNames = useMemo(() => {
     return urgentMints.map((mint) => {
       const flag = flags.find((f) => f.mint === mint);
@@ -196,14 +191,15 @@ export default function WatchlistScreen() {
             <View style={styles.keyInputRow}>
               <TextInput
                 style={styles.keyInput}
-                value={query}
-                onChangeText={(t) => setApiKey(t.trim())}
+                value={pendingKey}
+                onChangeText={setPendingKey}
                 placeholder="lin_..."
                 placeholderTextColor={tokens.textPlaceholder}
                 autoCapitalize="none"
                 autoCorrect={false}
                 secureTextEntry
                 returnKeyType="done"
+                onSubmitEditing={() => { if (pendingKey.trim()) setApiKey(pendingKey.trim()); }}
                 accessibilityLabel="API key"
               />
             </View>
@@ -332,7 +328,7 @@ export default function WatchlistScreen() {
               <RefreshControl refreshing={isLoading} onRefresh={handleRefresh} tintColor={tokens.secondary} />
             }
             renderItem={({ item, index }) => {
-              const mintFlags = getByMint(item.value);
+              const mintFlags = flags.filter((f) => f.mint === item.value);
               const isExpanded = expandedIds.has(item.id);
               const isUrgent = urgentMints.includes(item.value);
               const timeline = timelineData[item.value] ?? null;

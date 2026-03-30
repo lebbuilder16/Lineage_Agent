@@ -117,7 +117,7 @@ export default function AgentScreen() {
   const investigations = useHistoryStore((s) => s.investigations);
   const insights = useInsightsStore((s) => s.insights);
   const fetchInsights = useInsightsStore((s) => s.fetchInsights);
-  const unreadFlags = useSweepFlagsStore((s) => s.getUnreadCount());
+  const unreadFlags = useSweepFlagsStore((s) => s.flags.filter((f) => !f.read).length);
 
   const [serverStatus, setServerStatus] = useState<AgentStatus | null>(null);
   const [refreshing, setRefreshing] = useState(false);
