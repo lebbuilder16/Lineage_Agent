@@ -670,6 +670,93 @@ class SolanaRpcClient:
             ]
         return []
 
+    async def get_assets_by_owner(
+        self, owner: str, *, page: int = 1, limit: int = 100
+    ) -> list[dict]:
+        """Get all fungible token assets held by a wallet (Helius DAS).
+
+        Uses ``getAssetsByOwner`` — 1 call replaces N ``getTokenAccountsByOwner`` calls.
+        Ideal for bundle wallet detection (check what tokens a suspect wallet holds).
+        """
+        result = await self._call("getAssetsByOwner", {
+            "ownerAddress": owner,
+            "displayOptions": {"showFungible": True},
+            "page": page,
+            "limit": min(limit, 1000),
+        }, circuit_protect=False)
+        if isinstance(result, dict):
+            items = result.get("items") or []
+            if not isinstance(items, list):
+                return []
+            return [
+                item for item in items
+                if item.get("interface") in {"FungibleAsset", "FungibleToken"}
+            ]
+        return []
+
+    async def get_enhanced_transactions(
+        self, address: str, *, limit: int = 20, tx_type: str = ""
+    ) -> list[dict]:
+        """Fetch enriched transaction history via Helius Enhanced Transactions API.
+
+        Returns pre-parsed transactions with tokenTransfers, nativeTransfers,
+        accountData — no manual getTransaction + parse needed.
+
+        Requires Helius API key in the RPC endpoint URL.
+        """
+        import re as _re
+        # Extract Helius API key from RPC URL
+        _qs_match = _re.search(r'api-key=([^&]+)', self._endpoint)
+        if not _qs_match:
+            return []  # Not a Helius endpoint
+
+        api_key = _qs_match.group(1)
+        url = f"https://api.helius.xyz/v0/addresses/{address}/transactions"
+        params: dict = {"api-key": api_key, "limit": min(limit, 100)}
+        if tx_type:
+            params["type"] = tx_type
+
+        try:
+            client = await self._get_client()
+            resp = await client.get(url, params=params, timeout=12.0)
+            if resp.status_code == 200:
+                data = resp.json()
+                return data if isinstance(data, list) else []
+            return []
+        except Exception:
+            return []
+
+    async def get_enhanced_transactions_batch(
+        self, signatures: list[str]
+    ) -> list[dict]:
+        """Parse multiple transactions in one call via Helius Enhanced API.
+
+        Up to 100 signatures per call. Returns enriched transaction data
+        with tokenTransfers, nativeTransfers pre-parsed.
+        """
+        import re as _re
+        _qs_match = _re.search(r'api-key=([^&]+)', self._endpoint)
+        if not _qs_match:
+            return []
+
+        api_key = _qs_match.group(1)
+        url = f"https://api.helius.xyz/v0/transactions"
+
+        try:
+            client = await self._get_client()
+            resp = await client.post(
+                url,
+                params={"api-key": api_key},
+                json={"transactions": signatures[:100]},
+                timeout=15.0,
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                return data if isinstance(data, list) else []
+            return []
+        except Exception:
+            return []
+
     # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------
