@@ -175,6 +175,11 @@ class SolanaRpcClient:
                 timeout=self._timeout,
                 headers={"Content-Type": "application/json"},
                 http2=True,
+                limits=httpx.Limits(
+                    max_connections=20,
+                    max_keepalive_connections=10,
+                    keepalive_expiry=30,
+                ),
             )
         return self._client
 

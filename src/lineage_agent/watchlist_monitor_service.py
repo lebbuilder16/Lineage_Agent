@@ -724,21 +724,16 @@ async def _pulse_rescan_one(t: dict, cache) -> None:
 
 
 async def run_market_pulse(cache) -> list[dict]:
-    """Fast price check for all watched tokens (runs every ~10 min).
+    """Fast price check for all watched tokens.
 
-    Fetches current prices from DexScreener (1 API call per token — no
-    full forensic pipeline).  Compares against reference + last snapshot:
-    - Large drop vs last snapshot → trigger immediate full rescan
-    - Large cumulative drop vs reference → trigger immediate full rescan
-
-    Returns list of {mint, watch_id, user_id, trigger, pct} for triggered rescans.
+    Uses batched DexScreener calls (comma-separated mints, max 30 per call)
+    to minimize API usage. Compares against reference + last snapshot.
     """
     from .data_sources._clients import get_dex_client
 
     try:
         db = await cache._get_conn()
 
-        # Get all active mint watches with their latest snapshot prices
         cursor = await db.execute(
             "SELECT uw.id, uw.user_id, uw.value AS mint "
             "FROM user_watches uw WHERE uw.sub_type = 'mint'"
@@ -750,104 +745,107 @@ async def run_market_pulse(cache) -> list[dict]:
         triggered: list[dict] = []
         dex = get_dex_client()
 
-        # Process in batches of 8 to avoid hammering DexScreener
-        sem = asyncio.Semaphore(8)
+        # Build mint→watch lookup
+        mint_map: dict[str, list[tuple[int, int]]] = {}  # mint → [(watch_id, user_id)]
+        for watch_id, user_id, mint in watches:
+            mint_map.setdefault(mint, []).append((watch_id, user_id))
 
-        async def _check_one(watch_id: int, user_id: int, mint: str):
-            async with sem:
-                try:
-                    pairs = await asyncio.wait_for(
-                        dex.get_token_pairs(mint), timeout=10.0,
-                    )
-                    if not pairs:
-                        return
-                    meta = dex.pairs_to_metadata(mint, pairs)
-                    now_price = meta.price_usd or 0
-                    now_liq = meta.liquidity_usd or 0
-                    now_mcap = meta.market_cap_usd or 0
+        all_mints = list(mint_map.keys())
 
-                    if now_price <= 0:
-                        return
+        # Batch DexScreener calls (comma-separated, max 30 per call)
+        price_data: dict[str, tuple[float, float]] = {}  # mint → (price, liq)
+        _BATCH_SIZE = 30
+        for i in range(0, len(all_mints), _BATCH_SIZE):
+            batch = all_mints[i:i + _BATCH_SIZE]
+            mints_csv = ",".join(batch)
+            try:
+                pairs = await asyncio.wait_for(
+                    dex.get_token_pairs(mints_csv), timeout=15.0,
+                )
+                if pairs:
+                    # Parse pairs per mint
+                    for mint in batch:
+                        mint_pairs = [p for p in pairs if (p.get("baseToken", {}).get("address", "").lower() == mint.lower()
+                                      or p.get("quoteToken", {}).get("address", "").lower() == mint.lower())]
+                        if mint_pairs:
+                            meta = dex.pairs_to_metadata(mint, mint_pairs)
+                            if meta.price_usd and meta.price_usd > 0:
+                                price_data[mint] = (meta.price_usd, meta.liquidity_usd or 0)
+            except asyncio.TimeoutError:
+                logger.debug("[pulse] batch timeout for %d mints", len(batch))
+            except Exception as exc:
+                logger.debug("[pulse] batch error: %s", exc)
 
-                    # Load last snapshot price
-                    c2 = await db.execute(
-                        "SELECT detail FROM sweep_flags "
-                        "WHERE watch_id = ? AND flag_type = '_SNAPSHOT' "
-                        "ORDER BY created_at DESC LIMIT 1",
-                        (watch_id,),
-                    )
-                    snap_row = await c2.fetchone()
-                    last_snap = json.loads(snap_row[0]) if snap_row else {}
+        # Compare prices against snapshots
+        for mint, watchers in mint_map.items():
+            pd = price_data.get(mint)
+            if not pd:
+                continue
+            now_price, now_liq = pd
 
-                    # Load reference snapshot
-                    c3 = await db.execute(
-                        "SELECT detail FROM sweep_flags "
-                        "WHERE watch_id = ? AND flag_type = '_REFERENCE' "
-                        "ORDER BY created_at ASC LIMIT 1",
-                        (watch_id,),
-                    )
-                    ref_row = await c3.fetchone()
-                    ref_snap = json.loads(ref_row[0]) if ref_row else {}
+            watch_id, user_id = watchers[0]  # use first watcher for snapshot lookup
 
-                    trigger_reason = None
-
-                    # Check vs last snapshot
-                    last_price = last_snap.get("price_usd") or 0
-                    if last_price > 0:
-                        delta_pct = (now_price - last_price) / last_price * 100
-                        if delta_pct <= PULSE_DROP_VS_LAST_PCT:
-                            trigger_reason = f"price {delta_pct:+.0f}% vs last scan"
-
-                    last_liq = last_snap.get("liq_usd") or 0
-                    if not trigger_reason and last_liq > 0 and now_liq > 0:
-                        liq_pct = (now_liq - last_liq) / last_liq * 100
-                        if liq_pct <= PULSE_LIQ_DROP_VS_LAST_PCT:
-                            trigger_reason = f"liquidity {liq_pct:+.0f}% vs last scan"
-
-                    # Check vs reference
-                    ref_price = ref_snap.get("price_usd") or 0
-                    if not trigger_reason and ref_price > 0:
-                        ref_pct = (now_price - ref_price) / ref_price * 100
-                        if ref_pct <= PULSE_DROP_VS_REF_PCT:
-                            trigger_reason = f"price {ref_pct:+.0f}% since first watched"
-
-                    if trigger_reason:
-                        logger.warning(
-                            "[pulse] ⚡ %s triggered urgent rescan: %s (now=$%.6f)",
-                            mint[:12], trigger_reason, now_price,
-                        )
-                        triggered.append({
-                            "mint": mint,
-                            "watch_id": watch_id,
-                            "user_id": user_id,
-                            "trigger": trigger_reason,
-                            "now_price": now_price,
-                            "now_liq": now_liq,
-                        })
-                    else:
-                        logger.debug("[pulse] %s OK (price=$%.6f)", mint[:12], now_price)
-
-                except asyncio.TimeoutError:
-                    logger.debug("[pulse] timeout fetching %s", mint[:12])
-                except Exception as exc:
-                    logger.debug("[pulse] error checking %s: %s", mint[:12], exc)
-
-        await asyncio.gather(*[
-            _check_one(w[0], w[1], w[2]) for w in watches
-        ])
-
-        # Trigger full rescans as background tasks (non-blocking)
-        # Limit to 1 concurrent pulse rescan to avoid saturating RPC
-        for t in triggered:
-            asyncio.create_task(
-                _pulse_rescan_one(t, cache),
-                name=f"pulse_rescan_{t['mint'][:8]}",
+            # Load last snapshot
+            c2 = await db.execute(
+                "SELECT detail FROM sweep_flags WHERE watch_id = ? AND flag_type = '_SNAPSHOT' "
+                "ORDER BY created_at DESC LIMIT 1", (watch_id,),
             )
+            snap_row = await c2.fetchone()
+            last_snap = json.loads(snap_row[0]) if snap_row else {}
+
+            # Load reference
+            c3 = await db.execute(
+                "SELECT detail FROM sweep_flags WHERE watch_id = ? AND flag_type = '_REFERENCE' "
+                "ORDER BY created_at ASC LIMIT 1", (watch_id,),
+            )
+            ref_row = await c3.fetchone()
+            ref_snap = json.loads(ref_row[0]) if ref_row else {}
+
+            trigger_reason = None
+
+            last_price = last_snap.get("price_usd") or 0
+            if last_price > 0:
+                delta_pct = (now_price - last_price) / last_price * 100
+                if delta_pct <= PULSE_DROP_VS_LAST_PCT:
+                    trigger_reason = f"price {delta_pct:+.0f}% vs last scan"
+
+            last_liq = last_snap.get("liq_usd") or 0
+            if not trigger_reason and last_liq > 0 and now_liq > 0:
+                liq_pct = (now_liq - last_liq) / last_liq * 100
+                if liq_pct <= PULSE_LIQ_DROP_VS_LAST_PCT:
+                    trigger_reason = f"liquidity {liq_pct:+.0f}% vs last scan"
+
+            ref_price = ref_snap.get("price_usd") or 0
+            if not trigger_reason and ref_price > 0:
+                ref_pct = (now_price - ref_price) / ref_price * 100
+                if ref_pct <= PULSE_DROP_VS_REF_PCT:
+                    trigger_reason = f"price {ref_pct:+.0f}% since first watched"
+
+            if trigger_reason:
+                logger.warning("[pulse] %s triggered: %s (now=$%.6f)", mint[:12], trigger_reason, now_price)
+                for wid, uid in watchers:
+                    triggered.append({
+                        "mint": mint, "watch_id": wid, "user_id": uid,
+                        "trigger": trigger_reason, "now_price": now_price, "now_liq": now_liq,
+                    })
+            else:
+                logger.debug("[pulse] %s OK ($%.6f)", mint[:12], now_price)
+
+        # Trigger rescans (deduplicated by mint)
+        seen_rescans: set[str] = set()
+        for t in triggered:
+            if t["mint"] not in seen_rescans:
+                seen_rescans.add(t["mint"])
+                asyncio.create_task(
+                    _pulse_rescan_one(t, cache),
+                    name=f"pulse_rescan_{t['mint'][:8]}",
+                )
 
         if triggered:
-            logger.info("[pulse] %d/%d watches triggered urgent rescan", len(triggered), len(watches))
+            logger.info("[pulse] %d/%d watches triggered (%d API calls)",
+                        len(triggered), len(watches), (len(all_mints) + _BATCH_SIZE - 1) // _BATCH_SIZE)
         else:
-            logger.debug("[pulse] all %d watches stable", len(watches))
+            logger.debug("[pulse] all %d watches stable (1 batch call)", len(watches))
 
         return triggered
 

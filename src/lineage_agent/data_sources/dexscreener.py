@@ -45,6 +45,11 @@ class DexScreenerClient:
             self._client = httpx.AsyncClient(
                 timeout=self._timeout,
                 headers={"Accept": "application/json"},
+                limits=httpx.Limits(
+                    max_connections=15,
+                    max_keepalive_connections=8,
+                    keepalive_expiry=30,
+                ),
             )
         return self._client
 

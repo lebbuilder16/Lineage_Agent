@@ -322,14 +322,18 @@ async def test_market_pulse_triggers_on_price_drop():
         price_usd=0.5,  # -50% from snapshot
         liquidity_usd=80_000,
     )
+    _MINT = "So11111111111111111111111111111111"
     mock_dex = AsyncMock()
-    mock_dex.get_token_pairs = AsyncMock(return_value=[{"fake": True}])
+    # Batch call returns pairs with baseToken.address matching the mint
+    mock_dex.get_token_pairs = AsyncMock(return_value=[
+        {"baseToken": {"address": _MINT}, "quoteToken": {"address": ""}, "priceUsd": "0.5", "liquidity": {"usd": 80000}},
+    ])
     mock_dex.pairs_to_metadata = lambda mint, pairs: mock_meta
 
     with (
         patch("lineage_agent.data_sources._clients.get_dex_client", return_value=mock_dex),
         patch("lineage_agent.watchlist_monitor_service.run_single_rescan", new_callable=AsyncMock, return_value={
-            "mint": "So11111111111111111111111111111111",
+            "mint": _MINT,
             "flags": [{"flag_type": "CUMULATIVE_PRICE_CRASH", "severity": "critical", "title": "test"}],
             "flags_count": 1,
             "old_risk": "low",
@@ -341,7 +345,7 @@ async def test_market_pulse_triggers_on_price_drop():
 
     assert len(triggered) >= 1
     assert "price" in triggered[0]["trigger"].lower()
-    assert triggered[0]["mint"] == "So11111111111111111111111111111111"
+    assert triggered[0]["mint"] == _MINT
 
     await db.close()
 
@@ -372,8 +376,11 @@ async def test_market_pulse_no_trigger_when_stable():
         price_usd=0.95,  # -5% — within tolerance
         liquidity_usd=95_000,
     )
+    _MINT = "So11111111111111111111111111111111"
     mock_dex = AsyncMock()
-    mock_dex.get_token_pairs = AsyncMock(return_value=[{"fake": True}])
+    mock_dex.get_token_pairs = AsyncMock(return_value=[
+        {"baseToken": {"address": _MINT}, "quoteToken": {"address": ""}, "priceUsd": "0.95", "liquidity": {"usd": 95000}},
+    ])
     mock_dex.pairs_to_metadata = lambda mint, pairs: mock_meta
 
     with patch("lineage_agent.data_sources._clients.get_dex_client", return_value=mock_dex):

@@ -419,6 +419,10 @@ export default function WatchlistScreen() {
             extraData={[expandedIds, timelineData, timelineLoading, flags, tokenMeta]}
             contentContainerStyle={[styles.listContent, { paddingBottom: Math.max(insets.bottom + 100, 120) }]}
             showsVerticalScrollIndicator={false}
+            removeClippedSubviews
+            windowSize={7}
+            maxToRenderPerBatch={8}
+            initialNumToRender={6}
             refreshControl={
               <RefreshControl refreshing={isLoading} onRefresh={handleRefresh} tintColor={tokens.secondary} />
             }

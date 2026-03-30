@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { memo, useState } from 'react';
 import {
-  View, Text, TouchableOpacity, StyleSheet, Image, ActivityIndicator,
+  View, Text, TouchableOpacity, StyleSheet, ActivityIndicator,
 } from 'react-native';
+import { Image } from 'expo-image';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { ChevronDown, ChevronUp, Search, Eye, Trash2 } from 'lucide-react-native';
 import { GlassCard } from '../ui/GlassCard';
@@ -31,7 +32,8 @@ function TokenAvatar({ uri, symbol, type }: { uri?: string; symbol?: string; typ
   const [errored, setErrored] = useState(false);
   if (uri && !errored) {
     return (
-      <Image source={{ uri }} style={styles.avatar} onError={() => setErrored(true)} />
+      <Image source={uri} style={styles.avatar} contentFit="cover" transition={150}
+        onError={() => setErrored(true)} cachePolicy="disk" />
     );
   }
   const bg = type === 'mint' ? `${tokens.secondary}20` : `${tokens.accent}20`;
@@ -57,7 +59,7 @@ function RiskBadge({ score }: { score: number }) {
   );
 }
 
-export function WatchCard({
+export const WatchCard = memo(function WatchCard({
   item, flags, timeline, timelineLoading, tokenMeta, isExpanded, isUrgent,
   onToggleExpand, onInvestigate, onViewDeployer, onRemove, onPress,
 }: WatchCardProps) {
@@ -216,7 +218,7 @@ export function WatchCard({
       )}
     </GlassCard>
   );
-}
+});
 
 const styles = StyleSheet.create({
   card: { overflow: 'hidden' },
