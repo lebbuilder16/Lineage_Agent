@@ -343,6 +343,7 @@ export default function WatchlistScreen() {
             ref={flatListRef}
             data={watches}
             keyExtractor={(item) => item.id}
+            extraData={[expandedIds, timelineData, timelineLoading, flags]}
             contentContainerStyle={[styles.listContent, { paddingBottom: Math.max(insets.bottom + 100, 120) }]}
             showsVerticalScrollIndicator={false}
             refreshControl={

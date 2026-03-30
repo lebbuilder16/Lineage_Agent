@@ -189,10 +189,10 @@ export default function AgentScreen() {
           />
 
           {/* ── Intelligence (cross-token insights) ── */}
-          {insights.length > 0 && (
-            <Animated.View entering={FadeInDown.delay(100).duration(300)} style={{ gap: 8 }}>
-              <Text style={styles.sectionLabel}>INTELLIGENCE</Text>
-              {insights.map((insight, i) => (
+          <Animated.View entering={FadeInDown.delay(100).duration(300)} style={{ gap: 8 }}>
+            <Text style={styles.sectionLabel}>INTELLIGENCE</Text>
+            {insights.length > 0 ? (
+              insights.map((insight, i) => (
                 <InsightCard
                   key={`${insight.type}-${i}`}
                   insight={insight}
@@ -200,9 +200,17 @@ export default function AgentScreen() {
                     ? () => router.push(`/deployer/${insight.detail.deployer}` as any)
                     : undefined}
                 />
-              ))}
-            </Animated.View>
-          )}
+              ))
+            ) : (
+              <View style={styles.emptySection}>
+                <Text style={styles.emptySectionText}>
+                  {useInsightsStore.getState().loading
+                    ? 'Analyzing cross-token patterns...'
+                    : 'No cross-token patterns detected yet. Investigate more tokens to build intelligence.'}
+                </Text>
+              </View>
+            )}
+          </Animated.View>
 
           {/* ── Known entities ── */}
           <Animated.View entering={FadeInDown.delay(200).duration(300)} style={{ gap: 8 }}>
@@ -279,4 +287,14 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   invScoreText: { fontFamily: 'Lexend-SemiBold', fontSize: 12 },
+  emptySection: {
+    padding: 16, borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)',
+    alignItems: 'center',
+  },
+  emptySectionText: {
+    color: tokens.textTertiary, fontFamily: 'Lexend-Regular', fontSize: 12,
+    textAlign: 'center', lineHeight: 18,
+  },
 });
