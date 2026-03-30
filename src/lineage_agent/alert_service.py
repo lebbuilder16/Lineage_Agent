@@ -270,16 +270,14 @@ async def _push_fcm_to_watchers(
         from .data_sources._clients import cache as _cache  # noqa: PLC0415
 
         db = await _cache._get_conn()  # type: ignore[union-attr]
-        # Find users watching this specific mint (sub_type='token', value=mint)
-        # Also notifies users watching the deployer of that mint (if resolvable).
-        # We use a broad query: any user with a fcm_token who watches this mint.
+        # Find users watching this specific mint (sub_type='mint', value=mint)
         cursor = await db.execute(
             """
             SELECT DISTINCT u.fcm_token
             FROM users u
             JOIN user_watches uw ON uw.user_id = u.id
             WHERE u.fcm_token IS NOT NULL
-              AND uw.sub_type = 'token'
+              AND uw.sub_type = 'mint'
               AND uw.value = ?
             """,
             (mint,),

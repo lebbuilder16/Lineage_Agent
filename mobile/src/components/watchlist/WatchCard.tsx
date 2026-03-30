@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import {
-  View, Text, TouchableOpacity, StyleSheet, Image,
+  View, Text, TouchableOpacity, StyleSheet, Image, ActivityIndicator,
 } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { ChevronDown, ChevronUp, Search, Eye, Trash2 } from 'lucide-react-native';
@@ -16,6 +16,7 @@ interface WatchCardProps {
   item: Watch;
   flags: SweepFlag[];
   timeline?: WatchTimelineResult | null;
+  timelineLoading?: boolean;
   isExpanded: boolean;
   isUrgent: boolean;
   onToggleExpand: () => void;
@@ -56,7 +57,7 @@ function RiskBadge({ score }: { score: number }) {
 }
 
 export function WatchCard({
-  item, flags, timeline, isExpanded, isUrgent,
+  item, flags, timeline, timelineLoading, isExpanded, isUrgent,
   onToggleExpand, onInvestigate, onViewDeployer, onRemove, onPress,
 }: WatchCardProps) {
   const unreadFlags = flags.filter((f) => !f.read);
@@ -80,10 +81,9 @@ export function WatchCard({
 
   return (
     <GlassCard style={[styles.card, { borderColor, borderLeftWidth: isUrgent ? 2 : 0, borderLeftColor: `${tokens.risk.critical}80` }]}>
-      {/* Collapsed row */}
+      {/* Collapsed row — tap to navigate, chevron to expand */}
       <TouchableOpacity
-        onPress={onToggleExpand}
-        onLongPress={() => onPress(item)}
+        onPress={() => onPress(item)}
         activeOpacity={0.7}
         style={styles.collapsedRow}
       >
@@ -116,16 +116,30 @@ export function WatchCard({
           </View>
         )}
 
-        {isExpanded ? (
-          <ChevronUp size={14} color={tokens.textTertiary} />
-        ) : (
-          <ChevronDown size={14} color={tokens.textTertiary} />
-        )}
+        <TouchableOpacity
+          onPress={(e) => { e.stopPropagation(); onToggleExpand(); }}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          style={styles.chevronBtn}
+        >
+          {isExpanded ? (
+            <ChevronUp size={16} color={tokens.textTertiary} />
+          ) : (
+            <ChevronDown size={16} color={tokens.textTertiary} />
+          )}
+        </TouchableOpacity>
       </TouchableOpacity>
 
       {/* Expanded panel */}
       {isExpanded && (
         <Animated.View entering={FadeInDown.duration(200)} style={styles.expandedPanel}>
+          {/* Loading state */}
+          {timelineLoading && !timeline && (
+            <View style={styles.loadingRow}>
+              <ActivityIndicator size="small" color={tokens.secondary} />
+              <Text style={styles.loadingText}>Loading intelligence...</Text>
+            </View>
+          )}
+
           {/* Narrative */}
           {timeline?.narrative && (
             <Text style={styles.narrative}>{timeline.narrative}</Text>
@@ -169,10 +183,12 @@ export function WatchCard({
               <Text style={styles.actionText}>Investigate</Text>
             </TouchableOpacity>
 
-            {onViewDeployer && timeline?.last_investigation && (
+            {onViewDeployer && (
               <TouchableOpacity
                 onPress={() => {
-                  const deployer = (timeline.flags?.[0]?.detail as any)?.deployer;
+                  // Try deployer from timeline flags, then from item itself
+                  const deployer = (timeline?.flags?.[0]?.detail as any)?.deployer
+                    || (item.sub_type === 'deployer' ? item.value : null);
                   if (deployer) onViewDeployer(deployer);
                 }}
                 style={styles.actionBtn}
@@ -219,6 +235,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   riskScore: { fontFamily: 'Lexend-SemiBold', fontSize: 12 },
+  chevronBtn: {
+    padding: 6, borderRadius: tokens.radius.sm,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+  },
   flagPill: {
     paddingHorizontal: 7, paddingVertical: 2, borderRadius: tokens.radius.pill,
     borderWidth: 1,
@@ -229,6 +249,13 @@ const styles = StyleSheet.create({
     paddingBottom: 14,
     borderTopWidth: 1,
     borderTopColor: tokens.borderSubtle,
+  },
+  loadingRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    paddingVertical: 16, justifyContent: 'center',
+  },
+  loadingText: {
+    color: tokens.textTertiary, fontFamily: 'Lexend-Regular', fontSize: 12,
   },
   narrative: {
     color: tokens.white60, fontFamily: 'Lexend-Regular', fontSize: 12,

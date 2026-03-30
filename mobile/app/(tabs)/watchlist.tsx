@@ -72,8 +72,10 @@ export default function WatchlistScreen() {
 
   // Expanded cards
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
-  // Track which mints we've fetched timelines for
   const [timelineData, setTimelineData] = useState<Record<string, any>>({});
+  const [timelineLoading, setTimelineLoading] = useState<Set<string>>(new Set());
+  // Track which urgent mints we've already auto-expanded (prevent re-expanding after user collapses)
+  const autoExpandedRef = useRef<Set<string>>(new Set());
 
   const flatListRef = useRef<FlatList>(null);
 
@@ -89,30 +91,49 @@ export default function WatchlistScreen() {
     return () => clearInterval(interval);
   }, [apiKey, isFocused]);
 
-  // Auto-expand cards with critical flags
+  // Auto-expand cards with NEW critical flags only (not ones user already dismissed)
   useEffect(() => {
     if (urgentMints.length > 0 && watches) {
-      const urgent = new Set<string>();
+      const newUrgent = new Set<string>();
       for (const w of watches) {
-        if (urgentMints.includes(w.value)) urgent.add(w.id);
+        if (urgentMints.includes(w.value) && !autoExpandedRef.current.has(w.id)) {
+          newUrgent.add(w.id);
+          autoExpandedRef.current.add(w.id);
+        }
       }
-      if (urgent.size > 0) setExpandedIds((prev) => new Set([...prev, ...urgent]));
+      if (newUrgent.size > 0) setExpandedIds((prev) => new Set([...prev, ...newUrgent]));
     }
   }, [urgentMints, watches]);
 
-  // Fetch timeline for expanded mints via shared API function
+  // Fetch timeline for expanded mints with timeout + loading tracking
   useEffect(() => {
     if (!apiKey) return;
     const expandedMints = (watches ?? [])
-      .filter((w) => expandedIds.has(w.id) && !timelineData[w.value])
+      .filter((w) => expandedIds.has(w.id) && !timelineData[w.value] && !timelineLoading.has(w.value))
       .map((w) => w.value);
 
     for (const mint of expandedMints) {
+      setTimelineLoading((prev) => new Set([...prev, mint]));
+
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 10_000); // 10s timeout
+
       getWatchTimeline(apiKey, mint)
         .then((data) => {
           if (data) setTimelineData((prev) => ({ ...prev, [mint]: data }));
         })
-        .catch(() => {});
+        .catch(() => {
+          // On error/timeout, store empty object so we don't retry infinitely
+          setTimelineData((prev) => ({ ...prev, [mint]: { error: true } }));
+        })
+        .finally(() => {
+          clearTimeout(timeout);
+          setTimelineLoading((prev) => {
+            const next = new Set(prev);
+            next.delete(mint);
+            return next;
+          });
+        });
     }
   }, [expandedIds, apiKey, watches]);
 
@@ -331,7 +352,10 @@ export default function WatchlistScreen() {
               const mintFlags = flags.filter((f) => f.mint === item.value);
               const isExpanded = expandedIds.has(item.id);
               const isUrgent = urgentMints.includes(item.value);
-              const timeline = timelineData[item.value] ?? null;
+              const timeline = timelineData[item.value];
+              const isTimelineLoading = timelineLoading.has(item.value);
+              // Don't pass error placeholder as timeline data
+              const validTimeline = timeline && !timeline.error ? timeline : null;
 
               return (
                 <Animated.View
@@ -341,7 +365,8 @@ export default function WatchlistScreen() {
                   <WatchCard
                     item={item}
                     flags={mintFlags}
-                    timeline={timeline}
+                    timeline={validTimeline}
+                    timelineLoading={isTimelineLoading}
                     isExpanded={isExpanded}
                     isUrgent={isUrgent}
                     onToggleExpand={() => handleToggleExpand(item.id)}

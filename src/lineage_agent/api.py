@@ -2385,12 +2385,31 @@ async def auth_watches(request: Request):
 
 @app.post("/auth/watches", tags=["auth"])
 async def auth_add_watch(body: _WatchRequest, request: Request):
-    """Add a watch for the current user. Requires X-API-Key header."""
+    """Add a watch for the current user. Requires X-API-Key header.
+
+    For mint watches, triggers an immediate background scan so the user
+    sees baseline data within seconds instead of waiting 45min.
+    """
     user = await _get_current_user(request)
     from .data_sources._clients import cache as _cache  # noqa: PLC0415
     watch = await add_user_watch(_cache, user["id"], body.sub_type, body.value)
     if watch is None:
         raise HTTPException(status_code=409, detail="Watch already exists")
+
+    # Trigger immediate background scan for mint watches (creates _REFERENCE + first snapshot)
+    if body.sub_type == "mint" and watch.get("id"):
+        async def _initial_scan():
+            try:
+                from .watchlist_monitor_service import run_single_rescan
+                await asyncio.wait_for(
+                    run_single_rescan(watch["id"], user["id"], _cache),
+                    timeout=30.0,
+                )
+                logger.info("[watch] initial scan completed for %s", body.value[:12])
+            except Exception as exc:
+                logger.debug("[watch] initial scan failed for %s: %s", body.value[:12], exc)
+        asyncio.create_task(_initial_scan(), name=f"initial_scan_{body.value[:8]}")
+
     return watch
 
 
