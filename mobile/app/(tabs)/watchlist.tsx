@@ -66,6 +66,53 @@ export default function WatchlistScreen() {
     [flags],
   );
 
+  // Token metadata (name, symbol, image) for tokens without flags
+  const [tokenMeta, setTokenMeta] = useState<Record<string, { name?: string; symbol?: string; image?: string }>>({});
+
+  // Enrich token metadata: extract from flags + fetch missing from backend
+  useEffect(() => {
+    if (!apiKey || !watches?.length) return;
+    const meta: Record<string, { name?: string; symbol?: string; image?: string }> = {};
+
+    // 1. Extract from flags
+    for (const f of flags) {
+      if (f.mint && !meta[f.mint]) {
+        const d = f.detail as any;
+        if (d?.token_name || d?.symbol) {
+          meta[f.mint] = { name: d.token_name, symbol: d.symbol, image: d.image_uri };
+        }
+      }
+    }
+
+    // 2. Find mints without metadata
+    const missing = watches
+      .filter((w) => w.sub_type === 'mint' && !meta[w.value] && !tokenMeta[w.value])
+      .map((w) => w.value);
+
+    if (Object.keys(meta).length > 0) {
+      setTokenMeta((prev) => ({ ...prev, ...meta }));
+    }
+
+    // 3. Fetch missing from DexScreener via search endpoint
+    if (missing.length > 0) {
+      const BASE = (process.env.EXPO_PUBLIC_API_URL ?? 'https://lineage-agent.fly.dev').replace(/\/$/, '');
+      for (const mint of missing) {
+        fetch(`${BASE}/search?q=${mint}&limit=1`)
+          .then((r) => r.ok ? r.json() : [])
+          .then((results: any[]) => {
+            if (results.length > 0) {
+              const r = results[0];
+              setTokenMeta((prev) => ({
+                ...prev,
+                [mint]: { name: r.name, symbol: r.symbol, image: r.image_uri },
+              }));
+            }
+          })
+          .catch(() => {});
+      }
+    }
+  }, [apiKey, watches, flags]);
+
   // Inline search
   const [searchOpen, setSearchOpen] = useState(false);
   const { query, setQuery, results, loading: searchLoading, clear: clearSearch } = useTokenSearch();
@@ -343,7 +390,7 @@ export default function WatchlistScreen() {
             ref={flatListRef}
             data={watches}
             keyExtractor={(item) => item.id}
-            extraData={[expandedIds, timelineData, timelineLoading, flags]}
+            extraData={[expandedIds, timelineData, timelineLoading, flags, tokenMeta]}
             contentContainerStyle={[styles.listContent, { paddingBottom: Math.max(insets.bottom + 100, 120) }]}
             showsVerticalScrollIndicator={false}
             refreshControl={
@@ -368,6 +415,7 @@ export default function WatchlistScreen() {
                     flags={mintFlags}
                     timeline={validTimeline}
                     timelineLoading={isTimelineLoading}
+                    tokenMeta={tokenMeta[item.value]}
                     isExpanded={isExpanded}
                     isUrgent={isUrgent}
                     onToggleExpand={() => handleToggleExpand(item.id)}

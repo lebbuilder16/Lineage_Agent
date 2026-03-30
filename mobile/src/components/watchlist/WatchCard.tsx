@@ -17,6 +17,7 @@ interface WatchCardProps {
   flags: SweepFlag[];
   timeline?: WatchTimelineResult | null;
   timelineLoading?: boolean;
+  tokenMeta?: { name?: string; symbol?: string; image?: string };
   isExpanded: boolean;
   isUrgent: boolean;
   onToggleExpand: () => void;
@@ -57,20 +58,22 @@ function RiskBadge({ score }: { score: number }) {
 }
 
 export function WatchCard({
-  item, flags, timeline, timelineLoading, isExpanded, isUrgent,
+  item, flags, timeline, timelineLoading, tokenMeta, isExpanded, isUrgent,
   onToggleExpand, onInvestigate, onViewDeployer, onRemove, onPress,
 }: WatchCardProps) {
   const unreadFlags = flags.filter((f) => !f.read);
   const criticalFlags = unreadFlags.filter((f) => f.severity === 'critical');
-  const topFlagTypes = unreadFlags.slice(0, 2).map((f) => f.flagType);
 
-  // Extract metadata from timeline or flags
-  const tokenName = (timeline?.flags?.[0]?.detail as any)?.token_name
+  // Extract metadata: tokenMeta prop > timeline > flags > address fallback
+  const tokenName = tokenMeta?.name
+    || (timeline?.flags?.[0]?.detail as any)?.token_name
     || (flags[0]?.detail as any)?.token_name
     || item.label || item.value.slice(0, 8);
-  const tokenSymbol = (timeline?.flags?.[0]?.detail as any)?.symbol
+  const tokenSymbol = tokenMeta?.symbol
+    || (timeline?.flags?.[0]?.detail as any)?.symbol
     || (flags[0]?.detail as any)?.symbol || '';
-  const tokenImage = (flags[0]?.detail as any)?.image_uri;
+  const tokenImage = tokenMeta?.image
+    || (flags[0]?.detail as any)?.image_uri;
 
   const riskScore = timeline?.current?.risk_score
     ?? timeline?.last_investigation?.risk_score ?? 0;
