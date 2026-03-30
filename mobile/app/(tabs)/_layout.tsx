@@ -1,35 +1,31 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { View, StyleSheet } from 'react-native';
 import { Tabs, usePathname, router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Platform } from 'react-native';
 import { GlassTabBar, type TabName, TAB_BAR_INNER_HEIGHT, TAB_BAR_BOTTOM_MARGIN } from '../../src/components/ui/GlassTabBar';
-import { useAlertsStore } from '../../src/store/alerts';
+import { useSweepFlagsStore } from '../../src/store/sweep-flags';
 import { tokens } from '../../src/theme/tokens';
 
 const ROUTE_MAP: Record<TabName, string> = {
   radar: '/(tabs)/radar',
-  scan: '/(tabs)/scan',
-  agent: '/(tabs)/agent',
-  alerts: '/(tabs)/alerts',
   watchlist: '/(tabs)/watchlist',
+  agent: '/(tabs)/agent',
+  profile: '/(tabs)/profile',
 };
 
 const PATH_TO_TAB: Record<string, TabName> = {
   '/radar': 'radar',
-  '/scan': 'scan',
-  '/agent': 'agent',
-  '/alerts': 'alerts',
   '/watchlist': 'watchlist',
+  '/agent': 'agent',
+  '/profile': 'profile',
 };
 
 export default function TabLayout() {
   const pathname = usePathname();
   const insets = useSafeAreaInsets();
-  const unreadCount = useAlertsStore((s) => s.alerts.filter((a) => !a.read).length);
+  const unreadFlags = useSweepFlagsStore((s) => s.getUnreadCount());
 
-  // Reserve exactly the space the GlassTabBar occupies so no screen ever renders behind it.
-  // Formula: pill visual height + gap above safe-area offset + safe-area bottom.
   const tabBarClearance =
     TAB_BAR_INNER_HEIGHT +
     TAB_BAR_BOTTOM_MARGIN +
@@ -43,25 +39,26 @@ export default function TabLayout() {
 
   return (
     <View style={styles.container}>
-      {/* Shrink the Tabs area so no child screen renders behind the floating bar */}
       <View style={[styles.screens, { paddingBottom: tabBarClearance }]}>
         <Tabs
           screenOptions={{ headerShown: false }}
           tabBar={() => null}
         >
           <Tabs.Screen name="radar" />
-          <Tabs.Screen name="scan" />
-          <Tabs.Screen name="agent" />
-          <Tabs.Screen name="clock" options={{ href: null }} />
-          <Tabs.Screen name="alerts" />
           <Tabs.Screen name="watchlist" />
+          <Tabs.Screen name="agent" />
+          <Tabs.Screen name="profile" />
+          {/* Hidden screens — still routable but not in tab bar */}
+          <Tabs.Screen name="scan" options={{ href: null }} />
+          <Tabs.Screen name="alerts" options={{ href: null }} />
+          <Tabs.Screen name="clock" options={{ href: null }} />
           <Tabs.Screen name="account" options={{ href: null }} />
         </Tabs>
       </View>
       <GlassTabBar
         activeTab={activeTab}
         onPress={handlePress}
-        unreadAlerts={unreadCount}
+        unreadAlerts={unreadFlags}
       />
     </View>
   );

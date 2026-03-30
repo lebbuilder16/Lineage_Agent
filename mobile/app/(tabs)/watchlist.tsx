@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -11,113 +11,149 @@ import {
 } from 'react-native';
 import { router } from 'expo-router';
 import Animated, { FadeInDown, LinearTransition } from 'react-native-reanimated';
-import { Bookmark, Trash2, Plus, Settings, Search } from 'lucide-react-native';
+import { Bookmark, Plus, Search, X } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import * as Clipboard from 'expo-clipboard';
-import { Swipeable } from 'react-native-gesture-handler';
+import { useIsFocused } from '@react-navigation/native';
 import { GlassCard } from '../../src/components/ui/GlassCard';
-import { HapticButton } from '../../src/components/ui/HapticButton';
 import { SkeletonBlock } from '../../src/components/ui/SkeletonLoader';
 import { ScreenHeader } from '../../src/components/ui/ScreenHeader';
-import { SettingsSheet } from '../../src/components/ui/SettingsSheet';
 import { useToast } from '../../src/components/ui/Toast';
-import { useWatches, useDeleteWatch, useAddWatch } from '../../src/lib/query';
+import { useWatches, useDeleteWatch, useAddWatch, useWatchTimeline } from '../../src/lib/query';
 import { useAuthStore } from '../../src/store/auth';
+import { useSweepFlagsStore } from '../../src/store/sweep-flags';
 import { syncWatchlistCrons } from '../../src/lib/openclaw-cron';
 import { isOpenClawAvailable } from '../../src/lib/openclaw';
+import { useTokenSearch } from '../../src/hooks/useTokenSearch';
 import { tokens } from '../../src/theme/tokens';
 import { haptic } from '../../src/lib/haptics';
-import { WatchItemCard, AddWatchSheet } from '../../src/components/watchlist';
+import { WatchCard, AddWatchSheet, UrgencyBanner } from '../../src/components/watchlist';
 import type { Watch } from '../../src/types/api';
+
+/* ─── Inline search result row ─── */
+function SearchResultRow({ item, onPress }: { item: any; onPress: () => void }) {
+  return (
+    <TouchableOpacity onPress={onPress} style={styles.searchRow} activeOpacity={0.7}>
+      <Text style={styles.searchName} numberOfLines={1}>
+        {item.name || item.symbol || item.mint?.slice(0, 8)}
+      </Text>
+      <Text style={styles.searchSymbol}>{item.symbol}</Text>
+      <Text style={styles.searchMint}>{item.mint?.slice(0, 6)}...{item.mint?.slice(-4)}</Text>
+    </TouchableOpacity>
+  );
+}
+
+/* ─── Expanded card timeline loader ─── */
+function TimelineLoader({ apiKey, mint }: { apiKey: string; mint: string }) {
+  const { data } = useWatchTimeline(apiKey, mint);
+  return data ?? null;
+}
 
 export default function WatchlistScreen() {
   const insets = useSafeAreaInsets();
+  const isFocused = useIsFocused();
   const apiKey = useAuthStore((s) => s.apiKey);
   const setApiKey = useAuthStore((s) => s.setApiKey);
   const { data: watches, isLoading, refetch } = useWatches(apiKey);
   const deleteMutation = useDeleteWatch(apiKey);
   const addMutation = useAddWatch(apiKey);
-  const [pendingKey, setPendingKey] = useState('');
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
-  const swipeableRefs = useRef<Map<string, Swipeable | null>>(new Map());
   const { showToast, toast } = useToast();
 
-  const [sweeping, setSweeping] = useState(false);
-  const [flagCounts, setFlagCounts] = useState<Record<string, number>>({});
-  const [flagTypes, setFlagTypes] = useState<Record<string, string[]>>({});
-  const [tokenMeta, setTokenMeta] = useState<Record<string, { name?: string; symbol?: string; image?: string }>>({});
+  // Sweep flags from centralized store
+  const flags = useSweepFlagsStore((s) => s.flags);
+  const urgentMints = useSweepFlagsStore((s) => s.urgentMints);
+  const fetchFlags = useSweepFlagsStore((s) => s.fetchFlags);
+  const getCriticalCount = useSweepFlagsStore((s) => s.getCriticalCount);
+  const getByMint = useSweepFlagsStore((s) => s.getByMint);
 
-  // Fetch flag details + token metadata for all watched tokens
-  React.useEffect(() => {
+  // Inline search
+  const [searchOpen, setSearchOpen] = useState(false);
+  const { query, setQuery, results, loading: searchLoading, clear: clearSearch } = useTokenSearch();
+
+  // Expanded cards
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  // Track which mints we've fetched timelines for
+  const [timelineData, setTimelineData] = useState<Record<string, any>>({});
+
+  const flatListRef = useRef<FlatList>(null);
+
+  // Fetch flags on focus
+  useEffect(() => {
+    if (apiKey && isFocused) fetchFlags();
+  }, [apiKey, isFocused]);
+
+  // Polling flags every 30s
+  useEffect(() => {
+    if (!apiKey || !isFocused) return;
+    const interval = setInterval(fetchFlags, 30_000);
+    return () => clearInterval(interval);
+  }, [apiKey, isFocused]);
+
+  // Auto-expand cards with critical flags
+  useEffect(() => {
+    if (urgentMints.length > 0 && watches) {
+      const urgent = new Set<string>();
+      for (const w of watches) {
+        if (urgentMints.includes(w.value)) urgent.add(w.id);
+      }
+      if (urgent.size > 0) setExpandedIds((prev) => new Set([...prev, ...urgent]));
+    }
+  }, [urgentMints, watches]);
+
+  // Fetch timeline for expanded mints
+  useEffect(() => {
     if (!apiKey) return;
-    const BASE = (process.env.EXPO_PUBLIC_API_URL ?? 'https://lineage-agent.fly.dev').replace(/\/$/, '');
-    fetch(`${BASE}/agent/flags?limit=200`, { headers: { 'X-API-Key': apiKey } })
-      .then((r) => r.ok ? r.json() : null)
-      .then((d) => {
-        if (!d?.flags) return;
-        const counts: Record<string, number> = {};
-        const types: Record<string, string[]> = {};
-        const meta: Record<string, { name?: string; symbol?: string; image?: string }> = {};
-        for (const f of d.flags) {
-          if (!f.read) {
-            counts[f.mint] = (counts[f.mint] ?? 0) + 1;
-            if (!types[f.mint]) types[f.mint] = [];
-            if (!types[f.mint].includes(f.flagType)) types[f.mint].push(f.flagType);
-          }
-          // Extract token metadata from flag detail
-          if (f.detail && f.mint && !meta[f.mint]) {
-            const det = typeof f.detail === 'string' ? (() => { try { return JSON.parse(f.detail); } catch { return f.detail; } })() : f.detail;
-            if (det?.token_name || det?.symbol) {
-              meta[f.mint] = { name: det.token_name, symbol: det.symbol, image: det.image_uri };
-            }
-          }
-        }
-        setFlagCounts(counts);
-        setFlagTypes(types);
-        setTokenMeta((prev) => ({ ...prev, ...meta }));
-      })
-      .catch(() => {});
-  }, [apiKey, watches]);
+    const expandedMints = (watches ?? [])
+      .filter((w) => expandedIds.has(w.id) && !timelineData[w.value])
+      .map((w) => w.value);
 
-  const handleSweepAll = async () => {
-    const mintWatches = (watches ?? []).filter((w) => w.sub_type === 'mint');
-    if (mintWatches.length === 0 || sweeping) return;
-    setSweeping(true);
-    try {
-      router.push(`/investigate/${mintWatches[0].value}` as any);
-    } catch { /* ignore */ }
-    setSweeping(false);
-  };
+    for (const mint of expandedMints) {
+      const BASE = (process.env.EXPO_PUBLIC_API_URL ?? 'https://lineage-agent.fly.dev').replace(/\/$/, '');
+      fetch(`${BASE}/agent/watch-timeline/${mint}`, {
+        headers: { 'X-API-Key': apiKey },
+      })
+        .then((r) => r.ok ? r.json() : null)
+        .then((data) => {
+          if (data) setTimelineData((prev) => ({ ...prev, [mint]: data }));
+        })
+        .catch(() => {});
+    }
+  }, [expandedIds, apiKey, watches]);
+
+  // Urgency banner data
+  const criticalCount = getCriticalCount();
+  const affectedTokenNames = useMemo(() => {
+    return urgentMints.map((mint) => {
+      const flag = flags.find((f) => f.mint === mint);
+      return (flag?.detail as any)?.token_name || (flag?.detail as any)?.symbol || mint.slice(0, 8);
+    });
+  }, [urgentMints, flags]);
+
+  const handleToggleExpand = useCallback((id: string) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }, []);
 
   const handleDelete = (id: string) => {
-    Alert.alert(
-      'Remove watch?',
-      'You will no longer receive alerts for this item.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Remove',
-          style: 'destructive',
-          onPress: () => {
-            haptic.heavy();
-            deleteMutation.mutate(id, {
-              onSuccess: () => {
-                refetch().then(({ data }) => {
-                  if (isOpenClawAvailable() && data) syncWatchlistCrons(data).catch(() => {});
-                });
-              },
-            });
-          },
+    Alert.alert('Remove watch?', 'You will no longer receive alerts for this item.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Remove', style: 'destructive',
+        onPress: () => {
+          haptic.heavy();
+          deleteMutation.mutate(id, {
+            onSuccess: () => {
+              refetch().then(({ data }) => {
+                if (isOpenClawAvailable() && data) syncWatchlistCrons(data).catch(() => {});
+              });
+            },
+          });
         },
-      ],
-    );
-  };
-
-  const handleCopy = async (value: string) => {
-    await Clipboard.setStringAsync(value);
-    await haptic.success();
-    showToast('Address copied');
+      },
+    ]);
   };
 
   const handleAddSubmit = (type: 'mint' | 'deployer', value: string) => {
@@ -131,16 +167,24 @@ export default function WatchlistScreen() {
     });
   };
 
-  const handlePress = (watch: Watch) => {
-    if (watch.sub_type === 'mint') {
-      router.push(`/token/${watch.value}` as any);
-    } else {
-      router.push(`/deployer/${watch.value}` as any);
-    }
+  const handleRefresh = async () => {
+    await Promise.all([refetch(), fetchFlags()]);
   };
 
-  // ── No API key state ──────────────────────────────────────────────────────
+  const handleUrgencyPress = () => {
+    // Scroll to first urgent token
+    if (!watches) return;
+    const idx = watches.findIndex((w) => urgentMints.includes(w.value));
+    if (idx >= 0) flatListRef.current?.scrollToIndex({ index: idx, animated: true });
+  };
 
+  const handleSearchSelect = (mint: string) => {
+    clearSearch();
+    setSearchOpen(false);
+    router.push(`/token/${mint}` as any);
+  };
+
+  // ── No API key ──
   if (!apiKey) {
     return (
       <View style={styles.container}>
@@ -152,41 +196,24 @@ export default function WatchlistScreen() {
             <View style={styles.keyInputRow}>
               <TextInput
                 style={styles.keyInput}
-                value={pendingKey}
-                onChangeText={setPendingKey}
-                placeholder="sk-…"
+                value={query}
+                onChangeText={(t) => setApiKey(t.trim())}
+                placeholder="lin_..."
                 placeholderTextColor={tokens.textPlaceholder}
                 autoCapitalize="none"
                 autoCorrect={false}
                 secureTextEntry
                 returnKeyType="done"
-                onSubmitEditing={() => { if (pendingKey.trim()) setApiKey(pendingKey.trim()); }}
                 accessibilityLabel="API key"
               />
-              <HapticButton
-                variant="secondary"
-                size="sm"
-                onPress={() => { if (pendingKey.trim()) setApiKey(pendingKey.trim()); }}
-                accessibilityRole="button"
-                accessibilityLabel="Activate API key"
-              >
-                Activate
-              </HapticButton>
             </View>
-            <Text style={styles.lockoutHint}>
-              {'Get your key at '}
-              <Text style={styles.lockoutHintLink}>lineage-agent.fly.dev/dashboard</Text>
-              {'\nor open '}
-              <Text style={styles.lockoutHintLink}>lineage://activate?key=YOUR_KEY</Text>
-            </Text>
           </View>
         </View>
       </View>
     );
   }
 
-  // ── Main render ───────────────────────────────────────────────────────────
-
+  // ── Main render ──
   return (
     <View style={styles.container}>
       <View style={[styles.safe, { paddingTop: Math.max(insets.top, 16) }]}>
@@ -195,49 +222,75 @@ export default function WatchlistScreen() {
           title="Watchlist"
           rightAction={
             <View style={styles.headerActions}>
-              <Text style={styles.count}>{watches?.length ?? 0} items</Text>
-              {(watches ?? []).some((w) => w.sub_type === 'mint') && (
-                <TouchableOpacity
-                  onPress={handleSweepAll}
-                  style={styles.sweepBtn}
-                  activeOpacity={0.7}
-                  disabled={sweeping}
-                  accessibilityRole="button"
-                  accessibilityLabel="Investigate all watched tokens"
-                >
-                  <Search size={13} color={sweeping ? tokens.textTertiary : tokens.secondary} />
-                  <Text style={[styles.sweepBtnText, sweeping && { color: tokens.textTertiary }]}>
-                    {sweeping ? 'Sweeping...' : 'Sweep'}
-                  </Text>
-                </TouchableOpacity>
-              )}
+              <Text style={styles.count}>{watches?.length ?? 0}</Text>
+              <TouchableOpacity
+                onPress={() => setSearchOpen(!searchOpen)}
+                hitSlop={tokens.hitSlop}
+                style={styles.headerBtn}
+                accessibilityRole="button"
+                accessibilityLabel="Search tokens"
+              >
+                <Search size={18} color={searchOpen ? tokens.secondary : tokens.textTertiary} />
+              </TouchableOpacity>
               <TouchableOpacity
                 onPress={() => setAddOpen(true)}
                 hitSlop={tokens.hitSlop}
-                style={{ minWidth: tokens.minTouchSize, minHeight: tokens.minTouchSize, justifyContent: 'center', alignItems: 'center' }}
+                style={styles.headerBtn}
                 accessibilityRole="button"
                 accessibilityLabel="Add to watchlist"
               >
                 <Plus size={20} color={tokens.secondary} />
               </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => setSettingsOpen(true)}
-                hitSlop={tokens.hitSlop}
-                style={{ minWidth: tokens.minTouchSize, minHeight: tokens.minTouchSize, justifyContent: 'center', alignItems: 'center' }}
-                accessibilityRole="button"
-                accessibilityLabel="Open API key settings"
-              >
-                <Settings size={18} color={tokens.textTertiary} />
-              </TouchableOpacity>
             </View>
           }
         />
-        <SettingsSheet visible={settingsOpen} onClose={() => setSettingsOpen(false)} />
+
+        {/* Inline search bar */}
+        {searchOpen && (
+          <Animated.View entering={FadeInDown.duration(200)} style={styles.searchContainer}>
+            <View style={styles.searchInputRow}>
+              <Search size={16} color={tokens.textTertiary} />
+              <TextInput
+                style={styles.searchInput}
+                value={query}
+                onChangeText={setQuery}
+                placeholder="Search token or paste address..."
+                placeholderTextColor={tokens.textPlaceholder}
+                autoCapitalize="none"
+                autoCorrect={false}
+                autoFocus
+                returnKeyType="search"
+              />
+              <TouchableOpacity onPress={() => { clearSearch(); setSearchOpen(false); }}>
+                <X size={16} color={tokens.textTertiary} />
+              </TouchableOpacity>
+            </View>
+            {results.length > 0 && (
+              <View style={styles.searchResults}>
+                {results.slice(0, 5).map((r: any) => (
+                  <SearchResultRow
+                    key={r.mint}
+                    item={r}
+                    onPress={() => handleSearchSelect(r.mint)}
+                  />
+                ))}
+              </View>
+            )}
+          </Animated.View>
+        )}
+
         <AddWatchSheet
           visible={addOpen}
           onClose={() => setAddOpen(false)}
           onSubmit={handleAddSubmit}
           loading={addMutation.isPending}
+        />
+
+        {/* Urgency banner */}
+        <UrgencyBanner
+          criticalCount={criticalCount}
+          affectedTokenNames={affectedTokenNames}
+          onPress={handleUrgencyPress}
         />
 
         {isLoading ? (
@@ -246,7 +299,7 @@ export default function WatchlistScreen() {
               <GlassCard key={i}><SkeletonBlock lines={2} /></GlassCard>
             ))}
           </View>
-        ) : watches?.length === 0 ? (
+        ) : !watches?.length ? (
           <Animated.View entering={FadeInDown.springify()} style={styles.empty}>
             <GlassCard style={styles.emptyCard} noPadding={false}>
               <View style={styles.emptyIconWrapper}>
@@ -257,58 +310,55 @@ export default function WatchlistScreen() {
                 Add tokens to your watchlist to track their risk in real-time
               </Text>
               <View style={styles.emptyAction}>
-                <HapticButton
-                  onPress={() => router.push('/(tabs)/scan')}
-                  variant="primary"
-                  accessibilityRole="button"
-                  accessibilityLabel="Go to scan tab to find tokens"
+                <TouchableOpacity
+                  onPress={() => setAddOpen(true)}
+                  style={styles.emptyBtn}
+                  activeOpacity={0.7}
                 >
-                  Scan a Token
-                </HapticButton>
+                  <Plus size={16} color={tokens.secondary} />
+                  <Text style={styles.emptyBtnText}>Add Token</Text>
+                </TouchableOpacity>
               </View>
             </GlassCard>
           </Animated.View>
         ) : (
           <FlatList
+            ref={flatListRef}
             data={watches}
             keyExtractor={(item) => item.id}
             contentContainerStyle={[styles.listContent, { paddingBottom: Math.max(insets.bottom + 100, 120) }]}
             showsVerticalScrollIndicator={false}
-            refreshControl={<RefreshControl refreshing={isLoading} onRefresh={refetch} tintColor={tokens.secondary} />}
-            renderItem={({ item, index }) => (
-              <Animated.View
-                exiting={FadeInDown}
-                entering={FadeInDown.delay(index * tokens.timing.listItem).springify()}
-                layout={LinearTransition.springify()}
-              >
-                <Swipeable
-                  ref={(ref) => { swipeableRefs.current.set(item.id, ref); }}
-                  overshootRight={false}
-                  renderRightActions={() => (
-                    <TouchableOpacity
-                      onPress={() => {
-                        swipeableRefs.current.get(item.id)?.close();
-                        handleDelete(item.id);
-                      }}
-                      style={styles.swipeDeleteBtn}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Delete ${item.label ?? item.value}`}
-                    >
-                      <Trash2 size={20} color={tokens.white100} />
-                    </TouchableOpacity>
-                  )}
+            refreshControl={
+              <RefreshControl refreshing={isLoading} onRefresh={handleRefresh} tintColor={tokens.secondary} />
+            }
+            renderItem={({ item, index }) => {
+              const mintFlags = getByMint(item.value);
+              const isExpanded = expandedIds.has(item.id);
+              const isUrgent = urgentMints.includes(item.value);
+              const timeline = timelineData[item.value] ?? null;
+
+              return (
+                <Animated.View
+                  entering={FadeInDown.delay(index * tokens.timing.listItem).springify()}
+                  layout={LinearTransition.springify()}
                 >
-                  <WatchItemCard
+                  <WatchCard
                     item={item}
-                    onPress={handlePress}
-                    onCopy={handleCopy}
-                    flagCount={flagCounts[item.value] ?? 0}
-                    flagTypeList={flagTypes[item.value]}
-                    tokenMetaOverride={tokenMeta[item.value]}
+                    flags={mintFlags}
+                    timeline={timeline}
+                    isExpanded={isExpanded}
+                    isUrgent={isUrgent}
+                    onToggleExpand={() => handleToggleExpand(item.id)}
+                    onInvestigate={(mint) => router.push(`/investigate/${mint}` as any)}
+                    onViewDeployer={(deployer) => router.push(`/deployer/${deployer}` as any)}
+                    onRemove={handleDelete}
+                    onPress={(w) => router.push(
+                      w.sub_type === 'mint' ? `/token/${w.value}` as any : `/deployer/${w.value}` as any,
+                    )}
                   />
-                </Swipeable>
-              </Animated.View>
-            )}
+                </Animated.View>
+              );
+            }}
           />
         )}
       </View>
@@ -320,48 +370,50 @@ export default function WatchlistScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: tokens.bgMain },
   safe: { flex: 1 },
-  count: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.small, color: tokens.white60 },
-  sweepBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderRadius: tokens.radius.pill,
-    borderWidth: 1,
-    borderColor: `${tokens.secondary}40`,
-    backgroundColor: `${tokens.secondary}10`,
-    minHeight: tokens.minTouchSize,
+  count: { fontFamily: 'Lexend-Medium', fontSize: tokens.font.small, color: tokens.white60 },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  headerBtn: {
+    minWidth: tokens.minTouchSize, minHeight: tokens.minTouchSize,
+    justifyContent: 'center', alignItems: 'center',
   },
-  sweepBtnText: { fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.tiny, color: tokens.secondary },
-  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   listContent: { gap: 8, paddingHorizontal: tokens.spacing.screenPadding },
-  swipeDeleteBtn: {
-    backgroundColor: tokens.risk.critical,
-    justifyContent: 'center',
-    alignItems: 'center',
-    width: 72,
-    marginLeft: 8,
-    borderRadius: tokens.radius.sm,
+  // Search
+  searchContainer: { paddingHorizontal: tokens.spacing.screenPadding, marginBottom: 8 },
+  searchInputRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: tokens.bgGlass8, borderRadius: tokens.radius.pill,
+    borderWidth: 1, borderColor: tokens.borderSubtle,
+    paddingHorizontal: 14, paddingVertical: 8,
   },
+  searchInput: {
+    flex: 1, fontFamily: 'Lexend-Regular', fontSize: 13,
+    color: tokens.white100, padding: 0,
+  },
+  searchResults: {
+    marginTop: 4, backgroundColor: tokens.bgGlass12,
+    borderRadius: tokens.radius.md, borderWidth: 1, borderColor: tokens.borderSubtle,
+    overflow: 'hidden',
+  },
+  searchRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    paddingHorizontal: 14, paddingVertical: 10,
+    borderBottomWidth: 1, borderBottomColor: tokens.borderSubtle,
+  },
+  searchName: { flex: 1, fontFamily: 'Lexend-Medium', fontSize: 13, color: tokens.white100 },
+  searchSymbol: { fontFamily: 'Lexend-Regular', fontSize: 11, color: tokens.secondary },
+  searchMint: { fontFamily: 'Lexend-Regular', fontSize: 10, color: tokens.textTertiary },
+  // Lockout
   lockout: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 16, paddingHorizontal: 32 },
   lockoutTitle: { fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.subheading, color: tokens.white60 },
   lockoutSub: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.body, color: tokens.textTertiary, textAlign: 'center' },
-  lockoutHint: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny, color: tokens.textTertiary, textAlign: 'center', marginTop: 8, lineHeight: 18 },
-  lockoutHintLink: { color: tokens.secondary, fontFamily: 'Lexend-SemiBold' },
   keyInputRow: { flexDirection: 'row', alignItems: 'center', gap: 8, width: '100%', paddingHorizontal: 8 },
   keyInput: {
-    flex: 1,
-    backgroundColor: tokens.bgGlass8,
-    borderRadius: tokens.radius.pill,
-    borderWidth: 1,
-    borderColor: tokens.borderSubtle,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    fontFamily: 'Lexend-Regular',
-    fontSize: tokens.font.body,
-    color: tokens.white100,
+    flex: 1, backgroundColor: tokens.bgGlass8, borderRadius: tokens.radius.pill,
+    borderWidth: 1, borderColor: tokens.borderSubtle,
+    paddingHorizontal: 16, paddingVertical: 10,
+    fontFamily: 'Lexend-Regular', fontSize: tokens.font.body, color: tokens.white100,
   },
+  // Empty
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 16, paddingHorizontal: 32 },
   emptyCard: { alignItems: 'center', padding: 32, borderWidth: 1, borderColor: tokens.borderSubtle, width: '100%' },
   emptyIconWrapper: {
@@ -370,7 +422,13 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
     marginBottom: 16, borderWidth: 1, borderColor: `${tokens.secondary}30`,
   },
-  emptyAction: { marginTop: 24, width: '100%' },
   emptyTitle: { fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.subheading, color: tokens.white60 },
   emptySub: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.body, color: tokens.textTertiary, textAlign: 'center' },
+  emptyAction: { marginTop: 24, width: '100%' },
+  emptyBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    paddingVertical: 12, borderRadius: tokens.radius.pill,
+    backgroundColor: `${tokens.secondary}15`, borderWidth: 1, borderColor: `${tokens.secondary}40`,
+  },
+  emptyBtnText: { fontFamily: 'Lexend-SemiBold', fontSize: 14, color: tokens.secondary },
 });

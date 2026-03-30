@@ -18,16 +18,15 @@ import Animated, {
 import * as Haptics from 'expo-haptics';
 import {
   Activity,
-  Search,
   Bot,
-  Bell,
   Bookmark,
+  User,
   type LucideIcon,
 } from 'lucide-react-native';
 import { tokens } from '../../theme/tokens';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
 
-export type TabName = 'radar' | 'scan' | 'agent' | 'alerts' | 'watchlist';
+export type TabName = 'radar' | 'watchlist' | 'agent' | 'profile';
 
 /**
  * Visual height of the tab bar pill (icon + label when active + vertical padding).
@@ -49,10 +48,9 @@ interface Tab {
 
 const TABS: Tab[] = [
   { name: 'radar', label: 'Radar', icon: Activity },
-  { name: 'scan', label: 'Scan', icon: Search },
-  { name: 'agent', label: 'Agent', icon: Bot },
-  { name: 'alerts', label: 'Alerts', icon: Bell },
   { name: 'watchlist', label: 'Watch', icon: Bookmark },
+  { name: 'agent', label: 'Agent', icon: Bot },
+  { name: 'profile', label: 'Profile', icon: User },
 ];
 
 interface GlassTabBarProps {
@@ -80,7 +78,7 @@ export function GlassTabBar({
               key={tab.name}
               tab={tab}
               isActive={activeTab === tab.name}
-              badge={tab.name === 'alerts' ? unreadAlerts : 0}
+              badge={tab.name === 'watchlist' ? unreadAlerts : 0}
               onPress={() => {
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                 onPress(tab.name);
