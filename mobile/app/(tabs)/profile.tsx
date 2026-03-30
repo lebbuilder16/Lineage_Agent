@@ -74,7 +74,7 @@ export default function ProfileScreen() {
           title="Profile"
           rightAction={
             <TouchableOpacity
-              onPress={() => router.push('/(tabs)/account' as any)}
+              onPress={() => router.push('/account' as any)}
               style={styles.accountBtn}
               activeOpacity={0.7}
             >

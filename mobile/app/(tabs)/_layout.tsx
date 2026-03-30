@@ -4,27 +4,29 @@ import { Tabs, usePathname, router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Platform } from 'react-native';
 import { GlassTabBar, type TabName, TAB_BAR_INNER_HEIGHT, TAB_BAR_BOTTOM_MARGIN } from '../../src/components/ui/GlassTabBar';
-import { useSweepFlagsStore } from '../../src/store/sweep-flags';
+import { useAlertsStore } from '../../src/store/alerts';
 import { tokens } from '../../src/theme/tokens';
 
 const ROUTE_MAP: Record<TabName, string> = {
   radar: '/(tabs)/radar',
-  watchlist: '/(tabs)/watchlist',
+  scan: '/(tabs)/scan',
   agent: '/(tabs)/agent',
-  profile: '/(tabs)/profile',
+  alerts: '/(tabs)/alerts',
+  watchlist: '/(tabs)/watchlist',
 };
 
 const PATH_TO_TAB: Record<string, TabName> = {
   '/radar': 'radar',
-  '/watchlist': 'watchlist',
+  '/scan': 'scan',
   '/agent': 'agent',
-  '/profile': 'profile',
+  '/alerts': 'alerts',
+  '/watchlist': 'watchlist',
 };
 
 export default function TabLayout() {
   const pathname = usePathname();
   const insets = useSafeAreaInsets();
-  const unreadFlags = useSweepFlagsStore((s) => s.flags.filter((f) => !f.read).length);
+  const unreadCount = useAlertsStore((s) => s.alerts.filter((a) => !a.read).length);
 
   const tabBarClearance =
     TAB_BAR_INNER_HEIGHT +
@@ -45,20 +47,19 @@ export default function TabLayout() {
           tabBar={() => null}
         >
           <Tabs.Screen name="radar" />
-          <Tabs.Screen name="watchlist" />
+          <Tabs.Screen name="scan" />
           <Tabs.Screen name="agent" />
-          <Tabs.Screen name="profile" />
-          {/* Hidden screens — still routable but not in tab bar */}
-          <Tabs.Screen name="scan" options={{ href: null }} />
-          <Tabs.Screen name="alerts" options={{ href: null }} />
           <Tabs.Screen name="clock" options={{ href: null }} />
+          <Tabs.Screen name="alerts" />
+          <Tabs.Screen name="watchlist" />
           <Tabs.Screen name="account" options={{ href: null }} />
+          <Tabs.Screen name="profile" options={{ href: null }} />
         </Tabs>
       </View>
       <GlassTabBar
         activeTab={activeTab}
         onPress={handlePress}
-        unreadAlerts={unreadFlags}
+        unreadAlerts={unreadCount}
       />
     </View>
   );

@@ -673,6 +673,56 @@ async def run_single_rescan(watch_id: int, user_id: int, cache) -> dict | None:
 
 # ── Market Pulse — lightweight price check between full sweeps ─────────────
 
+# Semaphore: only 1 pulse rescan at a time to avoid starving user investigations
+_PULSE_RESCAN_SEM = asyncio.Semaphore(1)
+
+
+async def _pulse_rescan_one(t: dict, cache) -> None:
+    """Run a single pulse-triggered rescan in the background, rate-limited."""
+    async with _PULSE_RESCAN_SEM:
+        try:
+            result = await run_single_rescan(t["watch_id"], t["user_id"], cache)
+            if not result:
+                return
+            logger.info(
+                "[pulse] rescan complete for %s: %d flags, risk %s->%s",
+                t["mint"][:12], result.get("flags_count", 0),
+                result.get("old_risk"), result.get("new_risk"),
+            )
+            # Push FCM for pulse-triggered flags
+            if result.get("flags"):
+                try:
+                    from .alert_service import _push_fcm_to_watchers
+                    top_flag = result["flags"][0]
+                    asyncio.create_task(
+                        _push_fcm_to_watchers(
+                            mint=t["mint"],
+                            title=top_flag["title"],
+                            body=f"Pulse: {t['trigger']}",
+                            alert_type="pulse_flag",
+                        ),
+                        name=f"pulse_push_{t['mint'][:8]}",
+                    )
+                except Exception:
+                    pass
+            elif abs(t.get("now_price", 0)) > 0:
+                try:
+                    from .alert_service import _push_fcm_to_watchers
+                    asyncio.create_task(
+                        _push_fcm_to_watchers(
+                            mint=t["mint"],
+                            title=f"Pulse: {t['trigger']}",
+                            body=f"Price: ${t['now_price']:.6f}",
+                            alert_type="pulse_alert",
+                        ),
+                        name=f"pulse_alert_{t['mint'][:8]}",
+                    )
+                except Exception:
+                    pass
+        except Exception as exc:
+            logger.warning("[pulse] rescan failed for %s: %s", t["mint"][:12], exc)
+
+
 async def run_market_pulse(cache) -> list[dict]:
     """Fast price check for all watched tokens (runs every ~10 min).
 
@@ -786,50 +836,13 @@ async def run_market_pulse(cache) -> list[dict]:
             _check_one(w[0], w[1], w[2]) for w in watches
         ])
 
-        # Trigger full rescans for flagged tokens
+        # Trigger full rescans as background tasks (non-blocking)
+        # Limit to 1 concurrent pulse rescan to avoid saturating RPC
         for t in triggered:
-            try:
-                result = await run_single_rescan(t["watch_id"], t["user_id"], cache)
-                if result:
-                    logger.info(
-                        "[pulse] rescan complete for %s: %d flags, risk %s→%s",
-                        t["mint"][:12], result.get("flags_count", 0),
-                        result.get("old_risk"), result.get("new_risk"),
-                    )
-                    # Push FCM for pulse-triggered flags
-                    if result.get("flags"):
-                        try:
-                            from .alert_service import _push_fcm_to_watchers
-                            top_flag = result["flags"][0]
-                            asyncio.create_task(
-                                _push_fcm_to_watchers(
-                                    mint=t["mint"],
-                                    title=top_flag["title"],
-                                    body=f"⚡ Pulse: {t['trigger']}",
-                                    alert_type="pulse_flag",
-                                ),
-                                name=f"pulse_push_{t['mint'][:8]}",
-                            )
-                        except Exception:
-                            pass
-                    # Also push the pulse trigger itself if no flags generated
-                    # (price crash alone is worth alerting on)
-                    elif abs(t.get("now_price", 0)) > 0:
-                        try:
-                            from .alert_service import _push_fcm_to_watchers
-                            asyncio.create_task(
-                                _push_fcm_to_watchers(
-                                    mint=t["mint"],
-                                    title=f"⚡ {t['trigger']}",
-                                    body=f"Price: ${t['now_price']:.6f}",
-                                    alert_type="pulse_alert",
-                                ),
-                                name=f"pulse_alert_{t['mint'][:8]}",
-                            )
-                        except Exception:
-                            pass
-            except Exception as exc:
-                logger.warning("[pulse] rescan failed for %s: %s", t["mint"][:12], exc)
+            asyncio.create_task(
+                _pulse_rescan_one(t, cache),
+                name=f"pulse_rescan_{t['mint'][:8]}",
+            )
 
         if triggered:
             logger.info("[pulse] %d/%d watches triggered urgent rescan", len(triggered), len(watches))

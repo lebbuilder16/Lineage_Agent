@@ -141,7 +141,7 @@ export function analyzeStream(
     }
   };
 
-  xhr.timeout = 120_000; // 2 min max
+  xhr.timeout = 180_000; // 3 min max (backend pipeline can take up to 90s + network)
   xhr.send();
 
   return () => {
