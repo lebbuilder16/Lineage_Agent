@@ -212,7 +212,7 @@ async def _update_entity_knowledge(db, entity_type: str, entity_id: str) -> None
         col = "deployer" if entity_type == "deployer" else "operator_fp"
         cursor = await db.execute(
             f"SELECT risk_score, rug_pattern, signals_json, created_at "
-            f"FROM investigation_episodes WHERE {col} = ? ORDER BY created_at DESC LIMIT 50",
+            f"FROM investigation_episodes WHERE {col} = ? ORDER BY created_at DESC LIMIT 100",
             (entity_id,),
         )
         rows = await cursor.fetchall()
@@ -868,21 +868,30 @@ async def get_calibration_offset(context: dict) -> float:
         rules = await cursor.fetchall()
 
         total_offset = 0.0
+        matched_count = 0
         for cond_json, adjustment in rules:
             try:
                 cond = json.loads(cond_json)
-                # Check if all conditions match the current context
-                if all(context.get(k) == v for k, v in cond.items()):
+                n_conds = len(cond)
+                if n_conds == 0:
+                    continue
+                # Count how many conditions match
+                matches = sum(1 for k, v in cond.items() if context.get(k) == v)
+                if matches == n_conds:
+                    # Full match — apply full adjustment
                     total_offset += adjustment
+                    matched_count += 1
+                elif matches > 0 and n_conds >= 2:
+                    # Partial match — apply proportional adjustment (dampened)
+                    ratio = matches / n_conds
+                    total_offset += adjustment * ratio * 0.6  # 60% dampening
+                    matched_count += 1
             except Exception:
                 continue
 
         clamped = max(-30, min(30, total_offset))
-        if clamped != 0:
-            rules_matched = sum(1 for cj, adj in rules
-                                if all(context.get(k) == v
-                                       for k, v in json.loads(cj).items()))
-            logger.debug("[calibration] offset=%.1f from %d matching rules", clamped, rules_matched)
+        if matched_count > 0:
+            logger.debug("[calibration] offset=%.1f from %d matching rules (partial+full)", clamped, matched_count)
             if abs(clamped) >= 25:
                 logger.warning("[calibration] large offset %.0f — possible over-fitting", clamped)
         return clamped
@@ -1056,3 +1065,100 @@ async def generate_calibration_rules() -> int:
     except Exception as exc:
         logger.debug("[memory] generate_calibration_rules error: %s", exc)
         return 0
+
+
+# ── Retention Policy — cleanup stale data ─────────────────────────────────────
+
+_EPISODE_TTL_DAYS = 90           # Purge episodes older than 90 days
+_INACTIVE_RULE_TTL_DAYS = 30     # Purge inactive calibration rules after 30 days
+_RESOLVED_ANOMALY_TTL_DAYS = 14  # Purge resolved anomaly alerts after 14 days
+_OLD_CLUSTER_TTL_DAYS = 30       # Purge inactive narrative clusters after 30 days
+
+
+async def cleanup_memory_tables() -> dict[str, int]:
+    """Periodic cleanup of stale memory data. Returns counts deleted per table."""
+    try:
+        from .data_sources._clients import cache as _cache
+        from .cache import SQLiteCache
+        if not isinstance(_cache, SQLiteCache):
+            return {}
+
+        db = await _cache._get_conn()
+        now = time.time()
+        counts: dict[str, int] = {}
+
+        # 1. Old episodes (keep entity_knowledge which is already decay-weighted)
+        cutoff_episodes = now - (_EPISODE_TTL_DAYS * 86400)
+        cursor = await db.execute(
+            "DELETE FROM investigation_episodes WHERE created_at < ?",
+            (cutoff_episodes,),
+        )
+        counts["episodes"] = cursor.rowcount
+
+        # 2. Inactive calibration rules older than 30 days
+        cutoff_rules = now - (_INACTIVE_RULE_TTL_DAYS * 86400)
+        cursor = await db.execute(
+            "DELETE FROM calibration_rules WHERE active = 0 AND updated_at < ?",
+            (cutoff_rules,),
+        )
+        counts["calibration_rules"] = cursor.rowcount
+
+        # 3. Resolved anomaly alerts older than 14 days
+        cutoff_anomalies = now - (_RESOLVED_ANOMALY_TTL_DAYS * 86400)
+        cursor = await db.execute(
+            "DELETE FROM anomaly_alerts WHERE resolved = 1 AND resolved_at < ?",
+            (cutoff_anomalies,),
+        )
+        counts["anomaly_alerts"] = cursor.rowcount
+
+        # 4. Old inactive narrative clusters
+        cutoff_clusters = now - (_OLD_CLUSTER_TTL_DAYS * 86400)
+        cursor = await db.execute(
+            "DELETE FROM narrative_clusters WHERE active = 0 AND created_at < ?",
+            (cutoff_clusters,),
+        )
+        counts["narrative_clusters"] = cursor.rowcount
+
+        # 5. Old campaign timeline events (keep last 90 days)
+        cursor = await db.execute(
+            "DELETE FROM campaign_timelines WHERE event_at < ?",
+            (cutoff_episodes,),
+        )
+        counts["campaign_timelines"] = cursor.rowcount
+
+        await db.commit()
+
+        total = sum(counts.values())
+        if total > 0:
+            logger.info("[memory] retention cleanup: %s", ", ".join(f"{k}={v}" for k, v in counts.items() if v > 0))
+        return counts
+
+    except Exception as exc:
+        logger.debug("[memory] cleanup_memory_tables error: %s", exc)
+        return {}
+
+
+# ── Post-Analysis Brief Refresh ───────────────────────────────────────────────
+
+async def refresh_memory_brief_post_analysis(
+    mint: str,
+    deployer: Optional[str] = None,
+    operator_fp: Optional[str] = None,
+    community_id: Optional[str] = None,
+) -> Optional[str]:
+    """Rebuild memory brief AFTER an investigation completes.
+
+    This ensures the brief reflects the latest episode just recorded,
+    rather than being stale from pre-analysis.
+    Returns the refreshed brief or None on failure.
+    """
+    try:
+        return await build_memory_brief(
+            mint=mint,
+            deployer=deployer,
+            operator_fp=operator_fp,
+            community_id=community_id,
+        )
+    except Exception as exc:
+        logger.debug("[memory] post-analysis brief refresh failed: %s", exc)
+        return None
