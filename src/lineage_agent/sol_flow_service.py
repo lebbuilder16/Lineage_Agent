@@ -270,10 +270,20 @@ async def _trace_wallet(
     hop: int,
     max_txn: int,
 ) -> list[dict]:
-    """Fetch recent transaction signatures for a wallet and parse SOL flows."""
+    """Fetch recent transactions for a wallet and parse SOL flows.
+
+    Tries Helius Enhanced Transactions first (pre-parsed nativeTransfers).
+    Falls back to standard getSignaturesForAddress + getTransaction.
+    """
     async with sem:
         flows: list[dict] = []
         try:
+            # ── Fast path: Helius Enhanced Transactions (1 call, pre-parsed) ──
+            enhanced = await _trace_wallet_enhanced(rpc, wallet, mint, hop, max_txn)
+            if enhanced is not None:
+                return enhanced
+
+            # ── Fallback: standard RPC (N+1 calls) ──
             sigs_raw = await rpc._call(
                 "getSignaturesForAddress",
                 [wallet, {"limit": max_txn, "commitment": "finalized"}],
@@ -299,6 +309,66 @@ async def _trace_wallet(
         except Exception as exc:
             logger.debug("_trace_wallet failed for %s hop=%d: %s", wallet, hop, exc)
         return flows
+
+
+async def _trace_wallet_enhanced(
+    rpc,
+    wallet: str,
+    mint: str,
+    hop: int,
+    max_txn: int,
+) -> list[dict] | None:
+    """Try to trace a wallet using Helius Enhanced Transactions API.
+
+    Returns list of flow dicts on success, None on failure (caller falls back to standard).
+    Pre-parsed nativeTransfers eliminate the need for individual getTransaction calls.
+    """
+    try:
+        enhanced_txs = await asyncio.wait_for(
+            rpc.get_enhanced_transactions(wallet, limit=min(max_txn, 100)),
+            timeout=10.0,
+        )
+        if not enhanced_txs:
+            return None  # Helius not available or no data — fall back
+
+        flows: list[dict] = []
+        for etx in enhanced_txs:
+            sig = etx.get("signature", "")
+            block_time = etx.get("timestamp")
+            slot = etx.get("slot")
+
+            # Parse nativeTransfers (SOL movements — already structured by Helius)
+            for nt in etx.get("nativeTransfers", []):
+                from_addr = nt.get("fromUserAccount", "")
+                to_addr = nt.get("toUserAccount", "")
+                amount_lamports = nt.get("amount", 0)
+
+                if from_addr != wallet:
+                    continue  # only outgoing flows from this wallet
+                if to_addr in _SKIP_ADDRESSES or not to_addr:
+                    continue
+                if amount_lamports < _MIN_TRANSFER_LAMPORTS:
+                    continue
+
+                flows.append({
+                    "mint": mint,
+                    "from_address": wallet,
+                    "to_address": to_addr,
+                    "amount_lamports": amount_lamports,
+                    "hop": hop,
+                    "signature": sig,
+                    "block_time": block_time,
+                    "slot": slot,
+                    "to_label": classify_address(to_addr),
+                })
+
+        logger.debug("[sol-trace] enhanced path: %s hop=%d → %d flows from %d txs",
+                     wallet[:8], hop, len(flows), len(enhanced_txs))
+        return flows
+
+    except Exception as exc:
+        logger.debug("[sol-trace] enhanced failed for %s: %s — falling back", wallet[:8], exc)
+        return None  # fall back to standard RPC
 
 
 def _parse_sol_flows(
