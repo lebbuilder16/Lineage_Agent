@@ -197,6 +197,42 @@ class CircuitBreaker:
                 self._failure_count,
             )
             self._state = new_state
+            # Persist to Redis (best-effort, non-blocking)
+            asyncio.ensure_future(self._persist_to_redis())
+
+    async def _persist_to_redis(self) -> None:
+        """Save circuit breaker state to Redis for persistence across restarts."""
+        try:
+            from .redis_cache import redis_set, is_redis_enabled
+            if is_redis_enabled():
+                import json
+                data = json.dumps({
+                    "state": self._state.value,
+                    "failure_count": self._failure_count,
+                    "last_failure": self._last_failure_time,
+                })
+                await redis_set(f"cb:{self.name}", data, ex=3600)  # 1h TTL
+        except Exception:
+            pass  # never block on persistence failure
+
+    async def restore_from_redis(self) -> None:
+        """Load circuit breaker state from Redis on startup."""
+        try:
+            from .redis_cache import redis_get, is_redis_enabled
+            if not is_redis_enabled():
+                return
+            raw = await redis_get(f"cb:{self.name}")
+            if raw:
+                import json
+                data = json.loads(raw)
+                saved_state = data.get("state", "closed")
+                if saved_state == "open":
+                    self._state = CircuitState.OPEN
+                    self._failure_count = data.get("failure_count", self.failure_threshold)
+                    self._last_failure_time = data.get("last_failure") or time.monotonic()
+                    logger.info("CircuitBreaker '%s': restored OPEN state from Redis", self.name)
+        except Exception:
+            pass  # start fresh if restore fails
 
     # ------------------------------------------------------------------
     # Diagnostics

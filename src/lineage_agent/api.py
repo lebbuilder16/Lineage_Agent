@@ -132,6 +132,15 @@ else:
 # ---------------------------------------------------------------------------
 _start_time = time.monotonic()
 
+# Loop heartbeats — updated by each background loop on every cycle
+_loop_heartbeats: dict[str, float] = {}
+_LOOP_STALE_THRESHOLD = 300  # 5 min — if no heartbeat in 5 min, loop is considered dead
+
+
+def _heartbeat(loop_name: str) -> None:
+    """Record a heartbeat for a background loop."""
+    _loop_heartbeats[loop_name] = time.time()
+
 
 # ---------------------------------------------------------------------------
 # Base58 validation regex (Solana addresses are 32-44 base58 chars)
@@ -235,6 +244,12 @@ limiter = Limiter(key_func=_rate_limit_key)
 @asynccontextmanager
 async def lifespan(application: FastAPI):
     """Initialise shared HTTP clients on startup, close on shutdown."""
+    # Configure structured logging (JSON in production, colored in dev)
+    try:
+        from .log_config import configure_logging
+        configure_logging()
+    except Exception:
+        pass  # fall back to default logging if structlog not available
     # Validate critical env vars
     if not SOLANA_RPC_ENDPOINT or not SOLANA_RPC_ENDPOINT.startswith("http"):
         logger.error(
@@ -534,6 +549,37 @@ async def health() -> dict:
         sweep_info["redis"] = await redis_health()
     except Exception:
         pass
+
+    # Loop watchdog — check heartbeats and auto-recover dead loops
+    now = time.time()
+    loops_status: dict[str, str] = {}
+    for loop_name, tasks_info in [
+        ("sweep", ("_watchlist_sweep_task", "_schedule_watchlist_sweep")),
+        ("pulse", ("_market_pulse_task", "_schedule_market_pulse")),
+    ]:
+        last_hb = _loop_heartbeats.get(loop_name, 0)
+        age = now - last_hb if last_hb > 0 else uptime_s
+        task_var = tasks_info[0]
+        restart_fn = tasks_info[1]
+
+        task = globals().get(task_var)
+        if task and not task.done() and age < _LOOP_STALE_THRESHOLD:
+            loops_status[loop_name] = "alive"
+        elif age >= _LOOP_STALE_THRESHOLD and uptime_s > _LOOP_STALE_THRESHOLD:
+            loops_status[loop_name] = "restarted"
+            # Auto-recover: restart the dead loop
+            try:
+                fn = globals().get(restart_fn)
+                if callable(fn):
+                    fn()
+                    logger.warning("[watchdog] restarted dead loop: %s (last heartbeat %ds ago)", loop_name, int(age))
+            except Exception as exc:
+                logger.warning("[watchdog] failed to restart %s: %s", loop_name, exc)
+                loops_status[loop_name] = "dead"
+        else:
+            loops_status[loop_name] = "starting"
+
+    sweep_info["loops"] = loops_status
 
     return {
         "status": "ok",
@@ -4657,6 +4703,7 @@ async def _watchlist_sweep_loop():
     while True:
         await asyncio.sleep(60 if first_run else _LOOP_INTERVAL)
         first_run = False
+        _heartbeat("sweep")
         try:
             db = await _cache._get_conn()
             cursor = await db.execute(
@@ -4900,6 +4947,7 @@ async def _market_pulse_loop():
 
     await asyncio.sleep(120)  # wait 2 min after startup before first pulse
     while True:
+        _heartbeat("pulse")
         try:
             triggered = await run_market_pulse(_cache)
             if triggered:
