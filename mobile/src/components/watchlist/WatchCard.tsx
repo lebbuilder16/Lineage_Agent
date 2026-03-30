@@ -5,7 +5,6 @@ import {
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { ChevronDown, ChevronUp, Search, Eye, Trash2 } from 'lucide-react-native';
 import { GlassCard } from '../ui/GlassCard';
-import { HapticButton } from '../ui/HapticButton';
 import { RiskSparkline } from './RiskSparkline';
 import { RefVsNowPanel } from './RefVsNowPanel';
 import { FlagTimeline } from './FlagTimeline';
@@ -80,7 +79,7 @@ export function WatchCard({
   const borderColor = isUrgent ? `${tokens.risk.critical}40` : tokens.borderSubtle;
 
   return (
-    <GlassCard style={[styles.card, { borderColor, borderLeftWidth: isUrgent ? 3 : 0, borderLeftColor: tokens.risk.critical }]}>
+    <GlassCard style={[styles.card, { borderColor, borderLeftWidth: isUrgent ? 2 : 0, borderLeftColor: `${tokens.risk.critical}80` }]}>
       {/* Collapsed row */}
       <TouchableOpacity
         onPress={onToggleExpand}
@@ -161,44 +160,37 @@ export function WatchCard({
 
           {/* Quick actions */}
           <View style={styles.actionsRow}>
-            <HapticButton
-              variant="secondary"
-              size="sm"
+            <TouchableOpacity
               onPress={() => onInvestigate(item.value)}
-              accessibilityRole="button"
-              accessibilityLabel="Investigate token"
+              style={styles.actionBtn}
+              activeOpacity={0.7}
             >
-              <View style={styles.actionInner}>
-                <Search size={12} color={tokens.secondary} />
-                <Text style={styles.actionText}>Investigate</Text>
-              </View>
-            </HapticButton>
+              <Search size={13} color={tokens.secondary} />
+              <Text style={styles.actionText}>Investigate</Text>
+            </TouchableOpacity>
 
             {onViewDeployer && timeline?.last_investigation && (
-              <HapticButton
-                variant="secondary"
-                size="sm"
+              <TouchableOpacity
                 onPress={() => {
                   const deployer = (timeline.flags?.[0]?.detail as any)?.deployer;
                   if (deployer) onViewDeployer(deployer);
                 }}
-                accessibilityRole="button"
-                accessibilityLabel="View deployer"
+                style={styles.actionBtn}
+                activeOpacity={0.7}
               >
-                <View style={styles.actionInner}>
-                  <Eye size={12} color={tokens.secondary} />
-                  <Text style={styles.actionText}>Deployer</Text>
-                </View>
-              </HapticButton>
+                <Eye size={13} color={tokens.secondary} />
+                <Text style={styles.actionText}>Deployer</Text>
+              </TouchableOpacity>
             )}
 
             <TouchableOpacity
               onPress={() => onRemove(item.id)}
               style={styles.removeBtn}
+              activeOpacity={0.7}
               accessibilityRole="button"
               accessibilityLabel="Remove from watchlist"
             >
-              <Trash2 size={14} color={tokens.risk.critical} />
+              <Trash2 size={13} color={tokens.textTertiary} />
             </TouchableOpacity>
           </View>
         </Animated.View>
@@ -253,10 +245,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', gap: 8,
     marginTop: 12,
   },
-  actionInner: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  actionBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    paddingHorizontal: 12, paddingVertical: 7,
+    borderRadius: tokens.radius.pill,
+    backgroundColor: `${tokens.secondary}12`,
+    borderWidth: 1, borderColor: `${tokens.secondary}25`,
+  },
   actionText: { color: tokens.secondary, fontFamily: 'Lexend-Medium', fontSize: 12 },
   removeBtn: {
     marginLeft: 'auto', padding: 8, borderRadius: tokens.radius.sm,
-    backgroundColor: `${tokens.risk.critical}10`,
+    backgroundColor: 'rgba(255,255,255,0.04)',
   },
 });
