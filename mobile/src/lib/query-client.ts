@@ -1,6 +1,6 @@
 import { QueryClient } from '@tanstack/react-query';
 import { createAsyncStoragePersister } from '@tanstack/query-async-storage-persister';
-import { mmkvStorageAdapter } from './mmkv-storage';
+import { persistStorageAdapter } from './mmkv-storage';
 
 export const queryClient = new QueryClient({
   defaultOptions: {
@@ -18,7 +18,7 @@ export const queryClient = new QueryClient({
  * On app restart, cached data is available immediately while fresh data loads.
  */
 export const queryPersister = createAsyncStoragePersister({
-  storage: mmkvStorageAdapter,
+  storage: persistStorageAdapter,
   key: 'lineage-rq-cache',
   throttleTime: 2000, // batch writes every 2s to avoid thrashing
 });

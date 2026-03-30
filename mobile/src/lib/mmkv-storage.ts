@@ -1,26 +1,18 @@
 /**
- * MMKV-based storage for React Query persistence.
- * ~30x faster than AsyncStorage for reads/writes.
+ * Persistent storage adapter for React Query cache.
+ * Uses AsyncStorage (compatible with OTA updates).
+ * MMKV requires a native rebuild — use this until next EAS build.
  */
-import { MMKV } from 'react-native-mmkv';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
-export const mmkv = new MMKV({ id: 'lineage-query-cache' });
-
-/**
- * AsyncStorage-compatible adapter for @tanstack/query-async-storage-persister.
- * MMKV is synchronous but the persister expects async — we wrap with Promise.resolve.
- */
-export const mmkvStorageAdapter = {
+export const persistStorageAdapter = {
   getItem: (key: string): Promise<string | null> => {
-    const value = mmkv.getString(key);
-    return Promise.resolve(value ?? null);
+    return AsyncStorage.getItem(key);
   },
   setItem: (key: string, value: string): Promise<void> => {
-    mmkv.set(key, value);
-    return Promise.resolve();
+    return AsyncStorage.setItem(key, value).then(() => {});
   },
   removeItem: (key: string): Promise<void> => {
-    mmkv.delete(key);
-    return Promise.resolve();
+    return AsyncStorage.removeItem(key).then(() => {});
   },
 };
