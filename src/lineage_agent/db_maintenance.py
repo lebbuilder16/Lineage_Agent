@@ -130,6 +130,15 @@ async def _maintenance_loop() -> None:
                 cache_deleted, flows_deleted, events_deleted,
             )
 
+            # Retry failed FCM push notifications
+            try:
+                from .alert_service import retry_pending_notifications
+                retried = await retry_pending_notifications()
+                if retried > 0:
+                    logger.info("Notification retry: %d sent", retried)
+            except Exception:
+                logger.debug("notification retry skipped")
+
             # Memory retention cleanup (episodes, calibration rules, anomalies)
             try:
                 from .memory_service import cleanup_memory_tables

@@ -217,9 +217,16 @@ def _cancel_wallet_label_refresh() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Rate limiter
+# Rate limiter — use API key when present, fall back to IP
 # ---------------------------------------------------------------------------
-limiter = Limiter(key_func=get_remote_address)
+def _rate_limit_key(request: Request) -> str:
+    """Per-user rate limiting via API key, fallback to IP for unauthenticated endpoints."""
+    api_key = request.headers.get("X-API-Key", "")
+    if api_key:
+        return f"key:{api_key[:16]}"  # truncate for privacy in logs
+    return get_remote_address(request)
+
+limiter = Limiter(key_func=_rate_limit_key)
 
 
 # ---------------------------------------------------------------------------
@@ -480,17 +487,52 @@ async def root():
 
 @app.get("/health", tags=["system"])
 async def health() -> dict:
-    """Lightweight public health check."""
+    """Health check with operational metrics."""
     uptime_s = round(time.monotonic() - _start_time, 1)
     try:
         from .db import get_backend
         db_dialect = get_backend().dialect
     except Exception:
         db_dialect = "unknown"
+
+    # Sweep + pulse metrics (best-effort)
+    sweep_info: dict = {}
+    try:
+        from .data_sources._clients import cache as _cache
+        from .cache import SQLiteCache
+        if isinstance(_cache, SQLiteCache):
+            db = await _cache._get_conn()
+            # Last sweep time
+            c = await db.execute("SELECT MAX(scanned_at) FROM watch_snapshots")
+            r = await c.fetchone()
+            if r and r[0]:
+                sweep_info["last_sweep_ago_s"] = round(time.time() - r[0])
+            # Total watches
+            c = await db.execute("SELECT COUNT(*) FROM user_watches WHERE sub_type = 'mint'")
+            r = await c.fetchone()
+            sweep_info["watched_tokens"] = r[0] if r else 0
+            # Pending notifications
+            try:
+                c = await db.execute("SELECT COUNT(*) FROM pending_notifications WHERE attempts < 3")
+                r = await c.fetchone()
+                sweep_info["pending_notifications"] = r[0] if r else 0
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    # Listener stats
+    try:
+        from .pump_fun_listener import get_listener_stats
+        sweep_info["listener"] = get_listener_stats()
+    except Exception:
+        pass
+
     return {
         "status": "ok",
         "uptime_seconds": uptime_s,
         "db": db_dialect,
+        **sweep_info,
     }
 
 

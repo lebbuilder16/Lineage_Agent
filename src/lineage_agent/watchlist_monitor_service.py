@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 SWEEP_INTERVAL_SECONDS = 2700  # 45 minutes (was 2h — too slow to catch rapid crashes)
 
 # ── Market pulse — lightweight price check between full forensic sweeps ────
-PULSE_INTERVAL_SECONDS = 600   # 10 minutes
+PULSE_INTERVAL_SECONDS = 60    # 1 minute (was 10min — too slow to catch rapid crashes)
 # Thresholds for triggering immediate full rescan from pulse
 PULSE_DROP_VS_LAST_PCT = -25      # -25% since last snapshot → urgent rescan
 PULSE_DROP_VS_REF_PCT = -40       # -40% since reference (first watch) → urgent rescan

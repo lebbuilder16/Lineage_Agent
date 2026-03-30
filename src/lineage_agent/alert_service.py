@@ -247,10 +247,80 @@ async def _send_fcm_push(fcm_token: str, title: str, body: str, data: dict) -> b
         if resp.status_code == 200:
             return True
         logger.debug("[FCM] Push failed (%s): %s", resp.status_code, resp.text[:200])
+        asyncio.create_task(_enqueue_failed_push(fcm_token, title, body, data))
         return False
     except Exception as exc:
         logger.debug("[FCM] Push error: %s", exc)
+        asyncio.create_task(_enqueue_failed_push(fcm_token, title, body, data))
         return False
+
+
+async def _enqueue_failed_push(fcm_token: str, title: str, body: str, data: dict) -> None:
+    """Enqueue a failed push for retry. Best-effort — never blocks."""
+    try:
+        from .data_sources._clients import cache as _cache
+        from .cache import SQLiteCache
+        if not isinstance(_cache, SQLiteCache):
+            return
+        db = await _cache._get_conn()
+        await db.execute(
+            "INSERT INTO pending_notifications (fcm_token, title, body, data_json, attempts, created_at) "
+            "VALUES (?, ?, ?, ?, 1, ?)",
+            (fcm_token, title, body, json.dumps(data, default=str), time.time()),
+        )
+        await db.commit()
+    except Exception:
+        pass  # never block on retry queue failure
+
+
+async def retry_pending_notifications() -> int:
+    """Retry failed FCM pushes. Called from db_maintenance loop. Returns count retried."""
+    try:
+        from .data_sources._clients import cache as _cache
+        from .cache import SQLiteCache
+        if not isinstance(_cache, SQLiteCache):
+            return 0
+        db = await _cache._get_conn()
+        # Get pending notifications (max 3 attempts, not older than 1 hour)
+        cutoff = time.time() - 3600
+        cursor = await db.execute(
+            "SELECT id, fcm_token, title, body, data_json, attempts FROM pending_notifications "
+            "WHERE attempts < 3 AND created_at > ? ORDER BY created_at ASC LIMIT 20",
+            (cutoff,),
+        )
+        rows = await cursor.fetchall()
+        if not rows:
+            return 0
+
+        retried = 0
+        for row in rows:
+            nid, token, title, body, data_json, attempts = row
+            data = {}
+            try:
+                data = json.loads(data_json) if data_json else {}
+            except Exception:
+                pass
+            success = await _send_fcm_push(token, title, body, data)
+            if success:
+                await db.execute("DELETE FROM pending_notifications WHERE id = ?", (nid,))
+                retried += 1
+            else:
+                await db.execute(
+                    "UPDATE pending_notifications SET attempts = ? WHERE id = ?",
+                    (attempts + 1, nid),
+                )
+        # Clean up old/exhausted notifications
+        await db.execute(
+            "DELETE FROM pending_notifications WHERE attempts >= 3 OR created_at < ?",
+            (cutoff,),
+        )
+        await db.commit()
+        if retried > 0:
+            logger.info("[FCM] retried %d/%d pending notifications", retried, len(rows))
+        return retried
+    except Exception as exc:
+        logger.debug("[FCM] retry_pending_notifications error: %s", exc)
+        return 0
 
 
 async def _push_fcm_to_watchers(

@@ -904,6 +904,19 @@ class SQLiteCache:
         """)
         await db.execute("CREATE INDEX IF NOT EXISTS idx_nc_key ON narrative_clusters(narrative_key, active)")
 
+        # Phase: Notification retry queue
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS pending_notifications (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                fcm_token   TEXT NOT NULL,
+                title       TEXT NOT NULL,
+                body        TEXT NOT NULL DEFAULT '',
+                data_json   TEXT NOT NULL DEFAULT '{}',
+                attempts    INTEGER NOT NULL DEFAULT 0,
+                created_at  REAL NOT NULL
+            )
+        """)
+
         # Safe column migrations
         for col_sql in [
             "ALTER TABLE users ADD COLUMN rc_customer_id TEXT",

@@ -48,12 +48,30 @@ export default function WatchlistScreen() {
   const isFocused = useIsFocused();
   const apiKey = useAuthStore((s) => s.apiKey);
   const setApiKey = useAuthStore((s) => s.setApiKey);
-  const { data: watches, isLoading, refetch } = useWatches(apiKey);
+  const { data: watches, isLoading, isError, refetch } = useWatches(apiKey);
   const deleteMutation = useDeleteWatch(apiKey);
   const addMutation = useAddWatch(apiKey);
   const [addOpen, setAddOpen] = useState(false);
   const [pendingKey, setPendingKey] = useState('');
+  const [offlineWatches, setOfflineWatches] = useState<Watch[] | null>(null);
   const { showToast, toast } = useToast();
+
+  // Load cached watches for offline-first experience
+  useEffect(() => {
+    if (!watches && apiKey) {
+      import('@react-native-async-storage/async-storage').then(({ default: AsyncStorage }) => {
+        AsyncStorage.getItem('lineage_watches_cache').then((cached) => {
+          if (cached) {
+            try { setOfflineWatches(JSON.parse(cached)); } catch {}
+          }
+        });
+      });
+    }
+  }, [watches, apiKey]);
+
+  // Use cached watches when offline
+  const effectiveWatches = watches ?? offlineWatches;
+  const isOffline = isError && !watches && !!offlineWatches;
 
   // Sweep flags from centralized store — derive values from flags array
   const flags = useSweepFlagsStore((s) => s.flags);
@@ -71,7 +89,7 @@ export default function WatchlistScreen() {
 
   // Enrich token metadata: extract from flags + fetch missing from backend
   useEffect(() => {
-    if (!apiKey || !watches?.length) return;
+    if (!apiKey || !effectiveWatches?.length) return;
     const meta: Record<string, { name?: string; symbol?: string; image?: string }> = {};
 
     // 1. Extract from flags
@@ -155,7 +173,7 @@ export default function WatchlistScreen() {
   // Fetch timeline for expanded mints with timeout + loading tracking
   useEffect(() => {
     if (!apiKey) return;
-    const expandedMints = (watches ?? [])
+    const expandedMints = (effectiveWatches ?? [])
       .filter((w) => expandedIds.has(w.id) && !timelineData[w.value] && !timelineLoading.has(w.value))
       .map((w) => w.value);
 
@@ -286,7 +304,7 @@ export default function WatchlistScreen() {
           title="Watchlist"
           rightAction={
             <View style={styles.headerActions}>
-              <Text style={styles.count}>{watches?.length ?? 0}</Text>
+              <Text style={styles.count}>{effectiveWatches?.length ?? 0}</Text>
               <TouchableOpacity
                 onPress={() => setSearchOpen(!searchOpen)}
                 hitSlop={tokens.hitSlop}
@@ -357,13 +375,21 @@ export default function WatchlistScreen() {
           onPress={handleUrgencyPress}
         />
 
-        {isLoading ? (
+        {/* Offline indicator */}
+        {isOffline && (
+          <View style={styles.offlineBanner}>
+            <View style={styles.offlineDot} />
+            <Text style={styles.offlineText}>Offline — showing cached data</Text>
+          </View>
+        )}
+
+        {isLoading && !offlineWatches ? (
           <View style={{ gap: 8, paddingHorizontal: tokens.spacing.screenPadding }}>
             {Array.from({ length: 4 }).map((_, i) => (
               <GlassCard key={i}><SkeletonBlock lines={2} /></GlassCard>
             ))}
           </View>
-        ) : !watches?.length ? (
+        ) : !effectiveWatches?.length ? (
           <Animated.View entering={FadeInDown.springify()} style={styles.empty}>
             <GlassCard style={styles.emptyCard} noPadding={false}>
               <View style={styles.emptyIconWrapper}>
@@ -388,7 +414,7 @@ export default function WatchlistScreen() {
         ) : (
           <FlatList
             ref={flatListRef}
-            data={watches}
+            data={effectiveWatches}
             keyExtractor={(item) => item.id}
             extraData={[expandedIds, timelineData, timelineLoading, flags, tokenMeta]}
             contentContainerStyle={[styles.listContent, { paddingBottom: Math.max(insets.bottom + 100, 120) }]}
@@ -501,4 +527,15 @@ const styles = StyleSheet.create({
     backgroundColor: `${tokens.secondary}15`, borderWidth: 1, borderColor: `${tokens.secondary}40`,
   },
   emptyBtnText: { fontFamily: 'Lexend-SemiBold', fontSize: 14, color: tokens.secondary },
+  // Offline
+  offlineBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    marginHorizontal: tokens.spacing.screenPadding, marginBottom: 8,
+    paddingHorizontal: 14, paddingVertical: 8,
+    borderRadius: tokens.radius.md,
+    backgroundColor: 'rgba(245,158,11,0.08)',
+    borderWidth: 1, borderColor: 'rgba(245,158,11,0.25)',
+  },
+  offlineDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#F59E0B' },
+  offlineText: { fontFamily: 'Lexend-Medium', fontSize: 12, color: '#F59E0B' },
 });
