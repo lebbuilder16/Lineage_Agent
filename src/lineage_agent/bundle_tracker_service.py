@@ -635,22 +635,56 @@ async def _analyze_pre_sell(
     """
     pre = PreSellBehavior()
     try:
-        sig_params: dict = {"commitment": "finalized"}
-        if creation_sig:
-            sig_params.update({"before": creation_sig, "limit": 200})
-        else:
-            sig_params["limit"] = 200
+        # Try Helius Enhanced Transactions first (pre-parsed, faster)
+        _enhanced_txs: list[dict] = []
+        try:
+            _enhanced_txs = await asyncio.wait_for(
+                rpc.get_enhanced_transactions(wallet, limit=50),
+                timeout=8.0,
+            )
+        except Exception:
+            pass
 
-        sigs = await rpc._call(
-            "getSignaturesForAddress",
-            [wallet, sig_params],
-            circuit_protect=False,
-        )
-        if not sigs or not isinstance(sigs, list):
-            sigs = []
+        if _enhanced_txs:
+            # Use enhanced transactions for wallet age + pre-fund detection
+            all_times = [t.get("timestamp") for t in _enhanced_txs if t.get("timestamp")]
+            sigs = [{"signature": t.get("signature", ""), "blockTime": t.get("timestamp")} for t in _enhanced_txs]
+            # Extract pre-fund source from nativeTransfers
+            launch_ts_check = launch_dt.timestamp()
+            for etx in _enhanced_txs:
+                ts = etx.get("timestamp", 0)
+                if ts >= launch_ts_check:
+                    continue  # skip post-launch txs
+                for nt in etx.get("nativeTransfers", []):
+                    if nt.get("toUserAccount") == wallet and nt.get("amount", 0) >= _MIN_PREFUND_LAMPORTS:
+                        funder = nt.get("fromUserAccount", "")
+                        if funder and funder not in SKIP_PROGRAMS:
+                            pre.prefund_source = funder
+                            pre.prefund_sol = round(nt["amount"] / 1e9, 4)
+                            if ts:
+                                pre.prefund_hours_before_launch = round((launch_ts_check - ts) / 3600, 2)
+                            pre.prefund_source_is_deployer = (funder == deployer)
+                            break
+                if pre.prefund_source:
+                    break
+        else:
+            # Fallback: standard RPC
+            sig_params: dict = {"commitment": "finalized"}
+            if creation_sig:
+                sig_params.update({"before": creation_sig, "limit": 200})
+            else:
+                sig_params["limit"] = 200
+
+            sigs = await rpc._call(
+                "getSignaturesForAddress",
+                [wallet, sig_params],
+                circuit_protect=False,
+            )
+            if not sigs or not isinstance(sigs, list):
+                sigs = []
+            all_times = [s.get("blockTime") for s in sigs if s.get("blockTime")]
 
         # Wallet age: if no pre-creation TXs, the wallet is brand-new
-        all_times = [s.get("blockTime") for s in sigs if s.get("blockTime")]
         if all_times:
             first_ts = min(all_times)
             pre.wallet_age_days = (

@@ -384,23 +384,46 @@ async def _check_bundle_wallet_balances(mint: str, lin: Any) -> dict | None:
     if not wallets_to_check:
         return None
 
-    # Check current balances in parallel (max 8 concurrent)
+    # Check current balances — try DAS batch first, fallback to individual RPC
     from .data_sources._clients import get_rpc_client
     rpc = get_rpc_client()
+
+    results: list[tuple[str, float]] = []
+
+    # Try Helius DAS get_assets_by_owner for each wallet (pre-parsed, includes all tokens)
     sem = asyncio.Semaphore(8)
 
-    async def _check(wallet: str) -> tuple[str, float]:
+    async def _check_das(wallet: str) -> tuple[str, float]:
+        """Check balance via DAS (returns all tokens, we filter by mint)."""
         async with sem:
             try:
-                bal = await asyncio.wait_for(
-                    rpc.get_wallet_token_balance(wallet, mint),
+                assets = await asyncio.wait_for(
+                    rpc.get_assets_by_owner(wallet, limit=50),
                     timeout=5.0,
                 )
-                return (wallet, bal)
+                for asset in assets:
+                    asset_id = asset.get("id", "")
+                    if asset_id == mint:
+                        # Found the token — check balance
+                        token_info = asset.get("token_info", {})
+                        balance = token_info.get("balance", 0)
+                        decimals = token_info.get("decimals", 0)
+                        if balance > 0 and decimals > 0:
+                            return (wallet, balance / (10 ** decimals))
+                        return (wallet, float(balance))
+                return (wallet, 0.0)  # token not found = sold
             except Exception:
-                return (wallet, -1.0)  # unknown
+                # Fallback to individual RPC call
+                try:
+                    bal = await asyncio.wait_for(
+                        rpc.get_wallet_token_balance(wallet, mint),
+                        timeout=5.0,
+                    )
+                    return (wallet, bal)
+                except Exception:
+                    return (wallet, -1.0)
 
-    results = await asyncio.gather(*[_check(w) for w, _ in wallets_to_check])
+    results = await asyncio.gather(*[_check_das(w) for w, _ in wallets_to_check])
 
     still_holding = 0
     new_exits: list[str] = []
