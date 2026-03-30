@@ -3658,6 +3658,254 @@ async def mark_flag_read(flag_id: int, request: Request):
     return {"ok": True}
 
 
+@app.get("/agent/watch-timeline/{mint}", tags=["agent"])
+async def get_watch_timeline(mint: str, request: Request):
+    """Return full timeline for a watched token: reference, snapshots, flags, investigation."""
+    user = await _get_current_user(request)
+    uid = user["id"]
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+    db = await _cache._get_conn()
+
+    # 1. Get watch_id
+    cursor = await db.execute(
+        "SELECT id, created_at FROM user_watches WHERE user_id = ? AND sub_type = 'mint' AND value = ?",
+        (uid, mint),
+    )
+    watch_row = await cursor.fetchone()
+    if not watch_row:
+        raise HTTPException(status_code=404, detail="Token not in your watchlist")
+    watch_id = watch_row[0]
+
+    # 2. Reference snapshot (_REFERENCE flag)
+    cursor = await db.execute(
+        "SELECT detail, created_at FROM sweep_flags WHERE watch_id = ? AND flag_type = '_REFERENCE' "
+        "ORDER BY created_at ASC LIMIT 1",
+        (watch_id,),
+    )
+    ref_row = await cursor.fetchone()
+    reference = None
+    if ref_row:
+        try:
+            rd = json.loads(ref_row[0])
+            reference = {
+                "price_usd": rd.get("price_usd"),
+                "liq_usd": rd.get("liq_usd"),
+                "risk_score": rd.get("heuristic_score") or rd.get("risk_score", 0),
+                "created_at": ref_row[1],
+            }
+        except Exception:
+            pass
+
+    # 3. Latest snapshot (_SNAPSHOT flag)
+    cursor = await db.execute(
+        "SELECT detail FROM sweep_flags WHERE watch_id = ? AND flag_type = '_SNAPSHOT' "
+        "ORDER BY created_at DESC LIMIT 1",
+        (watch_id,),
+    )
+    snap_row = await cursor.fetchone()
+    current = None
+    if snap_row:
+        try:
+            sd = json.loads(snap_row[0])
+            current = {
+                "price_usd": sd.get("price_usd"),
+                "liq_usd": sd.get("liq_usd"),
+                "risk_score": sd.get("heuristic_score") or sd.get("risk_score", 0),
+            }
+        except Exception:
+            pass
+
+    # 4. Deltas
+    deltas = None
+    if reference and current:
+        ref_p = reference.get("price_usd") or 0
+        cur_p = current.get("price_usd") or 0
+        ref_l = reference.get("liq_usd") or 0
+        cur_l = current.get("liq_usd") or 0
+        deltas = {
+            "price_pct": round((cur_p - ref_p) / ref_p * 100, 1) if ref_p > 0 else None,
+            "liq_pct": round((cur_l - ref_l) / ref_l * 100, 1) if ref_l > 0 else None,
+            "risk_delta": (current.get("risk_score") or 0) - (reference.get("risk_score") or 0),
+        }
+
+    # 5. Historical snapshots (for sparkline)
+    cursor = await db.execute(
+        "SELECT risk_score, risk_level, scanned_at FROM watch_snapshots "
+        "WHERE watch_id = ? ORDER BY scanned_at ASC",
+        (watch_id,),
+    )
+    snapshot_rows = await cursor.fetchall()
+    snapshots = [
+        {"risk_score": r[0] or 0, "risk_level": r[1] or "unknown", "scanned_at": r[2]}
+        for r in snapshot_rows
+    ]
+
+    # 6. Sweep flags (excluding internal)
+    cursor = await db.execute(
+        "SELECT id, flag_type, severity, title, detail, created_at, read FROM sweep_flags "
+        "WHERE watch_id = ? AND flag_type NOT IN ('_SNAPSHOT', '_REFERENCE') "
+        "ORDER BY created_at DESC",
+        (watch_id,),
+    )
+    flag_rows = await cursor.fetchall()
+    flags = []
+    for fr in flag_rows:
+        detail = {}
+        try:
+            detail = json.loads(fr[4]) if fr[4] else {}
+        except Exception:
+            pass
+        flags.append({
+            "id": fr[0], "flagType": fr[1], "severity": fr[2],
+            "title": fr[3], "detail": detail,
+            "createdAt": fr[5], "read": bool(fr[6]),
+        })
+
+    # 7. Latest investigation
+    cursor = await db.execute(
+        "SELECT risk_score, verdict_summary, key_findings, created_at FROM investigations "
+        "WHERE user_id = ? AND mint = ? ORDER BY created_at DESC LIMIT 1",
+        (uid, mint),
+    )
+    inv_row = await cursor.fetchone()
+    last_investigation = None
+    if inv_row:
+        kf = []
+        try:
+            kf = json.loads(inv_row[2]) if inv_row[2] else []
+        except Exception:
+            pass
+        last_investigation = {
+            "risk_score": inv_row[0] or 0,
+            "verdict": inv_row[1] or "",
+            "key_findings": kf,
+            "timestamp": int(inv_row[3] * 1000) if inv_row[3] else None,
+        }
+
+    # 8. Build narrative from deltas + flags
+    narrative = None
+    if deltas:
+        parts = []
+        if deltas.get("price_pct") is not None:
+            parts.append(f"Price {deltas['price_pct']:+.0f}% since first watched")
+        if deltas.get("liq_pct") is not None and (deltas["liq_pct"] or 0) <= -20:
+            parts.append(f"Liquidity {deltas['liq_pct']:+.0f}%")
+        # Highlight top flag
+        critical_flags = [f for f in flags if f["severity"] == "critical"]
+        if critical_flags:
+            narrative_flags = [f["title"] for f in critical_flags[:2]]
+            parts.extend(narrative_flags)
+        if parts:
+            narrative = " — ".join(parts)
+
+    return {
+        "mint": mint,
+        "watch_id": watch_id,
+        "reference": reference,
+        "current": current,
+        "deltas": deltas,
+        "snapshots": snapshots,
+        "flags": flags,
+        "last_investigation": last_investigation,
+        "narrative": narrative,
+    }
+
+
+@app.get("/agent/insights", tags=["agent"])
+async def get_agent_insights(request: Request):
+    """Cross-token intelligence for user's watchlist — shared deployers, cartel links."""
+    user = await _get_current_user(request)
+    uid = user["id"]
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+    db = await _cache._get_conn()
+
+    # 1. Get watched mints
+    cursor = await db.execute(
+        "SELECT id, value FROM user_watches WHERE user_id = ? AND sub_type = 'mint'",
+        (uid,),
+    )
+    watch_rows = await cursor.fetchall()
+    if not watch_rows:
+        return {"insights": []}
+
+    mints = [r[1] for r in watch_rows]
+    placeholders = ",".join("?" * len(mints))
+
+    insights: list[dict] = []
+
+    # 2. Shared deployer detection
+    try:
+        cursor = await db.execute(
+            f"SELECT deployer, GROUP_CONCAT(mint) as mints, COUNT(*) as cnt "
+            f"FROM investigation_episodes WHERE mint IN ({placeholders}) "
+            f"AND deployer IS NOT NULL AND deployer != '' "
+            f"GROUP BY deployer HAVING cnt > 1",
+            tuple(mints),
+        )
+        shared_rows = await cursor.fetchall()
+        for sr in shared_rows:
+            deployer = sr[0]
+            linked_mints = sr[1].split(",") if sr[1] else []
+            # Get deployer stats
+            c2 = await db.execute(
+                "SELECT total_rugs, total_tokens, avg_risk_score FROM entity_knowledge "
+                "WHERE entity_type = 'deployer' AND entity_id = ?",
+                (deployer,),
+            )
+            ek_row = await c2.fetchone()
+            rug_count = ek_row[0] if ek_row else 0
+            total_tokens = ek_row[1] if ek_row else 0
+            rug_rate = round(rug_count / total_tokens * 100) if total_tokens > 0 else 0
+
+            short_addr = f"{deployer[:4]}...{deployer[-4:]}" if len(deployer) > 8 else deployer
+            severity = "critical" if rug_count > 0 else "warning"
+            insights.append({
+                "type": "shared_deployer",
+                "severity": severity,
+                "title": f"{len(linked_mints)} watched tokens share deployer {short_addr}",
+                "detail": {
+                    "deployer": deployer,
+                    "mints": linked_mints,
+                    "rug_count": rug_count,
+                    "rug_rate": rug_rate,
+                    "avg_risk": round(ek_row[2]) if ek_row and ek_row[2] else None,
+                },
+            })
+    except Exception as exc:
+        logger.debug("[insights] shared deployer query failed: %s", exc)
+
+    # 3. Cartel/community links
+    try:
+        cursor = await db.execute(
+            f"SELECT community_id, GROUP_CONCAT(mint) as mints, COUNT(*) as cnt "
+            f"FROM investigation_episodes WHERE mint IN ({placeholders}) "
+            f"AND community_id IS NOT NULL AND community_id != '' "
+            f"GROUP BY community_id HAVING cnt > 1",
+            tuple(mints),
+        )
+        cartel_rows = await cursor.fetchall()
+        for cr in cartel_rows:
+            community_id = cr[0]
+            linked_mints = cr[1].split(",") if cr[1] else []
+            insights.append({
+                "type": "cartel_activity",
+                "severity": "warning",
+                "title": f"Cartel network active — {len(linked_mints)} of your tokens linked",
+                "detail": {
+                    "community_id": community_id,
+                    "mints": linked_mints,
+                },
+            })
+    except Exception as exc:
+        logger.debug("[insights] cartel query failed: %s", exc)
+
+    # Sort: critical first, then by type
+    severity_order = {"critical": 0, "warning": 1, "info": 2}
+    insights.sort(key=lambda x: severity_order.get(x.get("severity", "info"), 2))
+
+    return {"insights": insights}
+
+
 @app.post("/agent/feedback", tags=["agent"])
 async def submit_feedback(request: Request):
     """Store verdict feedback (accurate/incorrect) for learning.

@@ -58,6 +58,7 @@ export const QK = {
   agentMemory: (mint?: string, entityType?: string, entityId?: string) =>
     ['agentMemory', mint ?? '', entityType ?? '', entityId ?? ''] as const,
   memoryEntities: () => ['memoryEntities'] as const,
+  watchTimeline: (mint: string) => ['watchTimeline', mint] as const,
 };
 
 export function useSearchTokens(q: string, enabled = true) {
@@ -210,6 +211,20 @@ export function useMemoryEntities(apiKey: string | null) {
     queryFn: () => getMemoryEntities(apiKey!),
     enabled: !!apiKey,
     staleTime: 120_000,
+  });
+}
+
+/// ── Watch timeline ──────────────────────────────────────────────────────────
+
+export function useWatchTimeline(apiKey: string | null, mint: string) {
+  return useQuery<import('../types/api').WatchTimelineResult>({
+    queryKey: QK.watchTimeline(mint),
+    queryFn: async () => {
+      const { getWatchTimeline } = await import('./api');
+      return getWatchTimeline(apiKey!, mint);
+    },
+    enabled: !!apiKey && !!mint,
+    staleTime: 60_000,
   });
 }
 

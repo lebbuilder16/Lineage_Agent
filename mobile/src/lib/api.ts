@@ -350,3 +350,19 @@ export async function getTopTokens(limit = 10): Promise<TopToken[]> {
   if (!res.ok) return [];
   return res.json() as Promise<TopToken[]>;
 }
+
+// ── Watch timeline ────────────────────────────────────────────────────────
+
+import type { WatchTimelineResult } from '../types/api';
+
+export async function getWatchTimeline(apiKey: string, mint: string): Promise<WatchTimelineResult> {
+  const BASE = (process.env.EXPO_PUBLIC_API_URL ?? 'https://lineage-agent.fly.dev').replace(/\/$/, '');
+  const res = await fetch(`${BASE}/agent/watch-timeline/${mint}`, {
+    headers: { 'X-API-Key': apiKey },
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: 'Timeline fetch failed' }));
+    throw new Error(err.detail ?? 'Timeline fetch failed');
+  }
+  return res.json() as Promise<WatchTimelineResult>;
+}

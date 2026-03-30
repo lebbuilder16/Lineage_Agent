@@ -95,6 +95,36 @@ export interface AlertItem {
   deliveredChannels?: string[];
 }
 
+export interface SweepFlag {
+  id: number;
+  mint: string;
+  flagType: string;
+  severity: 'info' | 'warning' | 'critical';
+  title: string;
+  detail: Record<string, unknown>;
+  createdAt: number;
+  read: boolean;
+}
+
+export interface WatchTimelineResult {
+  mint: string;
+  watch_id: number;
+  reference: { price_usd: number | null; liq_usd: number | null; risk_score: number; created_at: number } | null;
+  current: { price_usd: number | null; liq_usd: number | null; risk_score: number } | null;
+  deltas: { price_pct: number | null; liq_pct: number | null; risk_delta: number } | null;
+  snapshots: { risk_score: number; risk_level: string; scanned_at: number }[];
+  flags: SweepFlag[];
+  last_investigation: { risk_score: number; verdict: string; key_findings: string[]; timestamp: number } | null;
+  narrative: string | null;
+}
+
+export interface Insight {
+  type: 'shared_deployer' | 'cartel_activity' | 'deployer_new_launch';
+  severity: 'info' | 'warning' | 'critical';
+  title: string;
+  detail: Record<string, unknown>;
+}
+
 export interface AnalysisStep {
   step: 'lineage' | 'bundle' | 'sol_flow' | 'ai' | 'deployer' | 'cartel';
   status: 'running' | 'done';
