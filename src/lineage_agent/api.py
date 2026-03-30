@@ -4642,6 +4642,12 @@ async def _watchlist_sweep_loop():
                             try:
                                 from .alert_service import _broadcast_web_alert, _send_fcm_push
                                 _flag_title = f"{'🔴' if flag['severity'] == 'critical' else '⚠️'} {flag['title']}"
+                                # Extract token metadata from flag detail
+                                _fd = {}
+                                try:
+                                    _fd = json.loads(flag.get("detail", "{}")) if isinstance(flag.get("detail"), str) else (flag.get("detail") or {})
+                                except Exception:
+                                    pass
                                 await _broadcast_web_alert({
                                     "type": "sweep_flag",
                                     "alert_type": flag["flag_type"],
@@ -4649,6 +4655,8 @@ async def _watchlist_sweep_loop():
                                     "message": flag["title"],
                                     "body": flag["title"],
                                     "mint": result["mint"],
+                                    "token_name": _fd.get("token_name") or _fd.get("name") or result["mint"][:8],
+                                    "image_uri": _fd.get("image_uri") or None,
                                     "risk_score": result.get("new_score", 0),
                                     "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                                     "id": f"sweep-{result['mint'][:8]}-{flag['flag_type']}-{int(time.time())}",
@@ -4787,6 +4795,8 @@ async def _notify_investigation_complete(user_id: int, mint: str, verdict: dict)
             "title": title,
             "body": body,
             "mint": mint,
+            "token_name": name,
+            "image_uri": verdict.get("image_uri"),
             "risk_score": risk,
             "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "id": f"inv-{mint[:8]}-{int(time.time())}",
@@ -4846,6 +4856,20 @@ async def _market_pulse_loop():
                 for t in triggered:
                     try:
                         from .alert_service import _broadcast_web_alert, _send_fcm_push
+                        # Try to get token name/image from latest flag detail
+                        _pulse_name = t["mint"][:8]
+                        _pulse_image = None
+                        try:
+                            _pc = await db.execute(
+                                "SELECT detail FROM sweep_flags WHERE mint = ? AND flag_type NOT IN ('_SNAPSHOT','_REFERENCE') "
+                                "ORDER BY created_at DESC LIMIT 1", (t["mint"],))
+                            _pr = await _pc.fetchone()
+                            if _pr:
+                                _pd = json.loads(_pr[0]) if _pr[0] else {}
+                                _pulse_name = _pd.get("token_name") or _pd.get("name") or _pulse_name
+                                _pulse_image = _pd.get("image_uri")
+                        except Exception:
+                            pass
                         await _broadcast_web_alert({
                             "type": "pulse_alert",
                             "alert_type": "price_movement",
@@ -4853,6 +4877,8 @@ async def _market_pulse_loop():
                             "message": t["trigger"],
                             "body": f"Price: ${t['now_price']:.6f}",
                             "mint": t["mint"],
+                            "token_name": _pulse_name,
+                            "image_uri": _pulse_image,
                             "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                             "id": f"pulse-{t['mint'][:8]}-{int(time.time())}",
                             "read": False,
