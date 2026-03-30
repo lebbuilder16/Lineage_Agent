@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 # Use non-dated aliases where possible for forward-compatibility
 _MODEL = os.getenv("ANTHROPIC_MODEL", "claude-haiku-4-5")
 _MODEL_SONNET = os.getenv("ANTHROPIC_MODEL_SONNET", "claude-sonnet-4-6")
-_MAX_TOKENS = 2500  # tool_use generates cleaner output, needs fewer tokens
+_MAX_TOKENS = int(os.getenv("AI_MAX_TOKENS", "800"))  # keep output short to control cost (~$0.002/analysis with Haiku)
 _TIMEOUT = 55.0  # seconds — must be < Fly machine timeout (60s) to surface proper error
 _AI_CACHE_PREFIX = "ai:forensic-v2"
 _CONFIRMED_EVIDENCE_LEVELS = {EvidenceLevel.MODERATE.value, EvidenceLevel.STRONG.value}
