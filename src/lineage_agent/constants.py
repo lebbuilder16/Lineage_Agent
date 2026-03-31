@@ -145,6 +145,7 @@ BONDING_CURVE_LAUNCHPAD_PLATFORMS: frozenset[str] = frozenset({
     "letsbonk",
     "believe",
     "raydiumlaunchpad",
+    "bagsfm",
 })
 
 # ---------------------------------------------------------------------------
