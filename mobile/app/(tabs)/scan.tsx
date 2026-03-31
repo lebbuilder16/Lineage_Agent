@@ -65,6 +65,10 @@ export default function ScanScreen() {
     if (BASE58_RE.test(trimmed) && trimmed.length >= 32) {
       addRecentSearch(trimmed);
       router.push(`/token/${trimmed}` as any);
+      // Enrich recent search with name/symbol in background
+      searchTokens(trimmed, 0, 1).then((data) => {
+        if (data.length > 0) addRecentSearch(data[0].mint, data[0].name, data[0].symbol);
+      }).catch(() => {});
       return;
     }
 

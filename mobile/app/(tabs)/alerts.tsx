@@ -40,6 +40,33 @@ export default function AlertsScreen() {
   const [expandedEnrichments, setExpandedEnrichments] = useState<Set<string>>(new Set());
   const insets = useSafeAreaInsets();
 
+  // Enrich alerts missing token_name/image_uri from DexScreener search
+  const enrichedRef = React.useRef<Set<string>>(new Set());
+  React.useEffect(() => {
+    const missing = alerts.filter(
+      (a) => a.mint && !a.image_uri && !enrichedRef.current.has(a.id),
+    ).slice(0, 5); // batch 5 at a time
+    if (!missing.length) return;
+    const BASE = (process.env.EXPO_PUBLIC_API_URL ?? 'https://lineage-agent.fly.dev').replace(/\/$/, '');
+    for (const a of missing) {
+      enrichedRef.current.add(a.id);
+      fetch(`${BASE}/search?q=${a.mint}&limit=1`)
+        .then((r) => r.ok ? r.json() : [])
+        .then((results: any[]) => {
+          if (results.length > 0 && (results[0].name || results[0].image_uri)) {
+            const store = useAlertsStore.getState();
+            const updated = store.alerts.map((al) =>
+              al.id === a.id
+                ? { ...al, token_name: al.token_name || results[0].name, image_uri: al.image_uri || results[0].image_uri, title: al.title || results[0].name }
+                : al,
+            );
+            useAlertsStore.setState({ alerts: updated });
+          }
+        })
+        .catch(() => {});
+    }
+  }, [alerts]);
+
   // Poll graduations via REST (doesn't depend on WebSocket)
   const { data: graduations } = useGraduations(20);
   const seenGradRef = React.useRef<Set<string>>(new Set());

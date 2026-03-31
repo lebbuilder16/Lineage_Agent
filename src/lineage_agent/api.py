@@ -3224,7 +3224,7 @@ async def get_top_tokens(
             FROM intelligence_events
             WHERE mint IS NOT NULL AND mint != ''
             GROUP BY mint
-            ORDER BY event_count DESC, MAX(ROWID) DESC
+            ORDER BY event_count DESC, MAX(mcap_usd) DESC, MAX(ROWID) DESC
             LIMIT ?
         """
         cursor = await db.execute(sql, (limit,))

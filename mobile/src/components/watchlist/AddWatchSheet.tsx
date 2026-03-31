@@ -82,7 +82,7 @@ export function AddWatchSheet({ visible, onClose, onSubmit, loading = false }: A
           <Text style={styles.addErrorText}>{addError}</Text>
         )}
         <HapticButton
-          variant="secondary"
+          variant="primary"
           size="md"
           fullWidth
           loading={loading}
@@ -107,7 +107,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: tokens.bgApp,
+    backgroundColor: '#0A1014',
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     paddingTop: 12,
@@ -116,6 +116,7 @@ const styles = StyleSheet.create({
     gap: 12,
     borderTopWidth: 1,
     borderColor: tokens.borderSubtle,
+    elevation: 20,
   },
   handle: {
     width: 40,
