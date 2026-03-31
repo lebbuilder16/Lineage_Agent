@@ -65,7 +65,7 @@ export default function ScanScreen() {
       enrichedRef.current.add(r.mint);
       searchTokens(r.mint, 0, 1).then((data) => {
         if (data.length > 0 && (data[0].name || data[0].symbol)) {
-          addRecentSearch(data[0].mint, data[0].name, data[0].symbol);
+          addRecentSearch(data[0].mint, data[0].name, data[0].symbol, data[0].image_uri);
         }
       }).catch(() => {});
     }
@@ -83,7 +83,7 @@ export default function ScanScreen() {
       router.push(`/token/${trimmed}` as any);
       // Enrich recent search with name/symbol in background
       searchTokens(trimmed, 0, 1).then((data) => {
-        if (data.length > 0) addRecentSearch(data[0].mint, data[0].name, data[0].symbol);
+        if (data.length > 0) addRecentSearch(data[0].mint, data[0].name, data[0].symbol, data[0].image_uri);
       }).catch(() => {});
       return;
     }
@@ -200,17 +200,19 @@ export default function ScanScreen() {
                   onPress={() => { handleSelect(item.mint, item.name, item.symbol); }}
                   style={styles.recentItem}
                 >
-                  <Search size={14} color={tokens.textTertiary} />
+                  {(item as any).image ? (
+                    <Image source={{ uri: (item as any).image }} style={styles.recentLogo} />
+                  ) : (
+                    <Search size={14} color={tokens.textTertiary} />
+                  )}
                   <View style={{ flex: 1 }}>
                     <Text style={styles.recentName} numberOfLines={1}>
                       {item.name || item.mint}
                       {item.symbol ? ` (${item.symbol})` : ''}
                     </Text>
-                    {item.name ? (
-                      <Text style={styles.recentAddr} numberOfLines={1}>
-                        {item.mint.slice(0, 6)}...{item.mint.slice(-4)}
-                      </Text>
-                    ) : null}
+                    <Text style={styles.recentAddr} numberOfLines={1}>
+                      {item.mint.slice(0, 6)}...{item.mint.slice(-4)}
+                    </Text>
                   </View>
                 </TouchableOpacity>
               ))}
@@ -318,4 +320,5 @@ const styles = StyleSheet.create({
   },
   recentName: { fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.body, color: tokens.white100 },
   recentAddr: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny, color: tokens.textTertiary, marginTop: 1 },
+  recentLogo: { width: 24, height: 24, borderRadius: 12 },
 });

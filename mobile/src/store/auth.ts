@@ -21,7 +21,7 @@ interface AuthState {
   addWatch: (watch: Watch) => void;
   removeWatch: (id: string) => void;
   incrementScanCount: () => void;
-  addRecentSearch: (mint: string, name?: string, symbol?: string) => void;
+  addRecentSearch: (mint: string, name?: string, symbol?: string, image?: string) => void;
   clearRecentSearches: () => void;
   setReportExpandMint: (mint: string | null) => void;
   setPendingClockMint: (mint: string | null) => void;
@@ -74,9 +74,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   incrementScanCount: () =>
     set((state) => ({ scanCount: state.scanCount + 1 })),
 
-  addRecentSearch: (mint, name = '', symbol = '') =>
+  addRecentSearch: (mint, name = '', symbol = '', image = '') =>
     set((state) => {
-      const entry = { mint, name, symbol };
+      const entry = { mint, name, symbol, image };
       const deduped = [entry, ...state.recentSearches.filter((r) => r.mint !== mint)].slice(0, MAX_RECENT);
       SecureStore.setItemAsync(LS_RECENT_KEY, JSON.stringify(deduped)).catch(() => {});
       return { recentSearches: deduped };
