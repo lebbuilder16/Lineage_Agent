@@ -169,6 +169,16 @@ class SolanaRpcClient:
         self._id_counter = 0
         self._cb = circuit_breaker
 
+        # Pre-extract Helius API key (if present) to avoid regex on every call
+        import re as _re
+        _qs = _re.search(r'api-key=([^&]+)', self._endpoint)
+        self._helius_api_key: str = _qs.group(1) if _qs else ""
+
+    @property
+    def helius_api_key(self) -> str:
+        """Return the Helius API key extracted from the RPC URL, or ''."""
+        return self._helius_api_key
+
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
             self._client = httpx.AsyncClient(

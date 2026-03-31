@@ -311,23 +311,52 @@ async def _run_forensic(
         else bundle_sigs[::-1]
     )
 
-    # ── Step 1c: Extract buyer wallets (batched with early exit) ─────────
+    # ── Step 1c: Extract buyer wallets ───────────────────────────────────
+    # Fast path: Helius Enhanced Transactions batch API decodes up to 100
+    # signatures in a SINGLE HTTP call with pre-parsed nativeTransfers.
+    # This replaces N individual getTransaction RPCs (the #1 bottleneck).
     buyer_wallets: dict[str, float] = {}  # wallet → SOL spent
-    # Also keep decoded TXs to mine intra-bundle SOL funding (Jito bundles
-    # fund wallets atomically in the same block — no pre-creation TX exists).
     bundle_decoded_txs: list[dict] = []
-    for _i in range(0, len(sigs_to_decode), _RPC_CONCURRENCY):
-        if len(buyer_wallets) >= _MAX_BUNDLE_WALLETS:
-            break                      # enough buyers — skip remaining TXs
-        _chunk_results = await asyncio.gather(
-            *[_throttled_fetch(s) for s in sigs_to_decode[_i : _i + _RPC_CONCURRENCY]],
-            return_exceptions=True,
+
+    if rpc.helius_api_key and sigs_to_decode:
+        # Helius batch: decode all bundle sigs in ≤1 call (max 100 per call)
+        for _batch_start in range(0, len(sigs_to_decode), 100):
+            if len(buyer_wallets) >= _MAX_BUNDLE_WALLETS:
+                break
+            _batch_sigs = sigs_to_decode[_batch_start:_batch_start + 100]
+            try:
+                enhanced_txs = await asyncio.wait_for(
+                    rpc.get_enhanced_transactions_batch(_batch_sigs),
+                    timeout=15.0,
+                )
+                for etx in enhanced_txs:
+                    _extract_buyers_enhanced(etx, deployer, buyer_wallets)
+                    bundle_decoded_txs.append(etx)
+            except Exception as _enh_exc:
+                logger.debug("[bundle] enhanced batch failed, falling back: %s", _enh_exc)
+                # Fall through to standard path for remaining sigs
+                break
+        logger.info(
+            "[bundle] enhanced batch decoded %d txs → %d buyers for %s",
+            len(bundle_decoded_txs), len(buyer_wallets), mint[:8],
         )
-        for tx in _chunk_results:
-            if not tx or isinstance(tx, Exception):
-                continue
-            _extract_buyers(tx, deployer, buyer_wallets)  # type: ignore[arg-type]
-            bundle_decoded_txs.append(tx)  # type: ignore[arg-type]  # keep for intra-bundle funding scan
+
+    # Standard fallback: individual getTransaction calls (used when Helius
+    # is unavailable or enhanced batch didn't find enough buyers)
+    if len(buyer_wallets) < _MAX_BUNDLE_WALLETS and len(bundle_decoded_txs) < len(sigs_to_decode):
+        _remaining = sigs_to_decode[len(bundle_decoded_txs):]
+        for _i in range(0, len(_remaining), _RPC_CONCURRENCY):
+            if len(buyer_wallets) >= _MAX_BUNDLE_WALLETS:
+                break
+            _chunk_results = await asyncio.gather(
+                *[_throttled_fetch(s) for s in _remaining[_i : _i + _RPC_CONCURRENCY]],
+                return_exceptions=True,
+            )
+            for tx in _chunk_results:
+                if not tx or isinstance(tx, Exception):
+                    continue
+                _extract_buyers(tx, deployer, buyer_wallets)  # type: ignore[arg-type]
+                bundle_decoded_txs.append(tx)  # type: ignore[arg-type]
 
     if not buyer_wallets:
         return None
@@ -814,81 +843,140 @@ async def _analyze_post_sell(
     post = PostSellBehavior()
     try:
         launch_ts = launch_dt.timestamp()
-        sig_params: dict = {"commitment": "finalized"}
-        if creation_sig:
-            # `until` is exclusive: we get sigs NEWER than creation_sig.
-            # Limit to _TRACE_SIGS_PER_WALLET most-recent post-launch TXs.
-            sig_params.update({"until": creation_sig, "limit": _TRACE_SIGS_PER_WALLET})
-        else:
-            sig_params["limit"] = _TRACE_SIGS_PER_WALLET
 
-        sigs = await rpc._call(
-            "getSignaturesForAddress",
-            [wallet, sig_params],
-            circuit_protect=False,
-        )
-        if not sigs or not isinstance(sigs, list):
-            return post
+        # ── Fast path: Helius Enhanced Transactions (1 call, pre-parsed) ──
+        # Replaces getSignaturesForAddress + N × getTransaction with a single
+        # HTTP call that returns enriched transaction data.
+        _used_enhanced = False
+        _enhanced_txs: list[dict] = []
+        if rpc.helius_api_key:
+            try:
+                _enhanced_txs = await asyncio.wait_for(
+                    rpc.get_enhanced_transactions(wallet, limit=100),
+                    timeout=10.0,
+                )
+            except Exception:
+                _enhanced_txs = []
 
-        # When using until=creation_sig every sig is post-launch by definition;
-        # the timestamp filter still applies as a safety net.
-        post_launch = [
-            s for s in sigs
-            if s.get("blockTime", 0) >= launch_ts and not s.get("err")
-        ]
-        if not post_launch:
-            return post
+        if _enhanced_txs:
+            _used_enhanced = True
+            # Filter to post-launch transactions
+            post_launch_enhanced = [
+                etx for etx in _enhanced_txs
+                if (etx.get("timestamp") or 0) >= launch_ts
+            ]
+            if not post_launch_enhanced:
+                return post
 
-        txs = await asyncio.gather(
-            *[_fetch_tx(rpc, s["signature"]) for s in post_launch[:50]],
-            return_exceptions=True,
-        )
+            # Find the sell transaction via tokenTransfers
+            sell_etx = None
+            sell_slot: Optional[int] = None
+            sell_sig: Optional[str] = None
+            sol_received = 0.0
 
-        # Find the sell transaction (token balance → 0)
-        sell_tx = None
-        sell_slot: Optional[int] = None
-        sell_sig:  Optional[str] = None
-        sol_received = 0.0
+            for etx in post_launch_enhanced:
+                if _is_full_sell_enhanced(etx, wallet, target_mint):
+                    sell_etx = etx
+                    sell_slot = etx.get("slot")
+                    sell_sig = etx.get("signature", "")
+                    sol_received = _compute_sol_received_enhanced(etx, wallet)
+                    break
 
-        for s, tx in zip(post_launch[:50], txs):
-            if not tx or isinstance(tx, Exception):
-                continue
-            if _is_full_sell(tx, wallet, target_mint):  # type: ignore[arg-type]
-                sell_tx      = tx
-                sell_slot    = s.get("slot")
-                sell_sig     = s.get("signature")
-                sol_received = _compute_sol_received(tx, wallet)  # type: ignore[arg-type]
-                break
+            if sell_etx is None:
+                return post
 
-        if sell_tx is None:
-            return post  # no sell detected — do NOT trace outflows
+            post.sell_detected = True
+            post.sell_slot = sell_slot
+            post.sell_tx_signature = sell_sig
+            post.sol_received_from_sell = round(sol_received, 4)
 
-        post.sell_detected          = True
-        post.sell_slot              = sell_slot
-        post.sell_tx_signature      = sell_sig
-        post.sol_received_from_sell = round(sol_received, 4)
+            # Post-sell outflows from nativeTransfers
+            destinations: dict[str, int] = {}
+            for etx in post_launch_enhanced:
+                etx_slot = etx.get("slot", 0)
+                etx_sig = etx.get("signature", "")
+                if etx_slot < (sell_slot or 0) or etx_sig == sell_sig:
+                    continue
+                for nt in etx.get("nativeTransfers", []):
+                    if nt.get("fromUserAccount") != wallet:
+                        continue
+                    to_addr = nt.get("toUserAccount", "")
+                    amount = nt.get("amount", 0)
+                    if to_addr and to_addr not in _SKIP_PROGRAMS and amount >= _MIN_POSTSELL_LAMPORTS:
+                        destinations[to_addr] = destinations.get(to_addr, 0) + amount
 
-        # Trace ONLY post-sell outflows
-        post_sell_sigs = [
-            s for s in post_launch
-            if s.get("slot", 0) >= (sell_slot or 0) and s.get("signature") != sell_sig
-        ]
-        if not post_sell_sigs:
-            return post
+        # ── Standard fallback ────────────────────────────────────────────
+        if not _used_enhanced:
+            sig_params: dict = {"commitment": "finalized"}
+            if creation_sig:
+                sig_params.update({"until": creation_sig, "limit": _TRACE_SIGS_PER_WALLET})
+            else:
+                sig_params["limit"] = _TRACE_SIGS_PER_WALLET
 
-        post_sell_txs = await asyncio.gather(
-            *[_fetch_tx(rpc, s["signature"]) for s in post_sell_sigs[:20]],
-            return_exceptions=True,
-        )
+            sigs = await rpc._call(
+                "getSignaturesForAddress",
+                [wallet, sig_params],
+                circuit_protect=False,
+            )
+            if not sigs or not isinstance(sigs, list):
+                return post
 
-        # Hop-0: direct SOL transfers from wallet after sell
-        destinations: dict[str, int] = {}
-        for tx in post_sell_txs:
-            if not tx or isinstance(tx, Exception):
-                continue
-            for dest, lamps in _extract_sol_outflows(tx, wallet, _MIN_POSTSELL_LAMPORTS).items():  # type: ignore[arg-type]
-                destinations[dest] = destinations.get(dest, 0) + lamps
+            post_launch = [
+                s for s in sigs
+                if s.get("blockTime", 0) >= launch_ts and not s.get("err")
+            ]
+            if not post_launch:
+                return post
 
+            txs = await asyncio.gather(
+                *[_fetch_tx(rpc, s["signature"]) for s in post_launch[:50]],
+                return_exceptions=True,
+            )
+
+            sell_tx = None
+            sell_slot = None
+            sell_sig = None
+            sol_received = 0.0
+
+            for s, tx in zip(post_launch[:50], txs):
+                if not tx or isinstance(tx, Exception):
+                    continue
+                if _is_full_sell(tx, wallet, target_mint):
+                    sell_tx = tx
+                    sell_slot = s.get("slot")
+                    sell_sig = s.get("signature")
+                    sol_received = _compute_sol_received(tx, wallet)
+                    break
+
+            if sell_tx is None:
+                return post
+
+            post.sell_detected = True
+            post.sell_slot = sell_slot
+            post.sell_tx_signature = sell_sig
+            post.sol_received_from_sell = round(sol_received, 4)
+
+            post_sell_sigs = [
+                s for s in post_launch
+                if s.get("slot", 0) >= (sell_slot or 0) and s.get("signature") != sell_sig
+            ]
+            if not post_sell_sigs:
+                return post
+
+            post_sell_txs = await asyncio.gather(
+                *[_fetch_tx(rpc, s["signature"]) for s in post_sell_sigs[:20]],
+                return_exceptions=True,
+            )
+
+            destinations = {}
+            for tx in post_sell_txs:
+                if not tx or isinstance(tx, Exception):
+                    continue
+                for dest, lamps in _extract_sol_outflows(tx, wallet, _MIN_POSTSELL_LAMPORTS).items():
+                    destinations[dest] = destinations.get(dest, 0) + lamps
+
+        # Hop-0: build fund destinations from the destinations dict
+        # (populated by either the enhanced or standard path above)
         fund_dests: list[FundDestination] = []
         for dest, lamps in sorted(destinations.items(), key=lambda x: -x[1])[:10]:
             linked = dest in deployer_linked
@@ -996,6 +1084,40 @@ def _is_full_sell(tx: dict, wallet: str, target_mint: str = "") -> bool:
         return all(wallet_post.get(m, 0.0) <= 1.0 for m in wallet_pre)
     except Exception:
         return False
+
+
+def _is_full_sell_enhanced(etx: dict, wallet: str, target_mint: str) -> bool:
+    """Check if wallet fully exited target_mint using Helius Enhanced TX data.
+
+    Helius tokenTransfers contain pre-parsed fromUserAccount, toUserAccount,
+    mint, and tokenAmount — no balance-delta parsing needed.
+    """
+    try:
+        for tt in etx.get("tokenTransfers", []):
+            if tt.get("mint") != target_mint:
+                continue
+            from_addr = tt.get("fromUserAccount", "")
+            if from_addr != wallet:
+                continue
+            # tokenAmount is the raw amount transferred
+            amount = tt.get("tokenAmount", 0)
+            if amount > 0:
+                return True
+        return False
+    except Exception:
+        return False
+
+
+def _compute_sol_received_enhanced(etx: dict, wallet: str) -> float:
+    """Compute SOL received by wallet from a Helius Enhanced Transaction."""
+    try:
+        total = 0.0
+        for nt in etx.get("nativeTransfers", []):
+            if nt.get("toUserAccount") == wallet:
+                total += nt.get("amount", 0) / _SOL_DECIMALS
+        return total
+    except Exception:
+        return 0.0
 
 
 def _compute_sol_received(tx: dict, wallet: str) -> float:
@@ -1465,4 +1587,48 @@ def _extract_buyers(
                 buyer_wallets[addr] = buyer_wallets.get(addr, 0.0) + abs(sol_delta)
     except Exception as exc:
         logger.debug("[bundle] _extract_buyers failed: %s", exc)
+
+
+def _extract_buyers_enhanced(
+    etx: dict,
+    deployer: str,
+    buyer_wallets: dict[str, float],
+) -> None:
+    """Extract buyers from a Helius Enhanced Transaction (pre-parsed).
+
+    Helius Enhanced Transactions provide ``nativeTransfers`` with
+    ``fromUserAccount``, ``toUserAccount``, ``amount`` already parsed —
+    no balance-delta math needed.  The ``feePayer`` field identifies the
+    signer.  We look for accounts that sent SOL (net negative) and are
+    not the deployer or known programs.
+    """
+    try:
+        fee_payer = etx.get("feePayer", "")
+        # accountData contains per-account info with nativeBalanceChange
+        account_data = etx.get("accountData", [])
+        for ad in account_data:
+            addr = ad.get("account", "")
+            if not addr or addr == deployer or addr in _SKIP_PROGRAMS:
+                continue
+            # nativeBalanceChange is in lamports (negative = spent SOL)
+            balance_change = ad.get("nativeBalanceChange", 0)
+            if balance_change < -1_000_000:  # spent > 0.001 SOL
+                sol_spent = abs(balance_change) / _SOL_DECIMALS
+                buyer_wallets[addr] = buyer_wallets.get(addr, 0.0) + sol_spent
+
+        # Fallback: if accountData is empty, use nativeTransfers
+        if not account_data:
+            for nt in etx.get("nativeTransfers", []):
+                from_addr = nt.get("fromUserAccount", "")
+                amount = nt.get("amount", 0)
+                if (
+                    from_addr
+                    and from_addr != deployer
+                    and from_addr not in _SKIP_PROGRAMS
+                    and amount > 1_000_000
+                ):
+                    sol = amount / _SOL_DECIMALS
+                    buyer_wallets[from_addr] = buyer_wallets.get(from_addr, 0.0) + sol
+    except Exception as exc:
+        logger.debug("[bundle] _extract_buyers_enhanced failed: %s", exc)
 
