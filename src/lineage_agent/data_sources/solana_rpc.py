@@ -446,13 +446,17 @@ class SolanaRpcClient:
     _pumpfun_cache: dict[str, Optional[dict]] = {}
 
     async def _get_pumpfun_creation_anchor(self, mint: str) -> Optional[dict[str, Any]]:
-        """Resolve token creator + timestamp via the PumpFun API (~200ms).
+        """Resolve token creator + timestamp + slot via the PumpFun API.
 
-        Returns an anchor dict with ``feePayer`` (= creator) set, or None
-        if the token is not a PumpFun token or the API is unreachable.
+        Two-step resolution (~400ms total):
+          1. PumpFun API → creator + created_timestamp (~200ms)
+          2. Bonding-curve PDA oldest sig → slot + signature (~200ms)
 
-        The API returns 404 for non-PumpFun tokens, which is safe and fast.
-        Results are cached in-process (creator is immutable on-chain).
+        The slot is required by the bundle tracker to define the bundle
+        detection window. Without it, bundle analysis is skipped entirely.
+
+        Returns an anchor dict with feePayer, slot, signature, blockTime,
+        or None if the token is not a PumpFun token.
         """
         # In-process cache check
         if mint in self._pumpfun_cache:
@@ -468,21 +472,40 @@ class SolanaRpcClient:
                 data = resp.json()
                 creator = data.get("creator", "")
                 if creator and creator not in _PROGRAM_ADDRESSES and creator != mint:
-                    # created_timestamp is Unix epoch in ms
                     created_ts_ms = data.get("created_timestamp")
                     block_time = (
                         int(created_ts_ms / 1000) if created_ts_ms else None
                     )
+
+                    # Step 2: resolve slot + signature via bonding-curve PDA
+                    # The PDA has very few TXs — oldest sig is 1 RPC call.
+                    slot = None
+                    signature = ""
+                    curve_pda = _pump_bonding_curve_pda(mint)
+                    if curve_pda:
+                        try:
+                            oldest = await self.get_oldest_signature(
+                                curve_pda, circuit_protect=False
+                            )
+                            if oldest:
+                                slot = oldest.get("slot")
+                                signature = oldest.get("signature", "")
+                                # Prefer on-chain blockTime over PumpFun API
+                                if oldest.get("blockTime"):
+                                    block_time = oldest["blockTime"]
+                        except Exception:
+                            pass  # proceed with slot=None — deployer is still resolved
+
                     anchor = {
-                        "signature": "",  # PumpFun API doesn't return sig
-                        "slot": None,
+                        "signature": signature,
+                        "slot": slot,
                         "blockTime": block_time,
                         "feePayer": creator,
                     }
                     self._pumpfun_cache[mint] = anchor
                     logger.info(
-                        "[creation_anchor] PumpFun API resolved creator %s for %s",
-                        creator[:12], mint[:12],
+                        "[creation_anchor] PumpFun API resolved creator %s slot=%s for %s",
+                        creator[:12], slot, mint[:12],
                     )
                     return anchor
             # Not a PumpFun token or no creator — cache negative
