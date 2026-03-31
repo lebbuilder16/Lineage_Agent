@@ -55,6 +55,22 @@ export default function ScanScreen() {
   const addRecentSearch = useAuthStore((s) => s.addRecentSearch);
   const clearRecentSearches = useAuthStore((s) => s.clearRecentSearches);
 
+  // Enrich recent searches that only have a mint address (no name/symbol)
+  const enrichedRef = useRef<Set<string>>(new Set());
+  React.useEffect(() => {
+    const missing = recentSearches.filter(
+      (r) => !r.name && r.mint && !enrichedRef.current.has(r.mint),
+    ).slice(0, 3);
+    for (const r of missing) {
+      enrichedRef.current.add(r.mint);
+      searchTokens(r.mint, 0, 1).then((data) => {
+        if (data.length > 0 && (data[0].name || data[0].symbol)) {
+          addRecentSearch(data[0].mint, data[0].name, data[0].symbol);
+        }
+      }).catch(() => {});
+    }
+  }, [recentSearches]);
+
   const handleChange = useCallback((text: string) => {
     setQuery(text);
     if (debounceTimer.current) clearTimeout(debounceTimer.current);

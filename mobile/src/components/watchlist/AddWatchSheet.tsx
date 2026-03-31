@@ -112,7 +112,7 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 24,
     paddingTop: 12,
     paddingHorizontal: tokens.spacing.screenPadding,
-    paddingBottom: 48,
+    paddingBottom: 80,
     gap: 12,
     borderTopWidth: 1,
     borderColor: tokens.borderSubtle,

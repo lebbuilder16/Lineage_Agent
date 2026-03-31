@@ -43,9 +43,16 @@ export default function AlertsScreen() {
   // Enrich alerts missing token_name/image_uri from DexScreener search
   const enrichedRef = React.useRef<Set<string>>(new Set());
   React.useEffect(() => {
-    const missing = alerts.filter(
-      (a) => a.mint && !a.image_uri && !enrichedRef.current.has(a.id),
-    ).slice(0, 5); // batch 5 at a time
+    // Detect alerts that need enrichment: no image, or name looks like a truncated address
+    const needsEnrich = (a: AlertItem) => {
+      if (!a.mint || enrichedRef.current.has(a.id)) return false;
+      if (!a.image_uri) return true;
+      // Name is just a truncated address (no real token name)
+      const name = a.token_name || a.title || '';
+      if (name.length <= 12 && /^[1-9A-HJ-NP-Za-km-z]+$/.test(name)) return true;
+      return false;
+    };
+    const missing = alerts.filter(needsEnrich).slice(0, 8);
     if (!missing.length) return;
     const BASE = (process.env.EXPO_PUBLIC_API_URL ?? 'https://lineage-agent.fly.dev').replace(/\/$/, '');
     for (const a of missing) {
@@ -57,7 +64,12 @@ export default function AlertsScreen() {
             const store = useAlertsStore.getState();
             const updated = store.alerts.map((al) =>
               al.id === a.id
-                ? { ...al, token_name: al.token_name || results[0].name, image_uri: al.image_uri || results[0].image_uri, title: al.title || results[0].name }
+                ? {
+                    ...al,
+                    token_name: results[0].name || al.token_name,
+                    image_uri: results[0].image_uri || al.image_uri,
+                    title: (al.title && al.title.length <= 12) ? results[0].name || al.title : al.title,
+                  }
                 : al,
             );
             useAlertsStore.setState({ alerts: updated });
