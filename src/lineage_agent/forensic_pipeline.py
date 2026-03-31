@@ -723,6 +723,24 @@ def report_to_lineage_result(report: ForensicReport) -> Any:
     if result is None:
         return None
 
+    # Sync deployer: the pipeline resolves deployer via PumpFun API
+    # (authoritative), while detect_lineage may resolve via DAS creators[]
+    # (unreliable for PumpFun tokens).  If they differ, trust the pipeline.
+    pipeline_deployer = report.identity.deployer
+    if pipeline_deployer and result.root:
+        root_deployer = getattr(result.root, "deployer", "")
+        if root_deployer != pipeline_deployer:
+            result.root.deployer = pipeline_deployer
+            logger.info(
+                "[report_to_lineage] deployer sync: root %s → pipeline %s for %s",
+                (root_deployer or "empty")[:12], pipeline_deployer[:12],
+                report.identity.mint[:12],
+            )
+    # Also sync on query_token if present
+    if pipeline_deployer and result.query_token:
+        if getattr(result.query_token, "deployer", "") != pipeline_deployer:
+            result.query_token.deployer = pipeline_deployer
+
     # Attach forensic enrichments to the LineageResult
     if report.deployer_profile is not None:
         result.deployer_profile = report.deployer_profile

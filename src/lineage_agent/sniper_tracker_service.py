@@ -29,10 +29,11 @@ logger = logging.getLogger(__name__)
 
 # ── Tuning ───────────────────────────────────────────────────────────────────
 _SNIPER_WINDOW_SLOTS = 50         # Slots after pool creation to scan for snipers
-_MAX_SNIPERS = 20                 # Cap on sniper wallets to analyze
+_MAX_SNIPERS = 10                 # Cap on sniper wallets to analyze (was 20 — reduced to limit HTTP/2 stream pressure)
 _MIN_BUY_LAMPORTS = 10_000_000    # 0.01 SOL minimum to count as a buy
 _MIN_FUND_LAMPORTS = 10_000_000   # 0.01 SOL minimum to count as funding
 _MAX_ENHANCED_TXS = 100           # Helius Enhanced limit per call
+_RPC_CONCURRENCY = 3              # Max parallel Helius calls — low to avoid saturating HTTP/2 stream pool (200 max shared across all modules)
 _SKIP = SKIP_PROGRAMS
 
 
@@ -144,7 +145,7 @@ async def _run_analysis(
     sol_returned = 0.0
     evidence: list[str] = []
 
-    sem = asyncio.Semaphore(8)
+    sem = asyncio.Semaphore(_RPC_CONCURRENCY)
 
     async def _analyze_one(wallet: str, buy_data: dict) -> SniperWallet:
         nonlocal deployer_funded, sol_returned
@@ -158,7 +159,7 @@ async def _run_analysis(
 
             # Fetch wallet's recent transactions via Enhanced API
             try:
-                w_txs = await rpc.get_enhanced_transactions(wallet, limit=50)
+                w_txs = await rpc.get_enhanced_transactions(wallet, limit=20)
             except Exception:
                 w_txs = []
 
