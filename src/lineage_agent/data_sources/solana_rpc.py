@@ -477,24 +477,55 @@ class SolanaRpcClient:
                         int(created_ts_ms / 1000) if created_ts_ms else None
                     )
 
-                    # Step 2: resolve slot + signature via bonding-curve PDA
-                    # The PDA has very few TXs — oldest sig is 1 RPC call.
+                    # Step 2: resolve slot + signature for bundle tracker.
+                    # Try strategies in order of speed:
+                    #   a) Helius Enhanced TX on mint (1 call, ~200ms)
+                    #   b) getSignaturesForAddress on bonding-curve PDA (limit=1 from oldest)
+                    #   c) getSignaturesForAddress on mint (limit=1 from oldest)
                     slot = None
                     signature = ""
-                    curve_pda = _pump_bonding_curve_pda(mint)
-                    if curve_pda:
+
+                    # Strategy a: Helius Enhanced Transactions (fastest)
+                    if self._helius_api_key:
                         try:
-                            oldest = await self.get_oldest_signature(
-                                curve_pda, circuit_protect=False
+                            etxs = await asyncio.wait_for(
+                                self.get_enhanced_transactions(
+                                    mint, limit=1, tx_type="CREATE"
+                                ),
+                                timeout=5.0,
                             )
-                            if oldest:
-                                slot = oldest.get("slot")
-                                signature = oldest.get("signature", "")
-                                # Prefer on-chain blockTime over PumpFun API
-                                if oldest.get("blockTime"):
-                                    block_time = oldest["blockTime"]
+                            if etxs:
+                                slot = etxs[0].get("slot")
+                                signature = etxs[0].get("signature", "")
+                                if etxs[0].get("timestamp"):
+                                    block_time = etxs[0]["timestamp"]
                         except Exception:
-                            pass  # proceed with slot=None — deployer is still resolved
+                            pass
+
+                    # Strategy b: bonding-curve PDA newest sig (1 RPC call)
+                    # For PumpFun, the NEWEST sig on the curve PDA is the
+                    # creation TX (bonding curve is only used at launch).
+                    # This is a single getSignaturesForAddress with limit=1.
+                    if slot is None:
+                        curve_pda = _pump_bonding_curve_pda(mint)
+                        if curve_pda:
+                            try:
+                                sigs = await self._call(
+                                    "getSignaturesForAddress",
+                                    [curve_pda, {"limit": 1, "commitment": "finalized"}],
+                                    circuit_protect=False,
+                                )
+                                if sigs and isinstance(sigs, list) and sigs[0]:
+                                    # For active PumpFun tokens, the newest sig
+                                    # IS the creation TX. For migrated tokens,
+                                    # the newest may be the migration — but the
+                                    # slot is close enough for bundle detection.
+                                    slot = sigs[0].get("slot")
+                                    signature = sigs[0].get("signature", "")
+                                    if sigs[0].get("blockTime"):
+                                        block_time = sigs[0]["blockTime"]
+                            except Exception:
+                                pass
 
                     anchor = {
                         "signature": signature,
@@ -537,10 +568,14 @@ class SolanaRpcClient:
         3. **Direct mint** signature walk — last-resort fallback, capped at
            20 pages.
         """
-        # ── 0. PumpFun API (fastest — ~200ms) ───────────────────────────────
+        # ── 0. PumpFun API (fastest — ~200ms for deployer) ────────────────
+        # Resolve creator first; then continue to strategies 1-3 to get the
+        # slot + signature if PumpFun didn't resolve them.
         pf_anchor = await self._get_pumpfun_creation_anchor(mint)
-        if pf_anchor:
+        if pf_anchor and pf_anchor.get("slot") is not None:
             return pf_anchor
+        # PumpFun resolved creator but not slot → continue to get slot,
+        # then merge the creator (feePayer) into whatever anchor we find.
 
         # ── 1. DexScreener pair-pivot ────────────────────────────────────────
         if pair_ts_ms and pair_address:
@@ -548,12 +583,17 @@ class SolanaRpcClient:
                 mint, pair_ts_ms // 1000, pair_address
             )
             if pivot:
+                # Merge PumpFun creator if available (more reliable than sig-walk deployer)
+                if pf_anchor and pf_anchor.get("feePayer"):
+                    pivot["feePayer"] = pf_anchor["feePayer"]
                 return pivot
         else:
             dex_ts, dex_pair = await self._fetch_dexscreener_pair(mint)
             if dex_ts and dex_pair:
                 pivot = await self._get_deployer_via_pair_pivot(mint, dex_ts, dex_pair)
                 if pivot:
+                    if pf_anchor and pf_anchor.get("feePayer"):
+                        pivot["feePayer"] = pf_anchor["feePayer"]
                     return pivot
 
         # ── 2. Bonding-curve PDA (PumpFun only) ──────────────────────────────
@@ -567,10 +607,15 @@ class SolanaRpcClient:
                     logger.debug(
                         "[creation_anchor] resolved via curve PDA for %s", mint[:16]
                     )
+                    if pf_anchor and pf_anchor.get("feePayer"):
+                        sig["feePayer"] = pf_anchor["feePayer"]
                     return sig
 
         # ── 3. Direct mint walk ───────────────────────────────────────────────
-        return await self.get_oldest_signature(mint, circuit_protect=circuit_protect)
+        result = await self.get_oldest_signature(mint, circuit_protect=circuit_protect)
+        if result and pf_anchor and pf_anchor.get("feePayer"):
+            result["feePayer"] = pf_anchor["feePayer"]
+        return result
 
     async def get_deployer_and_timestamp(
         self, mint: str
