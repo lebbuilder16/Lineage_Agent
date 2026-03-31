@@ -111,18 +111,17 @@ export default function WatchlistScreen() {
       setTokenMeta((prev) => ({ ...prev, ...meta }));
     }
 
-    // 3. Fetch missing from DexScreener via search endpoint
+    // 3. Fetch missing from /token-meta endpoint (DAS + DexScreener, lightweight)
     if (missing.length > 0) {
       const BASE = (process.env.EXPO_PUBLIC_API_URL ?? 'https://lineage-agent.fly.dev').replace(/\/$/, '');
       for (const mint of missing) {
-        fetch(`${BASE}/search?q=${mint}&limit=1`)
-          .then((r) => r.ok ? r.json() : [])
-          .then((results: any[]) => {
-            if (results.length > 0) {
-              const r = results[0];
+        fetch(`${BASE}/token-meta/${mint}`)
+          .then((r) => r.ok ? r.json() : null)
+          .then((data: any) => {
+            if (data && (data.name || data.symbol || data.image_uri)) {
               setTokenMeta((prev) => ({
                 ...prev,
-                [mint]: { name: r.name, symbol: r.symbol, image: r.image_uri },
+                [mint]: { name: data.name, symbol: data.symbol, image: data.image_uri },
               }));
             }
           })

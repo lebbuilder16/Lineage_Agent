@@ -3169,6 +3169,47 @@ async def get_global_stats(request: Request) -> GlobalStats:
 # /graduations  — recent Pump.fun DEX graduations (from listener)
 # ---------------------------------------------------------------------------
 
+@app.get("/token-meta/{mint}", tags=["lineage"], summary="Lightweight token metadata (DAS + DexScreener)")
+async def get_token_meta(mint: str, request: Request):
+    """Return name, symbol, image_uri for a token. Uses DAS getAsset + DexScreener pairs.
+
+    Much lighter than /lineage — no forensic pipeline, just metadata resolution.
+    """
+    result = {"mint": mint, "name": "", "symbol": "", "image_uri": ""}
+
+    # Try DexScreener first (has image)
+    try:
+        from .data_sources._clients import get_dex_client
+        dex = get_dex_client()
+        pairs = await asyncio.wait_for(dex.get_token_pairs(mint), timeout=5.0)
+        if pairs:
+            meta = dex.pairs_to_metadata(mint, pairs)
+            if meta.name:
+                result["name"] = meta.name
+                result["symbol"] = meta.symbol or ""
+                result["image_uri"] = meta.image_uri or ""
+                return result
+    except Exception:
+        pass
+
+    # Fallback: Helius DAS getAsset (on-chain metadata)
+    try:
+        from .data_sources._clients import get_rpc_client
+        rpc = get_rpc_client()
+        asset = await asyncio.wait_for(rpc.get_asset(mint), timeout=5.0)
+        if asset:
+            content = asset.get("content", {}) or {}
+            metadata = content.get("metadata", {}) or {}
+            links = content.get("links", {}) or {}
+            result["name"] = metadata.get("name", "")
+            result["symbol"] = metadata.get("symbol", "")
+            result["image_uri"] = links.get("image", "") or content.get("json_uri", "")
+    except Exception:
+        pass
+
+    return result
+
+
 @app.get("/graduations", tags=["intelligence"], summary="Recent Pump.fun tokens that graduated to DEX")
 @limiter.limit("60/minute")
 async def get_graduations(
