@@ -638,12 +638,15 @@ async def _build_report(mint: str, deployer: str) -> Optional[CartelReport]:
     elif strongest_signal:
         narrative_parts.append(f"linked by {strongest_signal.replace('_', ' ')}")
 
-    if sol_display or usd_display:
-        extraction = " / ".join(filter(None, [sol_display, usd_display]))
-        narrative_parts.append(f"with {extraction} extracted")
+    if total_sol_extracted > 0:
+        narrative_parts.append(
+            f"— at least {total_sol_extracted:.1f} SOL extracted by deployers alone (other cartel wallets not yet traced)"
+        )
+    elif estimated_extracted > 0:
+        narrative_parts.append(f"— ~${estimated_extracted:,.0f} estimated extraction")
 
     if total_rugs > 0:
-        narrative_parts.append(f"and {total_rugs} confirmed rug{'s' if total_rugs > 1 else ''}")
+        narrative_parts.append(f"with {total_rugs} confirmed rug{'s' if total_rugs > 1 else ''}")
 
     narrative = " ".join(narrative_parts) + "."
 
