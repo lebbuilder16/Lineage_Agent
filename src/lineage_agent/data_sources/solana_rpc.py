@@ -441,6 +441,56 @@ class SolanaRpcClient:
 
         return None
 
+    # PumpFun API cache — avoids re-hitting the API for the same mint.
+    # In-process only; the lineage_detector has its own persistent cache layer.
+    _pumpfun_cache: dict[str, Optional[dict]] = {}
+
+    async def _get_pumpfun_creation_anchor(self, mint: str) -> Optional[dict[str, Any]]:
+        """Resolve token creator + timestamp via the PumpFun API (~200ms).
+
+        Returns an anchor dict with ``feePayer`` (= creator) set, or None
+        if the token is not a PumpFun token or the API is unreachable.
+
+        The API returns 404 for non-PumpFun tokens, which is safe and fast.
+        Results are cached in-process (creator is immutable on-chain).
+        """
+        # In-process cache check
+        if mint in self._pumpfun_cache:
+            return self._pumpfun_cache[mint]
+
+        try:
+            client = await self._get_client()
+            resp = await asyncio.wait_for(
+                client.get(f"https://frontend-api-v3.pump.fun/coins/{mint}", timeout=5.0),
+                timeout=5.0,
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                creator = data.get("creator", "")
+                if creator and creator not in _PROGRAM_ADDRESSES and creator != mint:
+                    # created_timestamp is Unix epoch in ms
+                    created_ts_ms = data.get("created_timestamp")
+                    block_time = (
+                        int(created_ts_ms / 1000) if created_ts_ms else None
+                    )
+                    anchor = {
+                        "signature": "",  # PumpFun API doesn't return sig
+                        "slot": None,
+                        "blockTime": block_time,
+                        "feePayer": creator,
+                    }
+                    self._pumpfun_cache[mint] = anchor
+                    logger.info(
+                        "[creation_anchor] PumpFun API resolved creator %s for %s",
+                        creator[:12], mint[:12],
+                    )
+                    return anchor
+            # Not a PumpFun token or no creator — cache negative
+            self._pumpfun_cache[mint] = None
+        except Exception as exc:
+            logger.debug("[creation_anchor] PumpFun API failed for %s: %s", mint[:12], exc)
+        return None
+
     async def get_creation_anchor(
         self, mint: str, *, circuit_protect: bool = True,
         pair_ts_ms: Optional[int] = None,
@@ -450,7 +500,10 @@ class SolanaRpcClient:
 
         Resolution order
         ----------------
-        1. **DexScreener pair-pivot** (fastest, ≈1–3 s) — uses ``pairCreatedAt``
+        0. **PumpFun API** (fastest, ~200ms) — returns creator + created_timestamp
+           directly from pump.fun backend. Works for all PumpFun tokens regardless
+           of suffix. Returns 404 for non-PumpFun tokens (safe, fast).
+        1. **DexScreener pair-pivot** (≈1–3 s) — uses ``pairCreatedAt``
            as the Raydium migration anchor, binary-searches the slot chain, walks
            backwards from the migration TX to the true creation TX.
            Works for any token listed on DexScreener (i.e. that has migrated).
@@ -461,7 +514,12 @@ class SolanaRpcClient:
         3. **Direct mint** signature walk — last-resort fallback, capped at
            20 pages.
         """
-        # ── 1. DexScreener pair-pivot (fastest) ──────────────────────────────
+        # ── 0. PumpFun API (fastest — ~200ms) ───────────────────────────────
+        pf_anchor = await self._get_pumpfun_creation_anchor(mint)
+        if pf_anchor:
+            return pf_anchor
+
+        # ── 1. DexScreener pair-pivot ────────────────────────────────────────
         if pair_ts_ms and pair_address:
             pivot = await self._get_deployer_via_pair_pivot(
                 mint, pair_ts_ms // 1000, pair_address
