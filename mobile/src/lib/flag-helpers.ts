@@ -10,7 +10,7 @@ export const FLAG_LABELS: Record<string, string> = {
   INSIDER_DUMP_DETECTED: 'Insider dump',
   BUNDLE_DETECTED: 'Bundle detected',
   BUNDLE_WALLETS_NEW: 'New bundle wallets',
-  CARTEL_DETECTED: 'Cartel detected',
+  CARTEL_DETECTED: 'Cartel network detected',
   CARTEL_EXPANDED: 'Cartel expanded',
   RISK_ESCALATION: 'Risk escalated',
   DEPLOYER_NEW_RUG: 'New rug by deployer',

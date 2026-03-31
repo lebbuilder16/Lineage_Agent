@@ -535,6 +535,7 @@ async def _build_report(mint: str, deployer: str) -> Optional[CartelReport]:
 
     total_rugs = 0
     estimated_extracted = 0.0
+    total_sol_extracted = 0.0
     if mints:
         await normalize_legacy_rug_events(mints=mints)
         rug_ph = ",".join("?" for _ in mints)
@@ -550,6 +551,19 @@ async def _build_report(mint: str, deployer: str) -> Optional[CartelReport]:
             (r.get("mcap_usd") or 0.0) * estimate_extraction_rate(r.get("mcap_usd"))
             for r in confirmed_rugged_rows
         )
+
+        # Also compute real SOL extracted from sol_flows table (more accurate than mcap estimate)
+        try:
+            from .data_sources._clients import sol_flows_query
+            for m in mints[:30]:  # cap to avoid slow queries
+                flows = await sol_flows_query(m)
+                if flows:
+                    for f in flows:
+                        amt = f.get("amount_lamports", 0)
+                        if isinstance(amt, (int, float)) and amt > 0:
+                            total_sol_extracted += amt / 1e9
+        except Exception:
+            pass
 
     # Earliest activity
     ts_rows = await event_query(
@@ -601,12 +615,46 @@ async def _build_report(mint: str, deployer: str) -> Optional[CartelReport]:
     else:
         confidence = "low"
 
+    # Generate human-readable narrative
+    n_wallets = len(community_wallets)
+    n_tokens = len(created_rows)
+    sol_display = f"{total_sol_extracted:.1f} SOL" if total_sol_extracted > 0 else ""
+    usd_display = f"~${estimated_extracted:,.0f}" if estimated_extracted > 0 else ""
+
+    narrative_parts = [
+        f"This deployer is part of a coordinated network of {n_wallets} wallets",
+        f"that launched {n_tokens} tokens",
+    ]
+    if strongest_signal == "shared_lp":
+        # Count distinct LP wallets
+        lp_wallets = set()
+        for e in edge_list:
+            lp = (e.evidence or {}).get("lp_wallet", "")
+            if lp:
+                lp_wallets.add(lp)
+        narrative_parts.append(
+            f"linked by {len(lp_wallets)} shared liquidity provider wallet{'s' if len(lp_wallets) > 1 else ''}"
+        )
+    elif strongest_signal:
+        narrative_parts.append(f"linked by {strongest_signal.replace('_', ' ')}")
+
+    if sol_display or usd_display:
+        extraction = " / ".join(filter(None, [sol_display, usd_display]))
+        narrative_parts.append(f"with {extraction} extracted")
+
+    if total_rugs > 0:
+        narrative_parts.append(f"and {total_rugs} confirmed rug{'s' if total_rugs > 1 else ''}")
+
+    narrative = " ".join(narrative_parts) + "."
+
     community = CartelCommunity(
         community_id=community_id,
         wallets=community_wallets,
         total_tokens_launched=len(created_rows),
         total_rugs=total_rugs,
         estimated_extracted_usd=round(estimated_extracted, 2),
+        total_sol_extracted=round(total_sol_extracted, 2),
+        narrative=narrative,
         active_since=active_since,
         strongest_signal=strongest_signal,
         edges=edge_list,

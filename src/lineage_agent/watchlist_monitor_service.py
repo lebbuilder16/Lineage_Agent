@@ -49,6 +49,10 @@ def _extract_forensic_snapshot(lin: Any) -> dict:
         if dc:
             wallets = getattr(dc, "wallets", None)
             snapshot["cartel_wallets"] = len(wallets) if wallets else 0
+            dc_comm = getattr(cr, "deployer_community", None) if cr else None
+            if dc_comm:
+                snapshot["cartel_narrative"] = getattr(dc_comm, "narrative", "") or ""
+                snapshot["cartel_sol_extracted"] = getattr(dc_comm, "total_sol_extracted", 0) or 0
         else:
             snapshot["cartel_wallets"] = 0
 
@@ -140,10 +144,12 @@ def _generate_flags(old: dict, new: dict, mint: str, *, ref: Optional[dict] = No
     # Cartel detection
     old_cw = old.get("cartel_wallets", 0) or 0
     new_cw = new.get("cartel_wallets", 0) or 0
+    cartel_narrative = new.get("cartel_narrative", "")
+    cartel_sol = new.get("cartel_sol_extracted", 0)
     if new_cw > 0 and old_cw == 0:
-        _flag("CARTEL_DETECTED", "warning",
-              f"Deployer linked to {new_cw}-wallet cartel network",
-              {"wallets": new_cw})
+        title = cartel_narrative or f"Deployer linked to {new_cw}-wallet cartel network"
+        _flag("CARTEL_DETECTED", "warning", title,
+              {"wallets": new_cw, "narrative": cartel_narrative, "sol_extracted": cartel_sol})
     elif new_cw > old_cw + 1:
         _flag("CARTEL_EXPANDED", "warning",
               f"Cartel grew: {old_cw} → {new_cw} wallets",

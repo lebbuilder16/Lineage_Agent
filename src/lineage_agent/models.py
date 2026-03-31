@@ -831,6 +831,8 @@ class CartelCommunity(BaseModel):
     total_tokens_launched: int
     total_rugs: int
     estimated_extracted_usd: float = Field(ge=0.0)
+    total_sol_extracted: float = Field(0.0, ge=0.0, description="Real SOL extracted from on-chain sol_flows")
+    narrative: str = Field("", description="Human-readable cartel summary for the mobile app")
     active_since: Optional[datetime] = None
     strongest_signal: str = ""
     edges: list[CartelEdge] = Field(default_factory=list)

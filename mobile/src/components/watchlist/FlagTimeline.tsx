@@ -39,8 +39,10 @@ export function FlagTimeline({ flags, maxItems = 5 }: FlagTimelineProps) {
               <Text style={[styles.title, { color }]} numberOfLines={1}>
                 {flagLabel(flag.flagType)}
               </Text>
-              {flag.title && flag.title !== flagLabel(flag.flagType) && (
-                <Text style={styles.detail} numberOfLines={1}>{flag.title}</Text>
+              {((flag.detail as any)?.narrative || (flag.title && flag.title !== flagLabel(flag.flagType))) && (
+                <Text style={styles.detail} numberOfLines={2}>
+                  {(flag.detail as any)?.narrative || flag.title}
+                </Text>
               )}
               <Text style={styles.time}>{timeAgo(flag.createdAt)}</Text>
             </View>
