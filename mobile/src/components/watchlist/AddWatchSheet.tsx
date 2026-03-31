@@ -90,7 +90,7 @@ export function AddWatchSheet({ visible, onClose, onSubmit, loading = false }: A
           accessibilityRole="button"
           accessibilityLabel="Confirm add to watchlist"
         >
-          Add
+          <Text style={{ color: tokens.white100, fontFamily: 'Lexend-SemiBold', fontSize: 15 }}>Add</Text>
         </HapticButton>
       </View>
     </Modal>
