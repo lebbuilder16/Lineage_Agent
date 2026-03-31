@@ -723,23 +723,25 @@ def report_to_lineage_result(report: ForensicReport) -> Any:
     if result is None:
         return None
 
-    # Sync deployer: the pipeline resolves deployer via PumpFun API
-    # (authoritative), while detect_lineage may resolve via DAS creators[]
-    # (unreliable for PumpFun tokens).  If they differ, trust the pipeline.
+    # Sync deployer on query_token: the pipeline resolves deployer via PumpFun
+    # API (authoritative), while detect_lineage may resolve via DAS creators[]
+    # (unreliable for PumpFun tokens). Only sync query_token — root.deployer
+    # belongs to a different token (the original) and must NOT be overwritten.
     pipeline_deployer = report.identity.deployer
-    if pipeline_deployer and result.root:
+    if pipeline_deployer and result.query_token:
+        qt_deployer = getattr(result.query_token, "deployer", "")
+        if qt_deployer != pipeline_deployer:
+            result.query_token.deployer = pipeline_deployer
+            logger.info(
+                "[report_to_lineage] deployer sync: query_token %s → %s for %s",
+                (qt_deployer or "empty")[:12], pipeline_deployer[:12],
+                report.identity.mint[:12],
+            )
+    # If query IS the root (query_is_root=True), also sync root.deployer
+    if pipeline_deployer and getattr(result, "query_is_root", False) and result.root:
         root_deployer = getattr(result.root, "deployer", "")
         if root_deployer != pipeline_deployer:
             result.root.deployer = pipeline_deployer
-            logger.info(
-                "[report_to_lineage] deployer sync: root %s → pipeline %s for %s",
-                (root_deployer or "empty")[:12], pipeline_deployer[:12],
-                report.identity.mint[:12],
-            )
-    # Also sync on query_token if present
-    if pipeline_deployer and result.query_token:
-        if getattr(result.query_token, "deployer", "") != pipeline_deployer:
-            result.query_token.deployer = pipeline_deployer
 
     # Attach forensic enrichments to the LineageResult
     if report.deployer_profile is not None:
