@@ -402,6 +402,29 @@ def _build_heuristic_findings(report: Any, lineage_res: Any, hscore: int) -> lis
     if report and getattr(report, "zombie_alert", None):
         findings.append("Zombie alert — this token resembles a previously rugged token that was relaunched.")
 
+    # ── Sniper ring ──────────────────────────────────────────────────────
+    sniper = getattr(report, "sniper_report", None) if report else None
+    if sniper:
+        sv = getattr(sniper, "verdict", "") or ""
+        ring_size = getattr(sniper, "ring_size", 0) or 0
+        dep_funded = getattr(sniper, "deployer_funded_count", 0) or 0
+        shared_count = getattr(sniper, "shared_funder_count", 0) or 0
+        sol_ret = getattr(sniper, "sol_returned_to_deployer", 0) or 0
+        if sv == "deployer_linked_ring":
+            parts = []
+            if dep_funded:
+                parts.append(f"{dep_funded} funded by deployer")
+            if shared_count >= 2:
+                parts.append(f"{shared_count} share a common funder")
+            if sol_ret > 0:
+                parts.append(f"{sol_ret:.2f} SOL returned to deployer")
+            detail = " — ".join(parts) if parts else ""
+            findings.append(f"Deployer-linked sniper ring: {ring_size} early buyers detected. {detail}")
+        elif sv == "suspicious_ring":
+            findings.append(f"Suspicious sniper activity: {ring_size} coordinated early buyers detected.")
+        elif sv == "organic" and ring_size >= 3:
+            findings.append(f"{ring_size} early snipers detected — no deployer link found.")
+
     # ── Operator fingerprint ─────────────────────────────────────────────
     fp = getattr(report, "operator_fingerprint", None) if report else None
     if fp:

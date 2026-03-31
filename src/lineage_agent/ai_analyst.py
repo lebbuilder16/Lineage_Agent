@@ -305,6 +305,16 @@ def _heuristic_score(
         elif extracted >= 1:
             score += 6
 
+    # ── Sniper ring signals ─────────────────────────────────────────────
+    if lineage:
+        _sniper = getattr(lineage, "sniper_report", None)
+        if _sniper:
+            _sv = getattr(_sniper, "verdict", "") or ""
+            if _sv == "deployer_linked_ring":
+                score += 25
+            elif _sv == "suspicious_ring":
+                score += 12
+
     # ── Behavioral signals ────────────────────────────────────────────────
     if behavioral_signals:
         _pc = behavioral_signals.get("phash_cluster") or {}
