@@ -56,6 +56,7 @@ class ForensicReport:
     operator_impact: Any = None
     liquidity_arch: Any = None
     zombie_alert: Any = None
+    sniper_report: Any = None
     funding_source: str = ""  # address of first SOL funder of deployer
     timings: dict = field(default_factory=dict)
 
@@ -451,8 +452,33 @@ async def run_forensic_pipeline(
                 logger.warning("[pipeline] cartel failed: %s", e)
                 _sub_step("cartel", "done", ms=int((time.monotonic() - t) * 1000), ok=False)
 
+        async def _sniper() -> None:
+            if not deployer:
+                return
+            _sub_step("sniper", "running")
+            t = time.monotonic()
+            try:
+                from .sniper_tracker_service import analyze_sniper_ring
+                # Get creation_slot from identity if available
+                _creation_slot = None
+                if hasattr(identity, '_creation_slot'):
+                    _creation_slot = identity._creation_slot
+                results["sniper_report"] = await asyncio.wait_for(
+                    analyze_sniper_ring(
+                        mint, deployer,
+                        creation_slot=_creation_slot,
+                        created_at=identity.created_at,
+                        pairs=identity.pairs,
+                    ),
+                    timeout=15.0,
+                )
+                _sub_step("sniper", "done", ms=int((time.monotonic() - t) * 1000))
+            except Exception as e:
+                logger.warning("[pipeline] sniper failed: %s", e)
+                _sub_step("sniper", "done", ms=int((time.monotonic() - t) * 1000), ok=False)
+
         await asyncio.gather(
-            _sol_flow(), _bundle(), _cartel(),
+            _sol_flow(), _bundle(), _cartel(), _sniper(),
             return_exceptions=True,
         )
         return results
@@ -612,6 +638,7 @@ async def run_forensic_pipeline(
         report.sol_flow = chain_results.get("sol_flow")
         report.bundle_report = chain_results.get("bundle_report")
         report.cartel_report = chain_results.get("cartel_report")
+        report.sniper_report = chain_results.get("sniper_report")
 
     # Insider sell from Branch D (ran in parallel, not sequential)
     if insider_result is not None and not isinstance(insider_result, Exception):
@@ -719,5 +746,7 @@ def report_to_lineage_result(report: ForensicReport) -> Any:
         result.liquidity_arch = report.liquidity_arch
     if report.zombie_alert is not None:
         result.zombie_alert = report.zombie_alert
+    if report.sniper_report is not None:
+        result.sniper_report = report.sniper_report
 
     return result

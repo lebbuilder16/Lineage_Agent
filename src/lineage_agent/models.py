@@ -237,6 +237,9 @@ class LineageResult(BaseModel):
     bundle_report: Optional["BundleExtractionReport"] = Field(
         None, description="Bundle wallet forensic analysis — pre+post sell behavior with verified extraction (Initiative 5)"
     )
+    sniper_report: Optional["SniperRingReport"] = Field(
+        None, description="Sniper ring detection — early buyers linked to deployer (Initiative 5b)"
+    )
 
     # ── Platform / lifecycle context ─────────────────────────────────────
     is_bonding_curve: bool = Field(
@@ -464,6 +467,54 @@ class BundleExtractionReport(BaseModel):
     analysis_timestamp: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc)
     )
+
+
+# ---------------------------------------------------------------------------
+# Initiative 5b — Sniper Ring Detection
+# ---------------------------------------------------------------------------
+
+
+class SniperWallet(BaseModel):
+    """Single sniper wallet analysis."""
+    wallet: str
+    entry_slot: Optional[int] = Field(None, description="Absolute slot of first buy")
+    entry_delta_slots: Optional[int] = Field(None, description="Slots after pool creation")
+    tokens_bought: float = Field(0.0, description="Token amount bought")
+    cost_basis_sol: float = Field(0.0, description="SOL spent on buy")
+    sold: bool = Field(False, description="Has the wallet exited its position")
+    profit_sol: Optional[float] = Field(None, description="SOL profit if sold")
+    funder: Optional[str] = Field(None, description="Wallet that funded this sniper pre-buy")
+    funder_is_deployer: bool = Field(False)
+    funder_is_shared: bool = Field(False, description="Same funder funded other snipers or deployer")
+    wallet_age_hours: Optional[float] = Field(None, description="Wallet age at time of snipe")
+    flags: list[str] = Field(default_factory=list)
+
+
+class SniperRingReport(BaseModel):
+    """Sniper ring analysis — detects coordinated early buyers and their links."""
+    mint: str
+    deployer: str
+
+    snipers: list[SniperWallet] = Field(default_factory=list)
+    ring_size: int = Field(0, description="Total unique sniper wallets detected")
+
+    # Deployer links
+    deployer_funded_count: int = Field(0, description="Snipers directly funded by deployer")
+    shared_funder_count: int = Field(0, description="Snipers sharing a common funder")
+    shared_funder: Optional[str] = Field(None, description="Common funder address if any")
+    sol_returned_to_deployer: float = Field(0.0, description="SOL sent back to deployer after sell")
+
+    # Cross-token
+    repeat_sniper_count: int = Field(0, description="Snipers seen in other deployer tokens")
+
+    risk_score: float = Field(0.0, ge=0.0, le=1.0)
+    verdict: Literal[
+        "no_snipers",
+        "organic",
+        "suspicious_ring",
+        "deployer_linked_ring",
+    ] = "no_snipers"
+    evidence: list[str] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
