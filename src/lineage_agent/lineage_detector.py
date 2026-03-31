@@ -155,6 +155,7 @@ def classify_market_context(
             platform = _sfx_platform
             evidence = EvidenceLevel.STRONG
             reason_codes.append(f"mint_suffix_{_sfx_platform}")
+            logger.info("[launchpad] suffix match: %s → %s (mint=%s)", _sfx_values, _sfx_platform, _mint_lower[-8:])
             break
 
     # ── Step 2: Content host check (before authority — disambiguates shared authorities)
