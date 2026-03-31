@@ -94,7 +94,7 @@ _LAUNCHPAD_MINT_SUFFIXES: dict[str, tuple[str, ...]] = {
     "pumpfun": ("pump",),
     "moonshot": ("moon",),
     "letsbonk": ("bonk",),
-    "bagsfm": ("BAGS",),  # bags.fm tokens end with BAGS
+    "bagsfm": ("bags",),  # bags.fm tokens end with BAGS (compared lowercase)
 }
 
 
