@@ -82,7 +82,7 @@ export function AddWatchSheet({ visible, onClose, onSubmit, loading = false }: A
           <Text style={styles.addErrorText}>{addError}</Text>
         )}
         <HapticButton
-          variant="secondary"
+          variant="primary"
           size="md"
           fullWidth
           loading={loading}
@@ -90,7 +90,7 @@ export function AddWatchSheet({ visible, onClose, onSubmit, loading = false }: A
           accessibilityRole="button"
           accessibilityLabel="Confirm add to watchlist"
         >
-          Add
+          <Text style={{ color: tokens.white100, fontFamily: 'Lexend-SemiBold', fontSize: 15 }}>Add</Text>
         </HapticButton>
       </View>
     </Modal>
@@ -107,15 +107,16 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: tokens.bgApp,
+    backgroundColor: '#0A1014',
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     paddingTop: 12,
     paddingHorizontal: tokens.spacing.screenPadding,
-    paddingBottom: 48,
+    paddingBottom: 80,
     gap: 12,
     borderTopWidth: 1,
     borderColor: tokens.borderSubtle,
+    elevation: 20,
   },
   handle: {
     width: 40,

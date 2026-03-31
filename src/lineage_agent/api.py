@@ -132,6 +132,15 @@ else:
 # ---------------------------------------------------------------------------
 _start_time = time.monotonic()
 
+# Loop heartbeats — updated by each background loop on every cycle
+_loop_heartbeats: dict[str, float] = {}
+_LOOP_STALE_THRESHOLD = 300  # 5 min — if no heartbeat in 5 min, loop is considered dead
+
+
+def _heartbeat(loop_name: str) -> None:
+    """Record a heartbeat for a background loop."""
+    _loop_heartbeats[loop_name] = time.time()
+
 
 # ---------------------------------------------------------------------------
 # Base58 validation regex (Solana addresses are 32-44 base58 chars)
@@ -217,9 +226,16 @@ def _cancel_wallet_label_refresh() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Rate limiter
+# Rate limiter — use API key when present, fall back to IP
 # ---------------------------------------------------------------------------
-limiter = Limiter(key_func=get_remote_address)
+def _rate_limit_key(request: Request) -> str:
+    """Per-user rate limiting via API key, fallback to IP for unauthenticated endpoints."""
+    api_key = request.headers.get("X-API-Key", "")
+    if api_key:
+        return f"key:{api_key[:16]}"  # truncate for privacy in logs
+    return get_remote_address(request)
+
+limiter = Limiter(key_func=_rate_limit_key)
 
 
 # ---------------------------------------------------------------------------
@@ -228,6 +244,12 @@ limiter = Limiter(key_func=get_remote_address)
 @asynccontextmanager
 async def lifespan(application: FastAPI):
     """Initialise shared HTTP clients on startup, close on shutdown."""
+    # Configure structured logging (JSON in production, colored in dev)
+    try:
+        from .log_config import configure_logging
+        configure_logging()
+    except Exception:
+        pass  # fall back to default logging if structlog not available
     # Validate critical env vars
     if not SOLANA_RPC_ENDPOINT or not SOLANA_RPC_ENDPOINT.startswith("http"):
         logger.error(
@@ -271,6 +293,7 @@ async def lifespan(application: FastAPI):
     schedule_db_maintenance()
 
     _schedule_watchlist_sweep()
+    _schedule_market_pulse()
     _schedule_briefing_loop()
     _schedule_wallet_monitor()
 
@@ -314,6 +337,7 @@ async def lifespan(application: FastAPI):
     _cancel_cartel_sweep()
     cancel_db_maintenance()
     _cancel_watchlist_sweep()
+    _cancel_market_pulse()
     _cancel_briefing_loop()
     _cancel_wallet_monitor()
     _cancel_wallet_label_refresh()
@@ -478,17 +502,90 @@ async def root():
 
 @app.get("/health", tags=["system"])
 async def health() -> dict:
-    """Lightweight public health check."""
+    """Health check with operational metrics."""
     uptime_s = round(time.monotonic() - _start_time, 1)
     try:
         from .db import get_backend
         db_dialect = get_backend().dialect
     except Exception:
         db_dialect = "unknown"
+
+    # Sweep + pulse metrics (best-effort)
+    sweep_info: dict = {}
+    try:
+        from .data_sources._clients import cache as _cache
+        from .cache import SQLiteCache
+        if isinstance(_cache, SQLiteCache):
+            db = await _cache._get_conn()
+            # Last sweep time
+            c = await db.execute("SELECT MAX(scanned_at) FROM watch_snapshots")
+            r = await c.fetchone()
+            if r and r[0]:
+                sweep_info["last_sweep_ago_s"] = round(time.time() - r[0])
+            # Total watches
+            c = await db.execute("SELECT COUNT(*) FROM user_watches WHERE sub_type = 'mint'")
+            r = await c.fetchone()
+            sweep_info["watched_tokens"] = r[0] if r else 0
+            # Pending notifications
+            try:
+                c = await db.execute("SELECT COUNT(*) FROM pending_notifications WHERE attempts < 3")
+                r = await c.fetchone()
+                sweep_info["pending_notifications"] = r[0] if r else 0
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    # Listener stats
+    try:
+        from .pump_fun_listener import get_listener_stats
+        sweep_info["listener"] = get_listener_stats()
+    except Exception:
+        pass
+
+    # Redis cache status
+    try:
+        from .redis_cache import redis_health
+        sweep_info["redis"] = await redis_health()
+    except Exception:
+        pass
+
+    # Loop watchdog — check heartbeats and auto-recover dead loops
+    now = time.time()
+    loops_status: dict[str, str] = {}
+    for loop_name, tasks_info in [
+        ("sweep", ("_watchlist_sweep_task", "_schedule_watchlist_sweep")),
+        ("pulse", ("_market_pulse_task", "_schedule_market_pulse")),
+    ]:
+        last_hb = _loop_heartbeats.get(loop_name, 0)
+        age = now - last_hb if last_hb > 0 else uptime_s
+        task_var = tasks_info[0]
+        restart_fn = tasks_info[1]
+
+        task = globals().get(task_var)
+        if task and not task.done() and age < _LOOP_STALE_THRESHOLD:
+            loops_status[loop_name] = "alive"
+        elif age >= _LOOP_STALE_THRESHOLD and uptime_s > _LOOP_STALE_THRESHOLD:
+            loops_status[loop_name] = "restarted"
+            # Auto-recover: restart the dead loop
+            try:
+                fn = globals().get(restart_fn)
+                if callable(fn):
+                    fn()
+                    logger.warning("[watchdog] restarted dead loop: %s (last heartbeat %ds ago)", loop_name, int(age))
+            except Exception as exc:
+                logger.warning("[watchdog] failed to restart %s: %s", loop_name, exc)
+                loops_status[loop_name] = "dead"
+        else:
+            loops_status[loop_name] = "starting"
+
+    sweep_info["loops"] = loops_status
+
     return {
         "status": "ok",
         "uptime_seconds": uptime_s,
         "db": db_dialect,
+        **sweep_info,
     }
 
 
@@ -2383,12 +2480,31 @@ async def auth_watches(request: Request):
 
 @app.post("/auth/watches", tags=["auth"])
 async def auth_add_watch(body: _WatchRequest, request: Request):
-    """Add a watch for the current user. Requires X-API-Key header."""
+    """Add a watch for the current user. Requires X-API-Key header.
+
+    For mint watches, triggers an immediate background scan so the user
+    sees baseline data within seconds instead of waiting 45min.
+    """
     user = await _get_current_user(request)
     from .data_sources._clients import cache as _cache  # noqa: PLC0415
     watch = await add_user_watch(_cache, user["id"], body.sub_type, body.value)
     if watch is None:
         raise HTTPException(status_code=409, detail="Watch already exists")
+
+    # Trigger immediate background scan for mint watches (creates _REFERENCE + first snapshot)
+    if body.sub_type == "mint" and watch.get("id"):
+        async def _initial_scan():
+            try:
+                from .watchlist_monitor_service import run_single_rescan
+                await asyncio.wait_for(
+                    run_single_rescan(watch["id"], user["id"], _cache),
+                    timeout=30.0,
+                )
+                logger.info("[watch] initial scan completed for %s", body.value[:12])
+            except Exception as exc:
+                logger.debug("[watch] initial scan failed for %s: %s", body.value[:12], exc)
+        asyncio.create_task(_initial_scan(), name=f"initial_scan_{body.value[:8]}")
+
     return watch
 
 
@@ -2945,7 +3061,9 @@ def _is_confirmed_rug_stats_row(row: dict) -> bool:
     evidence_level = str(row.get("evidence_level") or "").strip().lower()
     if not mechanism:
         return True
-    if mechanism not in {"dex_liquidity_rug", "pre_dex_extraction_rug", "liquidity_drain_rug"}:
+    # Include dead_token with moderate+ evidence (tokens that lost 50%+ liquidity)
+    accepted = {"dex_liquidity_rug", "pre_dex_extraction_rug", "liquidity_drain_rug", "dead_token"}
+    if mechanism not in accepted:
         return False
     if not evidence_level:
         return True
@@ -3051,6 +3169,75 @@ async def get_global_stats(request: Request) -> GlobalStats:
 # /graduations  — recent Pump.fun DEX graduations (from listener)
 # ---------------------------------------------------------------------------
 
+@app.get("/token-meta/{mint}", tags=["lineage"], summary="Lightweight token metadata (DAS + DexScreener)")
+async def get_token_meta(mint: str, request: Request):
+    """Return name, symbol, image_uri for a token. Uses DAS getAsset + DexScreener pairs.
+
+    Much lighter than /lineage — no forensic pipeline, just metadata resolution.
+    """
+    result = {"mint": mint, "name": "", "symbol": "", "image_uri": ""}
+
+    # Try DexScreener first (has image)
+    try:
+        from .data_sources._clients import get_dex_client
+        dex = get_dex_client()
+        pairs = await asyncio.wait_for(dex.get_token_pairs(mint), timeout=5.0)
+        if pairs:
+            meta = dex.pairs_to_metadata(mint, pairs)
+            if meta.name:
+                result["name"] = meta.name
+                result["symbol"] = meta.symbol or ""
+                result["image_uri"] = meta.image_uri or ""
+                return result
+    except Exception:
+        pass
+
+    # Fallback: Helius DAS getAsset (on-chain metadata)
+    try:
+        from .data_sources._clients import get_rpc_client
+        rpc = get_rpc_client()
+        asset = await asyncio.wait_for(rpc.get_asset(mint), timeout=5.0)
+        if asset:
+            content = asset.get("content", {}) or {}
+            metadata = content.get("metadata", {}) or {}
+            links = content.get("links", {}) or {}
+            # DAS returns name/symbol in content.metadata
+            name = metadata.get("name", "") or metadata.get("token_name", "")
+            symbol = metadata.get("symbol", "")
+            image = links.get("image", "") or content.get("json_uri", "")
+            # Also check top-level fields (some DAS versions)
+            if not name:
+                name = asset.get("name", "")
+            if not symbol:
+                symbol = asset.get("symbol", "")
+            result["name"] = name
+            result["symbol"] = symbol
+            result["image_uri"] = image
+            if name:
+                return result
+    except Exception as exc:
+        logger.debug("[token-meta] DAS getAsset failed for %s: %s", mint[:12], exc)
+
+    # Last resort: check intelligence_events for cached name
+    try:
+        from .data_sources._clients import cache as _cache
+        from .cache import SQLiteCache
+        if isinstance(_cache, SQLiteCache):
+            db = await _cache._get_conn()
+            cursor = await db.execute(
+                "SELECT name, symbol FROM intelligence_events WHERE mint = ? AND name != '' LIMIT 1",
+                (mint,),
+            )
+            row = await cursor.fetchone()
+            if row and row[0]:
+                result["name"] = row[0]
+                result["symbol"] = row[1] or ""
+    except Exception:
+        pass
+
+    return result
+
+
 @app.get("/graduations", tags=["intelligence"], summary="Recent Pump.fun tokens that graduated to DEX")
 @limiter.limit("60/minute")
 async def get_graduations(
@@ -3106,7 +3293,7 @@ async def get_top_tokens(
             FROM intelligence_events
             WHERE mint IS NOT NULL AND mint != ''
             GROUP BY mint
-            ORDER BY event_count DESC, MAX(ROWID) DESC
+            ORDER BY event_count DESC, MAX(mcap_usd) DESC, MAX(ROWID) DESC
             LIMIT ?
         """
         cursor = await db.execute(sql, (limit,))
@@ -3389,7 +3576,7 @@ class _AgentPrefsBody(BaseModel):
     riskThreshold: int = 70
     alertTypes: list[str] = ["deployer_exit", "bundle", "sol_extraction", "price_crash", "cartel", "operator_match", "deployer_rug"]
     solExtractionMin: float = 20.0
-    sweepInterval: int = 7200
+    sweepInterval: int = 2700
     investigationDepth: str = "standard"
     quietHoursStart: Optional[int] = None
     quietHoursEnd: Optional[int] = None
@@ -3448,7 +3635,7 @@ async def get_agent_prefs(request: Request):
         "riskThreshold": 70,
         "alertTypes": ["deployer_exit", "bundle", "sol_extraction", "price_crash", "cartel", "operator_match", "deployer_rug"],
         "solExtractionMin": 20.0,
-        "sweepInterval": 7200,
+        "sweepInterval": 2700,
         "investigationDepth": "standard",
         "quietHoursStart": None,
         "quietHoursEnd": None,
@@ -3470,7 +3657,7 @@ async def get_agent_prefs(request: Request):
         "riskThreshold": row[5] if row[5] is not None else 70,
         "alertTypes": alert_types,
         "solExtractionMin": row[7] if row[7] is not None else 20.0,
-        "sweepInterval": row[8] if row[8] is not None else 7200,
+        "sweepInterval": row[8] if row[8] is not None else 2700,
         "investigationDepth": row[9] or "standard",
         "quietHoursStart": row[10],
         "quietHoursEnd": row[11],
@@ -3654,6 +3841,254 @@ async def mark_flag_read(flag_id: int, request: Request):
     )
     await db.commit()
     return {"ok": True}
+
+
+@app.get("/agent/watch-timeline/{mint}", tags=["agent"])
+async def get_watch_timeline(mint: str, request: Request):
+    """Return full timeline for a watched token: reference, snapshots, flags, investigation."""
+    user = await _get_current_user(request)
+    uid = user["id"]
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+    db = await _cache._get_conn()
+
+    # 1. Get watch_id
+    cursor = await db.execute(
+        "SELECT id, created_at FROM user_watches WHERE user_id = ? AND sub_type = 'mint' AND value = ?",
+        (uid, mint),
+    )
+    watch_row = await cursor.fetchone()
+    if not watch_row:
+        raise HTTPException(status_code=404, detail="Token not in your watchlist")
+    watch_id = watch_row[0]
+
+    # 2. Reference snapshot (_REFERENCE flag)
+    cursor = await db.execute(
+        "SELECT detail, created_at FROM sweep_flags WHERE watch_id = ? AND flag_type = '_REFERENCE' "
+        "ORDER BY created_at ASC LIMIT 1",
+        (watch_id,),
+    )
+    ref_row = await cursor.fetchone()
+    reference = None
+    if ref_row:
+        try:
+            rd = json.loads(ref_row[0])
+            reference = {
+                "price_usd": rd.get("price_usd"),
+                "liq_usd": rd.get("liq_usd"),
+                "risk_score": rd.get("heuristic_score") or rd.get("risk_score", 0),
+                "created_at": ref_row[1],
+            }
+        except Exception:
+            pass
+
+    # 3. Latest snapshot (_SNAPSHOT flag)
+    cursor = await db.execute(
+        "SELECT detail FROM sweep_flags WHERE watch_id = ? AND flag_type = '_SNAPSHOT' "
+        "ORDER BY created_at DESC LIMIT 1",
+        (watch_id,),
+    )
+    snap_row = await cursor.fetchone()
+    current = None
+    if snap_row:
+        try:
+            sd = json.loads(snap_row[0])
+            current = {
+                "price_usd": sd.get("price_usd"),
+                "liq_usd": sd.get("liq_usd"),
+                "risk_score": sd.get("heuristic_score") or sd.get("risk_score", 0),
+            }
+        except Exception:
+            pass
+
+    # 4. Deltas
+    deltas = None
+    if reference and current:
+        ref_p = reference.get("price_usd") or 0
+        cur_p = current.get("price_usd") or 0
+        ref_l = reference.get("liq_usd") or 0
+        cur_l = current.get("liq_usd") or 0
+        deltas = {
+            "price_pct": round((cur_p - ref_p) / ref_p * 100, 1) if ref_p > 0 else None,
+            "liq_pct": round((cur_l - ref_l) / ref_l * 100, 1) if ref_l > 0 else None,
+            "risk_delta": (current.get("risk_score") or 0) - (reference.get("risk_score") or 0),
+        }
+
+    # 5. Historical snapshots (for sparkline)
+    cursor = await db.execute(
+        "SELECT risk_score, risk_level, scanned_at FROM watch_snapshots "
+        "WHERE watch_id = ? ORDER BY scanned_at ASC",
+        (watch_id,),
+    )
+    snapshot_rows = await cursor.fetchall()
+    snapshots = [
+        {"risk_score": r[0] or 0, "risk_level": r[1] or "unknown", "scanned_at": r[2]}
+        for r in snapshot_rows
+    ]
+
+    # 6. Sweep flags (excluding internal)
+    cursor = await db.execute(
+        "SELECT id, flag_type, severity, title, detail, created_at, read FROM sweep_flags "
+        "WHERE watch_id = ? AND flag_type NOT IN ('_SNAPSHOT', '_REFERENCE') "
+        "ORDER BY created_at DESC",
+        (watch_id,),
+    )
+    flag_rows = await cursor.fetchall()
+    flags = []
+    for fr in flag_rows:
+        detail = {}
+        try:
+            detail = json.loads(fr[4]) if fr[4] else {}
+        except Exception:
+            pass
+        flags.append({
+            "id": fr[0], "flagType": fr[1], "severity": fr[2],
+            "title": fr[3], "detail": detail,
+            "createdAt": fr[5], "read": bool(fr[6]),
+        })
+
+    # 7. Latest investigation
+    cursor = await db.execute(
+        "SELECT risk_score, verdict_summary, key_findings, created_at FROM investigations "
+        "WHERE user_id = ? AND mint = ? ORDER BY created_at DESC LIMIT 1",
+        (uid, mint),
+    )
+    inv_row = await cursor.fetchone()
+    last_investigation = None
+    if inv_row:
+        kf = []
+        try:
+            kf = json.loads(inv_row[2]) if inv_row[2] else []
+        except Exception:
+            pass
+        last_investigation = {
+            "risk_score": inv_row[0] or 0,
+            "verdict": inv_row[1] or "",
+            "key_findings": kf,
+            "timestamp": int(inv_row[3] * 1000) if inv_row[3] else None,
+        }
+
+    # 8. Build narrative from deltas + flags
+    narrative = None
+    if deltas:
+        parts = []
+        if deltas.get("price_pct") is not None:
+            parts.append(f"Price {deltas['price_pct']:+.0f}% since first watched")
+        if deltas.get("liq_pct") is not None and (deltas["liq_pct"] or 0) <= -20:
+            parts.append(f"Liquidity {deltas['liq_pct']:+.0f}%")
+        # Highlight top flag
+        critical_flags = [f for f in flags if f["severity"] == "critical"]
+        if critical_flags:
+            narrative_flags = [f["title"] for f in critical_flags[:2]]
+            parts.extend(narrative_flags)
+        if parts:
+            narrative = " — ".join(parts)
+
+    return {
+        "mint": mint,
+        "watch_id": watch_id,
+        "reference": reference,
+        "current": current,
+        "deltas": deltas,
+        "snapshots": snapshots,
+        "flags": flags,
+        "last_investigation": last_investigation,
+        "narrative": narrative,
+    }
+
+
+@app.get("/agent/insights", tags=["agent"])
+async def get_agent_insights(request: Request):
+    """Cross-token intelligence for user's watchlist — shared deployers, cartel links."""
+    user = await _get_current_user(request)
+    uid = user["id"]
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+    db = await _cache._get_conn()
+
+    # 1. Get watched mints
+    cursor = await db.execute(
+        "SELECT id, value FROM user_watches WHERE user_id = ? AND sub_type = 'mint'",
+        (uid,),
+    )
+    watch_rows = await cursor.fetchall()
+    if not watch_rows:
+        return {"insights": []}
+
+    mints = [r[1] for r in watch_rows]
+    placeholders = ",".join("?" * len(mints))
+
+    insights: list[dict] = []
+
+    # 2. Shared deployer detection
+    try:
+        cursor = await db.execute(
+            f"SELECT deployer, GROUP_CONCAT(mint) as mints, COUNT(*) as cnt "
+            f"FROM investigation_episodes WHERE mint IN ({placeholders}) "
+            f"AND deployer IS NOT NULL AND deployer != '' "
+            f"GROUP BY deployer HAVING cnt > 1",
+            tuple(mints),
+        )
+        shared_rows = await cursor.fetchall()
+        for sr in shared_rows:
+            deployer = sr[0]
+            linked_mints = sr[1].split(",") if sr[1] else []
+            # Get deployer stats
+            c2 = await db.execute(
+                "SELECT total_rugs, total_tokens, avg_risk_score FROM entity_knowledge "
+                "WHERE entity_type = 'deployer' AND entity_id = ?",
+                (deployer,),
+            )
+            ek_row = await c2.fetchone()
+            rug_count = ek_row[0] if ek_row else 0
+            total_tokens = ek_row[1] if ek_row else 0
+            rug_rate = round(rug_count / total_tokens * 100) if total_tokens > 0 else 0
+
+            short_addr = f"{deployer[:4]}...{deployer[-4:]}" if len(deployer) > 8 else deployer
+            severity = "critical" if rug_count > 0 else "warning"
+            insights.append({
+                "type": "shared_deployer",
+                "severity": severity,
+                "title": f"{len(linked_mints)} watched tokens share deployer {short_addr}",
+                "detail": {
+                    "deployer": deployer,
+                    "mints": linked_mints,
+                    "rug_count": rug_count,
+                    "rug_rate": rug_rate,
+                    "avg_risk": round(ek_row[2]) if ek_row and ek_row[2] else None,
+                },
+            })
+    except Exception as exc:
+        logger.debug("[insights] shared deployer query failed: %s", exc)
+
+    # 3. Cartel/community links
+    try:
+        cursor = await db.execute(
+            f"SELECT community_id, GROUP_CONCAT(mint) as mints, COUNT(*) as cnt "
+            f"FROM investigation_episodes WHERE mint IN ({placeholders}) "
+            f"AND community_id IS NOT NULL AND community_id != '' "
+            f"GROUP BY community_id HAVING cnt > 1",
+            tuple(mints),
+        )
+        cartel_rows = await cursor.fetchall()
+        for cr in cartel_rows:
+            community_id = cr[0]
+            linked_mints = cr[1].split(",") if cr[1] else []
+            insights.append({
+                "type": "cartel_activity",
+                "severity": "warning",
+                "title": f"Cartel network active — {len(linked_mints)} of your tokens linked",
+                "detail": {
+                    "community_id": community_id,
+                    "mints": linked_mints,
+                },
+            })
+    except Exception as exc:
+        logger.debug("[insights] cartel query failed: %s", exc)
+
+    # Sort: critical first, then by type
+    severity_order = {"critical": 0, "warning": 1, "info": 2}
+    insights.sort(key=lambda x: severity_order.get(x.get("severity", "info"), 2))
+
+    return {"insights": insights}
 
 
 @app.post("/agent/feedback", tags=["agent"])
@@ -4332,16 +4767,17 @@ async def _watchlist_sweep_loop():
     from .data_sources._clients import cache as _cache  # noqa: PLC0415
     # Sweep loop runs every 30min. Per-user sweep_interval is respected
     # by checking when each user's last sweep was.
-    _LOOP_INTERVAL = 1800  # 30 min check cycle
+    _LOOP_INTERVAL = 900  # 15 min check cycle (was 30 min)
     first_run = True
     while True:
         await asyncio.sleep(60 if first_run else _LOOP_INTERVAL)
         first_run = False
+        _heartbeat("sweep")
         try:
             db = await _cache._get_conn()
             cursor = await db.execute(
                 "SELECT uw.id, uw.user_id, uw.value, "
-                "COALESCE(ap.sweep_interval, 7200) as sweep_interval "
+                "COALESCE(ap.sweep_interval, 2700) as sweep_interval "
                 "FROM user_watches uw "
                 "LEFT JOIN agent_prefs ap ON uw.user_id = ap.user_id "
                 "WHERE uw.sub_type = 'mint'"
@@ -4373,6 +4809,12 @@ async def _watchlist_sweep_loop():
                             try:
                                 from .alert_service import _broadcast_web_alert, _send_fcm_push
                                 _flag_title = f"{'🔴' if flag['severity'] == 'critical' else '⚠️'} {flag['title']}"
+                                # Extract token metadata from flag detail
+                                _fd = {}
+                                try:
+                                    _fd = json.loads(flag.get("detail", "{}")) if isinstance(flag.get("detail"), str) else (flag.get("detail") or {})
+                                except Exception:
+                                    pass
                                 await _broadcast_web_alert({
                                     "type": "sweep_flag",
                                     "alert_type": flag["flag_type"],
@@ -4380,6 +4822,8 @@ async def _watchlist_sweep_loop():
                                     "message": flag["title"],
                                     "body": flag["title"],
                                     "mint": result["mint"],
+                                    "token_name": _fd.get("token_name") or _fd.get("name") or result["mint"][:8],
+                                    "image_uri": _fd.get("image_uri") or None,
                                     "risk_score": result.get("new_score", 0),
                                     "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                                     "id": f"sweep-{result['mint'][:8]}-{flag['flag_type']}-{int(time.time())}",
@@ -4518,6 +4962,8 @@ async def _notify_investigation_complete(user_id: int, mint: str, verdict: dict)
             "title": title,
             "body": body,
             "mint": mint,
+            "token_name": name,
+            "image_uri": verdict.get("image_uri"),
             "risk_score": risk,
             "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "id": f"inv-{mint[:8]}-{int(time.time())}",
@@ -4550,13 +4996,97 @@ async def _notify_investigation_complete(user_id: int, mint: str, verdict: dict)
 def _schedule_watchlist_sweep():
     global _watchlist_sweep_task
     _watchlist_sweep_task = asyncio.create_task(_watchlist_sweep_loop())
-    logger.info("Watchlist sweep scheduled (every 2h)")
+    logger.info("Watchlist sweep scheduled (every 45min)")
 
 
 def _cancel_watchlist_sweep():
     global _watchlist_sweep_task
     if _watchlist_sweep_task:
         _watchlist_sweep_task.cancel()
+
+
+# ── Market Pulse (fast price check between full sweeps) ────────────────────
+_market_pulse_task: Optional[asyncio.Task] = None
+
+
+async def _market_pulse_loop():
+    """Lightweight price check every 10 min — triggers urgent rescan on drops."""
+    from .watchlist_monitor_service import run_market_pulse, PULSE_INTERVAL_SECONDS
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+
+    await asyncio.sleep(120)  # wait 2 min after startup before first pulse
+    while True:
+        _heartbeat("pulse")
+        try:
+            triggered = await run_market_pulse(_cache)
+            if triggered:
+                # Broadcast pulse-triggered alerts via WebSocket
+                for t in triggered:
+                    try:
+                        from .alert_service import _broadcast_web_alert, _send_fcm_push
+                        # Try to get token name/image from latest flag detail
+                        _pulse_name = t["mint"][:8]
+                        _pulse_image = None
+                        try:
+                            _pc = await db.execute(
+                                "SELECT detail FROM sweep_flags WHERE mint = ? AND flag_type NOT IN ('_SNAPSHOT','_REFERENCE') "
+                                "ORDER BY created_at DESC LIMIT 1", (t["mint"],))
+                            _pr = await _pc.fetchone()
+                            if _pr:
+                                _pd = json.loads(_pr[0]) if _pr[0] else {}
+                                _pulse_name = _pd.get("token_name") or _pd.get("name") or _pulse_name
+                                _pulse_image = _pd.get("image_uri")
+                        except Exception:
+                            pass
+                        await _broadcast_web_alert({
+                            "type": "pulse_alert",
+                            "alert_type": "price_movement",
+                            "title": f"⚡ {t['trigger']}",
+                            "message": t["trigger"],
+                            "body": f"Price: ${t['now_price']:.6f}",
+                            "mint": t["mint"],
+                            "token_name": _pulse_name,
+                            "image_uri": _pulse_image,
+                            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                            "id": f"pulse-{t['mint'][:8]}-{int(time.time())}",
+                            "read": False,
+                        }, user_id=t["user_id"])
+                        # Direct FCM push
+                        db = await _cache._get_conn()
+                        _user_cursor = await db.execute(
+                            "SELECT fcm_token FROM users WHERE id = ? AND fcm_token IS NOT NULL",
+                            (t["user_id"],),
+                        )
+                        _user_row = await _user_cursor.fetchone()
+                        if _user_row and _user_row[0]:
+                            asyncio.create_task(_send_fcm_push(
+                                _user_row[0],
+                                title=f"⚡ {t['trigger']}",
+                                body=f"Price: ${t['now_price']:.6f}",
+                                data={
+                                    "type": "pulse_alert",
+                                    "mint": t["mint"],
+                                    "urgency": "high",
+                                },
+                            ))
+                    except Exception:
+                        pass
+        except Exception as exc:
+            logger.warning("[pulse-loop] error: %s", exc)
+
+        await asyncio.sleep(PULSE_INTERVAL_SECONDS)
+
+
+def _schedule_market_pulse():
+    global _market_pulse_task
+    _market_pulse_task = asyncio.create_task(_market_pulse_loop())
+    logger.info("Market pulse scheduled (every 10min)")
+
+
+def _cancel_market_pulse():
+    global _market_pulse_task
+    if _market_pulse_task:
+        _market_pulse_task.cancel()
 
 
 def _schedule_briefing_loop():

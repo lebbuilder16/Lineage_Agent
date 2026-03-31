@@ -57,7 +57,7 @@ export async function purgeUserData(): Promise<void> {
     alertOnDeployerLaunch: true, alertOnHighRisk: true, autoInvestigate: false,
     dailyBriefing: true, briefingHour: 8, riskThreshold: 70,
     alertTypes: ['deployer_exit', 'bundle', 'sol_extraction', 'price_crash', 'cartel', 'operator_match', 'deployer_rug'],
-    solExtractionMin: 20, sweepInterval: 7200, investigationDepth: 'standard',
+    solExtractionMin: 20, sweepInterval: 2700, investigationDepth: 'standard',
     quietHoursStart: null, quietHoursEnd: null, hydrated: false,
   });
 

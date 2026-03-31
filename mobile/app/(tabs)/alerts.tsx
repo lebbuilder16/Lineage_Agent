@@ -40,6 +40,45 @@ export default function AlertsScreen() {
   const [expandedEnrichments, setExpandedEnrichments] = useState<Set<string>>(new Set());
   const insets = useSafeAreaInsets();
 
+  // Enrich alerts missing token_name/image_uri from DexScreener search
+  const enrichedRef = React.useRef<Set<string>>(new Set());
+  React.useEffect(() => {
+    // Detect alerts that need enrichment: no image, or name looks like a truncated address
+    const needsEnrich = (a: AlertItem) => {
+      if (!a.mint || enrichedRef.current.has(a.id)) return false;
+      if (!a.image_uri) return true;
+      // Name is just a truncated address (no real token name)
+      const name = a.token_name || a.title || '';
+      if (name.length <= 12 && /^[1-9A-HJ-NP-Za-km-z]+$/.test(name)) return true;
+      return false;
+    };
+    const missing = alerts.filter(needsEnrich).slice(0, 8);
+    if (!missing.length) return;
+    const BASE = (process.env.EXPO_PUBLIC_API_URL ?? 'https://lineage-agent.fly.dev').replace(/\/$/, '');
+    for (const a of missing) {
+      enrichedRef.current.add(a.id);
+      fetch(`${BASE}/search?q=${a.mint}&limit=1`)
+        .then((r) => r.ok ? r.json() : [])
+        .then((results: any[]) => {
+          if (results.length > 0 && (results[0].name || results[0].image_uri)) {
+            const store = useAlertsStore.getState();
+            const updated = store.alerts.map((al) =>
+              al.id === a.id
+                ? {
+                    ...al,
+                    token_name: results[0].name || al.token_name,
+                    image_uri: results[0].image_uri || al.image_uri,
+                    title: (al.title && al.title.length <= 12) ? results[0].name || al.title : al.title,
+                  }
+                : al,
+            );
+            useAlertsStore.setState({ alerts: updated });
+          }
+        })
+        .catch(() => {});
+    }
+  }, [alerts]);
+
   // Poll graduations via REST (doesn't depend on WebSocket)
   const { data: graduations } = useGraduations(20);
   const seenGradRef = React.useRef<Set<string>>(new Set());
@@ -48,12 +87,11 @@ export default function AlertsScreen() {
     for (const g of graduations) {
       if (seenGradRef.current.has(g.mint)) continue;
       seenGradRef.current.add(g.mint);
-      // Inject as alert into the store
       const displayName = g.name || g.symbol || g.mint.slice(0, 8);
       addAlert({
         id: `grad-${g.mint}-${g.timestamp}`,
         type: 'token_graduated',
-        title: `${displayName} 🎓`,
+        title: `${displayName}`,
         token_name: displayName,
         message: `Graduated to DEX — ${g.deployer?.slice(0, 8) ?? 'unknown'}...`,
         mint: g.mint,
@@ -78,9 +116,7 @@ export default function AlertsScreen() {
     if (activeFilter === 'critical') list = alerts.filter((a) => CRITICAL_TYPES.has(a.type));
     else if (activeFilter === 'unread') list = alerts.filter((a) => !a.read);
     else if (activeFilter === 'live') list = alerts.filter((a) => a.type === 'token_graduated' || a.type === 'deployer_launch');
-    // Smart triage: sort by mint (group), then risk score descending, unread first
     return [...list].sort((a, b) => {
-      // Group by mint first (alerts for same token stay together)
       const ma = a.mint ?? '';
       const mb = b.mint ?? '';
       if (ma && mb && ma !== mb) return ma < mb ? -1 : 1;
@@ -90,7 +126,6 @@ export default function AlertsScreen() {
     });
   }, [alerts, activeFilter]);
 
-  // Count alerts per mint for grouping badges
   const mintCounts = useMemo(() => {
     const counts = new Map<string, number>();
     for (const a of filtered) {
@@ -99,7 +134,6 @@ export default function AlertsScreen() {
     return counts;
   }, [filtered]);
 
-  // Alert summary for header
   const alertSummary = useMemo(() => {
     const critCount = alerts.filter(a => (a.risk_score ?? 0) >= 75).length;
     const highCount = alerts.filter(a => (a.risk_score ?? 0) >= 50 && (a.risk_score ?? 0) < 75).length;
@@ -137,7 +171,6 @@ export default function AlertsScreen() {
           }
         />
 
-        {/* Risk triage summary */}
         {alertSummary && wsConnected && (
           <View style={styles.triageBanner}>
             <AlertTriangle size={12} color={tokens.accent} />
@@ -145,15 +178,13 @@ export default function AlertsScreen() {
           </View>
         )}
 
-        {/* Offline banner */}
         {!wsConnected && (
           <View style={styles.offlineBanner}>
             <View style={styles.offlineDot} />
-            <Text style={styles.offlineText}>Alerts offline — reconnecting…</Text>
+            <Text style={styles.offlineText}>Alerts offline — reconnecting...</Text>
           </View>
         )}
 
-        {/* Quick filter chips */}
         <AlertFilterChips
           filters={QUICK_FILTERS}
           activeFilter={activeFilter}
@@ -216,72 +247,26 @@ export default function AlertsScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: tokens.bgMain },
   safe: { flex: 1, paddingHorizontal: tokens.spacing.screenPadding },
-
   triageBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: `${tokens.accent}12`,
-    borderRadius: tokens.radius.sm,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    marginBottom: 8,
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: `${tokens.accent}12`, borderRadius: tokens.radius.sm,
+    paddingHorizontal: 12, paddingVertical: 6, marginBottom: 8,
   },
-  triageText: {
-    fontFamily: 'Lexend-Medium',
-    fontSize: tokens.font.tiny,
-    color: tokens.accent,
-  },
+  triageText: { fontFamily: 'Lexend-Medium', fontSize: tokens.font.tiny, color: tokens.accent },
   offlineBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: `${tokens.risk.critical}15`,
-    borderRadius: tokens.radius.sm,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    marginBottom: 8,
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: `${tokens.risk.critical}15`, borderRadius: tokens.radius.sm,
+    paddingHorizontal: 12, paddingVertical: 6, marginBottom: 8,
   },
-  offlineDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: tokens.risk.critical,
-  },
-  offlineText: {
-    fontFamily: 'Lexend-Regular',
-    fontSize: tokens.font.tiny,
-    color: tokens.risk.critical,
-  },
-
+  offlineDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: tokens.risk.critical },
+  offlineText: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny, color: tokens.risk.critical },
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 16, paddingHorizontal: 32 },
-  emptyCard: {
-    alignItems: 'center',
-    padding: 32,
-    borderWidth: 1,
-    borderColor: tokens.borderSubtle,
-    width: '100%',
-  },
+  emptyCard: { alignItems: 'center', padding: 32, borderWidth: 1, borderColor: tokens.borderSubtle, width: '100%' },
   emptyIconWrapper: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 16,
-    borderWidth: 1,
+    width: 72, height: 72, borderRadius: 36,
+    alignItems: 'center', justifyContent: 'center', marginBottom: 16, borderWidth: 1,
   },
-  emptyTitle: {
-    fontFamily: 'Lexend-SemiBold',
-    fontSize: tokens.font.subheading,
-    color: tokens.white60,
-  },
-  emptySubtitle: {
-    fontFamily: 'Lexend-Regular',
-    fontSize: tokens.font.body,
-    color: tokens.textTertiary,
-    textAlign: 'center',
-  },
-
+  emptyTitle: { fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.subheading, color: tokens.white60 },
+  emptySubtitle: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.body, color: tokens.textTertiary, textAlign: 'center' },
   listContent: { gap: 10 },
 });

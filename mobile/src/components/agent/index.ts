@@ -3,3 +3,4 @@ export { AgentActivityFeed } from './AgentActivityFeed';
 export { AgentSettingsPanel } from './AgentSettingsPanel';
 export { MemoryLensPanel } from './MemoryLensPanel';
 export { WalletHoldingsPanel } from './WalletHoldingsPanel';
+export { InsightCard } from './InsightCard';

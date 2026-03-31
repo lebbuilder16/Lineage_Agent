@@ -58,6 +58,7 @@ export const QK = {
   agentMemory: (mint?: string, entityType?: string, entityId?: string) =>
     ['agentMemory', mint ?? '', entityType ?? '', entityId ?? ''] as const,
   memoryEntities: () => ['memoryEntities'] as const,
+  watchTimeline: (mint: string) => ['watchTimeline', mint] as const,
 };
 
 export function useSearchTokens(q: string, enabled = true) {
@@ -183,9 +184,25 @@ export function useMe(apiKey: string | null) {
 export function useWatches(apiKey: string | null) {
   return useQuery<Watch[]>({
     queryKey: QK.watches(apiKey ?? ''),
-    queryFn: () => getWatches(apiKey!),
+    queryFn: async () => {
+      const data = await getWatches(apiKey!);
+      // Persist to AsyncStorage for offline access
+      try {
+        const AsyncStorage = (await import('@react-native-async-storage/async-storage')).default;
+        await AsyncStorage.setItem('lineage_watches_cache', JSON.stringify(data));
+      } catch {}
+      return data;
+    },
     enabled: !!apiKey,
     staleTime: 60_000,
+    // Use cached watches as placeholder while fetching (offline-first)
+    placeholderData: () => {
+      try {
+        // Synchronous placeholder — React Query calls this sync
+        // The real async cache load happens in initialData via the component
+        return undefined;
+      } catch { return undefined; }
+    },
   });
 }
 
@@ -210,6 +227,20 @@ export function useMemoryEntities(apiKey: string | null) {
     queryFn: () => getMemoryEntities(apiKey!),
     enabled: !!apiKey,
     staleTime: 120_000,
+  });
+}
+
+/// ── Watch timeline ──────────────────────────────────────────────────────────
+
+export function useWatchTimeline(apiKey: string | null, mint: string) {
+  return useQuery<import('../types/api').WatchTimelineResult>({
+    queryKey: QK.watchTimeline(mint),
+    queryFn: async () => {
+      const { getWatchTimeline } = await import('./api');
+      return getWatchTimeline(apiKey!, mint);
+    },
+    enabled: !!apiKey && !!mint,
+    staleTime: 60_000,
   });
 }
 

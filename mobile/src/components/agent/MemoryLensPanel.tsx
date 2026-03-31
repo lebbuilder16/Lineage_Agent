@@ -55,7 +55,7 @@ function TimelineEntry({ event, index }: { event: any; index: number }) {
       <View style={styles.timelineContent}>
         <View style={styles.timelineRow}>
           <Text style={styles.timelineType} numberOfLines={1}>
-            {String(event.event_type ?? event.type ?? 'Event').replace(/_/g, ' ')}
+            {String(event.event ?? event.event_type ?? event.type ?? 'Event').replace(/_/g, ' ')}
           </Text>
           {event.risk_score != null && (
             <Text style={[styles.timelineRisk, { color: riskColor }]}>{event.risk_score}</Text>
@@ -96,6 +96,7 @@ export function MemoryLensPanel({ data }: MemoryLensPanelProps) {
   const lastSeen = profile?.last_seen as number | undefined;
 
   const timeline = (data.timeline ?? entity?.timeline ?? []) as any[];
+  const calibrationRules = (data.calibration_rules ?? []) as any[];
   const hasProfile = profile && (totalTokens != null || totalRugs != null || avgRisk != null);
   const depthLabel = data.memory_depth === 'full'
     ? 'Deep intelligence'
@@ -166,7 +167,7 @@ export function MemoryLensPanel({ data }: MemoryLensPanelProps) {
               <BookOpen size={12} color={tokens.secondary} />
               <Text style={styles.briefLabel}>INTEL BRIEF</Text>
             </View>
-            <Text style={styles.briefText}>{data.memory_brief}</Text>
+            <Text style={styles.briefText} numberOfLines={12}>{data.memory_brief}</Text>
           </GlassCard>
         </Animated.View>
       )}
@@ -250,20 +251,20 @@ export function MemoryLensPanel({ data }: MemoryLensPanelProps) {
       )}
 
       {/* Calibration Rules */}
-      {data.calibration_rules.length > 0 && (
+      {calibrationRules.length > 0 && (
         <Animated.View entering={FadeInDown.delay(250).duration(300)}>
           <GlassCard style={styles.calibCard}>
             <Text style={styles.calibTitle}>LEARNED ADJUSTMENTS</Text>
             <Text style={styles.calibSub}>Rules learned from your feedback</Text>
-            {data.calibration_rules.slice(0, 4).map((rule, i) => (
+            {calibrationRules.slice(0, 4).map((rule: any, i: number) => (
               <View key={i} style={styles.calibRule}>
                 <View style={styles.calibAdjWrap}>
                   <Text style={styles.calibAdj}>{rule.adjustment}</Text>
                 </View>
                 <View style={styles.calibInfo}>
-                  <Text style={styles.calibReason}>{rule.reason}</Text>
+                  <Text style={styles.calibReason}>{rule.reason ?? ''}</Text>
                   <Text style={styles.calibMeta}>
-                    {rule.rule_type.replace(/_/g, ' ')} · {rule.entity_type}
+                    {(rule.rule_type ?? '').replace(/_/g, ' ')} · {rule.entity_type ?? ''}
                   </Text>
                 </View>
               </View>

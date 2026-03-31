@@ -715,7 +715,7 @@ class SQLiteCache:
                 risk_threshold INTEGER NOT NULL DEFAULT 70,
                 alert_types TEXT NOT NULL DEFAULT '["deployer_exit","bundle","sol_extraction","price_crash","cartel","operator_match","deployer_rug"]',
                 sol_extraction_min REAL NOT NULL DEFAULT 20.0,
-                sweep_interval INTEGER NOT NULL DEFAULT 7200,
+                sweep_interval INTEGER NOT NULL DEFAULT 2700,
                 investigation_depth TEXT NOT NULL DEFAULT 'standard',
                 quiet_hours_start INTEGER DEFAULT NULL,
                 quiet_hours_end INTEGER DEFAULT NULL,
@@ -728,7 +728,7 @@ class SQLiteCache:
             ("risk_threshold", "INTEGER NOT NULL DEFAULT 70"),
             ("alert_types", "TEXT NOT NULL DEFAULT '[]'"),
             ("sol_extraction_min", "REAL NOT NULL DEFAULT 20.0"),
-            ("sweep_interval", "INTEGER NOT NULL DEFAULT 7200"),
+            ("sweep_interval", "INTEGER NOT NULL DEFAULT 2700"),
             ("investigation_depth", "TEXT NOT NULL DEFAULT 'standard'"),
             ("quiet_hours_start", "INTEGER DEFAULT NULL"),
             ("quiet_hours_end", "INTEGER DEFAULT NULL"),
@@ -903,6 +903,19 @@ class SQLiteCache:
             )
         """)
         await db.execute("CREATE INDEX IF NOT EXISTS idx_nc_key ON narrative_clusters(narrative_key, active)")
+
+        # Phase: Notification retry queue
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS pending_notifications (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                fcm_token   TEXT NOT NULL,
+                title       TEXT NOT NULL,
+                body        TEXT NOT NULL DEFAULT '',
+                data_json   TEXT NOT NULL DEFAULT '{}',
+                attempts    INTEGER NOT NULL DEFAULT 0,
+                created_at  REAL NOT NULL
+            )
+        """)
 
         # Safe column migrations
         for col_sql in [

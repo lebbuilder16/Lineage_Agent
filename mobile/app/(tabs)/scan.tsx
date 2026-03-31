@@ -55,6 +55,22 @@ export default function ScanScreen() {
   const addRecentSearch = useAuthStore((s) => s.addRecentSearch);
   const clearRecentSearches = useAuthStore((s) => s.clearRecentSearches);
 
+  // Enrich recent searches that only have a mint address (no name/symbol)
+  const enrichedRef = useRef<Set<string>>(new Set());
+  React.useEffect(() => {
+    const missing = recentSearches.filter(
+      (r) => !r.name && r.mint && !enrichedRef.current.has(r.mint),
+    ).slice(0, 3);
+    for (const r of missing) {
+      enrichedRef.current.add(r.mint);
+      searchTokens(r.mint, 0, 1).then((data) => {
+        if (data.length > 0 && (data[0].name || data[0].symbol)) {
+          addRecentSearch(data[0].mint, data[0].name, data[0].symbol, data[0].image_uri);
+        }
+      }).catch(() => {});
+    }
+  }, [recentSearches]);
+
   const handleChange = useCallback((text: string) => {
     setQuery(text);
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
@@ -65,6 +81,10 @@ export default function ScanScreen() {
     if (BASE58_RE.test(trimmed) && trimmed.length >= 32) {
       addRecentSearch(trimmed);
       router.push(`/token/${trimmed}` as any);
+      // Enrich recent search with name/symbol in background
+      searchTokens(trimmed, 0, 1).then((data) => {
+        if (data.length > 0) addRecentSearch(data[0].mint, data[0].name, data[0].symbol, data[0].image_uri);
+      }).catch(() => {});
       return;
     }
 
@@ -85,7 +105,7 @@ export default function ScanScreen() {
     const trimmed = text.trim();
     if (trimmed.length < 2) return;
 
-    // Direct mint address → navigate immediately
+    // Direct mint address -> navigate immediately
     if (BASE58_RE.test(trimmed) && trimmed.length >= 32) {
       addRecentSearch(trimmed);
       router.push(`/token/${trimmed}` as any);
@@ -122,7 +142,7 @@ export default function ScanScreen() {
             style={{ paddingHorizontal: 0 }}
           />
 
-          {/* Search input — pill shaped */}
+          {/* Search input */}
           <View style={styles.inputPill}>
             <View style={styles.inputLeft}>
               <Search size={20} color={tokens.textTertiary} />
@@ -131,7 +151,7 @@ export default function ScanScreen() {
               style={styles.input}
               value={query}
               onChangeText={handleChange}
-              placeholder="Paste token address…"
+              placeholder="Paste token address..."
               placeholderTextColor={tokens.textPlaceholder}
               autoCapitalize="none"
               autoCorrect={false}
@@ -159,12 +179,12 @@ export default function ScanScreen() {
             </TouchableOpacity>
           </View>
 
-          {/* Onboarding — visible when no search history and no active query */}
+          {/* Onboarding */}
           {query.length === 0 && results.length === 0 && recentSearches.length === 0 && (
             <ScanOnboarding />
           )}
 
-          {/* Recent searches — visible when query is empty and results are empty */}
+          {/* Recent searches */}
           {query.length === 0 && results.length === 0 && recentSearches.length > 0 && (
             <View style={styles.recentWrap}>
               <View style={styles.recentHeader}>
@@ -180,17 +200,19 @@ export default function ScanScreen() {
                   onPress={() => { handleSelect(item.mint, item.name, item.symbol); }}
                   style={styles.recentItem}
                 >
-                  <Search size={14} color={tokens.textTertiary} />
+                  {(item as any).image ? (
+                    <Image source={{ uri: (item as any).image }} style={styles.recentLogo} />
+                  ) : (
+                    <Search size={14} color={tokens.textTertiary} />
+                  )}
                   <View style={{ flex: 1 }}>
                     <Text style={styles.recentName} numberOfLines={1}>
                       {item.name || item.mint}
                       {item.symbol ? ` (${item.symbol})` : ''}
                     </Text>
-                    {item.name ? (
-                      <Text style={styles.recentAddr} numberOfLines={1}>
-                        {item.mint.slice(0, 6)}…{item.mint.slice(-4)}
-                      </Text>
-                    ) : null}
+                    <Text style={styles.recentAddr} numberOfLines={1}>
+                      {item.mint.slice(0, 6)}...{item.mint.slice(-4)}
+                    </Text>
                   </View>
                 </TouchableOpacity>
               ))}
@@ -253,124 +275,50 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: tokens.bgMain },
   safe: { flex: 1 },
   kav: { flex: 1, paddingHorizontal: tokens.spacing.screenPadding },
-
   inputPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: tokens.bgGlass8,
-    borderRadius: 50,
-    borderWidth: 1,
-    borderColor: tokens.borderSubtle,
-    paddingVertical: 4,
-    marginBottom: 16,
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: tokens.bgGlass8, borderRadius: 50,
+    borderWidth: 1, borderColor: tokens.borderSubtle, paddingVertical: 4, marginBottom: 16,
   },
   inputLeft: { paddingLeft: 16, paddingRight: 8 },
   clearBtn: { paddingHorizontal: 8 },
   scanBtn: {
-    backgroundColor: tokens.secondary,
-    borderRadius: tokens.radius.md,
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    marginRight: 4,
-    minWidth: 72,
-    alignItems: 'center',
+    backgroundColor: tokens.secondary, borderRadius: tokens.radius.md,
+    paddingHorizontal: 20, paddingVertical: 10, marginRight: 4,
+    minWidth: 72, alignItems: 'center',
   },
-  scanBtnText: {
-    fontFamily: 'Lexend-Bold',
-    fontSize: tokens.font.body,
-    color: tokens.primary,
-  },
+  scanBtnText: { fontFamily: 'Lexend-Bold', fontSize: tokens.font.body, color: tokens.primary },
   input: {
-    flex: 1,
-    fontFamily: 'Lexend-Regular',
-    fontSize: tokens.font.body,
-    color: tokens.white100,
-    paddingVertical: 10,
+    flex: 1, fontFamily: 'Lexend-Regular', fontSize: tokens.font.body,
+    color: tokens.white100, paddingVertical: 10,
   },
-
-  listContent: { gap: 8,   },
+  listContent: { gap: 8 },
   resultCard: {},
   resultInner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: tokens.spacing.cardPadding,
-    gap: 12,
+    flexDirection: 'row', alignItems: 'center',
+    padding: tokens.spacing.cardPadding, gap: 12,
   },
   tokenImg: { width: 40, height: 40, borderRadius: tokens.radius.sm },
-  tokenImgFallback: {
-    backgroundColor: tokens.bgGlass12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  tokenImgText: {
-    fontFamily: 'Lexend-Bold',
-    fontSize: tokens.font.body,
-    color: tokens.white60,
-  },
+  tokenImgFallback: { backgroundColor: tokens.bgGlass12, alignItems: 'center', justifyContent: 'center' },
+  tokenImgText: { fontFamily: 'Lexend-Bold', fontSize: tokens.font.body, color: tokens.white60 },
   resultInfo: { flex: 1 },
-  resultName: {
-    fontFamily: 'Lexend-SemiBold',
-    fontSize: tokens.font.body,
-    color: tokens.white100,
-  },
-  resultSymbol: {
-    fontFamily: 'Lexend-Regular',
-    fontSize: tokens.font.small,
-    color: tokens.white60,
-    marginTop: 2,
-  },
+  resultName: { fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.body, color: tokens.white100 },
+  resultSymbol: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.small, color: tokens.white60, marginTop: 2 },
   resultRight: { alignItems: 'flex-end', gap: 4 },
-  riskScore: {
-    fontFamily: 'Lexend-Regular',
-    fontSize: tokens.font.tiny,
-    color: tokens.white60,
-  },
-
+  riskScore: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny, color: tokens.white60 },
   empty: { alignItems: 'center', marginTop: 48 },
-  emptyText: {
-    fontFamily: 'Lexend-Regular',
-    fontSize: tokens.font.body,
-    color: tokens.textTertiary,
-  },
-
+  emptyText: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.body, color: tokens.textTertiary },
   recentWrap: { marginBottom: 12, gap: 4 },
-  recentHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginBottom: 6,
-  },
-  recentTitle: {
-    fontFamily: 'Lexend-SemiBold',
-    fontSize: tokens.font.small,
-    color: tokens.textTertiary,
-    flex: 1,
-  },
-  recentClear: {
-    fontFamily: 'Lexend-Regular',
-    fontSize: tokens.font.tiny,
-    color: tokens.secondary,
-  },
+  recentHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 },
+  recentTitle: { fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.small, color: tokens.textTertiary, flex: 1 },
+  recentClear: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny, color: tokens.secondary },
   recentItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    backgroundColor: tokens.bgGlass8,
-    borderRadius: tokens.radius.sm,
-    borderWidth: 1,
-    borderColor: tokens.borderSubtle,
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    paddingVertical: 10, paddingHorizontal: 14,
+    backgroundColor: tokens.bgGlass8, borderRadius: tokens.radius.sm,
+    borderWidth: 1, borderColor: tokens.borderSubtle,
   },
-  recentName: {
-    fontFamily: 'Lexend-SemiBold',
-    fontSize: tokens.font.body,
-    color: tokens.white100,
-  },
-  recentAddr: {
-    fontFamily: 'Lexend-Regular',
-    fontSize: tokens.font.tiny,
-    color: tokens.textTertiary,
-    marginTop: 1,
-  },
+  recentName: { fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.body, color: tokens.white100 },
+  recentAddr: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny, color: tokens.textTertiary, marginTop: 1 },
+  recentLogo: { width: 24, height: 24, borderRadius: 12 },
 });

@@ -32,7 +32,12 @@ _PIPELINE_TIMEOUT = 90.0
 
 # In-process cache for ForensicReport (avoids re-running pipeline on retry)
 _report_cache: dict[str, tuple[float, "ForensicReport"]] = {}
-_REPORT_CACHE_TTL = 300.0  # 5 minutes
+_REPORT_CACHE_TTL = 300.0  # 5 minutes (default for low-risk tokens)
+_REPORT_CACHE_TTL_HIGH_RISK = 90.0   # 1.5 minutes for high-risk tokens (need fresher data)
+_REPORT_CACHE_TTL_CRITICAL = 45.0    # 45 seconds for critical tokens
+
+# Dedup: prevent duplicate pipeline runs for the same mint concurrently
+_running_pipelines: dict[str, asyncio.Event] = {}
 
 
 @dataclass
@@ -51,6 +56,7 @@ class ForensicReport:
     operator_impact: Any = None
     liquidity_arch: Any = None
     zombie_alert: Any = None
+    sniper_report: Any = None
     funding_source: str = ""  # address of first SOL funder of deployer
     timings: dict = field(default_factory=dict)
 
@@ -83,11 +89,31 @@ async def run_forensic_pipeline(
         except Exception as e:
             logger.warning("[pipeline] background %s failed for %s: %s", name, mint_short[:12], e)
 
+    # -- Dedup: if another pipeline for this mint is already running, wait for it --
+    if mint in _running_pipelines and not force_refresh:
+        logger.info("[pipeline] dedup: waiting for existing run of %s", mint[:12])
+        try:
+            await asyncio.wait_for(_running_pipelines[mint].wait(), timeout=_PIPELINE_TIMEOUT)
+        except asyncio.TimeoutError:
+            pass
+        # After waiting, check cache (the other run should have populated it)
+        _dedup_cached = _report_cache.get(mint)
+        if _dedup_cached:
+            yield _evt("phase", {"phase": "scan", "status": "started"})
+            yield _evt("step", {"step": "identity", "status": "done", "ms": 0})
+            yield _evt("phase", {"phase": "scan", "status": "done"})
+            yield {"event": "_report", "data": _dedup_cached[1]}
+            return
+
+    # Register this pipeline run for dedup (signaled at the end of pipeline)
+    _running_pipelines[mint] = asyncio.Event()
+
     # -- Check in-process cache first (avoids full re-run on retry) ----------
     _cached = _report_cache.get(mint)
     if _cached and not force_refresh:
         _cache_age = time.monotonic() - _cached[0]
-        if _cache_age < _REPORT_CACHE_TTL:
+        _ttl = getattr(_cached[1], '_cache_ttl', _REPORT_CACHE_TTL)
+        if _cache_age < _ttl:
             cached_report = _cached[1]
             logger.info("[pipeline] cache hit for %s (%.0fs old)", mint[:12], _cache_age)
 
@@ -131,6 +157,10 @@ async def run_forensic_pipeline(
                 "boost_count": getattr(_cqm, "boost_count", None) if _cqm else None,
             })
             yield _evt("phase", {"phase": "scan", "status": "done"})
+            # Signal dedup on cache hit
+            _dedup_evt = _running_pipelines.pop(mint, None)
+            if _dedup_evt:
+                _dedup_evt.set()
             yield {"event": "_report", "data": cached_report}
             return
 
@@ -370,7 +400,7 @@ async def run_forensic_pipeline(
                 if deployer:
                     results["sol_flow"] = await asyncio.wait_for(
                         trace_sol_flow(mint, deployer, token_created_at=identity.created_at),
-                        timeout=45.0,
+                        timeout=15.0,
                     )
                 _sub_step("sol_flow", "done", ms=int((time.monotonic() - t) * 1000))
             except asyncio.TimeoutError:
@@ -392,16 +422,13 @@ async def run_forensic_pipeline(
                     results["bundle_report"] = cached
                     _sub_step("bundle", "done", ms=int((time.monotonic() - t) * 1000))
                     return
-                # Cache miss — try with 12s budget in pipeline.
-                # If it doesn't finish, the warm cache background task will complete it.
                 if deployer:
                     results["bundle_report"] = await asyncio.wait_for(
-                        analyze_bundle(mint, deployer), timeout=45.0,
+                        analyze_bundle(mint, deployer), timeout=25.0,
                     )
                 _sub_step("bundle", "done", ms=int((time.monotonic() - t) * 1000))
             except asyncio.TimeoutError:
-                # Bundle is too slow for inline — fire-and-forget in background
-                logger.info("[pipeline] bundle timeout at 12s for %s — continuing in background", mint[:12])
+                logger.info("[pipeline] bundle timeout at 25s for %s — continuing in background", mint[:12])
                 asyncio.create_task(
                     _safe_background(analyze_bundle(mint, deployer), "bundle", mint),
                 )
@@ -425,8 +452,33 @@ async def run_forensic_pipeline(
                 logger.warning("[pipeline] cartel failed: %s", e)
                 _sub_step("cartel", "done", ms=int((time.monotonic() - t) * 1000), ok=False)
 
+        async def _sniper() -> None:
+            if not deployer:
+                return
+            _sub_step("sniper", "running")
+            t = time.monotonic()
+            try:
+                from .sniper_tracker_service import analyze_sniper_ring
+                # Get creation_slot from identity if available
+                _creation_slot = None
+                if hasattr(identity, '_creation_slot'):
+                    _creation_slot = identity._creation_slot
+                results["sniper_report"] = await asyncio.wait_for(
+                    analyze_sniper_ring(
+                        mint, deployer,
+                        creation_slot=_creation_slot,
+                        created_at=identity.created_at,
+                        pairs=identity.pairs,
+                    ),
+                    timeout=15.0,
+                )
+                _sub_step("sniper", "done", ms=int((time.monotonic() - t) * 1000))
+            except Exception as e:
+                logger.warning("[pipeline] sniper failed: %s", e)
+                _sub_step("sniper", "done", ms=int((time.monotonic() - t) * 1000), ok=False)
+
         await asyncio.gather(
-            _sol_flow(), _bundle(), _cartel(),
+            _sol_flow(), _bundle(), _cartel(), _sniper(),
             return_exceptions=True,
         )
         return results
@@ -507,10 +559,39 @@ async def run_forensic_pipeline(
                 _ep_insider = task_d.result() if not task_d.cancelled() else None
             except Exception:
                 _ep_insider = None
+
+            # ── Early termination: if deployer is an obvious rug factory, skip slow branches ──
+            _dp = _ep_deployer.get("deployer_profile") if isinstance(_ep_deployer, dict) else None
+            _early_score = 0
+            if _dp:
+                _rug_count = getattr(_dp, "rug_count", 0) or 0
+                _total = getattr(_dp, "total_tokens_launched", 0) or 0
+                _rug_rate = _rug_count / _total if _total > 0 else 0
+                if _rug_rate >= 0.8 and _rug_count >= 3:
+                    _early_score = 90
+                elif _rug_rate >= 0.5 and _rug_count >= 2:
+                    _early_score = 75
+                elif _rug_count >= 1:
+                    _early_score = 50
+
+            if _ep_insider and hasattr(_ep_insider, "verdict"):
+                if getattr(_ep_insider, "verdict", "") == "insider_dump":
+                    _early_score = max(_early_score, 80)
+                if getattr(_ep_insider, "deployer_exited", False):
+                    _early_score = max(_early_score, 85)
+
+            if _early_score >= 85:
+                # Cancel slow branches — verdict is already clear
+                logger.info("[pipeline] early termination: score=%d, cancelling slow branches for %s", _early_score, mint[:12])
+                for t in [task_a, task_c]:
+                    if not t.done():
+                        t.cancel()
+
             yield {"event": "_early_prescan", "data": {
                 "deployer_profile": _ep_deployer.get("deployer_profile") if isinstance(_ep_deployer, dict) else None,
                 "death_clock": _ep_deployer.get("death_clock") if isinstance(_ep_deployer, dict) else None,
                 "insider_sell": _ep_insider,
+                "early_score": _early_score,
             }}
 
         elapsed = int((time.monotonic() - t_fork) * 1000)
@@ -557,6 +638,7 @@ async def run_forensic_pipeline(
         report.sol_flow = chain_results.get("sol_flow")
         report.bundle_report = chain_results.get("bundle_report")
         report.cartel_report = chain_results.get("cartel_report")
+        report.sniper_report = chain_results.get("sniper_report")
 
     # Insider sell from Branch D (ran in parallel, not sequential)
     if insider_result is not None and not isinstance(insider_result, Exception):
@@ -608,11 +690,25 @@ async def run_forensic_pipeline(
     yield _evt("phase", {"phase": "scan", "status": "done"})
 
     # Cache the report for fast retry (5 min TTL)
+    # Adaptive TTL: high-risk tokens get shorter cache to detect changes faster
+    from .ai_analyst import _heuristic_score
+    _hscore = _heuristic_score(report.family_tree, report.bundle_report, report.sol_flow)
+    _adaptive_ttl = (
+        _REPORT_CACHE_TTL_CRITICAL if _hscore >= 75
+        else _REPORT_CACHE_TTL_HIGH_RISK if _hscore >= 50
+        else _REPORT_CACHE_TTL
+    )
     _report_cache[mint] = (time.monotonic(), report)
+    report._cache_ttl = _adaptive_ttl  # store TTL on report for cache hit check
     # Prune old entries (keep last 50)
     if len(_report_cache) > 50:
         oldest_key = min(_report_cache, key=lambda k: _report_cache[k][0])
         _report_cache.pop(oldest_key, None)
+
+    # Signal dedup event so waiting pipelines can proceed
+    _dedup_evt = _running_pipelines.pop(mint, None)
+    if _dedup_evt:
+        _dedup_evt.set()
 
     # Yield the complete report as a special event (consumed by investigate_service)
     yield {"event": "_report", "data": report}
@@ -650,5 +746,7 @@ def report_to_lineage_result(report: ForensicReport) -> Any:
         result.liquidity_arch = report.liquidity_arch
     if report.zombie_alert is not None:
         result.zombie_alert = report.zombie_alert
+    if report.sniper_report is not None:
+        result.sniper_report = report.sniper_report
 
     return result

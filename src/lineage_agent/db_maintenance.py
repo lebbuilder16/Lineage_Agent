@@ -130,6 +130,33 @@ async def _maintenance_loop() -> None:
                 cache_deleted, flows_deleted, events_deleted,
             )
 
+            # Retry failed FCM push notifications
+            try:
+                from .alert_service import retry_pending_notifications
+                retried = await retry_pending_notifications()
+                if retried > 0:
+                    logger.info("Notification retry: %d sent", retried)
+            except Exception:
+                logger.debug("notification retry skipped")
+
+            # Memory retention cleanup (episodes, calibration rules, anomalies)
+            try:
+                from .memory_service import cleanup_memory_tables
+                mem_counts = await cleanup_memory_tables()
+                if any(v > 0 for v in mem_counts.values()):
+                    logger.info("Memory cleanup: %s", mem_counts)
+            except Exception:
+                logger.debug("memory cleanup skipped")
+
+            # Narrative cluster detection (automated — runs every maintenance cycle)
+            try:
+                from .memory_service import detect_narrative_clusters
+                clusters = await detect_narrative_clusters(window_days=7, min_deployers=3)
+                if clusters:
+                    logger.info("Narrative clusters: %d detected", len(clusters))
+            except Exception:
+                logger.debug("narrative cluster detection skipped")
+
             # WAL checkpoint every cycle
             try:
                 await _wal_checkpoint(db)

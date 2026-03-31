@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { View, StyleSheet } from 'react-native';
 import { Tabs, usePathname, router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -28,8 +28,6 @@ export default function TabLayout() {
   const insets = useSafeAreaInsets();
   const unreadCount = useAlertsStore((s) => s.alerts.filter((a) => !a.read).length);
 
-  // Reserve exactly the space the GlassTabBar occupies so no screen ever renders behind it.
-  // Formula: pill visual height + gap above safe-area offset + safe-area bottom.
   const tabBarClearance =
     TAB_BAR_INNER_HEIGHT +
     TAB_BAR_BOTTOM_MARGIN +
@@ -43,7 +41,6 @@ export default function TabLayout() {
 
   return (
     <View style={styles.container}>
-      {/* Shrink the Tabs area so no child screen renders behind the floating bar */}
       <View style={[styles.screens, { paddingBottom: tabBarClearance }]}>
         <Tabs
           screenOptions={{ headerShown: false }}
@@ -56,6 +53,7 @@ export default function TabLayout() {
           <Tabs.Screen name="alerts" />
           <Tabs.Screen name="watchlist" />
           <Tabs.Screen name="account" options={{ href: null }} />
+          <Tabs.Screen name="profile" options={{ href: null }} />
         </Tabs>
       </View>
       <GlassTabBar

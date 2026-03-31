@@ -535,6 +535,7 @@ async def _build_report(mint: str, deployer: str) -> Optional[CartelReport]:
 
     total_rugs = 0
     estimated_extracted = 0.0
+    total_sol_extracted = 0.0
     if mints:
         await normalize_legacy_rug_events(mints=mints)
         rug_ph = ",".join("?" for _ in mints)
@@ -550,6 +551,54 @@ async def _build_report(mint: str, deployer: str) -> Optional[CartelReport]:
             (r.get("mcap_usd") or 0.0) * estimate_extraction_rate(r.get("mcap_usd"))
             for r in confirmed_rugged_rows
         )
+
+        # Compute SOL extracted by ALL cartel wallets on THIS token (not all tokens)
+        # This is fast: check token sell activity of each cartel wallet on the scanned mint
+        try:
+            from .data_sources._clients import get_rpc_client
+            rpc = get_rpc_client()
+            _sem = asyncio.Semaphore(6)
+
+            async def _check_wallet_sell(wallet: str) -> float:
+                """Check if a cartel wallet sold the scanned token. Returns SOL received."""
+                async with _sem:
+                    try:
+                        # Use Helius Enhanced Transactions for fast pre-parsed data
+                        txs = await asyncio.wait_for(
+                            rpc.get_enhanced_transactions(wallet, limit=30),
+                            timeout=8.0,
+                        )
+                        sol_received = 0.0
+                        for tx in txs:
+                            # Look for token transfers OUT (sell) of the scanned mint
+                            for tt in tx.get("tokenTransfers", []):
+                                if tt.get("mint") == mint and tt.get("fromUserAccount") == wallet:
+                                    # This wallet sold the scanned token
+                                    pass
+                            # Look for SOL received in same tx (sell proceeds)
+                            for nt in tx.get("nativeTransfers", []):
+                                if nt.get("toUserAccount") == wallet and nt.get("amount", 0) > 0:
+                                    # Check if this tx also has a token transfer out for our mint
+                                    has_sell = any(
+                                        tt.get("mint") == mint and tt.get("fromUserAccount") == wallet
+                                        for tt in tx.get("tokenTransfers", [])
+                                    )
+                                    if has_sell:
+                                        sol_received += nt["amount"] / 1e9
+                        return sol_received
+                    except Exception:
+                        return 0.0
+
+            # Check all cartel wallets (excluding deployer — already counted in sol_flow)
+            other_wallets = [w for w in community_wallets if w != deployer][:15]
+            results = await asyncio.gather(*[_check_wallet_sell(w) for w in other_wallets])
+            cartel_sol_from_token = sum(results)
+            total_sol_extracted += cartel_sol_from_token
+            if cartel_sol_from_token > 0:
+                logger.info("[cartel] %d cartel wallets extracted %.2f SOL from %s",
+                            sum(1 for r in results if r > 0), cartel_sol_from_token, mint[:12])
+        except Exception as exc:
+            logger.debug("[cartel] cartel wallet sell check failed: %s", exc)
 
     # Earliest activity
     ts_rows = await event_query(
@@ -601,12 +650,49 @@ async def _build_report(mint: str, deployer: str) -> Optional[CartelReport]:
     else:
         confidence = "low"
 
+    # Generate human-readable narrative
+    n_wallets = len(community_wallets)
+    n_tokens = len(created_rows)
+    sol_display = f"{total_sol_extracted:.1f} SOL" if total_sol_extracted > 0 else ""
+    usd_display = f"~${estimated_extracted:,.0f}" if estimated_extracted > 0 else ""
+
+    narrative_parts = [
+        f"This deployer is part of a coordinated network of {n_wallets} wallets",
+        f"that launched {n_tokens} tokens",
+    ]
+    if strongest_signal == "shared_lp":
+        # Count distinct LP wallets
+        lp_wallets = set()
+        for e in edge_list:
+            lp = (e.evidence or {}).get("lp_wallet", "")
+            if lp:
+                lp_wallets.add(lp)
+        narrative_parts.append(
+            f"linked by {len(lp_wallets)} shared liquidity provider wallet{'s' if len(lp_wallets) > 1 else ''}"
+        )
+    elif strongest_signal:
+        narrative_parts.append(f"linked by {strongest_signal.replace('_', ' ')}")
+
+    if total_sol_extracted > 0:
+        narrative_parts.append(
+            f"— {total_sol_extracted:.1f} SOL extracted from this token by the network"
+        )
+    elif estimated_extracted > 0:
+        narrative_parts.append(f"— ~${estimated_extracted:,.0f} estimated extraction")
+
+    if total_rugs > 0:
+        narrative_parts.append(f"with {total_rugs} confirmed rug{'s' if total_rugs > 1 else ''}")
+
+    narrative = " ".join(narrative_parts) + "."
+
     community = CartelCommunity(
         community_id=community_id,
         wallets=community_wallets,
         total_tokens_launched=len(created_rows),
         total_rugs=total_rugs,
         estimated_extracted_usd=round(estimated_extracted, 2),
+        total_sol_extracted=round(total_sol_extracted, 2),
+        narrative=narrative,
         active_since=active_since,
         strongest_signal=strongest_signal,
         edges=edge_list,

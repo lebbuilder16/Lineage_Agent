@@ -1,18 +1,12 @@
 """Simulation tests for rug_detector — drain / soft-rug / dead-token logic.
 
-Scénarios couverts :
-  1. Hard rug     — liq < $100 absolu                    → DEX_LIQUIDITY_RUG / STRONG
-  2. Soft rug STRONG  — drain ≥ 90% (ex: $80k → $4k)    → LIQUIDITY_DRAIN_RUG / STRONG
-  3. Soft rug MODERATE — drain ≥ 75% < 90% (ex: $80k → $18k) → LIQUIDITY_DRAIN_RUG / MODERATE
-  4. Token vivant  — drain < 60% et liq > $500           → aucun insert
-  5. Seuil min liq — recorded < $1k même avec drain 90%  → pas de soft rug (trop petit)
-  6. High-water mark — current > recorded                → event_update, pas de rug
-  7. Deux cycles (peak puis drain) — simulation réaliste complète
-  8. Contexte non-DEX                                    → ignoré
-  9. Rows vides                                          → retourne 0
- 10. Hard rug prioritaire sur le soft même si drain ≥75% (current < $100)
- 11. Dead token   — liq < $500, drain ≥ 60%              → DEAD_TOKEN / MODERATE
- 12. Dead token skip — liq < $500 mais drain < 60%       → token vivant
+Thresholds (updated 2026-03-30 to catch more pump.fun rugs):
+  - Soft rug STRONG:   drain >= 75% (was 90%)
+  - Soft rug MODERATE: drain >= 50% (was 75%)
+  - Min recorded liq:  $500 (was $1k)
+  - Dead token drain:  >= 50% (was 60%)
+  - Lookback:          7 days (was 48h)
+  - Min recorded liq for scanning: $200 (was $500)
 """
 
 from __future__ import annotations
@@ -108,8 +102,8 @@ async def test_soft_rug_strong_95pct_drain():
 
 
 @pytest.mark.asyncio
-async def test_soft_rug_moderate_80pct_drain():
-    """$80k → $16k = 80% drain → LIQUIDITY_DRAIN_RUG / MODERATE (≥75% <90%)."""
+async def test_soft_rug_strong_80pct_drain():
+    """$80k → $16k = 80% drain → LIQUIDITY_DRAIN_RUG / STRONG (≥75%)."""
     insert = AsyncMock()
     update = AsyncMock()
     count = await _run([_row(80_000)], _make_dex(16_000), insert, update)
@@ -117,37 +111,37 @@ async def test_soft_rug_moderate_80pct_drain():
     assert count == 1
     kw = _inserted_kwargs(insert)
     assert kw["rug_mechanism"] == RugMechanism.LIQUIDITY_DRAIN_RUG.value
-    assert kw["evidence_level"] == EvidenceLevel.MODERATE.value
+    assert kw["evidence_level"] == EvidenceLevel.STRONG.value
     reason_codes = json.loads(kw["reason_codes"])
     assert "liquidity_drained_80pct" in reason_codes
 
 
 @pytest.mark.asyncio
-async def test_token_alive_50pct_drain():
-    """$80k → $40k = 50% drain, liq > $500 → token still alive, no insert."""
+async def test_soft_rug_moderate_50pct_drain():
+    """$80k → $40k = 50% drain → LIQUIDITY_DRAIN_RUG / MODERATE (≥50%)."""
     insert = AsyncMock()
     update = AsyncMock()
     count = await _run([_row(80_000)], _make_dex(40_000), insert, update)
 
-    assert count == 0
-    insert.assert_not_called()
+    assert count == 1
+    kw = _inserted_kwargs(insert)
+    assert kw["rug_mechanism"] == RugMechanism.LIQUIDITY_DRAIN_RUG.value
+    assert kw["evidence_level"] == EvidenceLevel.MODERATE.value
 
 
 @pytest.mark.asyncio
-async def test_soft_rug_skipped_below_min_recorded_liq():
-    """Recorded liq < $1k: même à 90% drain le soft rug ne s'applique pas.
-    current=$150 > $100 et drain 75% mais recorded < $1k
-    → falls through to dead token check: liq $150 < $500, drain 75% ≥ 60% → DEAD_TOKEN."""
+async def test_soft_rug_at_low_recorded_liq():
+    """Recorded liq $600 (≥$500 min), drain 75% → LIQUIDITY_DRAIN_RUG / STRONG.
+    With lowered thresholds: min recorded = $500, strong = 75%."""
     insert = AsyncMock()
     update = AsyncMock()
-    # recorded=$600 (< _DRAIN_RUG_MIN_RECORDED_LIQ=$1k), current=$150
-    # Not a soft rug (recorded too low), but dead token (liq < $500, drain 75% ≥ 60%)
+    # recorded=$600 (≥ $500 min), current=$150 → drain 75% → STRONG
     count = await _run([_row(600)], _make_dex(150), insert, update)
 
     assert count == 1
     kw = _inserted_kwargs(insert)
-    assert kw["rug_mechanism"] == RugMechanism.DEAD_TOKEN.value
-    assert kw["evidence_level"] == EvidenceLevel.MODERATE.value
+    assert kw["rug_mechanism"] == RugMechanism.LIQUIDITY_DRAIN_RUG.value
+    assert kw["evidence_level"] == EvidenceLevel.STRONG.value
 
 
 @pytest.mark.asyncio
@@ -255,19 +249,18 @@ async def test_multiple_tokens_independent():
     insert = AsyncMock()
     update = AsyncMock()
     rows = [
-        _row(80_000, mint=MINT),   # soft rug ($80k → $4k)
-        _row(80_000, mint=MINT2),  # vivant ($80k → $40k = 50% drain, liq > $500)
+        _row(80_000, mint=MINT),   # soft rug ($80k → $4k = 95% drain → STRONG)
+        _row(80_000, mint=MINT2),  # also rug ($80k → $40k = 50% drain → MODERATE)
     ]
     dex = MagicMock()
     dex.get_token_pairs_with_fallback = AsyncMock(side_effect=[
-        _pairs(4_000),   # MINT  → rug
-        _pairs(40_000),  # MINT2 → vivant
+        _pairs(4_000),   # MINT  → STRONG rug
+        _pairs(40_000),  # MINT2 → MODERATE rug (50% drain ≥ 50% threshold)
     ])
     count = await _run(rows, dex, insert, update)
 
-    assert count == 1
-    assert insert.call_count == 1
-    assert insert.call_args.kwargs["mint"] == MINT
+    assert count == 2
+    assert insert.call_count == 2
 
 
 @pytest.mark.asyncio
@@ -284,12 +277,12 @@ async def test_reason_code_contains_drain_percentage():
 
 
 @pytest.mark.asyncio
-async def test_exact_75pct_boundary_is_moderate():
-    """Exactement 75% drain (recorded ≥$1k) → MODERATE (pas STRONG)."""
+async def test_exact_50pct_boundary_is_moderate():
+    """Exactement 50% drain (recorded ≥$500) → MODERATE."""
     insert = AsyncMock()
     update = AsyncMock()
-    # recorded=$10k, current=$2.5k → drain = 75.0% exactement
-    count = await _run([_row(10_000)], _make_dex(2_500), insert, update)
+    # recorded=$10k, current=$5k → drain = 50.0% exactement
+    count = await _run([_row(10_000)], _make_dex(5_000), insert, update)
 
     assert count == 1
     kw = _inserted_kwargs(insert)
@@ -298,12 +291,12 @@ async def test_exact_75pct_boundary_is_moderate():
 
 
 @pytest.mark.asyncio
-async def test_exact_90pct_boundary_is_strong():
-    """Exactement 90% drain → STRONG."""
+async def test_exact_75pct_boundary_is_strong():
+    """Exactement 75% drain → STRONG."""
     insert = AsyncMock()
     update = AsyncMock()
-    # recorded=$10k, current=$1k → drain = 90.0% exactement
-    count = await _run([_row(10_000)], _make_dex(1_000), insert, update)
+    # recorded=$10k, current=$2.5k → drain = 75.0% exactement
+    count = await _run([_row(10_000)], _make_dex(2_500), insert, update)
 
     assert count == 1
     kw = _inserted_kwargs(insert)
@@ -316,11 +309,11 @@ async def test_exact_90pct_boundary_is_strong():
 
 @pytest.mark.asyncio
 async def test_dead_token_low_liq_high_drain():
-    """liq < $500, drain ≥ 60%, recorded < $1k (no soft rug) → DEAD_TOKEN / MODERATE."""
+    """liq < $500, drain ≥ 50%, recorded < $500 (no soft rug) → DEAD_TOKEN / MODERATE."""
     insert = AsyncMock()
     update = AsyncMock()
-    # recorded=$800 (< $1k min for soft rug), current=$200 → drain 75%, liq < $500
-    count = await _run([_row(800)], _make_dex(200), insert, update)
+    # recorded=$400 (< $500 min for soft rug), current=$150 → drain 62.5%, liq < $500
+    count = await _run([_row(400)], _make_dex(150), insert, update)
 
     assert count == 1
     kw = _inserted_kwargs(insert)
@@ -332,27 +325,26 @@ async def test_dead_token_low_liq_high_drain():
 
 
 @pytest.mark.asyncio
-async def test_dead_token_below_500_with_65pct_drain():
-    """$2k → $400 = 80% drain but recorded ≥$1k → soft rug takes priority."""
+async def test_dead_token_below_500_with_80pct_drain():
+    """$2k → $400 = 80% drain, recorded ≥$500 → soft rug STRONG takes priority."""
     insert = AsyncMock()
     update = AsyncMock()
-    # recorded=$2k (≥ $1k), current=$400, drain = 80% → soft rug MODERATE
+    # recorded=$2k (≥ $500), current=$400, drain = 80% → soft rug STRONG (≥75%)
     count = await _run([_row(2_000)], _make_dex(400), insert, update)
 
     assert count == 1
     kw = _inserted_kwargs(insert)
-    # Soft rug takes priority over dead token because recorded ≥ $1k
     assert kw["rug_mechanism"] == RugMechanism.LIQUIDITY_DRAIN_RUG.value
-    assert kw["evidence_level"] == EvidenceLevel.MODERATE.value
+    assert kw["evidence_level"] == EvidenceLevel.STRONG.value
 
 
 @pytest.mark.asyncio
-async def test_dead_token_skipped_drain_below_60pct():
-    """liq < $500 but drain < 60% → token still alive."""
+async def test_dead_token_skipped_drain_below_50pct():
+    """liq < $500 but drain < 50% → token still alive."""
     insert = AsyncMock()
     update = AsyncMock()
-    # recorded=$800, current=$400 → drain 50%, liq < $500 but drain < 60%
-    count = await _run([_row(800)], _make_dex(400), insert, update)
+    # recorded=$400 (below scanning min $200? no, $400 > $200), current=$250 → drain 37.5%
+    count = await _run([_row(400)], _make_dex(250), insert, update)
 
     assert count == 0
     insert.assert_not_called()

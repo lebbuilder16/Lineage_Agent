@@ -141,7 +141,7 @@ export function RadarTokenCard({
             {token.market_cap_usd != null && (
               <Text style={styles.tokenMcap}>{fmtMcap(token.market_cap_usd)}</Text>
             )}
-            {scanCount != null && scanCount > 0 && (
+            {scanCount != null && scanCount > 5 && (
               <View style={styles.scanCountRow}>
                 <ScanLine size={10} color={tokens.secondary} strokeWidth={2} />
                 <Text style={styles.scanCountText}>{fmtCount(scanCount)}</Text>

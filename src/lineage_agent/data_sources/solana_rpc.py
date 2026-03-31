@@ -169,12 +169,27 @@ class SolanaRpcClient:
         self._id_counter = 0
         self._cb = circuit_breaker
 
+        # Pre-extract Helius API key (if present) to avoid regex on every call
+        import re as _re
+        _qs = _re.search(r'api-key=([^&]+)', self._endpoint)
+        self._helius_api_key: str = _qs.group(1) if _qs else ""
+
+    @property
+    def helius_api_key(self) -> str:
+        """Return the Helius API key extracted from the RPC URL, or ''."""
+        return self._helius_api_key
+
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
             self._client = httpx.AsyncClient(
                 timeout=self._timeout,
                 headers={"Content-Type": "application/json"},
                 http2=True,
+                limits=httpx.Limits(
+                    max_connections=20,
+                    max_keepalive_connections=10,
+                    keepalive_expiry=30,
+                ),
             )
         return self._client
 
@@ -426,6 +441,110 @@ class SolanaRpcClient:
 
         return None
 
+    # PumpFun API cache — avoids re-hitting the API for the same mint.
+    # In-process only; the lineage_detector has its own persistent cache layer.
+    _pumpfun_cache: dict[str, Optional[dict]] = {}
+
+    async def _get_pumpfun_creation_anchor(self, mint: str) -> Optional[dict[str, Any]]:
+        """Resolve token creator + timestamp + slot via the PumpFun API.
+
+        Two-step resolution (~400ms total):
+          1. PumpFun API → creator + created_timestamp (~200ms)
+          2. Bonding-curve PDA oldest sig → slot + signature (~200ms)
+
+        The slot is required by the bundle tracker to define the bundle
+        detection window. Without it, bundle analysis is skipped entirely.
+
+        Returns an anchor dict with feePayer, slot, signature, blockTime,
+        or None if the token is not a PumpFun token.
+        """
+        # In-process cache check
+        if mint in self._pumpfun_cache:
+            return self._pumpfun_cache[mint]
+
+        try:
+            client = await self._get_client()
+            resp = await asyncio.wait_for(
+                client.get(f"https://frontend-api-v3.pump.fun/coins/{mint}", timeout=5.0),
+                timeout=5.0,
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                creator = data.get("creator", "")
+                if creator and creator not in _PROGRAM_ADDRESSES and creator != mint:
+                    created_ts_ms = data.get("created_timestamp")
+                    block_time = (
+                        int(created_ts_ms / 1000) if created_ts_ms else None
+                    )
+
+                    # Step 2: resolve slot + signature for bundle tracker.
+                    # Try strategies in order of speed:
+                    #   a) Helius Enhanced TX on mint (1 call, ~200ms)
+                    #   b) getSignaturesForAddress on bonding-curve PDA (limit=1 from oldest)
+                    #   c) getSignaturesForAddress on mint (limit=1 from oldest)
+                    slot = None
+                    signature = ""
+
+                    # Strategy a: Helius Enhanced Transactions (fastest)
+                    if self._helius_api_key:
+                        try:
+                            etxs = await asyncio.wait_for(
+                                self.get_enhanced_transactions(
+                                    mint, limit=1, tx_type="CREATE"
+                                ),
+                                timeout=5.0,
+                            )
+                            if etxs:
+                                slot = etxs[0].get("slot")
+                                signature = etxs[0].get("signature", "")
+                                if etxs[0].get("timestamp"):
+                                    block_time = etxs[0]["timestamp"]
+                        except Exception:
+                            pass
+
+                    # Strategy b: bonding-curve PDA newest sig (1 RPC call)
+                    # For PumpFun, the NEWEST sig on the curve PDA is the
+                    # creation TX (bonding curve is only used at launch).
+                    # This is a single getSignaturesForAddress with limit=1.
+                    if slot is None:
+                        curve_pda = _pump_bonding_curve_pda(mint)
+                        if curve_pda:
+                            try:
+                                sigs = await self._call(
+                                    "getSignaturesForAddress",
+                                    [curve_pda, {"limit": 1, "commitment": "finalized"}],
+                                    circuit_protect=False,
+                                )
+                                if sigs and isinstance(sigs, list) and sigs[0]:
+                                    # For active PumpFun tokens, the newest sig
+                                    # IS the creation TX. For migrated tokens,
+                                    # the newest may be the migration — but the
+                                    # slot is close enough for bundle detection.
+                                    slot = sigs[0].get("slot")
+                                    signature = sigs[0].get("signature", "")
+                                    if sigs[0].get("blockTime"):
+                                        block_time = sigs[0]["blockTime"]
+                            except Exception:
+                                pass
+
+                    anchor = {
+                        "signature": signature,
+                        "slot": slot,
+                        "blockTime": block_time,
+                        "feePayer": creator,
+                    }
+                    self._pumpfun_cache[mint] = anchor
+                    logger.info(
+                        "[creation_anchor] PumpFun API resolved creator %s slot=%s for %s",
+                        creator[:12], slot, mint[:12],
+                    )
+                    return anchor
+            # Not a PumpFun token or no creator — cache negative
+            self._pumpfun_cache[mint] = None
+        except Exception as exc:
+            logger.debug("[creation_anchor] PumpFun API failed for %s: %s", mint[:12], exc)
+        return None
+
     async def get_creation_anchor(
         self, mint: str, *, circuit_protect: bool = True,
         pair_ts_ms: Optional[int] = None,
@@ -435,7 +554,10 @@ class SolanaRpcClient:
 
         Resolution order
         ----------------
-        1. **DexScreener pair-pivot** (fastest, ≈1–3 s) — uses ``pairCreatedAt``
+        0. **PumpFun API** (fastest, ~200ms) — returns creator + created_timestamp
+           directly from pump.fun backend. Works for all PumpFun tokens regardless
+           of suffix. Returns 404 for non-PumpFun tokens (safe, fast).
+        1. **DexScreener pair-pivot** (≈1–3 s) — uses ``pairCreatedAt``
            as the Raydium migration anchor, binary-searches the slot chain, walks
            backwards from the migration TX to the true creation TX.
            Works for any token listed on DexScreener (i.e. that has migrated).
@@ -446,18 +568,32 @@ class SolanaRpcClient:
         3. **Direct mint** signature walk — last-resort fallback, capped at
            20 pages.
         """
-        # ── 1. DexScreener pair-pivot (fastest) ──────────────────────────────
+        # ── 0. PumpFun API (fastest — ~200ms for deployer) ────────────────
+        # Resolve creator first; then continue to strategies 1-3 to get the
+        # slot + signature if PumpFun didn't resolve them.
+        pf_anchor = await self._get_pumpfun_creation_anchor(mint)
+        if pf_anchor and pf_anchor.get("slot") is not None:
+            return pf_anchor
+        # PumpFun resolved creator but not slot → continue to get slot,
+        # then merge the creator (feePayer) into whatever anchor we find.
+
+        # ── 1. DexScreener pair-pivot ────────────────────────────────────────
         if pair_ts_ms and pair_address:
             pivot = await self._get_deployer_via_pair_pivot(
                 mint, pair_ts_ms // 1000, pair_address
             )
             if pivot:
+                # Merge PumpFun creator if available (more reliable than sig-walk deployer)
+                if pf_anchor and pf_anchor.get("feePayer"):
+                    pivot["feePayer"] = pf_anchor["feePayer"]
                 return pivot
         else:
             dex_ts, dex_pair = await self._fetch_dexscreener_pair(mint)
             if dex_ts and dex_pair:
                 pivot = await self._get_deployer_via_pair_pivot(mint, dex_ts, dex_pair)
                 if pivot:
+                    if pf_anchor and pf_anchor.get("feePayer"):
+                        pivot["feePayer"] = pf_anchor["feePayer"]
                     return pivot
 
         # ── 2. Bonding-curve PDA (PumpFun only) ──────────────────────────────
@@ -471,10 +607,15 @@ class SolanaRpcClient:
                     logger.debug(
                         "[creation_anchor] resolved via curve PDA for %s", mint[:16]
                     )
+                    if pf_anchor and pf_anchor.get("feePayer"):
+                        sig["feePayer"] = pf_anchor["feePayer"]
                     return sig
 
         # ── 3. Direct mint walk ───────────────────────────────────────────────
-        return await self.get_oldest_signature(mint, circuit_protect=circuit_protect)
+        result = await self.get_oldest_signature(mint, circuit_protect=circuit_protect)
+        if result and pf_anchor and pf_anchor.get("feePayer"):
+            result["feePayer"] = pf_anchor["feePayer"]
+        return result
 
     async def get_deployer_and_timestamp(
         self, mint: str
@@ -664,6 +805,93 @@ class SolanaRpcClient:
                 if item.get("interface") in {"FungibleAsset", "FungibleToken"}
             ]
         return []
+
+    async def get_assets_by_owner(
+        self, owner: str, *, page: int = 1, limit: int = 100
+    ) -> list[dict]:
+        """Get all fungible token assets held by a wallet (Helius DAS).
+
+        Uses ``getAssetsByOwner`` — 1 call replaces N ``getTokenAccountsByOwner`` calls.
+        Ideal for bundle wallet detection (check what tokens a suspect wallet holds).
+        """
+        result = await self._call("getAssetsByOwner", {
+            "ownerAddress": owner,
+            "displayOptions": {"showFungible": True},
+            "page": page,
+            "limit": min(limit, 1000),
+        }, circuit_protect=False)
+        if isinstance(result, dict):
+            items = result.get("items") or []
+            if not isinstance(items, list):
+                return []
+            return [
+                item for item in items
+                if item.get("interface") in {"FungibleAsset", "FungibleToken"}
+            ]
+        return []
+
+    async def get_enhanced_transactions(
+        self, address: str, *, limit: int = 20, tx_type: str = ""
+    ) -> list[dict]:
+        """Fetch enriched transaction history via Helius Enhanced Transactions API.
+
+        Returns pre-parsed transactions with tokenTransfers, nativeTransfers,
+        accountData — no manual getTransaction + parse needed.
+
+        Requires Helius API key in the RPC endpoint URL.
+        """
+        import re as _re
+        # Extract Helius API key from RPC URL
+        _qs_match = _re.search(r'api-key=([^&]+)', self._endpoint)
+        if not _qs_match:
+            return []  # Not a Helius endpoint
+
+        api_key = _qs_match.group(1)
+        url = f"https://api.helius.xyz/v0/addresses/{address}/transactions"
+        params: dict = {"api-key": api_key, "limit": min(limit, 100)}
+        if tx_type:
+            params["type"] = tx_type
+
+        try:
+            client = await self._get_client()
+            resp = await client.get(url, params=params, timeout=12.0)
+            if resp.status_code == 200:
+                data = resp.json()
+                return data if isinstance(data, list) else []
+            return []
+        except Exception:
+            return []
+
+    async def get_enhanced_transactions_batch(
+        self, signatures: list[str]
+    ) -> list[dict]:
+        """Parse multiple transactions in one call via Helius Enhanced API.
+
+        Up to 100 signatures per call. Returns enriched transaction data
+        with tokenTransfers, nativeTransfers pre-parsed.
+        """
+        import re as _re
+        _qs_match = _re.search(r'api-key=([^&]+)', self._endpoint)
+        if not _qs_match:
+            return []
+
+        api_key = _qs_match.group(1)
+        url = f"https://api.helius.xyz/v0/transactions"
+
+        try:
+            client = await self._get_client()
+            resp = await client.post(
+                url,
+                params={"api-key": api_key},
+                json={"transactions": signatures[:100]},
+                timeout=15.0,
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                return data if isinstance(data, list) else []
+            return []
+        except Exception:
+            return []
 
     # ------------------------------------------------------------------
     # Internal

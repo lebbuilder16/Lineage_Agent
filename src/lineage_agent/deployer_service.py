@@ -69,25 +69,48 @@ def _get_lock() -> asyncio.Lock:
 async def compute_deployer_profile(deployer: str) -> Optional[DeployerProfile]:
     """Return a ``DeployerProfile`` for *deployer*, or ``None`` if no data.
 
-    Uses a 10-minute in-process cache keyed by deployer address.
+    Cache hierarchy: L1 in-process (10 min) → L2 Redis (5 min) → compute.
     """
     if not deployer:
         return None
 
+    # L1: in-process cache
     lock = _get_lock()
     async with lock:
         cached = _profile_cache.get(deployer)
         if cached is not None and time.monotonic() < cached[0]:
             return cached[1]
 
+    # L2: Redis cache (shared across restarts)
+    try:
+        from .redis_cache import redis_getjson, is_redis_enabled
+        if is_redis_enabled():
+            redis_data = await redis_getjson(f"dp:{deployer[:20]}")
+            if redis_data is not None:
+                profile = DeployerProfile(**redis_data)
+                async with lock:
+                    _profile_cache[deployer] = (time.monotonic() + _CACHE_TTL_SECONDS, profile)
+                return profile
+    except Exception:
+        pass
+
+    # L3: compute from DB
     try:
         profile = await _build_profile(deployer)
     except Exception as exc:
         logger.debug("compute_deployer_profile failed for %s: %s", deployer, exc)
         profile = None
 
+    # Store in L1 + L2
     async with lock:
         _profile_cache[deployer] = (time.monotonic() + _CACHE_TTL_SECONDS, profile)
+    if profile is not None:
+        try:
+            from .redis_cache import redis_setjson, is_redis_enabled
+            if is_redis_enabled():
+                await redis_setjson(f"dp:{deployer[:20]}", profile.model_dump(mode="json"), ex=300)
+        except Exception:
+            pass
 
     return profile
 

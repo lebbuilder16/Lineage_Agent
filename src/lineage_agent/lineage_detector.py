@@ -87,12 +87,14 @@ _LAUNCHPAD_CONTENT_HOSTS: dict[str, tuple[str, ...]] = {
     "moonshot": ("moonshot.money", "assets.moonshot.money", "dl.moonshot.money", "moonshot.com", "cdn.moonshot.com", "api.moonshot.com"),
     "letsbonk": ("meta.uxento.io", "letsbonk.fun", "bonk.fun"),
     "pumpfun": ("pump.fun", "ipfs.pump.fun", "cf-ipfs.com"),
+    "bagsfm": ("bags.fm", "api.bags.fm", "cdn.bags.fm"),
 }
 
 _LAUNCHPAD_MINT_SUFFIXES: dict[str, tuple[str, ...]] = {
     "pumpfun": ("pump",),
     "moonshot": ("moon",),
     "letsbonk": ("bonk",),
+    "bagsfm": ("bags",),  # bags.fm tokens end with BAGS (compared lowercase)
 }
 
 
@@ -153,6 +155,7 @@ def classify_market_context(
             platform = _sfx_platform
             evidence = EvidenceLevel.STRONG
             reason_codes.append(f"mint_suffix_{_sfx_platform}")
+            logger.info("[launchpad] suffix match: %s → %s (mint=%s)", _sfx_values, _sfx_platform, _mint_lower[-8:])
             break
 
     # ── Step 2: Content host check (before authority — disambiguates shared authorities)

@@ -275,6 +275,14 @@ async def _record_memory_episode(mint: str, verdict: dict, lineage_res: Any) -> 
             operator_fp=operator_fp,
             community_id=community_id,
         )
+        # Refresh memory brief post-analysis so it includes this new episode
+        from .memory_service import refresh_memory_brief_post_analysis
+        await refresh_memory_brief_post_analysis(
+            mint=mint,
+            deployer=deployer_addr,
+            operator_fp=operator_fp,
+            community_id=community_id,
+        )
     except Exception as exc:
         import logging
         logging.getLogger(__name__).debug("[memory] record failed: %s", exc)

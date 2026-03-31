@@ -14,6 +14,7 @@ import { useLocalSearchParams, router, Stack } from 'expo-router';
 import { ChevronLeft, X, AlertTriangle, Brain, Copy, ExternalLink } from 'lucide-react-native';
 import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
 
 import { investigateStream } from '../../src/lib/investigate-streaming';
@@ -160,7 +161,14 @@ export default function InvestigateScreen() {
   }, [mint]);
 
   const handleAbort = () => { cancelRef.current?.(); useInvestigateStore.getState().cancel(); };
-  const handleRetry = () => { cancelRef.current?.(); useInvestigateStore.getState().reset(); startInvestigation(); retryTimerRef.current = setTimeout(() => launchStream(), 50); };
+  const handleRetry = () => {
+    cancelRef.current?.();
+    // Clear cached result so we get fresh data from backend
+    if (mint) AsyncStorage.removeItem(`investigate-result:${mint}`).catch(() => {});
+    useInvestigateStore.getState().reset();
+    startInvestigation();
+    retryTimerRef.current = setTimeout(() => launchStream(), 50);
+  };
 
   const isRunning = status === 'scanning' || status === 'analyzing' || status === 'reasoning';
 
