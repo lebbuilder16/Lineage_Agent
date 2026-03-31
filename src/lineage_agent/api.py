@@ -3201,9 +3201,37 @@ async def get_token_meta(mint: str, request: Request):
             content = asset.get("content", {}) or {}
             metadata = content.get("metadata", {}) or {}
             links = content.get("links", {}) or {}
-            result["name"] = metadata.get("name", "")
-            result["symbol"] = metadata.get("symbol", "")
-            result["image_uri"] = links.get("image", "") or content.get("json_uri", "")
+            # DAS returns name/symbol in content.metadata
+            name = metadata.get("name", "") or metadata.get("token_name", "")
+            symbol = metadata.get("symbol", "")
+            image = links.get("image", "") or content.get("json_uri", "")
+            # Also check top-level fields (some DAS versions)
+            if not name:
+                name = asset.get("name", "")
+            if not symbol:
+                symbol = asset.get("symbol", "")
+            result["name"] = name
+            result["symbol"] = symbol
+            result["image_uri"] = image
+            if name:
+                return result
+    except Exception as exc:
+        logger.debug("[token-meta] DAS getAsset failed for %s: %s", mint[:12], exc)
+
+    # Last resort: check intelligence_events for cached name
+    try:
+        from .data_sources._clients import cache as _cache
+        from .cache import SQLiteCache
+        if isinstance(_cache, SQLiteCache):
+            db = await _cache._get_conn()
+            cursor = await db.execute(
+                "SELECT name, symbol FROM intelligence_events WHERE mint = ? AND name != '' LIMIT 1",
+                (mint,),
+            )
+            row = await cursor.fetchone()
+            if row and row[0]:
+                result["name"] = row[0]
+                result["symbol"] = row[1] or ""
     except Exception:
         pass
 
