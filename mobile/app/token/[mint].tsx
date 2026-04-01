@@ -17,6 +17,7 @@ import {
   ChevronUp,
   Copy,
   GitBranch,
+  GitCompareArrows,
   Bot,
   Settings2,
 } from 'lucide-react-native';
@@ -224,6 +225,11 @@ export default function TokenScreen() {
                 <GitBranch size={16} color={tokens.secondary} />
                 <Text style={styles.actionBtnText}>Family Tree</Text>
               </TouchableOpacity>
+              <View style={styles.actionDivider} />
+              <TouchableOpacity style={styles.actionBtn} onPress={() => router.push('/compare' as any)} activeOpacity={0.75} accessibilityRole="button" accessibilityLabel="Compare tokens">
+                <GitCompareArrows size={16} color={tokens.secondary} />
+                <Text style={styles.actionBtnText}>Compare</Text>
+              </TouchableOpacity>
             </View>
 
             {hasDetails && (
@@ -261,6 +267,7 @@ const styles = StyleSheet.create({
   btnPrimaryText: { fontFamily: 'Lexend-Bold', fontSize: tokens.font.body, color: tokens.white100, letterSpacing: 0.5 },
   actionRow: { flexDirection: 'row', borderRadius: tokens.radius.md, borderWidth: 1, borderColor: tokens.borderSubtle, backgroundColor: tokens.bgGlass8, overflow: 'hidden' },
   actionBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 14 },
+  actionDivider: { width: 1, backgroundColor: tokens.borderSubtle, alignSelf: 'stretch' },
   actionBtnText: { fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.small, color: tokens.secondary, letterSpacing: 0.3 },
   detailsToggle: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 12 },
   detailsToggleText: { fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.small, color: tokens.textTertiary, letterSpacing: 0.4 },
