@@ -10,7 +10,7 @@ import {
   StatusBar,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Search, Brain, Bot } from 'lucide-react-native';
+import { Search, Brain, Bot, Clock } from 'lucide-react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { useIsFocused } from '@react-navigation/native';
 import { router } from 'expo-router';
@@ -278,6 +278,14 @@ export default function AgentScreen() {
                   </TouchableOpacity>
                 );
               })}
+              <TouchableOpacity
+                onPress={() => router.push('/history' as any)}
+                style={styles.viewHistoryBtn}
+                activeOpacity={0.7}
+              >
+                <Clock size={14} color={tokens.secondary} />
+                <Text style={styles.viewHistoryText}>View Full History</Text>
+              </TouchableOpacity>
             </Animated.View>
           )}
         </ScrollView>
@@ -322,6 +330,15 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   invScoreText: { fontFamily: 'Lexend-SemiBold', fontSize: 12 },
+  viewHistoryBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    paddingVertical: 12, borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)',
+  },
+  viewHistoryText: {
+    color: tokens.secondary, fontFamily: 'Lexend-Medium', fontSize: 13,
+  },
   emptySection: {
     padding: 16, borderRadius: 12,
     backgroundColor: 'rgba(255,255,255,0.03)',
