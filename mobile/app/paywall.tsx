@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -6,6 +6,7 @@ import {
   StyleSheet,
   TouchableOpacity,
   Platform,
+  ActivityIndicator,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router, Stack } from 'expo-router';
@@ -15,6 +16,14 @@ import { GlassCard } from '../src/components/ui/GlassCard';
 import { HapticButton } from '../src/components/ui/HapticButton';
 import { useToast } from '../src/components/ui/Toast';
 import { tokens } from '../src/theme/tokens';
+import { useSubscriptionStore } from '../src/store/subscription';
+import {
+  getOfferings,
+  purchasePackage,
+  restorePurchases,
+  isReady as isRCReady,
+} from '../src/lib/revenuecat';
+import type { PurchasesPackage } from 'react-native-purchases';
 
 // ── Plan definitions ────────────────────────────────────────────────────────
 
@@ -83,10 +92,64 @@ const PLANS: PlanDef[] = [
 export default function PaywallScreen() {
   const insets = useSafeAreaInsets();
   const [yearly, setYearly] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [rcPackages, setRcPackages] = useState<PurchasesPackage[]>([]);
   const { showToast, toast } = useToast();
-  const isAndroid = Platform.OS === 'android';
+  const setPlan = useSubscriptionStore((s) => s.setPlan);
 
-  const comingSoon = () => showToast('Coming soon \u2014 RevenueCat not yet configured');
+  // Fetch RevenueCat offerings on mount
+  useEffect(() => {
+    if (!isRCReady()) return;
+    getOfferings().then((offerings) => {
+      const current = offerings?.current;
+      if (current?.availablePackages) {
+        setRcPackages(current.availablePackages);
+      }
+    }).catch(() => {});
+  }, []);
+
+  const handlePurchase = async (planKey: string) => {
+    // Try to find matching RC package
+    const pkg = rcPackages.find((p) =>
+      p.identifier.toLowerCase().includes(planKey) &&
+      p.identifier.toLowerCase().includes(yearly ? 'year' : 'month')
+    );
+
+    if (!pkg) {
+      showToast('Purchase not available yet — configure RevenueCat products');
+      return;
+    }
+
+    setLoading(true);
+    const result = await purchasePackage(pkg);
+    setLoading(false);
+
+    if (result.success) {
+      setPlan(result.plan as any);
+      showToast(`Welcome to ${result.plan.charAt(0).toUpperCase() + result.plan.slice(1)}!`);
+      router.back();
+    } else if (!result.cancelled) {
+      showToast(result.error ?? 'Purchase failed');
+    }
+  };
+
+  const handleRestore = async () => {
+    setLoading(true);
+    const result = await restorePurchases();
+    setLoading(false);
+
+    if (result.success) {
+      setPlan(result.plan as any);
+      if (result.plan === 'free') {
+        showToast('No active subscription found');
+      } else {
+        showToast(`Restored ${result.plan.charAt(0).toUpperCase() + result.plan.slice(1)} plan`);
+        router.back();
+      }
+    } else {
+      showToast(result.error ?? 'Restore failed');
+    }
+  };
 
   return (
     <View style={styles.container}>
@@ -185,8 +248,12 @@ export default function PaywallScreen() {
               </View>
 
               {/* CTA: Subscribe */}
-              <HapticButton variant="primary" fullWidth onPress={comingSoon}>
-                <Text style={styles.ctaText}>Subscribe</Text>
+              <HapticButton variant="primary" fullWidth onPress={() => handlePurchase(plan.key)} disabled={loading}>
+                {loading ? (
+                  <ActivityIndicator size="small" color={tokens.white100} />
+                ) : (
+                  <Text style={styles.ctaText}>Subscribe</Text>
+                )}
               </HapticButton>
 
               {/* CTA: Pay with USDC (Android only) */}
@@ -195,7 +262,7 @@ export default function PaywallScreen() {
                   <HapticButton
                     variant="ghost"
                     fullWidth
-                    onPress={comingSoon}
+                    onPress={() => showToast('USDC payments coming soon')}
                   >
                     <Text style={styles.usdcBtnText}>Pay with USDC</Text>
                     <Text style={styles.usdcPrice}>
@@ -232,7 +299,7 @@ export default function PaywallScreen() {
                 <TouchableOpacity
                   key={pack.key}
                   style={styles.creditPack}
-                  onPress={comingSoon}
+                  onPress={() => showToast('LINEAGE token payments coming soon')}
                   activeOpacity={0.7}
                 >
                   <Text style={styles.creditPackLabel}>{pack.label}</Text>
@@ -251,7 +318,7 @@ export default function PaywallScreen() {
           entering={FadeInDown.duration(350).delay(280).springify()}
           style={styles.footer}
         >
-          <TouchableOpacity onPress={comingSoon}>
+          <TouchableOpacity onPress={handleRestore} disabled={loading}>
             <Text style={styles.footerLink}>Restore Purchases</Text>
           </TouchableOpacity>
           <View style={styles.footerLegal}>

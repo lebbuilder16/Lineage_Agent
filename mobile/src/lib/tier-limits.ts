@@ -122,7 +122,7 @@ const TIER_ORDER: PlanTier[] = ['free', 'pro', 'elite'];
  * Set to true ONLY when RevenueCat/Helio payment is fully configured.
  * When false, all users have access to all features (no paywall).
  */
-export const GATES_ENABLED = false;
+export const GATES_ENABLED = true;
 
 export function getLimits(plan: PlanTier): TierLimits {
   return TIER_LIMITS[plan] ?? TIER_LIMITS.free;

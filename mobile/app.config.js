@@ -56,6 +56,7 @@ module.exports = {
       ],
       'expo-secure-store',
       'expo-web-browser',
+      'react-native-purchases',
     ],
     experiments: {
       typedRoutes: true,

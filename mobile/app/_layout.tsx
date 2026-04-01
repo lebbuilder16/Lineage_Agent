@@ -18,6 +18,8 @@ import { maybeAutoInvestigate } from '../src/lib/auto-investigate';
 import { connectOpenClaw, disconnectOpenClaw, isOpenClawAvailable } from '../src/lib/openclaw';
 import { useOpenClawStore } from '../src/store/openclaw';
 import { registerDeviceNode, startNodeCommandListener } from '../src/lib/openclaw-node';
+import { initRevenueCat, identifyUser, getCustomerInfo, resolveActivePlan } from '../src/lib/revenuecat';
+import { useSubscriptionStore } from '../src/store/subscription';
 import { startRugResponseListener } from '../src/lib/openclaw-rug-response';
 import { setupWatchlistMonitor, startWatchlistMonitorListener } from '../src/lib/openclaw-monitor';
 import { createBriefingCron } from '../src/lib/openclaw-cron';
@@ -165,14 +167,33 @@ export default function RootLayout() {
     };
   }, []);
 
-  // Register native FCM device token with the backend when authenticated
+  // Initialize RevenueCat SDK (once, before auth)
+  useEffect(() => {
+    initRevenueCat().catch(() => {});
+  }, []);
+
+  // Register native FCM device token + sync RevenueCat when authenticated
   useEffect(() => {
     if (!apiKey) return;
+    // FCM token registration
     registerForPushNotifications()
       .then((token) => {
         if (token) registerFcmToken(apiKey, token).catch(() => {});
       })
       .catch(() => {});
+    // Identify user in RevenueCat + sync plan
+    const user = useAuthStore.getState().user;
+    if (user?.id) {
+      identifyUser(String(user.id))
+        .then(() => getCustomerInfo())
+        .then((info) => {
+          if (info) {
+            const plan = resolveActivePlan(info);
+            useSubscriptionStore.getState().setPlan(plan as any);
+          }
+        })
+        .catch(() => {});
+    }
   }, [apiKey]);
 
   // User-scoped: WebSocket alerts + history hydration — reconnect on account change
