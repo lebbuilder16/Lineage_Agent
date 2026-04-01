@@ -1,9 +1,11 @@
 /**
  * Client-side mirror of backend tier limits.
  * Used for UI rendering (blur/lock/counters) only — the backend is authoritative.
+ *
+ * Tiers: FREE → PRO ($9.99/m) → ELITE ($34.99/m)
  */
 
-export type PlanTier = 'free' | 'pro' | 'pro_plus' | 'whale';
+export type PlanTier = 'free' | 'pro' | 'elite';
 
 export interface TierLimits {
   scansPerDay: number; // -1 = unlimited
@@ -34,43 +36,17 @@ export interface TierLimits {
 
 export const TIER_LIMITS: Record<PlanTier, TierLimits> = {
   free: {
-    scansPerDay: 5,
+    scansPerDay: 10,
     historyDays: 7,
     hasAiChat: false,
     aiChatModel: '',
     aiChatDailyLimit: 0,
-    maxWatchlist: 0,
+    maxWatchlist: 3,
     maxBriefings: 0,
     alertChannels: ['in_app'],
     hasSolFlow: false,
     hasBundle: false,
     hasInsiderSell: false,
-    hasDeployerProfiler: false,
-    hasCartel: false,
-    hasOperatorImpact: false,
-    hasCompare: false,
-    hasExport: false,
-    batchScanMax: 0,
-    hasApiAccess: false,
-    deathClockFull: false,
-    hasAgent: false,
-    agentDailyLimit: 0,
-    hasAiVerdict: false,
-    investigateDailyLimit: 5,
-    investigateChatDailyLimit: 0,
-  },
-  pro: {
-    scansPerDay: -1,
-    historyDays: 30,
-    hasAiChat: true,
-    aiChatModel: 'haiku',
-    aiChatDailyLimit: 20,
-    maxWatchlist: 10,
-    maxBriefings: 1,
-    alertChannels: ['in_app'],
-    hasSolFlow: true,
-    hasBundle: true,
-    hasInsiderSell: true,
     hasDeployerProfiler: true,
     hasCartel: false,
     hasOperatorImpact: false,
@@ -81,19 +57,19 @@ export const TIER_LIMITS: Record<PlanTier, TierLimits> = {
     deathClockFull: true,
     hasAgent: false,
     agentDailyLimit: 0,
-    hasAiVerdict: true,
-    investigateDailyLimit: -1,
-    investigateChatDailyLimit: 20,
+    hasAiVerdict: false,
+    investigateDailyLimit: 10,
+    investigateChatDailyLimit: 0,
   },
-  pro_plus: {
-    scansPerDay: -1,
+  pro: {
+    scansPerDay: 50,
     historyDays: 90,
     hasAiChat: true,
-    aiChatModel: 'sonnet',
-    aiChatDailyLimit: -1,
-    maxWatchlist: 50,
+    aiChatModel: 'haiku',
+    aiChatDailyLimit: 30,
+    maxWatchlist: 25,
     maxBriefings: 1,
-    alertChannels: ['in_app', 'telegram', 'discord'],
+    alertChannels: ['in_app', 'telegram'],
     hasSolFlow: true,
     hasBundle: true,
     hasInsiderSell: true,
@@ -105,19 +81,19 @@ export const TIER_LIMITS: Record<PlanTier, TierLimits> = {
     batchScanMax: 0,
     hasApiAccess: false,
     deathClockFull: true,
-    hasAgent: true,
-    agentDailyLimit: 10,
+    hasAgent: false,
+    agentDailyLimit: 0,
     hasAiVerdict: true,
-    investigateDailyLimit: -1,
-    investigateChatDailyLimit: -1,
+    investigateDailyLimit: 50,
+    investigateChatDailyLimit: 30,
   },
-  whale: {
-    scansPerDay: -1,
-    historyDays: -1,
+  elite: {
+    scansPerDay: 100,
+    historyDays: 365,
     hasAiChat: true,
-    aiChatModel: 'sonnet',
-    aiChatDailyLimit: -1,
-    maxWatchlist: 200,
+    aiChatModel: 'haiku',
+    aiChatDailyLimit: 60,
+    maxWatchlist: 100,
     maxBriefings: 3,
     alertChannels: ['in_app', 'telegram', 'discord'],
     hasSolFlow: true,
@@ -128,18 +104,18 @@ export const TIER_LIMITS: Record<PlanTier, TierLimits> = {
     hasOperatorImpact: true,
     hasCompare: true,
     hasExport: true,
-    batchScanMax: 50,
+    batchScanMax: 25,
     hasApiAccess: true,
     deathClockFull: true,
     hasAgent: true,
-    agentDailyLimit: -1,
+    agentDailyLimit: 12,
     hasAiVerdict: true,
-    investigateDailyLimit: -1,
-    investigateChatDailyLimit: -1,
+    investigateDailyLimit: 100,
+    investigateChatDailyLimit: 60,
   },
 };
 
-const TIER_ORDER: PlanTier[] = ['free', 'pro', 'pro_plus', 'whale'];
+const TIER_ORDER: PlanTier[] = ['free', 'pro', 'elite'];
 
 /**
  * Feature gates master switch.
@@ -163,8 +139,7 @@ export function tierLabel(plan: PlanTier): string {
   switch (plan) {
     case 'free': return 'Free';
     case 'pro': return 'Pro';
-    case 'pro_plus': return 'Pro+';
-    case 'whale': return 'Whale';
+    case 'elite': return 'Elite';
     default: return 'Free';
   }
 }
@@ -173,8 +148,7 @@ export function tierColor(plan: PlanTier): string {
   switch (plan) {
     case 'free': return '#6B7280'; // gray
     case 'pro': return '#CFE6E4'; // secondary/mint teal
-    case 'pro_plus': return '#FF3366'; // accent/pink
-    case 'whale': return '#00FF88'; // success/green
+    case 'elite': return '#FFD666'; // gold
     default: return '#6B7280';
   }
 }

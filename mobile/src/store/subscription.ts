@@ -72,7 +72,7 @@ export const useSubscriptionStore = create<SubscriptionState>((set, get) => ({
 /** Convenience: check if user can access a feature requiring a specific plan. */
 export function useCanAccess(requiredPlan: PlanTier): boolean {
   const plan = useSubscriptionStore((s) => s.plan);
-  const tierOrder: PlanTier[] = ['free', 'pro', 'pro_plus', 'whale'];
+  const tierOrder: PlanTier[] = ['free', 'pro', 'elite'];
   return tierOrder.indexOf(plan) >= tierOrder.indexOf(requiredPlan);
 }
 

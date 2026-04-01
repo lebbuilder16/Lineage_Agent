@@ -925,11 +925,21 @@ class SQLiteCache:
             "ALTER TABLE users ADD COLUMN display_name TEXT",
             "ALTER TABLE users ADD COLUMN avatar_url TEXT",
             "ALTER TABLE users ADD COLUMN fcm_token TEXT",
+            "ALTER TABLE users ADD COLUMN scan_credits INTEGER NOT NULL DEFAULT 0",
         ]:
             try:
                 await db.execute(col_sql)
             except Exception:
                 pass  # column already exists
+
+        # Migrate legacy tier names to new structure
+        try:
+            await db.execute(
+                "UPDATE users SET plan = 'elite' WHERE plan IN ('pro_plus', 'whale')"
+            )
+            await db.commit()
+        except Exception:
+            pass
 
         # ── Wallet monitoring tables ──────────────────────────────────
         await db.execute("""

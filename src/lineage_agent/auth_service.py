@@ -253,7 +253,7 @@ async def upgrade_user_plan(cache, user_id: int, plan: str) -> bool:
     Called by the RevenueCat webhook and the manual restore flow.
     Returns True on success.
     """
-    if plan not in ("free", "pro", "pro_plus", "whale"):
+    if plan not in ("free", "pro", "elite"):
         logger.warning("upgrade_user_plan: invalid plan %r for user_id=%s", plan, user_id)
         return False
     import asyncio

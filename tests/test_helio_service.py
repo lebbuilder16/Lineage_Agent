@@ -133,7 +133,7 @@ class TestCreatePaymentLink:
             result = await create_payment_link("pro", user_id=42)
             assert result is not None
             assert result["url"] == "https://pay.hel.io/abc123"
-            assert result["amount_usdc"] == 4.50
+            assert result["amount_usdc"] == 9.99
 
     @patch("lineage_agent.helio_service.HELIO_API_KEY", "test-key")
     async def test_api_error_returns_none(self):
@@ -172,7 +172,7 @@ class TestHandleHelioEvent:
         uid = await _seed_user(mem_db)
         await handle_helio_event(fake_cache, {
             "status": "COMPLETED",
-            "metadata": {"user_id": str(uid), "plan": "whale"},
+            "metadata": {"user_id": str(uid), "plan": "elite"},
             "transactionSignature": "txSIG",
         })
         async with mem_db.execute(
@@ -181,7 +181,7 @@ class TestHandleHelioEvent:
         ) as cur:
             row = await cur.fetchone()
         assert row is not None
-        assert row[0] == "whale"
+        assert row[0] == "elite"
         assert row[1] == "helio_usdc"
         assert row[2] == "txSIG"
 

@@ -11,10 +11,13 @@ REVENUECAT_WEBHOOK_SECRET = os.getenv("REVENUECAT_WEBHOOK_SECRET", "")
 RC_PRODUCT_TO_PLAN: dict[str, str] = {
     "lineage_pro_monthly": "pro",
     "lineage_pro_yearly": "pro",
-    "lineage_pro_plus_monthly": "pro_plus",
-    "lineage_pro_plus_yearly": "pro_plus",
-    "lineage_whale_monthly": "whale",
-    "lineage_whale_yearly": "whale",
+    "lineage_elite_monthly": "elite",
+    "lineage_elite_yearly": "elite",
+    # Transition: old product IDs map to elite until all subscriptions renew
+    "lineage_pro_plus_monthly": "elite",
+    "lineage_pro_plus_yearly": "elite",
+    "lineage_whale_monthly": "elite",
+    "lineage_whale_yearly": "elite",
 }
 
 

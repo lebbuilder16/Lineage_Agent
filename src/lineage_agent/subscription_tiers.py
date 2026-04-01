@@ -2,6 +2,8 @@
 
 Every gate, limit, and feature flag for the Lineage Agent subscription
 system is derived from the constants in this module.
+
+Tiers: FREE → PRO ($9.99/m) → ELITE ($34.99/m)
 """
 
 from __future__ import annotations
@@ -19,8 +21,7 @@ from typing import Dict, List
 class PlanTier(str, Enum):
     FREE = "free"
     PRO = "pro"
-    PRO_PLUS = "pro_plus"
-    WHALE = "whale"
+    ELITE = "elite"
 
 
 # ---------------------------------------------------------------------------
@@ -30,8 +31,7 @@ class PlanTier(str, Enum):
 TIER_ORDER: List[PlanTier] = [
     PlanTier.FREE,
     PlanTier.PRO,
-    PlanTier.PRO_PLUS,
-    PlanTier.WHALE,
+    PlanTier.ELITE,
 ]
 
 
@@ -90,43 +90,17 @@ class TierLimits:
 
 TIER_LIMITS: Dict[PlanTier, TierLimits] = {
     PlanTier.FREE: TierLimits(
-        scans_per_day=5,
+        scans_per_day=10,
         history_days=7,
         has_ai_chat=False,
         ai_chat_model="",
         ai_chat_daily_limit=0,
-        max_watchlist=0,
+        max_watchlist=3,
         max_briefings=0,
         alert_channels=["in_app"],
         has_sol_flow=False,
         has_bundle_tracker=False,
         has_insider_sell=False,
-        has_deployer_profiler=False,
-        has_cartel_detection=False,
-        has_operator_impact=False,
-        has_compare=False,
-        has_export=False,
-        batch_scan_max=0,
-        has_api_access=False,
-        death_clock_full=False,
-        has_agent=False,
-        agent_daily_limit=0,
-        has_ai_verdict=False,
-        investigate_daily_limit=5,
-        investigate_chat_daily_limit=0,
-    ),
-    PlanTier.PRO: TierLimits(
-        scans_per_day=math.inf,
-        history_days=30,
-        has_ai_chat=True,
-        ai_chat_model="haiku",
-        ai_chat_daily_limit=20,
-        max_watchlist=10,
-        max_briefings=1,
-        alert_channels=["in_app"],
-        has_sol_flow=True,
-        has_bundle_tracker=True,
-        has_insider_sell=True,
         has_deployer_profiler=True,
         has_cartel_detection=False,
         has_operator_impact=False,
@@ -137,19 +111,19 @@ TIER_LIMITS: Dict[PlanTier, TierLimits] = {
         death_clock_full=True,
         has_agent=False,
         agent_daily_limit=0,
-        has_ai_verdict=True,
-        investigate_daily_limit=math.inf,
-        investigate_chat_daily_limit=20,
+        has_ai_verdict=False,
+        investigate_daily_limit=10,
+        investigate_chat_daily_limit=0,
     ),
-    PlanTier.PRO_PLUS: TierLimits(
-        scans_per_day=math.inf,
+    PlanTier.PRO: TierLimits(
+        scans_per_day=50,
         history_days=90,
         has_ai_chat=True,
-        ai_chat_model="sonnet",
-        ai_chat_daily_limit=math.inf,
-        max_watchlist=50,
+        ai_chat_model="haiku",
+        ai_chat_daily_limit=30,
+        max_watchlist=25,
         max_briefings=1,
-        alert_channels=["in_app", "telegram", "discord"],
+        alert_channels=["in_app", "telegram"],
         has_sol_flow=True,
         has_bundle_tracker=True,
         has_insider_sell=True,
@@ -161,19 +135,19 @@ TIER_LIMITS: Dict[PlanTier, TierLimits] = {
         batch_scan_max=0,
         has_api_access=False,
         death_clock_full=True,
-        has_agent=True,
-        agent_daily_limit=10,
+        has_agent=False,
+        agent_daily_limit=0,
         has_ai_verdict=True,
-        investigate_daily_limit=math.inf,
-        investigate_chat_daily_limit=math.inf,
+        investigate_daily_limit=50,
+        investigate_chat_daily_limit=30,
     ),
-    PlanTier.WHALE: TierLimits(
-        scans_per_day=math.inf,
-        history_days=math.inf,
+    PlanTier.ELITE: TierLimits(
+        scans_per_day=100,
+        history_days=365,
         has_ai_chat=True,
-        ai_chat_model="sonnet",
-        ai_chat_daily_limit=math.inf,
-        max_watchlist=200,
+        ai_chat_model="haiku",
+        ai_chat_daily_limit=60,
+        max_watchlist=100,
         max_briefings=3,
         alert_channels=["in_app", "telegram", "discord"],
         has_sol_flow=True,
@@ -184,14 +158,14 @@ TIER_LIMITS: Dict[PlanTier, TierLimits] = {
         has_operator_impact=True,
         has_compare=True,
         has_export=True,
-        batch_scan_max=50,
+        batch_scan_max=25,
         has_api_access=True,
         death_clock_full=True,
         has_agent=True,
-        agent_daily_limit=math.inf,
+        agent_daily_limit=12,
         has_ai_verdict=True,
-        investigate_daily_limit=math.inf,
-        investigate_chat_daily_limit=math.inf,
+        investigate_daily_limit=100,
+        investigate_chat_daily_limit=60,
     ),
 }
 
@@ -203,7 +177,7 @@ TIER_LIMITS: Dict[PlanTier, TierLimits] = {
 def get_limits(plan: str) -> TierLimits:
     """Return the ``TierLimits`` for *plan*.
 
-    Accepts either the ``PlanTier`` enum value string (e.g. ``"pro_plus"``)
+    Accepts either the ``PlanTier`` enum value string (e.g. ``"elite"``)
     or the enum member itself.  Falls back to ``FREE`` for any unrecognised
     value.
     """

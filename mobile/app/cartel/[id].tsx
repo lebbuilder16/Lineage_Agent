@@ -93,7 +93,7 @@ export default function CartelScreen() {
           showsVerticalScrollIndicator={false}
           refreshControl={<RefreshControl refreshing={isLoading} onRefresh={refetch} tintColor={tokens.primary} />}
         >
-          <FeatureGate feature="Cartel Detection" requiredPlan="pro_plus">
+          <FeatureGate feature="Cartel Detection" requiredPlan="pro">
           {isLoading && <GlassCard><SkeletonBlock lines={4} /></GlassCard>}
 
           {!isLoading && error && (

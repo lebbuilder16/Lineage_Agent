@@ -202,11 +202,11 @@ class TestProTier:
 # ── Test: Pro+ tier ──────────────────────────────────────────────────────────
 
 
-class TestProPlusTier:
+class TestEliteTier:
     @pytest.mark.asyncio
     @patch("lineage_agent.forensic_pipeline.run_forensic_pipeline")
-    async def test_pro_plus_uses_agent(self, mock_pipeline):
-        """Pro+ tier: scan + full agent reasoning + verdict."""
+    async def test_elite_uses_agent(self, mock_pipeline):
+        """Elite tier: scan + full agent reasoning + verdict."""
         lineage = _make_lineage()
         report = _make_forensic_report(lineage)
         mock_pipeline.side_effect = _fake_pipeline_gen(report)
@@ -219,7 +219,7 @@ class TestProPlusTier:
             yield {"event": "tool_result", "data": {"turn": 1, "tool": "scan_token", "call_id": "c1", "result": {}, "error": None, "duration_ms": 500}}
             yield {"event": "done", "data": {"verdict": verdict, "turns_used": 2, "tokens_used": 5000}}
 
-        tier = get_limits(PlanTier.PRO_PLUS.value)
+        tier = get_limits(PlanTier.ELITE.value)
         with patch("lineage_agent.agent_service.run_agent", side_effect=_fake_agent):
             events = await _collect_events(run_investigation(MINT, tier=tier, cache=None))
 
@@ -272,7 +272,7 @@ class TestErrorSurfacing:
             raise RuntimeError("Claude API down")
             yield  # make it a generator  # noqa: E501
 
-        tier = get_limits(PlanTier.PRO_PLUS.value)
+        tier = get_limits(PlanTier.ELITE.value)
         with patch("lineage_agent.agent_service.run_agent", side_effect=_failing_agent):
             events = await _collect_events(run_investigation(MINT, tier=tier, cache=None))
 
@@ -287,36 +287,31 @@ class TestTierNewFields:
     def test_free_has_no_ai_verdict(self):
         tier = get_limits("free")
         assert tier.has_ai_verdict is False
-        assert tier.investigate_daily_limit == 5
+        assert tier.investigate_daily_limit == 10
         assert tier.investigate_chat_daily_limit == 0
 
     def test_pro_has_ai_verdict_no_agent(self):
         tier = get_limits("pro")
         assert tier.has_ai_verdict is True
         assert tier.has_agent is False
-        assert tier.investigate_chat_daily_limit == 20
+        assert tier.investigate_chat_daily_limit == 30
 
-    def test_pro_plus_has_agent_and_verdict(self):
-        tier = get_limits("pro_plus")
+    def test_elite_has_agent_and_verdict(self):
+        tier = get_limits("elite")
         assert tier.has_ai_verdict is True
         assert tier.has_agent is True
-        assert tier.investigate_daily_limit == math.inf
-        assert tier.investigate_chat_daily_limit == math.inf
-
-    def test_whale_all_unlimited(self):
-        tier = get_limits("whale")
-        assert tier.has_ai_verdict is True
-        assert tier.has_agent is True
-        assert tier.agent_daily_limit == math.inf
-        assert tier.investigate_daily_limit == math.inf
+        assert tier.agent_daily_limit == 12
+        assert tier.investigate_daily_limit == 100
+        assert tier.investigate_chat_daily_limit == 60
 
     def test_unknown_plan_falls_back_to_free(self):
         tier = get_limits("unknown_garbage")
         assert tier.has_ai_verdict is False
         assert tier.has_agent is False
 
-    def test_old_fields_preserved(self):
-        """Backward compat: has_agent and agent_daily_limit still work."""
-        tier = get_limits("pro_plus")
-        assert tier.has_agent is True
-        assert tier.agent_daily_limit == 10
+    def test_legacy_plans_fall_back_to_free(self):
+        """Old pro_plus/whale tier names now fall back to free."""
+        for old_plan in ("pro_plus", "whale"):
+            tier = get_limits(old_plan)
+            assert tier.has_ai_verdict is False
+            assert tier.has_agent is False

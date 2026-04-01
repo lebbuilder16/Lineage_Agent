@@ -5,7 +5,7 @@ generator that yields SSE event dicts:
 
 - **Free**: Forensic pipeline scan → heuristic score, no AI.
 - **Pro**: Forensic pipeline + single-shot AI verdict (Haiku).
-- **Pro+/Whale**: Forensic pipeline + autonomous agent investigation (Sonnet multi-turn).
+- **Elite**: Forensic pipeline + autonomous agent investigation (Haiku multi-turn).
 
 The generator adapts its behavior based on the caller's ``TierLimits``
 so that one endpoint can serve all subscription tiers.
@@ -49,11 +49,11 @@ async def run_investigation(
       step            {step, status, ms?}
       identity_ready  {name, symbol, deployer, ms}     (NEW: early feedback)
       heuristic_complete  {heuristic_score, tier}       (Free stop point)
-      thinking        {turn, text}                       (Pro+ only)
-      tool_call       {turn, tool, input, call_id}       (Pro+ only)
-      tool_result     {turn, tool, call_id, ...}         (Pro+ only)
-      text            {turn, text}                       (Pro+ only)
-      verdict         {risk_score, confidence, ...}      (Pro / Pro+)
+      thinking        {turn, text}                       (Elite only)
+      tool_call       {turn, tool, input, call_id}       (Elite only)
+      tool_result     {turn, tool, call_id, ...}         (Elite only)
+      text            {turn, text}                       (Elite only)
+      verdict         {risk_score, confidence, ...}      (Pro / Elite)
       done            {tier, turns_used, tokens_used, chat_available}
       error           {detail, recoverable?}
     """
@@ -133,7 +133,7 @@ async def run_investigation(
         })
         return
 
-    # ── Pro+ / Whale: agent investigation ───────────────────────────
+    # ── Elite: agent investigation ─────────────────────────────────
     if tier.has_agent:
         yield _evtN("phase", {"phase": "agent", "status": "started"})
 

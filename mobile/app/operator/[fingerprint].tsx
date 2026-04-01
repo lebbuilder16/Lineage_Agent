@@ -87,7 +87,7 @@ export default function OperatorScreen() {
             <RefreshControl refreshing={isLoading} onRefresh={refetch} tintColor={tokens.primary} />
           }
         >
-          <FeatureGate feature="Operator Fingerprint" requiredPlan="pro_plus">
+          <FeatureGate feature="Operator Fingerprint" requiredPlan="pro">
           {isLoading && (
             <GlassCard>
               <SkeletonBlock lines={5} />

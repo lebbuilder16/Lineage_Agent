@@ -18,14 +18,15 @@ USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
 
 HELIO_PRODUCT_TO_PLAN: dict[str, str] = {
     "lineage_pro_usdc": "pro",
-    "lineage_pro_plus_usdc": "pro_plus",
-    "lineage_whale_usdc": "whale",
+    "lineage_elite_usdc": "elite",
+    # Transition: old product IDs map to elite
+    "lineage_pro_plus_usdc": "elite",
+    "lineage_whale_usdc": "elite",
 }
 
 PLAN_PRICES_USDC: dict[str, float] = {
-    "pro": 4.50,
-    "pro_plus": 11.50,
-    "whale": 44.99,
+    "pro": 9.99,
+    "elite": 34.99,
 }
 
 
