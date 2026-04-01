@@ -112,7 +112,7 @@ async def run_investigation(
         except Exception:
             pass
         # Generate human-readable findings from forensic flags (zero LLM cost)
-        _findings = _build_heuristic_findings(report, lineage_res, calibrated_hscore)
+        _findings = _build_heuristic_findings(report, lineage_res, calibrated_hscore, tier=tier)
         _risk_level = (
             "critical" if calibrated_hscore >= 75
             else "high" if calibrated_hscore >= 50
@@ -288,20 +288,32 @@ async def _record_memory_episode(mint: str, verdict: dict, lineage_res: Any) -> 
         logging.getLogger(__name__).debug("[memory] record failed: %s", exc)
 
 
-def _build_heuristic_findings(report: Any, lineage_res: Any, hscore: int) -> list[str]:
-    """Generate human-readable findings from forensic flags. Zero LLM cost."""
-    findings: list[str] = []
+def _build_heuristic_findings(
+    report: Any,
+    lineage_res: Any,
+    hscore: int,
+    *,
+    tier: Optional[Any] = None,
+) -> list[str]:
+    """Generate human-readable findings from forensic flags. Zero LLM cost.
 
-    # ── Identity ─────────────────────────────────────────────────────────
+    When ``tier`` is provided, findings are gated by the tier's feature flags.
+    Free users only see: identity, deployer profile, death clock, market data,
+    and a teaser count of hidden signals to encourage upgrade.
+    """
+    findings: list[str] = []
+    gated_count = 0  # count of signals hidden behind paywall
+
+    # ── Identity (always visible) ────────────────────────────────────────
     identity = getattr(report, "identity", None) if report else None
     if identity:
         name = getattr(identity, "name", "") or "Unknown"
         platform = getattr(identity, "launch_platform", None) or "unknown platform"
         findings.append(f"Token \"{name}\" launched on {platform}.")
 
-    # ── Deployer profile ─────────────────────────────────────────────────
+    # ── Deployer profile (free teaser) ───────────────────────────────────
     dp = getattr(report, "deployer_profile", None) if report else None
-    if dp:
+    if dp and (not tier or tier.has_deployer_profiler):
         total = getattr(dp, "total_tokens_launched", 0) or 0
         rugs = getattr(dp, "rug_count", 0) or 0
         if total <= 1 and rugs == 0:
@@ -314,125 +326,149 @@ def _build_heuristic_findings(report: Any, lineage_res: Any, hscore: int) -> lis
         elif total > 1:
             findings.append(f"Deployer has launched {total} tokens with no confirmed rugs.")
 
-    # ── Insider sell ─────────────────────────────────────────────────────
+    # ── Insider sell (Pro+) ──────────────────────────────────────────────
     ins = getattr(report, "insider_sell", None) if report else None
     if ins:
-        flags = getattr(ins, "flags", []) or []
-        verdict = getattr(ins, "verdict", "") or ""
-        if "DEPLOYER_DUMP_RISK" in flags:
-            # Extract context from wallet events
-            for we in (getattr(ins, "wallet_events", []) or []):
-                ctx = getattr(we, "balance_context", "") or ""
-                if ctx.strip():
-                    findings.append(f"Dump risk — {ctx.strip()}")
-                    break
-        elif "DEPLOYER_HOLDS_SIGNIFICANT_SUPPLY" in flags:
-            for we in (getattr(ins, "wallet_events", []) or []):
-                ctx = getattr(we, "balance_context", "") or ""
-                if ctx.strip():
-                    findings.append(f"Creator still holds tokens. {ctx.strip()}")
-                    break
-        elif verdict == "insider_dump":
-            findings.append("Insider dump detected — deployer exited with high sell pressure.")
-        elif verdict == "suspicious":
-            findings.append("Suspicious sell activity detected around deployer wallet.")
-        elif getattr(ins, "deployer_exited", False):
-            findings.append("Deployer has fully exited their position.")
+        if tier and not tier.has_insider_sell:
+            gated_count += 1
         else:
-            exited = getattr(ins, "deployer_exited", None)
-            if exited is False:
-                findings.append("Deployer has not exited — still holding tokens.")
+            flags = getattr(ins, "flags", []) or []
+            verdict = getattr(ins, "verdict", "") or ""
+            if "DEPLOYER_DUMP_RISK" in flags:
+                for we in (getattr(ins, "wallet_events", []) or []):
+                    ctx = getattr(we, "balance_context", "") or ""
+                    if ctx.strip():
+                        findings.append(f"Dump risk — {ctx.strip()}")
+                        break
+            elif "DEPLOYER_HOLDS_SIGNIFICANT_SUPPLY" in flags:
+                for we in (getattr(ins, "wallet_events", []) or []):
+                    ctx = getattr(we, "balance_context", "") or ""
+                    if ctx.strip():
+                        findings.append(f"Creator still holds tokens. {ctx.strip()}")
+                        break
+            elif verdict == "insider_dump":
+                findings.append("Insider dump detected — deployer exited with high sell pressure.")
+            elif verdict == "suspicious":
+                findings.append("Suspicious sell activity detected around deployer wallet.")
+            elif getattr(ins, "deployer_exited", False):
+                findings.append("Deployer has fully exited their position.")
+            else:
+                exited = getattr(ins, "deployer_exited", None)
+                if exited is False:
+                    findings.append("Deployer has not exited — still holding tokens.")
 
-    # ── Bundle ───────────────────────────────────────────────────────────
+    # ── Bundle (Pro+) ────────────────────────────────────────────────────
     bundle = getattr(report, "bundle_report", None) if report else None
     if bundle:
-        bv = getattr(bundle, "overall_verdict", "") or ""
-        if "confirmed" in bv:
-            findings.append("Confirmed team extraction via coordinated bundle buying.")
-        elif "suspected" in bv:
-            findings.append("Suspected coordinated bundle activity at launch.")
-        elif "coordinated" in bv:
-            findings.append("Coordinated early buying detected — source unclear.")
+        if tier and not tier.has_bundle_tracker:
+            gated_count += 1
+        else:
+            bv = getattr(bundle, "overall_verdict", "") or ""
+            if "confirmed" in bv:
+                findings.append("Confirmed team extraction via coordinated bundle buying.")
+            elif "suspected" in bv:
+                findings.append("Suspected coordinated bundle activity at launch.")
+            elif "coordinated" in bv:
+                findings.append("Coordinated early buying detected — source unclear.")
 
-    # ── SOL flow ─────────────────────────────────────────────────────────
+    # ── SOL flow (Pro+) ─────────────────────────────────────────────────
     sol = getattr(report, "sol_flow", None) if report else None
     if sol:
-        extracted = getattr(sol, "total_extracted_sol", 0) or 0
-        if extracted >= 20:
-            findings.append(f"Large capital extraction: {extracted:.1f} SOL traced leaving the token.")
-        elif extracted >= 5:
-            findings.append(f"Moderate capital flow: {extracted:.1f} SOL traced from the token.")
+        if tier and not tier.has_sol_flow:
+            gated_count += 1
+        else:
+            extracted = getattr(sol, "total_extracted_sol", 0) or 0
+            if extracted >= 20:
+                findings.append(f"Large capital extraction: {extracted:.1f} SOL traced leaving the token.")
+            elif extracted >= 5:
+                findings.append(f"Moderate capital flow: {extracted:.1f} SOL traced from the token.")
 
-    # ── Death clock ──────────────────────────────────────────────────────
+    # ── Death clock (free teaser) ────────────────────────────────────────
     dc = getattr(report, "death_clock", None) if report else None
-    if dc:
+    if dc and (not tier or tier.death_clock_full):
         risk = getattr(dc, "risk_level", "") or ""
         if risk == "critical":
             findings.append("Death clock: critical — rug predicted within the forecast window.")
         elif risk == "high":
             findings.append("Death clock: high risk — deployer pattern suggests near-term rug.")
-        elif risk == "insufficient_data":
-            pass  # Already covered by deployer profile first-time message
 
-    # ── Family / clones ──────────────────────────────────────────────────
+    # ── Family / clones (Pro+) ───────────────────────────────────────────
     if lineage_res:
         derivs = getattr(lineage_res, "derivatives", []) or []
-        if len(derivs) >= 3:
-            findings.append(f"{len(derivs)} clone tokens detected — this token has been widely copied.")
-        elif len(derivs) >= 1:
-            findings.append(f"{len(derivs)} clone(s) of this token found on-chain.")
+        if derivs:
+            if tier and not tier.has_compare:
+                gated_count += 1
+            else:
+                if len(derivs) >= 3:
+                    findings.append(f"{len(derivs)} clone tokens detected — this token has been widely copied.")
+                elif len(derivs) >= 1:
+                    findings.append(f"{len(derivs)} clone(s) of this token found on-chain.")
 
-    # ── Cartel ───────────────────────────────────────────────────────────
+    # ── Cartel (Pro+) ───────────────────────────────────────────────────
     cartel = getattr(report, "cartel_report", None) if report else None
-    if cartel:
-        dc_comm = getattr(cartel, "deployer_community", None)
-        if dc_comm:
+    if cartel and getattr(cartel, "deployer_community", None):
+        if tier and not tier.has_cartel_detection:
+            gated_count += 1
+        else:
+            dc_comm = cartel.deployer_community
             size = getattr(dc_comm, "community_size", 0) or 0
             if size >= 5:
                 findings.append(f"Part of a {size}-wallet cartel network with shared liquidity.")
             elif size >= 2:
                 findings.append(f"Deployer linked to {size} other wallets via shared patterns.")
 
-    # ── Factory ──────────────────────────────────────────────────────────
+    # ── Factory (Pro+) ───────────────────────────────────────────────────
     fr = getattr(report, "factory_rhythm", None) if report else None
     if fr and getattr(fr, "is_factory", False):
-        findings.append("Factory pattern detected — deployer uses automated token deployment.")
+        if tier and not tier.has_deployer_profiler:
+            gated_count += 1
+        else:
+            findings.append("Factory pattern detected — deployer uses automated token deployment.")
 
-    # ── Zombie ───────────────────────────────────────────────────────────
+    # ── Zombie (Pro+) ───────────────────────────────────────────────────
     if report and getattr(report, "zombie_alert", None):
-        findings.append("Zombie alert — this token resembles a previously rugged token that was relaunched.")
+        if tier and not tier.has_bundle_tracker:
+            gated_count += 1
+        else:
+            findings.append("Zombie alert — this token resembles a previously rugged token that was relaunched.")
 
-    # ── Sniper ring ──────────────────────────────────────────────────────
+    # ── Sniper ring (Pro+) ──────────────────────────────────────────────
     sniper = getattr(report, "sniper_report", None) if report else None
-    if sniper:
-        sv = getattr(sniper, "verdict", "") or ""
-        ring_size = getattr(sniper, "ring_size", 0) or 0
-        dep_funded = getattr(sniper, "deployer_funded_count", 0) or 0
-        shared_count = getattr(sniper, "shared_funder_count", 0) or 0
-        sol_ret = getattr(sniper, "sol_returned_to_deployer", 0) or 0
-        if sv == "deployer_linked_ring":
-            parts = []
-            if dep_funded:
-                parts.append(f"{dep_funded} funded by deployer")
-            if shared_count >= 2:
-                parts.append(f"{shared_count} share a common funder")
-            if sol_ret > 0:
-                parts.append(f"{sol_ret:.2f} SOL returned to deployer")
-            detail = " — ".join(parts) if parts else ""
-            findings.append(f"Deployer-linked sniper ring: {ring_size} early buyers detected. {detail}")
-        elif sv == "suspicious_ring":
-            findings.append(f"Suspicious sniper activity: {ring_size} coordinated early buyers detected.")
-        elif sv == "organic" and ring_size >= 3:
-            findings.append(f"{ring_size} early snipers detected — no deployer link found.")
+    if sniper and getattr(sniper, "verdict", "") not in ("no_snipers", ""):
+        if tier and not tier.has_bundle_tracker:
+            gated_count += 1
+        else:
+            sv = getattr(sniper, "verdict", "") or ""
+            ring_size = getattr(sniper, "ring_size", 0) or 0
+            dep_funded = getattr(sniper, "deployer_funded_count", 0) or 0
+            shared_count = getattr(sniper, "shared_funder_count", 0) or 0
+            sol_ret = getattr(sniper, "sol_returned_to_deployer", 0) or 0
+            if sv == "deployer_linked_ring":
+                parts = []
+                if dep_funded:
+                    parts.append(f"{dep_funded} funded by deployer")
+                if shared_count >= 2:
+                    parts.append(f"{shared_count} share a common funder")
+                if sol_ret > 0:
+                    parts.append(f"{sol_ret:.2f} SOL returned to deployer")
+                detail = " — ".join(parts) if parts else ""
+                findings.append(f"Deployer-linked sniper ring: {ring_size} early buyers detected. {detail}")
+            elif sv == "suspicious_ring":
+                findings.append(f"Suspicious sniper activity: {ring_size} coordinated early buyers detected.")
+            elif sv == "organic" and ring_size >= 3:
+                findings.append(f"{ring_size} early snipers detected — no deployer link found.")
 
-    # ── Operator fingerprint ─────────────────────────────────────────────
+    # ── Operator fingerprint (Pro+) ──────────────────────────────────────
     fp = getattr(report, "operator_fingerprint", None) if report else None
     if fp:
         linked = getattr(fp, "linked_wallets", []) or []
         if len(linked) >= 2:
-            findings.append(f"Operator fingerprint links {len(linked)} wallets — possible wallet rotation.")
+            if tier and not tier.has_operator_impact:
+                gated_count += 1
+            else:
+                findings.append(f"Operator fingerprint links {len(linked)} wallets — possible wallet rotation.")
 
-    # ── Market data ──────────────────────────────────────────────────────
+    # ── Market data (always visible) ─────────────────────────────────────
     if identity:
         _qm = getattr(identity, "_query_meta", None)
         liq = getattr(identity, "liquidity_usd", None)
@@ -461,6 +497,10 @@ def _build_heuristic_findings(report: Any, lineage_res: Any, hscore: int) -> lis
         findings.append("Overall: moderate risk. Some signals warrant attention.")
     else:
         findings.append("Overall: low risk based on available signals. Limited data may apply.")
+
+    # ── Upgrade teaser (Free tier only) ──────────────────────────────────
+    if gated_count > 0:
+        findings.append(f"{gated_count} additional signal(s) available with Pro. Upgrade to see full analysis.")
 
     return findings
 

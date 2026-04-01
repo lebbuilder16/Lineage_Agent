@@ -1973,6 +1973,21 @@ async def investigate_token(
 
     from .data_sources._clients import cache as _cache
 
+    # Check scan quota / credits before running the pipeline
+    from .scan_credit_service import can_scan, deduct_scan_credit
+    from .usage_service import increment_usage
+    if user_id:
+        allowed, source = await can_scan(_cache, user_id, user_plan)
+        if not allowed:
+            raise HTTPException(
+                status_code=429,
+                detail="Daily scan limit reached. Purchase scan credits to continue." if source == "no_credits" else "Daily scan limit reached.",
+            )
+        # Deduct credit if using credits, increment daily usage otherwise
+        if source == "credit":
+            await deduct_scan_credit(_cache, user_id)
+        await increment_usage(_cache, user_id, "scans")
+
     # Shared mutable state between the background task and the SSE generator.
     # The background task produces events into _event_queue; the generator
     # consumes and yields them to the client.  If the client disconnects the
@@ -2814,6 +2829,53 @@ async def auth_backpack_page():
         wallet_color="#E33E3F",
         wallet_bg="rgba(227,62,63,.15)",
     ))
+
+
+# ---------------------------------------------------------------------------
+# Scan credits (pay-per-scan)
+# ---------------------------------------------------------------------------
+
+@app.get("/credits", tags=["credits"])
+async def get_credits(request: Request):
+    """Return scan credit balance and available packs."""
+    user = await _get_current_user(request)
+    from .data_sources._clients import cache as _cache
+    from .scan_credit_service import get_scan_credits, CREDIT_PACKS
+    balance = await get_scan_credits(_cache, user["id"])
+    return {
+        "credits": balance,
+        "packs": [
+            {"key": k, **v} for k, v in CREDIT_PACKS.items()
+        ],
+    }
+
+
+@app.post("/credits/purchase", tags=["credits"])
+async def purchase_credits(request: Request):
+    """Add scan credits after payment verification.
+
+    Body: {"pack": "single"|"five_pack"|"fifteen_pack", "tx_signature": "..."}
+    """
+    user = await _get_current_user(request)
+    body = await request.json()
+    pack_key = body.get("pack", "")
+    tx_sig = body.get("tx_signature", "")
+
+    from .scan_credit_service import CREDIT_PACKS, add_scan_credits
+    from .data_sources._clients import cache as _cache
+
+    pack = CREDIT_PACKS.get(pack_key)
+    if not pack:
+        raise HTTPException(status_code=400, detail=f"Unknown pack: {pack_key}")
+    if not tx_sig:
+        raise HTTPException(status_code=400, detail="tx_signature required")
+
+    # TODO: verify on-chain transaction via Helio webhook or RPC
+    # For now, trust the client — will be replaced with Helio webhook verification
+    new_balance = await add_scan_credits(_cache, user["id"], pack["credits"])
+    logger.info("credits/purchase: user=%s pack=%s +%d → %d (tx=%s)",
+                user["id"], pack_key, pack["credits"], new_balance, tx_sig[:20])
+    return {"credits": new_balance, "added": pack["credits"]}
 
 
 # ---------------------------------------------------------------------------

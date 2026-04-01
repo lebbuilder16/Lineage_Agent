@@ -214,6 +214,38 @@ export default function PaywallScreen() {
           </Animated.View>
         ))}
 
+        {/* ── Scan Credit Packs ─────────────────────────────────────────── */}
+        <Animated.View
+          entering={FadeInDown.duration(350).delay(200).springify()}
+        >
+          <GlassCard style={styles.creditCard}>
+            <Text style={styles.creditTitle}>Pay Per Scan</Text>
+            <Text style={styles.creditSubtitle}>
+              Out of free scans? Buy credits with LINEAGE token.
+            </Text>
+            <View style={styles.creditPacks}>
+              {[
+                { label: '1 Scan', price: '$0.30', key: 'single' },
+                { label: '5 Scans', price: '$1.29', sub: '$0.26/scan', key: 'five_pack' },
+                { label: '15 Scans', price: '$3.49', sub: '$0.23/scan', key: 'fifteen_pack' },
+              ].map((pack) => (
+                <TouchableOpacity
+                  key={pack.key}
+                  style={styles.creditPack}
+                  onPress={comingSoon}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.creditPackLabel}>{pack.label}</Text>
+                  <Text style={styles.creditPackPrice}>{pack.price}</Text>
+                  {pack.sub && (
+                    <Text style={styles.creditPackSub}>{pack.sub}</Text>
+                  )}
+                </TouchableOpacity>
+              ))}
+            </View>
+          </GlassCard>
+        </Animated.View>
+
         {/* ── Footer ───────────────────────────────────────────────────── */}
         <Animated.View
           entering={FadeInDown.duration(350).delay(280).springify()}
@@ -422,6 +454,53 @@ const styles = StyleSheet.create({
     color: tokens.textTertiary,
   },
   footerDot: {
+    fontFamily: 'Lexend-Regular',
+    fontSize: tokens.font.tiny,
+    color: tokens.textTertiary,
+  },
+
+  // Credit packs
+  creditCard: {
+    gap: 12,
+    borderColor: tokens.borderSubtle,
+    borderWidth: 1,
+  },
+  creditTitle: {
+    fontFamily: 'Lexend-Bold',
+    fontSize: tokens.font.heading,
+    color: tokens.white100,
+  },
+  creditSubtitle: {
+    fontFamily: 'Lexend-Regular',
+    fontSize: tokens.font.small,
+    color: tokens.textTertiary,
+    marginTop: -4,
+  },
+  creditPacks: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  creditPack: {
+    flex: 1,
+    backgroundColor: tokens.bgGlass8,
+    borderRadius: tokens.radius.card,
+    borderWidth: 1,
+    borderColor: tokens.borderSubtle,
+    padding: 12,
+    alignItems: 'center',
+    gap: 4,
+  },
+  creditPackLabel: {
+    fontFamily: 'Lexend-SemiBold',
+    fontSize: tokens.font.body,
+    color: tokens.white100,
+  },
+  creditPackPrice: {
+    fontFamily: 'Lexend-Bold',
+    fontSize: tokens.font.body,
+    color: tokens.success,
+  },
+  creditPackSub: {
     fontFamily: 'Lexend-Regular',
     fontSize: tokens.font.tiny,
     color: tokens.textTertiary,

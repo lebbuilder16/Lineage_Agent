@@ -315,3 +315,100 @@ class TestTierNewFields:
             tier = get_limits(old_plan)
             assert tier.has_ai_verdict is False
             assert tier.has_agent is False
+
+
+# ── Test: Tier-gated heuristic findings ──────────────────────────────────────
+
+class TestHeuristicFindingsGating:
+    """Free tier findings should be limited to deployer + death clock + market data."""
+
+    def _make_report_with_all_signals(self):
+        """Build a fake report with every forensic signal populated."""
+        return SimpleNamespace(
+            identity=SimpleNamespace(
+                name="TestToken", launch_platform="pumpfun",
+                deployer="Dep123", _query_meta=None, liquidity_usd=5000,
+            ),
+            deployer_profile=SimpleNamespace(
+                total_tokens_launched=10, rug_count=5, rug_rate_pct=50.0,
+            ),
+            insider_sell=SimpleNamespace(
+                flags=["DEPLOYER_DUMP_RISK"], verdict="insider_dump",
+                deployer_exited=True, wallet_events=[],
+            ),
+            bundle_report=SimpleNamespace(overall_verdict="confirmed_extraction"),
+            sol_flow=SimpleNamespace(total_extracted_sol=25.0),
+            death_clock=SimpleNamespace(risk_level="critical"),
+            cartel_report=SimpleNamespace(
+                deployer_community=SimpleNamespace(community_size=5),
+            ),
+            factory_rhythm=SimpleNamespace(is_factory=True),
+            zombie_alert=True,
+            sniper_report=SimpleNamespace(
+                verdict="deployer_linked_ring", ring_size=4,
+                deployer_funded_count=2, shared_funder_count=0,
+                sol_returned_to_deployer=1.5,
+            ),
+            operator_fingerprint=SimpleNamespace(linked_wallets=["w1", "w2", "w3"]),
+            cluster_score=None,
+        )
+
+    def test_free_tier_hides_premium_signals(self):
+        from lineage_agent.investigate_service import _build_heuristic_findings
+        report = self._make_report_with_all_signals()
+        tier = get_limits("free")
+        findings = _build_heuristic_findings(report, None, 80, tier=tier)
+
+        findings_text = " ".join(findings)
+        # Should see deployer + death clock
+        assert "Serial deployer" in findings_text
+        assert "Death clock" in findings_text
+        # Should NOT see gated signals
+        assert "Dump risk" not in findings_text
+        assert "bundle" not in findings_text.lower() or "bundle" not in findings_text
+        assert "capital extraction" not in findings_text
+        assert "cartel" not in findings_text.lower()
+        assert "sniper" not in findings_text.lower()
+        assert "Operator fingerprint" not in findings_text
+        # Should see upgrade teaser
+        assert "available with Pro" in findings_text
+
+    def test_pro_tier_shows_all_signals(self):
+        from lineage_agent.investigate_service import _build_heuristic_findings
+        report = self._make_report_with_all_signals()
+        tier = get_limits("pro")
+        findings = _build_heuristic_findings(report, None, 80, tier=tier)
+
+        findings_text = " ".join(findings)
+        # Pro should see everything
+        assert "Serial deployer" in findings_text
+        assert "Death clock" in findings_text
+        assert "Confirmed team extraction" in findings_text
+        assert "capital extraction" in findings_text
+        assert "cartel" in findings_text.lower() or "wallet" in findings_text.lower()
+        # No upgrade teaser
+        assert "available with Pro" not in findings_text
+
+    def test_no_tier_shows_all_signals(self):
+        """When tier is None (backward compat), all signals shown."""
+        from lineage_agent.investigate_service import _build_heuristic_findings
+        report = self._make_report_with_all_signals()
+        findings = _build_heuristic_findings(report, None, 80, tier=None)
+
+        findings_text = " ".join(findings)
+        assert "Confirmed team extraction" in findings_text
+        assert "available with Pro" not in findings_text
+
+    def test_free_tier_gated_count(self):
+        """Free tier should count multiple hidden signals."""
+        from lineage_agent.investigate_service import _build_heuristic_findings
+        report = self._make_report_with_all_signals()
+        tier = get_limits("free")
+        findings = _build_heuristic_findings(report, None, 80, tier=tier)
+
+        upgrade_line = [f for f in findings if "available with Pro" in f]
+        assert len(upgrade_line) == 1
+        # Should have at least 5 gated signals (insider, bundle, sol_flow, cartel, sniper, operator, zombie)
+        import re
+        count = int(re.search(r"(\d+)", upgrade_line[0]).group(1))
+        assert count >= 5
