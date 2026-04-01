@@ -57,6 +57,7 @@ class ForensicReport:
     liquidity_arch: Any = None
     zombie_alert: Any = None
     sniper_report: Any = None
+    cluster_score: Any = None
     funding_source: str = ""  # address of first SOL funder of deployer
     timings: dict = field(default_factory=dict)
 
@@ -477,8 +478,23 @@ async def run_forensic_pipeline(
                 logger.warning("[pipeline] sniper failed: %s", e)
                 _sub_step("sniper", "done", ms=int((time.monotonic() - t) * 1000), ok=False)
 
+        async def _cluster_score() -> None:
+            if not deployer:
+                return
+            _sub_step("cluster_score", "running")
+            t = time.monotonic()
+            try:
+                from .cluster_scoring_service import compute_cluster_score
+                results["cluster_score"] = await asyncio.wait_for(
+                    compute_cluster_score(mint, deployer), timeout=12.0,
+                )
+                _sub_step("cluster_score", "done", ms=int((time.monotonic() - t) * 1000))
+            except Exception as e:
+                logger.warning("[pipeline] cluster_score failed: %s", e)
+                _sub_step("cluster_score", "done", ms=int((time.monotonic() - t) * 1000), ok=False)
+
         await asyncio.gather(
-            _sol_flow(), _bundle(), _cartel(), _sniper(),
+            _sol_flow(), _bundle(), _cartel(), _sniper(), _cluster_score(),
             return_exceptions=True,
         )
         return results
@@ -639,6 +655,7 @@ async def run_forensic_pipeline(
         report.bundle_report = chain_results.get("bundle_report")
         report.cartel_report = chain_results.get("cartel_report")
         report.sniper_report = chain_results.get("sniper_report")
+        report.cluster_score = chain_results.get("cluster_score")
 
     # Insider sell from Branch D (ran in parallel, not sequential)
     if insider_result is not None and not isinstance(insider_result, Exception):
@@ -768,5 +785,7 @@ def report_to_lineage_result(report: ForensicReport) -> Any:
         result.zombie_alert = report.zombie_alert
     if report.sniper_report is not None:
         result.sniper_report = report.sniper_report
+    if report.cluster_score is not None:
+        result.cluster_score = report.cluster_score
 
     return result

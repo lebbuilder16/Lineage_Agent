@@ -240,6 +240,9 @@ class LineageResult(BaseModel):
     sniper_report: Optional["SniperRingReport"] = Field(
         None, description="Sniper ring detection — early buyers linked to deployer (Initiative 5b)"
     )
+    cluster_score: Optional["ClusterRiskScore"] = Field(
+        None, description="Community-level risk aggregation across cartel cluster"
+    )
 
     # ── Platform / lifecycle context ─────────────────────────────────────
     is_bonding_curve: bool = Field(
@@ -515,6 +518,27 @@ class SniperRingReport(BaseModel):
         "deployer_linked_ring",
     ] = "no_snipers"
     evidence: list[str] = Field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# Cluster Risk Score  (community-level risk aggregation)
+# ---------------------------------------------------------------------------
+
+class ClusterRiskScore(BaseModel):
+    """Community-level risk score aggregating outcomes across all deployers in a cartel cluster."""
+
+    community_id: str = Field(..., description="Stable hash identifying this community")
+    community_size: int = Field(..., description="Number of wallets in the community")
+    total_tokens_launched: int = Field(..., description="Total tokens launched by the community")
+    deployer_token_count: int = Field(0, description="Tokens launched by this specific deployer")
+    community_rug_count: int = Field(0, description="Total rugs across the community (excl. current token)")
+    community_dead_count: int = Field(0, description="Dead tokens across the community")
+    community_rug_rate_pct: float = Field(0.0, ge=0.0, le=100.0)
+    community_negative_rate_pct: float = Field(0.0, ge=0.0, le=100.0)
+    risk_score: int = Field(0, ge=0, le=100, description="Composite risk score (0-100)")
+    risk_level: Literal["low", "medium", "high", "critical"] = "low"
+    signal_types: list[str] = Field(default_factory=list, description="Cartel edge signal types linking this community")
+    top_narratives: list[str] = Field(default_factory=list, description="Most common token narratives in the community")
 
 
 # ---------------------------------------------------------------------------
