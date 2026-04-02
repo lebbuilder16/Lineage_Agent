@@ -20,6 +20,7 @@ import { UsageBar } from '../../src/components/ui/UsageBar';
 import { EditProfileSheet } from '../../src/components/ui/EditProfileSheet';
 import { ReceiveSheet } from '../../src/components/ui/ReceiveSheet';
 import { SendSheet } from '../../src/components/ui/SendSheet';
+import { AlertPrefsSheet } from '../../src/components/ui/AlertPrefsSheet';
 import { useAuthStore } from '../../src/store/auth';
 import { useSubscriptionStore } from '../../src/store/subscription';
 import { tierLabel, tierColor, TIER_LIMITS } from '../../src/lib/tier-limits';
@@ -79,6 +80,7 @@ export default function AccountScreen() {
   const [receiveVisible, setReceiveVisible] = useState(false);
   const [avatarUploading, setAvatarUploading] = useState(false);
   const [signOutVisible, setSignOutVisible] = useState(false);
+  const [alertPrefsVisible, setAlertPrefsVisible] = useState(false);
 
   const isAuthenticated = !!apiKey;
   const displayName = user?.display_name ?? user?.username ?? user?.email?.split('@')[0] ?? 'Agent';
@@ -293,7 +295,7 @@ export default function AccountScreen() {
               <SettingsRow
                 icon={<Bell size={16} color={tokens.secondary} />}
                 label="Notifications"
-                onPress={() => {/* TODO: open AlertPrefsSheet */}}
+                onPress={() => setAlertPrefsVisible(true)}
               />
               <View style={styles.divider} />
               <SettingsRow
@@ -391,6 +393,7 @@ export default function AccountScreen() {
 
       {/* Sheets */}
       <EditProfileSheet visible={editVisible} onClose={() => setEditVisible(false)} />
+      <AlertPrefsSheet visible={alertPrefsVisible} onClose={() => setAlertPrefsVisible(false)} />
       {walletAddr && (
         <>
           <ReceiveSheet visible={receiveVisible} onClose={() => setReceiveVisible(false)} address={walletAddr} />
