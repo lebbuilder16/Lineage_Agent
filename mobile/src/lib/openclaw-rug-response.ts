@@ -21,7 +21,7 @@ export function startRugResponseListener(): () => void {
     if (!isOpenClawAvailable()) return;
 
     // Fire async rug response without blocking
-    handleRugAlert(alert).catch(() => {});
+    handleRugAlert(alert).catch((e) => console.warn('[openclaw-rug] handler failed', e));
   });
 
   return unsub;

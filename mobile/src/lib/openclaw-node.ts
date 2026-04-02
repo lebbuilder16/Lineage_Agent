@@ -65,7 +65,7 @@ async function handleCommand(cmd: DeviceNodeCommand): Promise<void> {
   }
 
   // Return result to OpenClaw
-  sendRequest('node.invoke.result', { result }).catch(() => {});
+  sendRequest('node.invoke.result', { result }).catch((e) => console.warn('[openclaw-node] result report failed', e));
 }
 
 async function dispatchCommand(

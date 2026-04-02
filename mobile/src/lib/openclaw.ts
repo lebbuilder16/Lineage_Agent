@@ -240,7 +240,7 @@ async function doConnect(host: string, token: string) {
       store.setPaired(false);
       store.setDeviceToken(null);
       store.setStatus('reconnecting');
-      reconnectTimer = setTimeout(() => { doConnect(host, token).catch(() => {}); }, 1000);
+      reconnectTimer = setTimeout(() => { doConnect(host, token).catch((e) => console.warn('[openclaw] reconnect failed', e)); }, 1000);
       return;
     }
 
@@ -248,7 +248,7 @@ async function doConnect(host: string, token: string) {
       const delay = Math.min(BACKOFF_BASE * Math.pow(2, retryCount), BACKOFF_MAX);
       retryCount++;
       store.setStatus('reconnecting');
-      reconnectTimer = setTimeout(() => { doConnect(host, token).catch(() => {}); }, delay);
+      reconnectTimer = setTimeout(() => { doConnect(host, token).catch((e) => console.warn('[openclaw] reconnect failed', e)); }, delay);
     } else {
       closed = true;
       store.setStatus('offline');

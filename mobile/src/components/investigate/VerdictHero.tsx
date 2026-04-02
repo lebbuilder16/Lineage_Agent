@@ -110,7 +110,7 @@ export function VerdictHero() {
     try {
       if (isWatching && existingWatch) {
         storeRemoveWatch(existingWatch.id);
-        apiDeleteWatch(apiKey, existingWatch.id).catch(() => {});
+        apiDeleteWatch(apiKey, existingWatch.id).catch((e) => console.warn('[VerdictHero] watch delete failed', e));
       } else {
         const newWatch = await apiAddWatch(apiKey, 'mint', mint);
         storeAddWatch(newWatch);

@@ -25,7 +25,7 @@ export async function listCronJobs(): Promise<CronJobStatus[]> {
 /** Remove a cron job by ID */
 export async function removeCronJob(id: string): Promise<void> {
   if (!isOpenClawAvailable()) return;
-  await sendRequest('cron.remove', { id }).catch(() => {});
+  await sendRequest('cron.remove', { id }).catch((e) => console.warn('[openclaw-cron] remove failed', e));
 }
 
 /**

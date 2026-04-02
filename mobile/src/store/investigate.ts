@@ -171,7 +171,7 @@ export const useInvestigateStore = create<InvestigateState>((set, get) => ({
           marketData,
           timestamp: Date.now(),
         }),
-      ).catch(() => {});
+      ).catch((e) => console.warn('[investigate] cache heuristic failed', e));
     }
   },
 
@@ -191,7 +191,7 @@ export const useInvestigateStore = create<InvestigateState>((set, get) => ({
           heuristicScore, riskLevel, findings,
           timestamp: Date.now(),
         }),
-      ).catch(() => {});
+      ).catch((e) => console.warn('[investigate] cache verdict failed', e));
     }
   },
 

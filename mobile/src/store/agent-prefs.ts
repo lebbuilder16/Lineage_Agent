@@ -77,7 +77,7 @@ interface AgentPrefsState {
 
 function persistAndSync(state: AgentPrefsState) {
   const { hydrated, ...rest } = state as any;
-  AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(rest)).catch(() => {});
+  AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(rest)).catch((e) => console.warn('[agent-prefs] persist failed', e));
 
   const apiKey = useAuthStore.getState().apiKey;
   if (!apiKey) return;
@@ -101,7 +101,7 @@ function persistAndSync(state: AgentPrefsState) {
       walletMonitorThreshold: state.walletMonitorThreshold,
       walletMonitorInterval: state.walletMonitorInterval,
     }),
-  }).catch(() => {});
+  }).catch((e) => console.warn('[agent-prefs] backend sync failed', e));
 }
 
 export const useAgentPrefsStore = create<AgentPrefsState>((set, get) => ({
@@ -196,7 +196,7 @@ export const useAgentPrefsStore = create<AgentPrefsState>((set, get) => ({
           const server = await res.json();
           set({ ...server, hydrated: true });
           const { hydrated: _, ...rest } = get() as any;
-          AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(rest)).catch(() => {});
+          AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(rest)).catch((e) => console.warn('[agent-prefs] cache after sync failed', e));
         }
       }
     } catch {

@@ -31,7 +31,7 @@ export function setupNotificationResponseHandler(): Notifications.Subscription {
       // Trigger incremental catch-up so the investigation appears in history
       import('../store/history').then(({ useHistoryStore }) => {
         useHistoryStore.getState().catchUp();
-      }).catch(() => {});
+      }).catch((e) => console.warn('[notifications] catchUp after investigation_complete failed', e));
     }
   });
 }

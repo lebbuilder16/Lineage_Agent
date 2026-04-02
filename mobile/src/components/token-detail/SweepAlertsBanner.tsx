@@ -18,7 +18,7 @@ export function SweepAlertsBanner({ mint }: { mint: string }) {
     })
       .then((r) => r.ok ? r.json() : null)
       .then((d) => { if (d?.flags?.length) setFlags(d.flags); })
-      .catch(() => {});
+      .catch((e) => console.warn('[SweepAlertsBanner] fetch flags failed', e));
   }, [apiKey, mint]);
 
   if (flags.length === 0) return null;
