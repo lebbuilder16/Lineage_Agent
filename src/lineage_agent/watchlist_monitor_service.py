@@ -259,6 +259,81 @@ def _generate_flags(old: dict, new: dict, mint: str, *, ref: Optional[dict] = No
               ),
               {"total_exits": new_bundle_exits})
 
+    # ── Cross-signal intelligence: combined contextual flags ─────────
+    # These flags fire when multiple signals combine into a stronger story.
+    # They replace generic flags with richer, more actionable messages.
+
+    deployer_exited = new.get("deployer_exited", False)
+    bundle_wallets = new.get("bundle_wallets", 0) or 0
+    bundle_holders = new.get("bundle_holders", 0)
+    bundle_all_exited = (new.get("bundle_exits_new", 0) or 0) > 0 and bundle_holders == 0
+    cartel_wallets = new.get("cartel_wallets", 0) or 0
+    sol_extracted = new.get("sol_extracted", 0) or 0
+    insider_dump = new.get("insider_verdict") == "insider_dump"
+    rug_count = new.get("rug_count", 0) or 0
+    price_pct = 0.0
+    if ref and ref.get("price_usd") and new.get("price_usd") and ref["price_usd"] > 0:
+        price_pct = ((new["price_usd"] - ref["price_usd"]) / ref["price_usd"]) * 100
+
+    # Deployer exited but bundle/cartel still active → they know something
+    if deployer_exited and bundle_wallets > 0 and not bundle_all_exited:
+        _flag("CROSS_DEPLOYER_EXIT_BUNDLE_ACTIVE", "critical",
+              _pick(
+                  f"Deployer sold everything but {bundle_wallets} bundled wallets are still holding — watch for coordinated dump",
+                  f"The creator is out, yet {bundle_wallets} coordinated wallets remain — possible delayed exit",
+                  f"Red flag: deployer exited while {bundle_wallets} bundle wallets stay — they may dump next",
+              ),
+              {"deployer_exited": True, "bundle_wallets_remaining": bundle_wallets})
+
+    if deployer_exited and cartel_wallets > 0:
+        _flag("CROSS_DEPLOYER_EXIT_CARTEL_ACTIVE", "critical",
+              _pick(
+                  f"Deployer gone but the {cartel_wallets}-wallet network is still operating — potential coordinated scheme",
+                  f"Creator exited while cartel of {cartel_wallets} wallets remains active — proceed with extreme caution",
+                  f"The deployer walked away, leaving a {cartel_wallets}-wallet ring still in play",
+              ),
+              {"deployer_exited": True, "cartel_wallets": cartel_wallets})
+
+    # Deployer exited + SOL extraction + price crash → classic rug pattern
+    if deployer_exited and sol_extracted > 5 and price_pct < -40:
+        _flag("CROSS_RUG_PATTERN", "critical",
+              _pick(
+                  f"Classic rug pattern: deployer out, {sol_extracted:.0f} SOL extracted, price {price_pct:+.0f}%",
+                  f"All signs of a rug: creator exited, {sol_extracted:.0f} SOL drained, token down {abs(price_pct):.0f}%",
+                  f"Rug in progress — deployer exit + {sol_extracted:.0f} SOL extraction + {abs(price_pct):.0f}% price drop",
+              ),
+              {"sol_extracted": sol_extracted, "price_drop_pct": round(price_pct, 1)})
+
+    # Bundle all exited + insider dump → coordinated extraction complete
+    if bundle_all_exited and insider_dump:
+        _flag("CROSS_COORDINATED_EXTRACTION", "critical",
+              _pick(
+                  "Full coordinated exit — insiders dumped and all bundle wallets sold",
+                  "Everyone is out: insider dump confirmed + every bundled wallet exited",
+                  "Complete extraction: insider selling + bundle wallets cashed out",
+              ),
+              {"insider_dump": True, "bundle_all_exited": True})
+
+    # Cartel expanding + new rug by deployer → serial scam ring
+    if cartel_wallets > 10 and rug_count > 1:
+        _flag("CROSS_SERIAL_SCAM_RING", "critical",
+              _pick(
+                  f"Serial scam ring: {cartel_wallets} wallets, {rug_count} confirmed rugs by this deployer",
+                  f"Repeat offender network — {rug_count} rugs across a {cartel_wallets}-wallet operation",
+                  f"High-risk cartel: {cartel_wallets} linked wallets with {rug_count} known rug pulls",
+              ),
+              {"cartel_wallets": cartel_wallets, "rug_count": rug_count})
+
+    # SOL extraction + bundle exits happening simultaneously
+    if sol_extracted > 10 and bundle_all_exited:
+        _flag("CROSS_EXTRACTION_AND_EXIT", "critical",
+              _pick(
+                  f"Double signal: {sol_extracted:.0f} SOL extracted + all bundle wallets sold",
+                  f"Active drain ({sol_extracted:.0f} SOL) while every coordinated wallet has exited",
+                  f"Extraction in progress: {sol_extracted:.0f} SOL out, bundle team gone",
+              ),
+              {"sol_extracted": sol_extracted, "bundle_all_exited": True})
+
     # ── Correlative intelligence: forensic × market cross-reference ──
     deltas = _compute_deltas(old, new)
     correlated = _cross_reference(deltas, old, new)
