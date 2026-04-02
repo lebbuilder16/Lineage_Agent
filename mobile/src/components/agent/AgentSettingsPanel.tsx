@@ -326,9 +326,6 @@ export function AgentSettingsPanel({ plan }: AgentSettingsPanelProps) {
         )}
       </GlassCard>
 
-      {/* Section: Notifications */}
-      <NotificationPreferencesSection plan={plan} />
-
       {/* Section: Wallet Monitoring — Pro+ */}
       <WalletMonitorSection plan={plan} />
     </View>
@@ -337,7 +334,7 @@ export function AgentSettingsPanel({ plan }: AgentSettingsPanelProps) {
 
 // ── Notification Preferences Section ─────────────────────────────────────────
 
-function NotificationPreferencesSection({ plan }: { plan: PlanTier }) {
+export function NotificationPreferencesSection({ plan }: { plan: PlanTier }) {
   const prefs = useAgentPrefsStore();
   const alertPrefs = useAlertPrefsStore();
 
