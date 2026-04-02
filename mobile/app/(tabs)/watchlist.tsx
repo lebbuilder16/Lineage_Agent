@@ -102,7 +102,7 @@ export default function WatchlistScreen() {
     }
 
     // 2. Find mints without metadata
-    const missing = watches
+    const missing = (effectiveWatches ?? [])
       .filter((w) => w.sub_type === 'mint' && !meta[w.value] && !tokenMeta[w.value])
       .map((w) => w.value);
 
@@ -127,7 +127,7 @@ export default function WatchlistScreen() {
           .catch(() => {});
       }
     }
-  }, [apiKey, watches, flags]);
+  }, [apiKey, effectiveWatches, flags]);
 
   // Inline search
   const [searchOpen, setSearchOpen] = useState(false);
