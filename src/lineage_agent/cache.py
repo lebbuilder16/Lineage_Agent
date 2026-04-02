@@ -251,13 +251,19 @@ class SQLiteCache:
         db_path: str = "data/cache.db",
         default_ttl: int = 300,
         max_entries: int = 10_000,
+        read_pool_size: int = 2,
     ) -> None:
         self._db_path = db_path
         self._default_ttl = default_ttl
         self._max_entries = max_entries
-        self._conn: Any = None  # aiosqlite.Connection
+        self._conn: Any = None  # aiosqlite.Connection (writer)
         self._initialised = False
         self._conn_lock: Any = None  # asyncio.Lock, created lazily
+        # Read-only connection pool — SELECTs don't block writes
+        self._read_pool_size = read_pool_size
+        self._read_pool: list[Any] = []
+        self._read_idx = 0
+        self._read_lock: Any = None
 
     async def _get_conn(self) -> Any:
         """Return (and lazily create) a persistent aiosqlite connection."""
@@ -289,6 +295,44 @@ class SQLiteCache:
             await self._conn.execute("PRAGMA foreign_keys=ON")
             await self._init_schema(self._conn)
             return self._conn
+
+    async def _get_read_conn(self) -> Any:
+        """Return a read-only connection from the pool (round-robin).
+
+        Read connections use WAL mode so SELECTs never block the writer.
+        This eliminates contention between sweep reads and user writes.
+        """
+        import asyncio
+        import aiosqlite
+
+        if self._read_lock is None:
+            self._read_lock = asyncio.Lock()
+
+        async with self._read_lock:
+            # Initialize pool if empty
+            if len(self._read_pool) < self._read_pool_size:
+                for _ in range(self._read_pool_size - len(self._read_pool)):
+                    rc = await aiosqlite.connect(self._db_path)
+                    await rc.execute("PRAGMA journal_mode=WAL")
+                    await rc.execute("PRAGMA busy_timeout=5000")
+                    await rc.execute("PRAGMA query_only=ON")
+                    self._read_pool.append(rc)
+
+            # Round-robin selection
+            conn = self._read_pool[self._read_idx % self._read_pool_size]
+            self._read_idx += 1
+
+            # Health check
+            try:
+                await conn.execute("SELECT 1")
+            except Exception:
+                conn = await aiosqlite.connect(self._db_path)
+                await conn.execute("PRAGMA journal_mode=WAL")
+                await conn.execute("PRAGMA busy_timeout=5000")
+                await conn.execute("PRAGMA query_only=ON")
+                self._read_pool[self._read_idx % self._read_pool_size] = conn
+
+            return conn
 
     async def _init_schema(self, db: Any) -> None:
         if self._initialised:
@@ -1213,7 +1257,7 @@ class SQLiteCache:
             return 0
 
     async def close(self) -> None:
-        """Close the persistent connection."""
+        """Close the writer + all read pool connections."""
         if self._conn is not None:
             try:
                 await self._conn.close()
@@ -1221,6 +1265,12 @@ class SQLiteCache:
                 pass
             self._conn = None
             self._initialised = False
+        for rc in self._read_pool:
+            try:
+                await rc.close()
+            except Exception:
+                pass
+        self._read_pool.clear()
 
     # ------------------------------------------------------------------
     # Intelligence events helpers (forensic data store — no TTL)

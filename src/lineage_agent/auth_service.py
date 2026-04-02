@@ -129,7 +129,8 @@ async def verify_api_key(cache, api_key: str) -> dict | None:
         return None
     for _attempt in range(5):
         try:
-            db = await cache._get_conn()
+            # Use read pool — this is a pure SELECT, never blocks the writer
+            db = await cache._get_read_conn() if hasattr(cache, '_get_read_conn') else await cache._get_conn()
             cursor = await db.execute(
                 "SELECT id, privy_id, email, wallet_address, plan, api_key, created_at, "
                 "username, display_name, avatar_url "
@@ -323,7 +324,7 @@ async def get_notification_prefs(cache, user_id: int) -> dict:
 async def get_user_watches(cache, user_id: int) -> list[dict]:
     """Return all web watches for a user (sub_type, value, created_at)."""
     try:
-        db = await cache._get_conn()
+        db = await cache._get_read_conn() if hasattr(cache, '_get_read_conn') else await cache._get_conn()
         cursor = await db.execute(
             "SELECT id, sub_type, value, created_at FROM user_watches WHERE user_id = ? "
             "ORDER BY created_at DESC",

@@ -4985,8 +4985,9 @@ async def _watchlist_sweep_loop():
         first_run = False
         _heartbeat("sweep")
         try:
-            db = await _cache._get_conn()
-            cursor = await db.execute(
+            # Use read pool for these SELECT queries (don't block the writer)
+            rdb = await _cache._get_read_conn() if hasattr(_cache, '_get_read_conn') else await _cache._get_conn()
+            cursor = await rdb.execute(
                 "SELECT uw.id, uw.user_id, uw.value, "
                 "COALESCE(ap.sweep_interval, 2700) as sweep_interval "
                 "FROM user_watches uw "
@@ -4996,7 +4997,7 @@ async def _watchlist_sweep_loop():
             watches = await cursor.fetchall()
 
             # Skip watches that have active OpenClaw crons (managed by cron_manager)
-            cron_cursor = await db.execute(
+            cron_cursor = await rdb.execute(
                 "SELECT name FROM user_crons WHERE enabled = 1 AND name LIKE 'lineage:watchlist:%'"
             )
             _cron_managed = set()
