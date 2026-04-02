@@ -142,6 +142,14 @@ export default function RootLayout() {
         import('../src/store/history').then(({ useHistoryStore }) => {
           useHistoryStore.getState().catchUp();
         }).catch(() => {});
+        // Reconnect OpenClaw if WS died in background
+        const key = useAuthStore.getState().apiKey;
+        if (key) {
+          const ocStore = useOpenClawStore.getState();
+          if (!ocStore.connected && ocStore.host) {
+            connectOpenClaw(ocStore.host, key);
+          }
+        }
       }
     });
 
