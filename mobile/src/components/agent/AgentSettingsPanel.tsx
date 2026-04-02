@@ -9,7 +9,7 @@ import {
   Alert,
 } from 'react-native';
 import { router } from 'expo-router';
-import { Zap, Clock, Lock, Crown, Wallet, Search } from 'lucide-react-native';
+import { Zap, Clock, Lock, Crown, Wallet, Search, Bell, BellOff, Send, MessageCircle } from 'lucide-react-native';
 import { GlassCard } from '../ui/GlassCard';
 import {
   useAgentPrefsStore,
@@ -21,6 +21,7 @@ import {
 } from '../../store/agent-prefs';
 import { useWalletMonitorStore } from '../../store/wallet-monitor';
 import { useAuthStore } from '../../store/auth';
+import { useAlertPrefsStore } from '../../store/alert-prefs';
 import {
   canAccess,
   tierLabel,
@@ -28,6 +29,14 @@ import {
   type PlanTier,
 } from '../../lib/tier-limits';
 import { tokens } from '../../theme/tokens';
+
+// ── Notification channel config ──────────────────────────────────────────────
+
+const NOTIFICATION_CHANNELS = [
+  { key: 'push' as const, label: 'Push', icon: Bell, desc: 'Mobile notifications' },
+  { key: 'telegram' as const, label: 'Telegram', icon: Send, desc: 'Bot messages' },
+  { key: 'discord' as const, label: 'Discord', icon: MessageCircle, desc: 'Webhook alerts' },
+] as const;
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -317,9 +326,122 @@ export function AgentSettingsPanel({ plan }: AgentSettingsPanelProps) {
         )}
       </GlassCard>
 
+      {/* Section: Notifications */}
+      <NotificationPreferencesSection plan={plan} />
+
       {/* Section: Wallet Monitoring — Pro+ */}
       <WalletMonitorSection plan={plan} />
     </View>
+  );
+}
+
+// ── Notification Preferences Section ─────────────────────────────────────────
+
+function NotificationPreferencesSection({ plan }: { plan: PlanTier }) {
+  const prefs = useAgentPrefsStore();
+  const alertPrefs = useAlertPrefsStore();
+
+  const hasQuietHours = prefs.quietHoursStart !== null && prefs.quietHoursEnd !== null;
+
+  return (
+    <GlassCard>
+      <View style={styles.sectionHeaderRow}>
+        <Text style={styles.settingsSection}>NOTIFICATIONS</Text>
+      </View>
+
+      {/* Channel toggles */}
+      <Text style={styles.settingsSub}>Delivery channels</Text>
+      <View style={{ gap: 6 }}>
+        {NOTIFICATION_CHANNELS.map((ch) => {
+          const enabled = alertPrefs.channels[ch.key];
+          const Icon = ch.icon;
+          return (
+            <TouchableOpacity
+              key={ch.key}
+              onPress={() => alertPrefs.setChannelEnabled(ch.key, !enabled)}
+              style={[notifStyles.channelRow, enabled && notifStyles.channelRowOn]}
+              activeOpacity={0.7}
+            >
+              <View style={[notifStyles.channelIcon, enabled && notifStyles.channelIconOn]}>
+                <Icon size={14} color={enabled ? tokens.secondary : tokens.textTertiary} strokeWidth={2} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[notifStyles.channelLabel, enabled && notifStyles.channelLabelOn]}>
+                  {ch.label}
+                </Text>
+                <Text style={notifStyles.channelDesc}>{ch.desc}</Text>
+              </View>
+              <Switch
+                value={enabled}
+                onValueChange={(v) => alertPrefs.setChannelEnabled(ch.key, v)}
+                trackColor={{ false: tokens.bgGlass12, true: `${tokens.violet}50` }}
+                thumbColor={enabled ? tokens.secondary : tokens.textTertiary}
+                ios_backgroundColor={tokens.bgGlass12}
+              />
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+
+      {/* Quiet hours */}
+      <View style={notifStyles.quietRow}>
+        <View style={[styles.prefIconWrap, { backgroundColor: hasQuietHours ? `${tokens.secondary}12` : tokens.bgGlass8 }]}>
+          <BellOff size={14} color={hasQuietHours ? tokens.secondary : tokens.textTertiary} strokeWidth={2} />
+        </View>
+        <Text style={[styles.prefLabel, !hasQuietHours && { color: tokens.textTertiary }]}>
+          Quiet hours
+        </Text>
+        <Switch
+          value={hasQuietHours}
+          onValueChange={(v) => {
+            if (v) prefs.setQuietHours(22, 8);
+            else prefs.setQuietHours(null, null);
+          }}
+          trackColor={{ false: tokens.bgGlass12, true: `${tokens.violet}50` }}
+          thumbColor={hasQuietHours ? tokens.secondary : tokens.textTertiary}
+          ios_backgroundColor={tokens.bgGlass12}
+        />
+      </View>
+
+      {hasQuietHours && (
+        <View style={notifStyles.quietGrid}>
+          <View style={{ flex: 1 }}>
+            <Text style={notifStyles.quietLabel}>From</Text>
+            <View style={styles.chipWrap}>
+              {[20, 21, 22, 23, 0].map((h) => (
+                <TouchableOpacity
+                  key={`s${h}`}
+                  onPress={() => prefs.setQuietHours(h, prefs.quietHoursEnd!)}
+                  style={[styles.hourChip, prefs.quietHoursStart === h && styles.hourChipOn]}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[styles.hourText, prefs.quietHoursStart === h && styles.hourTextOn]}>
+                    {h}:00
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={notifStyles.quietLabel}>Until</Text>
+            <View style={styles.chipWrap}>
+              {[6, 7, 8, 9, 10].map((h) => (
+                <TouchableOpacity
+                  key={`e${h}`}
+                  onPress={() => prefs.setQuietHours(prefs.quietHoursStart!, h)}
+                  style={[styles.hourChip, prefs.quietHoursEnd === h && styles.hourChipOn]}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[styles.hourText, prefs.quietHoursEnd === h && styles.hourTextOn]}>
+                    {h}:00
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+        </View>
+      )}
+    </GlassCard>
   );
 }
 
@@ -594,6 +716,67 @@ const wmStyles = StyleSheet.create({
     fontFamily: 'Lexend-SemiBold',
     fontSize: tokens.font.small,
     color: tokens.secondary,
+  },
+});
+
+const notifStyles = StyleSheet.create({
+  channelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 10,
+    borderRadius: tokens.radius.sm,
+    backgroundColor: tokens.bgGlass8,
+    borderWidth: 1,
+    borderColor: tokens.borderSubtle,
+  },
+  channelRowOn: {
+    backgroundColor: `${tokens.secondary}06`,
+    borderColor: `${tokens.secondary}30`,
+  },
+  channelIcon: {
+    width: 30,
+    height: 30,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: tokens.bgGlass8,
+  },
+  channelIconOn: {
+    backgroundColor: `${tokens.secondary}12`,
+  },
+  channelLabel: {
+    fontFamily: 'Lexend-Medium',
+    fontSize: tokens.font.small,
+    color: tokens.textTertiary,
+  },
+  channelLabelOn: {
+    color: tokens.white80,
+  },
+  channelDesc: {
+    fontFamily: 'Lexend-Regular',
+    fontSize: 9,
+    color: tokens.white20,
+    marginTop: 1,
+  },
+  quietRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 14,
+    marginTop: 4,
+  },
+  quietGrid: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 4,
+  },
+  quietLabel: {
+    fontFamily: 'Lexend-Medium',
+    fontSize: 10,
+    color: tokens.white20,
+    marginBottom: 6,
   },
 });
 
