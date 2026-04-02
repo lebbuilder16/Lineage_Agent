@@ -500,8 +500,11 @@ async def _check_bundle_wallet_balances(mint: str, lin: Any) -> dict | None:
 
 # ── Main rescan function ─────────────────────────────────────────────────────
 
-async def run_single_rescan(watch_id: int, user_id: int, cache) -> dict | None:
+async def run_single_rescan(watch_id: int, user_id: int, cache, *, skip_ai: bool = False) -> dict | None:
     """Rescan a single watch, generate flags, return result.
+
+    *skip_ai*: When True, passes skip_forensic_enrichment=True to detect_lineage,
+    which skips the expensive AI analyst call. Used by the pulse loop to save costs.
 
     Returns {mint, old_risk, new_risk, escalated, flags_count} or None on failure.
     """
@@ -559,7 +562,8 @@ async def run_single_rescan(watch_id: int, user_id: int, cache) -> dict | None:
         # only needed on user-initiated manual rescans.
         from .lineage_detector import detect_lineage
         lin = await asyncio.wait_for(
-            detect_lineage(mint, force_refresh=False), timeout=90.0
+            detect_lineage(mint, force_refresh=False, skip_forensic_enrichment=skip_ai),
+            timeout=90.0,
         )
 
         # Extract new forensic snapshot
@@ -780,7 +784,7 @@ async def _pulse_rescan_one(t: dict, cache) -> None:
     """Run a single pulse-triggered rescan in the background, rate-limited."""
     async with _PULSE_RESCAN_SEM:
         try:
-            result = await run_single_rescan(t["watch_id"], t["user_id"], cache)
+            result = await run_single_rescan(t["watch_id"], t["user_id"], cache, skip_ai=True)
             if not result:
                 return
             logger.info(

@@ -476,14 +476,10 @@ async def analyze_token(
                            deployer_history, behavioral_signals, heuristic_score=_hscore,
                            memory_brief=_memory_brief)
 
-    # ── Adaptive model selection: sonnet for moderate-to-high-risk tokens ────
+    # ── Model selection: always Haiku to control costs ──────────────────────
+    # Sonnet is 15x more expensive and was burning ~$18/day on sweep rescans.
+    # Override via ANTHROPIC_MODEL env var if needed.
     _call_model = _MODEL
-    if not os.getenv("ANTHROPIC_MODEL"):  # only auto-switch if not forced by env
-        if _hscore >= 55:
-            _call_model = _MODEL_SONNET
-            logger.info("[ai_analyst] adaptive model: sonnet (heuristic=%d) for %s", _hscore, mint[:12])
-        else:
-            logger.debug("[ai_analyst] adaptive model: haiku (heuristic=%d) for %s", _hscore, mint[:12])
 
     try:
         client = _get_client()
