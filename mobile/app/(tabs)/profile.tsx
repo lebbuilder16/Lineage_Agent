@@ -13,13 +13,13 @@ import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, Platform, StatusBar,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { User, Settings, Wallet, ChevronDown, ChevronUp } from 'lucide-react-native';
+import { User, Settings, Wallet, Bell, ChevronDown, ChevronUp } from 'lucide-react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { ScreenHeader } from '../../src/components/ui/ScreenHeader';
 import { GlassCard } from '../../src/components/ui/GlassCard';
 import { useAuthStore } from '../../src/store/auth';
 import { useSubscriptionStore } from '../../src/store/subscription';
-import { AgentSettingsPanel, WalletHoldingsPanel } from '../../src/components/agent';
+import { AgentSettingsPanel, NotificationPreferencesSection, WalletHoldingsPanel } from '../../src/components/agent';
 import { tokens } from '../../src/theme/tokens';
 import { router } from 'expo-router';
 
@@ -116,8 +116,18 @@ export default function ProfileScreen() {
             </CollapsibleSection>
           </Animated.View>
 
+          {/* Notifications (collapsible) */}
+          <Animated.View entering={FadeInDown.delay(150).duration(300)}>
+            <CollapsibleSection
+              title="Notifications"
+              icon={<Bell size={16} color={tokens.secondary} />}
+            >
+              <NotificationPreferencesSection plan={plan} />
+            </CollapsibleSection>
+          </Animated.View>
+
           {/* Wallet Monitor (collapsible) */}
-          <Animated.View entering={FadeInDown.delay(200).duration(300)}>
+          <Animated.View entering={FadeInDown.delay(250).duration(300)}>
             <CollapsibleSection
               title="Wallet Monitor"
               icon={<Wallet size={16} color={tokens.secondary} />}

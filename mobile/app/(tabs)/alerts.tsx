@@ -5,7 +5,7 @@ import {
   StyleSheet,
 } from 'react-native';
 import { router } from 'expo-router';
-import Animated, { FadeInDown, LinearTransition } from 'react-native-reanimated';
+import Animated, { FadeInDown, FadeOut, LinearTransition } from 'react-native-reanimated';
 import { Bell, CheckCheck, AlertTriangle } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { GlassCard } from '../../src/components/ui/GlassCard';
@@ -18,6 +18,34 @@ import { useGraduations } from '../../src/lib/query';
 import { tokens } from '../../src/theme/tokens';
 import type { AlertItem } from '../../src/types/api';
 
+// ── Error Boundary ──────────────────────────────────────────────────────────
+
+class AlertsErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { hasError: boolean; error: string }
+> {
+  state = { hasError: false, error: '' };
+  static getDerivedStateFromError(e: Error) {
+    return { hasError: true, error: e.message };
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <View style={{ flex: 1, backgroundColor: tokens.bgMain, alignItems: 'center', justifyContent: 'center', padding: 32 }}>
+          <AlertTriangle size={36} color={tokens.risk.high} />
+          <Text style={{ fontFamily: 'Lexend-SemiBold', fontSize: 16, color: tokens.white80, marginTop: 16 }}>
+            Alerts failed to load
+          </Text>
+          <Text style={{ fontFamily: 'Lexend-Regular', fontSize: 12, color: tokens.textTertiary, marginTop: 8, textAlign: 'center' }}>
+            {this.state.error}
+          </Text>
+        </View>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 type QuickFilter = 'all' | 'critical' | 'unread' | 'live';
 const QUICK_FILTERS: { label: string; value: QuickFilter }[] = [
   { label: 'All', value: 'all' },
@@ -28,7 +56,15 @@ const QUICK_FILTERS: { label: string; value: QuickFilter }[] = [
 
 const CRITICAL_TYPES = new Set(['rug', 'death_clock', 'bundle', 'insider']);
 
-export default function AlertsScreen() {
+export default function AlertsScreenWrapper() {
+  return (
+    <AlertsErrorBoundary>
+      <AlertsScreenInner />
+    </AlertsErrorBoundary>
+  );
+}
+
+function AlertsScreenInner() {
   const alerts = useAlertsStore((s) => s.alerts);
   const addAlert = useAlertsStore((s) => s.addAlert);
   const markRead = useAlertsStore((s) => s.markRead);
@@ -218,7 +254,7 @@ export default function AlertsScreen() {
 
               return (
                 <Animated.View
-                  exiting={FadeInDown}
+                  exiting={FadeOut}
                   entering={FadeInDown.delay(index * tokens.timing.listItem).springify()}
                   layout={LinearTransition.springify()}
                 >

@@ -88,9 +88,12 @@ def _generate_flags(old: dict, new: dict, mint: str, *, ref: Optional[dict] = No
     *ref* is the reference snapshot taken when the token was first watched.
     When provided, cumulative deterioration flags are also generated.
     """
+    from .flag_templates import render_flag
+
     flags: list[dict] = []
 
-    def _flag(flag_type: str, severity: str, title: str, detail: Optional[dict] = None):
+    def _flag(flag_type: str, severity: str, detail: Optional[dict] = None, **tmpl_kwargs):
+        title = render_flag(flag_type, **tmpl_kwargs)
         flags.append({
             "flag_type": flag_type,
             "severity": severity,
@@ -103,18 +106,17 @@ def _generate_flags(old: dict, new: dict, mint: str, *, ref: Optional[dict] = No
     new_sol = new.get("sol_extracted", 0) or 0
     if new_sol > 0 and old_sol == 0:
         _flag("SOL_EXTRACTION_NEW", "critical",
-              f"{new_sol:.1f} SOL extracted via {new.get('sol_hops', '?')}-hop chain",
-              {"old": old_sol, "new": new_sol, "hops": new.get("sol_hops")})
-    elif new_sol > old_sol + 5:  # >5 SOL increase
+              {"old": old_sol, "new": new_sol, "hops": new.get("sol_hops")},
+              new_sol=new_sol, hops=new.get("sol_hops", "?"))
+    elif new_sol > old_sol + 5:
         delta = new_sol - old_sol
         _flag("SOL_EXTRACTION_INCREASED", "critical",
-              f"+{delta:.1f} SOL extracted (total {new_sol:.1f} SOL)",
-              {"old": old_sol, "new": new_sol, "delta": delta})
+              {"old": old_sol, "new": new_sol, "delta": delta},
+              delta=delta, old_sol=old_sol, new_sol=new_sol)
 
     # Deployer exit
     if new.get("deployer_exited") and not old.get("deployer_exited"):
         _flag("DEPLOYER_EXITED", "critical",
-              "Deployer exited — sold entire position",
               {"insider_verdict": new.get("insider_verdict")})
 
     # Insider verdict change
@@ -122,24 +124,24 @@ def _generate_flags(old: dict, new: dict, mint: str, *, ref: Optional[dict] = No
     new_iv = new.get("insider_verdict")
     if new_iv == "insider_dump" and old_iv != "insider_dump":
         sp = new.get("sell_pressure_24h")
-        sp_str = f" · {sp*100:.0f}% sell pressure" if sp else ""
+        sp_str = f" ({sp*100:.0f}% sell pressure)" if sp else ""
         _flag("INSIDER_DUMP_DETECTED", "critical",
-              f"Insider dump detected{sp_str}",
-              {"old_verdict": old_iv, "new_verdict": new_iv})
+              {"old_verdict": old_iv, "new_verdict": new_iv},
+              sell_pressure=sp_str)
 
     # Bundle detection
     old_bv = old.get("bundle_verdict")
     new_bv = new.get("bundle_verdict")
     if new_bv and not old_bv:
         _flag("BUNDLE_DETECTED", "warning",
-              f"Bundle activity: {(new_bv or '').replace('_', ' ')}",
               {"verdict": new_bv, "sol": new.get("bundle_sol")})
     old_bw = old.get("bundle_wallets", 0) or 0
     new_bw = new.get("bundle_wallets", 0) or 0
     if new_bw > old_bw and new_bw >= 2:
+        delta_bw = new_bw - old_bw
         _flag("BUNDLE_WALLETS_NEW", "warning",
-              f"{new_bw - old_bw} new bundle wallet(s) detected (total {new_bw})",
-              {"old": old_bw, "new": new_bw})
+              {"old": old_bw, "new": new_bw},
+              delta=delta_bw, old=old_bw, new=new_bw)
 
     # Cartel detection
     old_cw = old.get("cartel_wallets", 0) or 0
@@ -147,58 +149,109 @@ def _generate_flags(old: dict, new: dict, mint: str, *, ref: Optional[dict] = No
     cartel_narrative = new.get("cartel_narrative", "")
     cartel_sol = new.get("cartel_sol_extracted", 0)
     if new_cw > 0 and old_cw == 0:
-        title = cartel_narrative or f"Deployer linked to {new_cw}-wallet cartel network"
-        _flag("CARTEL_DETECTED", "warning", title,
-              {"wallets": new_cw, "narrative": cartel_narrative, "sol_extracted": cartel_sol})
+        _flag("CARTEL_DETECTED", "warning",
+              {"wallets": new_cw, "narrative": cartel_narrative, "sol_extracted": cartel_sol},
+              wallets=new_cw)
     elif new_cw > old_cw + 1:
+        delta_cw = new_cw - old_cw
         _flag("CARTEL_EXPANDED", "warning",
-              f"Cartel grew: {old_cw} → {new_cw} wallets",
-              {"old": old_cw, "new": new_cw})
+              {"old": old_cw, "new": new_cw, "delta": delta_cw},
+              delta=delta_cw, old=old_cw, new=new_cw)
 
     # Risk escalation
     risk_order = ["unknown", "insufficient_data", "low", "medium", "high", "critical"]
     old_ri = risk_order.index(old.get("risk_level", "unknown")) if old.get("risk_level") in risk_order else 0
     new_ri = risk_order.index(new.get("risk_level", "unknown")) if new.get("risk_level") in risk_order else 0
     if new_ri > old_ri and new_ri >= 3:
+        old_r = old.get("risk_level", "unknown")
+        new_r = new.get("risk_level", "unknown")
         _flag("RISK_ESCALATION", "critical",
-              f"Risk level: {old.get('risk_level', 'unknown')} → {new.get('risk_level', 'unknown')}",
-              {"old": old.get("risk_level"), "new": new.get("risk_level")})
+              {"old": old_r, "new": new_r},
+              old=old_r, new=new_r)
 
     # New rug by deployer
     old_rc = old.get("rug_count", 0) or 0
     new_rc = new.get("rug_count", 0) or 0
     if new_rc > old_rc:
+        delta_rc = new_rc - old_rc
         _flag("DEPLOYER_NEW_RUG", "critical",
-              f"Deployer confirmed {new_rc - old_rc} new rug(s) (total {new_rc})",
-              {"old": old_rc, "new": new_rc, "rug_rate": new.get("rug_rate")})
+              {"old": old_rc, "new": new_rc, "rug_rate": new.get("rug_rate")},
+              delta=delta_rc, old=old_rc, new=new_rc)
 
     # Sell pressure spike
     old_sp = old.get("sell_pressure_24h") or 0
     new_sp = new.get("sell_pressure_24h") or 0
     if new_sp > 0.6 and old_sp < 0.5:
         _flag("SELL_PRESSURE_SPIKE", "warning",
-              f"Sell pressure spiked: {old_sp*100:.0f}% → {new_sp*100:.0f}%",
-              {"old": old_sp, "new": new_sp})
+              {"old": old_sp, "new": new_sp},
+              old=old_sp * 100, new=new_sp * 100)
 
-    # Bundle wallet exits (detected by balance check)
+    # Bundle wallet exits
     new_bundle_exits = new.get("bundle_exits_new") or 0
     old_bundle_exits = old.get("bundle_exits_new") or 0
     if new_bundle_exits > old_bundle_exits:
         exit_wallets = new.get("bundle_exit_wallets") or []
         _flag("BUNDLE_WALLET_EXIT", "critical",
-              f"{new_bundle_exits} bundle wallet(s) sold since last scan",
               {"new_exits": new_bundle_exits, "wallets": exit_wallets[:3],
-               "still_holding": new.get("bundle_holders", 0)})
+               "still_holding": new.get("bundle_holders", 0)},
+              exits=new_bundle_exits, holding=new.get("bundle_holders", 0))
     elif new_bundle_exits > 0 and new.get("bundle_holders", 0) == 0:
         _flag("BUNDLE_WALLETS_ALL_EXITED", "critical",
-              "All bundle wallets have exited — full team extraction",
               {"total_exits": new_bundle_exits})
+
+    # ── Cross-signal intelligence ─────────────────────────────────────
+    deployer_exited = new.get("deployer_exited", False)
+    bundle_wallets = new.get("bundle_wallets", 0) or 0
+    bundle_holders = new.get("bundle_holders", 0)
+    bundle_all_exited = (new.get("bundle_exits_new", 0) or 0) > 0 and bundle_holders == 0
+    cartel_wallets = new.get("cartel_wallets", 0) or 0
+    sol_extracted = new.get("sol_extracted", 0) or 0
+    insider_dump = new.get("insider_verdict") == "insider_dump"
+    rug_count = new.get("rug_count", 0) or 0
+    price_pct = 0.0
+    if ref and ref.get("price_usd") and new.get("price_usd") and ref["price_usd"] > 0:
+        price_pct = ((new["price_usd"] - ref["price_usd"]) / ref["price_usd"]) * 100
+
+    if deployer_exited and bundle_wallets > 0 and not bundle_all_exited:
+        _flag("CROSS_DEPLOYER_EXIT_BUNDLE_ACTIVE", "critical",
+              {"deployer_exited": True, "bundle_wallets_remaining": bundle_wallets},
+              bundle=bundle_wallets)
+
+    if deployer_exited and cartel_wallets > 0:
+        _flag("CROSS_DEPLOYER_EXIT_CARTEL_ACTIVE", "critical",
+              {"deployer_exited": True, "cartel_wallets": cartel_wallets},
+              cartel=cartel_wallets)
+
+    if deployer_exited and sol_extracted > 5 and price_pct < -40:
+        _flag("CROSS_RUG_PATTERN", "critical",
+              {"sol_extracted": sol_extracted, "price_drop_pct": round(price_pct, 1)},
+              sol=sol_extracted, pct=price_pct)
+
+    if bundle_all_exited and insider_dump:
+        _flag("CROSS_COORDINATED_EXTRACTION", "critical",
+              {"insider_dump": True, "bundle_all_exited": True})
+
+    if cartel_wallets > 10 and rug_count > 1:
+        _flag("CROSS_SERIAL_SCAM_RING", "critical",
+              {"cartel_wallets": cartel_wallets, "rug_count": rug_count},
+              cartel=cartel_wallets, rugs=rug_count)
+
+    if sol_extracted > 10 and bundle_all_exited:
+        _flag("CROSS_EXTRACTION_AND_EXIT", "critical",
+              {"sol_extracted": sol_extracted, "bundle_all_exited": True},
+              sol=sol_extracted)
 
     # ── Correlative intelligence: forensic × market cross-reference ──
     deltas = _compute_deltas(old, new)
     correlated = _cross_reference(deltas, old, new)
     for c in correlated:
-        _flag(c["type"], c["severity"], c["title"], c["detail"])
+        # _cross_reference returns pre-formatted flags with title+detail
+        flags.append({
+            "flag_type": c["type"],
+            "severity": c["severity"],
+            "title": c["title"],
+            "detail": json.dumps(c["detail"], default=str) if isinstance(c["detail"], dict) else c["detail"],
+        })
 
     # ── Cumulative deterioration (vs reference snapshot) ──────────────
     if ref:
@@ -212,38 +265,34 @@ def _generate_flags(old: dict, new: dict, mint: str, *, ref: Optional[dict] = No
             cum_pct = (new_price - ref_price) / ref_price * 100
             if cum_pct <= -50:
                 _flag("CUMULATIVE_PRICE_CRASH", "critical",
-                      f"Price {cum_pct:+.0f}% since first watched",
-                      {"ref_price": ref_price, "now_price": new_price,
-                       "pct": round(cum_pct, 1)})
+                      {"ref_price": ref_price, "now_price": new_price, "pct": round(cum_pct, 1)},
+                      pct=cum_pct, ref=ref_price, now=new_price)
             elif cum_pct <= -30:
                 _flag("CUMULATIVE_PRICE_DECLINE", "warning",
-                      f"Price {cum_pct:+.0f}% since first watched",
-                      {"ref_price": ref_price, "now_price": new_price,
-                       "pct": round(cum_pct, 1)})
+                      {"ref_price": ref_price, "now_price": new_price, "pct": round(cum_pct, 1)},
+                      pct=cum_pct)
 
         # Cumulative liquidity drain
         if ref_liq > 0 and new_liq > 0:
             liq_pct = (new_liq - ref_liq) / ref_liq * 100
             if liq_pct <= -50:
                 _flag("CUMULATIVE_LIQ_DRAIN", "critical",
-                      f"Liquidity {liq_pct:+.0f}% since first watched",
-                      {"ref_liq": ref_liq, "now_liq": new_liq,
-                       "pct": round(liq_pct, 1)})
+                      {"ref_liq": ref_liq, "now_liq": new_liq, "pct": round(liq_pct, 1)},
+                      pct=liq_pct)
 
         # Forensic deterioration since reference
         ref_sol = ref.get("sol_extracted") or 0
         new_sol_total = new.get("sol_extracted") or 0
         if new_sol_total > ref_sol + 20:
+            delta_sol = new_sol_total - ref_sol
             _flag("CUMULATIVE_SOL_EXTRACTION", "critical",
-                  f"{new_sol_total - ref_sol:.0f} SOL extracted since first watched",
-                  {"ref_sol": ref_sol, "now_sol": new_sol_total})
+                  {"ref_sol": ref_sol, "now_sol": new_sol_total},
+                  delta=delta_sol, ref=ref_sol, now=new_sol_total)
 
         # Deployer exited since reference (catches gradual exit)
         if new.get("deployer_exited") and not ref.get("deployer_exited"):
-            # Only flag if delta check didn't already catch it
             if not any(f["flag_type"] == "DEPLOYER_EXITED" for f in flags):
                 _flag("DEPLOYER_EXITED", "critical",
-                      "Deployer exited position since first watched",
                       {"ref_deployed": True})
 
     return flags
@@ -451,8 +500,11 @@ async def _check_bundle_wallet_balances(mint: str, lin: Any) -> dict | None:
 
 # ── Main rescan function ─────────────────────────────────────────────────────
 
-async def run_single_rescan(watch_id: int, user_id: int, cache) -> dict | None:
+async def run_single_rescan(watch_id: int, user_id: int, cache, *, skip_ai: bool = False) -> dict | None:
     """Rescan a single watch, generate flags, return result.
+
+    *skip_ai*: When True, passes skip_forensic_enrichment=True to detect_lineage,
+    which skips the expensive AI analyst call. Used by the pulse loop to save costs.
 
     Returns {mint, old_risk, new_risk, escalated, flags_count} or None on failure.
     """
@@ -510,7 +562,8 @@ async def run_single_rescan(watch_id: int, user_id: int, cache) -> dict | None:
         # only needed on user-initiated manual rescans.
         from .lineage_detector import detect_lineage
         lin = await asyncio.wait_for(
-            detect_lineage(mint, force_refresh=False), timeout=90.0
+            detect_lineage(mint, force_refresh=False, skip_forensic_enrichment=skip_ai),
+            timeout=90.0,
         )
 
         # Extract new forensic snapshot
@@ -580,6 +633,9 @@ async def run_single_rescan(watch_id: int, user_id: int, cache) -> dict | None:
             detail_dict["token_name"] = _token_name
             detail_dict["symbol"] = _token_symbol
             detail_dict["risk_score"] = new_score
+            _image = getattr(qt, "image_uri", None) or getattr(qt, "icon", None) or ""
+            if _image:
+                detail_dict["image_uri"] = _image
             flag["detail"] = json.dumps(detail_dict, default=str)
 
         # Store flags + new forensic snapshot
@@ -728,7 +784,7 @@ async def _pulse_rescan_one(t: dict, cache) -> None:
     """Run a single pulse-triggered rescan in the background, rate-limited."""
     async with _PULSE_RESCAN_SEM:
         try:
-            result = await run_single_rescan(t["watch_id"], t["user_id"], cache)
+            result = await run_single_rescan(t["watch_id"], t["user_id"], cache, skip_ai=True)
             if not result:
                 return
             logger.info(

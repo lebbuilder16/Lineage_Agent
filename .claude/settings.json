@@ -19,7 +19,16 @@
       "Bash(curl -s \"https://lineage-agent.fly.dev/lineage?mint=G492Y9hG9DzXxVj6FeqhrYaNngisiChMBeHTZ6NtXXsg\")",
       "Bash(python3 -c \"import ast; ast.parse\\(open\\(''''/workspaces/Lineage_Agent/src/lineage_agent/api.py''''\\).read\\(\\)\\); print\\(''''OK''''\\)\")",
       "Bash(python -m pytest tests/ -q)",
-      "Bash(python -m pytest tests/test_watchlist_monitor.py -x -q --tb=short)"
+      "Bash(python -m pytest tests/test_watchlist_monitor.py -x -q --tb=short)",
+      "Bash(ls src/lineage_agent/*.py)",
+      "Bash(python -m pytest tests/test_sniper_tracker_service.py tests/test_deployer_service.py tests/test_token_identity.py -v --tb=short)",
+      "Bash(xargs basename:*)",
+      "Bash(grep -n \"TierLimits\\\\|get_limits\" /workspaces/Lineage_Agent/src/lineage_agent/*.py)",
+      "Bash(find /workspaces/Lineage_Agent/mobile/src -type f \\\\\\( -name \"*.ts\" -o -name \"*.tsx\" \\\\\\) -exec grep -l \"plan\\\\|PlanTier\\\\|subscription\" {} \\\\;)",
+      "Bash(python -m pytest --tb=short -q)",
+      "Bash(ARCEE_API_KEY=\"rcai-7ab66d79ed3bd017e4111ccca877156c\" python tests/compare_trinity_vs_haiku.py)",
+      "Bash(npx jest:*)",
+      "Bash(curl -s -X POST https://lineage-agent.fly.dev/auth/regenerate-key)"
     ]
   }
 }

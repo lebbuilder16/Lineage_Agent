@@ -7,6 +7,7 @@ import {
   TextInput,
   FlatList,
 } from 'react-native';
+import { router } from 'expo-router';
 import { Send } from 'lucide-react-native';
 import Animated, {
   useSharedValue,
@@ -80,7 +81,12 @@ export function ChatPanel({ mint }: { mint: string }) {
       },
       (err) => {
         setChatBusy(false);
-        addChatMessage({ role: 'assistant', content: `Error: ${err.message}` });
+        const msg = err.message ?? '';
+        if (msg.includes('limit reached') || msg.includes('does not include')) {
+          router.push('/paywall' as any);
+          return;
+        }
+        addChatMessage({ role: 'assistant', content: `Error: ${msg}` });
       },
     );
   }, [input, busy, mint, apiKey, messages]);

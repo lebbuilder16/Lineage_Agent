@@ -116,8 +116,8 @@ CACHE_TTL_DEPLOYER_SECONDS: int = _parse_int(
     "CACHE_TTL_DEPLOYER_SECONDS", "86400", minimum=1
 )  # 24 hours (deployer is immutable)
 CACHE_TTL_AI_SECONDS: int = _parse_int(
-    "CACHE_TTL_AI_SECONDS", "300", minimum=30
-)
+    "CACHE_TTL_AI_SECONDS", "3600", minimum=30
+)  # 1 hour — AI analysis doesn't change fast, and each call costs ~$0.001-0.02
 # Stale-while-revalidate: serve stale data immediately while refreshing in background.
 # Data older than stale TTL but younger than hard TTL is served with a background refresh.
 CACHE_STALE_TTL_LINEAGE_SECONDS: int = _parse_int(

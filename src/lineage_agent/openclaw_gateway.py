@@ -409,14 +409,21 @@ async def _cron_sweep_loop(cache) -> None:
 
                 try:
                     # Compute next run from last_run (or creation)
-                    base_time = last_run or now - 86400  # default: 24h ago
                     from datetime import datetime, timezone  # noqa: PLC0415
-                    base_dt = datetime.fromtimestamp(base_time, tz=timezone.utc)
+                    if last_run:
+                        # last_run is stored as ISO string — parse it
+                        if isinstance(last_run, str):
+                            base_dt = datetime.fromisoformat(last_run)
+                        else:
+                            base_dt = datetime.fromtimestamp(float(last_run), tz=timezone.utc)
+                    else:
+                        base_dt = datetime.fromtimestamp(now - 86400, tz=timezone.utc)
                     cron = croniter.croniter(cron_expr, base_dt)
                     next_run_dt = cron.get_next(datetime)
                     next_run_ts = next_run_dt.timestamp()
-                except Exception:
-                    continue  # invalid cron expression
+                except Exception as _cron_exc:
+                    logger.debug("[openclaw-gw] cron parse error for %s: %s", name, _cron_exc)
+                    continue
 
                 if next_run_ts > now:
                     # Update next_run in DB for display purposes

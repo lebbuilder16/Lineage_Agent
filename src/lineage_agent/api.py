@@ -2655,12 +2655,23 @@ async def auth_remove_watch(watch_id: int, request: Request):
     if not deleted:
         raise HTTPException(status_code=404, detail="Watch not found")
 
-    # Remove the associated OpenClaw cron
+    # Remove the associated OpenClaw cron + clean up flags
     from .cron_manager import remove_watch_cron  # noqa: PLC0415
-    asyncio.create_task(
-        remove_watch_cron(_cache, user["id"], watch_id),
-        name=f"cron_remove_{watch_id}",
-    )
+
+    async def _cleanup_watch():
+        try:
+            await remove_watch_cron(_cache, user["id"], watch_id)
+            # Delete sweep flags for this watch so they don't linger in the UI
+            db = await _cache._get_conn()
+            await db.execute(
+                "DELETE FROM sweep_flags WHERE watch_id = ? AND user_id = ?",
+                (watch_id, user["id"]),
+            )
+            await db.commit()
+        except Exception:
+            pass
+
+    asyncio.create_task(_cleanup_watch(), name=f"cleanup_watch_{watch_id}")
 
     return {"deleted": True}
 
@@ -3878,6 +3889,51 @@ async def get_agent_prefs(request: Request):
     }
 
 
+# ── Alert channel preferences ────────────────────────────────────────────────
+
+
+class _AlertPrefsBody(BaseModel):
+    channels: dict  # e.g. {"push": true, "telegram": false, "discord": true}
+
+
+@app.post("/alert-prefs", tags=["agent"])
+async def set_alert_prefs(request: Request, body: _AlertPrefsBody):
+    """Save user's notification channel preferences."""
+    user = await _get_current_user(request)
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+    db = await _cache._get_conn()
+    for channel, enabled in body.channels.items():
+        if channel not in ("push", "telegram", "discord", "whatsapp"):
+            continue
+        await db.execute(
+            """INSERT OR REPLACE INTO alert_prefs (user_id, channel, enabled, config_json)
+               VALUES (?, ?, ?, COALESCE(
+                   (SELECT config_json FROM alert_prefs WHERE user_id = ? AND channel = ?),
+                   NULL
+               ))""",
+            (user["id"], channel, int(bool(enabled)), user["id"], channel),
+        )
+    await db.commit()
+    return {"ok": True}
+
+
+@app.get("/alert-prefs", tags=["agent"])
+async def get_alert_prefs(request: Request):
+    """Get user's notification channel preferences."""
+    user = await _get_current_user(request)
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+    db = await _cache._get_conn()
+    cursor = await db.execute(
+        "SELECT channel, enabled FROM alert_prefs WHERE user_id = ?",
+        (user["id"],),
+    )
+    rows = await cursor.fetchall()
+    channels = {"push": True, "telegram": False, "discord": False, "whatsapp": False}
+    for channel, enabled in rows:
+        channels[channel] = bool(enabled)
+    return {"channels": channels}
+
+
 @app.get("/agent/status", tags=["agent"])
 async def get_agent_status(request: Request):
     """Return real-time agent status for the Agent tab."""
@@ -3999,24 +4055,44 @@ async def get_sweep_flags(
     db = await _cache._get_conn()
 
     # Build WHERE clause dynamically based on filters
-    conditions = ["user_id = ?", "flag_type != '_SNAPSHOT'"]
+    conditions = ["sf.user_id = ?", "sf.flag_type != '_SNAPSHOT'"]
     params: list = [user["id"]]
 
+    # Only show flags for tokens still in the watchlist (ignore deleted watches)
+    if not mint:
+        conditions.append(
+            "sf.mint IN (SELECT value FROM user_watches WHERE user_id = ? AND sub_type = 'mint')"
+        )
+        params.append(user["id"])
+
     if mint:
-        conditions.append("mint = ?")
+        conditions.append("sf.mint = ?")
         params.append(mint)
     if since is not None:
-        conditions.append("created_at > ?")
+        conditions.append("sf.created_at > ?")
         params.append(since)
 
-    params.append(limit)
     where = " AND ".join(conditions)
-    cursor = await db.execute(
-        f"SELECT id, mint, flag_type, severity, title, detail, created_at, read "
-        f"FROM sweep_flags WHERE {where} "
-        f"ORDER BY created_at DESC LIMIT ?",
-        tuple(params),
-    )
+
+    if mint:
+        # Single-token mode: simple chronological
+        params.append(limit)
+        cursor = await db.execute(
+            f"SELECT sf.id, sf.mint, sf.flag_type, sf.severity, sf.title, sf.detail, sf.created_at, sf.read "
+            f"FROM sweep_flags sf WHERE {where} "
+            f"ORDER BY sf.created_at DESC LIMIT ?",
+            tuple(params),
+        )
+    else:
+        # Multi-token mode: use ROW_NUMBER to cap flags per token
+        per_token = max(5, limit // 7)
+        cursor = await db.execute(
+            f"SELECT id, mint, flag_type, severity, title, detail, created_at, read FROM ("
+            f"  SELECT *, ROW_NUMBER() OVER (PARTITION BY mint ORDER BY created_at DESC) as rn"
+            f"  FROM sweep_flags sf WHERE {where} AND sf.flag_type != '_REFERENCE'"
+            f") WHERE rn <= ? ORDER BY created_at DESC LIMIT ?",
+            tuple(params) + (per_token, limit),
+        )
 
     rows = await cursor.fetchall()
     import json as _json
@@ -4037,6 +4113,22 @@ async def get_sweep_flags(
             "createdAt": r[6],
             "read": bool(r[7]),
         })
+
+    # In multi-token mode, balance flags across tokens so no single token dominates
+    if not mint and len(flags) > limit:
+        from collections import defaultdict
+        by_mint: dict[str, list] = defaultdict(list)
+        for f in flags:
+            by_mint[f["mint"]].append(f)
+        # Round-robin: take flags from each token in turn
+        balanced: list[dict] = []
+        max_per_token = max(3, limit // max(len(by_mint), 1))
+        for m_flags in by_mint.values():
+            balanced.extend(m_flags[:max_per_token])
+        # Sort by time, trim to limit
+        balanced.sort(key=lambda f: f["createdAt"], reverse=True)
+        flags = balanced[:limit]
+
     return {"flags": flags}
 
 
@@ -5015,7 +5107,7 @@ async def _watchlist_sweep_loop():
                 if watch_id in _cron_managed:
                     continue  # managed by OpenClaw cron — skip
                 # Check last sweep for this specific watch
-                cursor2 = await db.execute(
+                cursor2 = await rdb.execute(
                     "SELECT MAX(scanned_at) FROM watch_snapshots WHERE watch_id = ?",
                     (watch_id,),
                 )
