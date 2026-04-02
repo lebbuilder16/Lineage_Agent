@@ -2655,12 +2655,23 @@ async def auth_remove_watch(watch_id: int, request: Request):
     if not deleted:
         raise HTTPException(status_code=404, detail="Watch not found")
 
-    # Remove the associated OpenClaw cron
+    # Remove the associated OpenClaw cron + clean up flags
     from .cron_manager import remove_watch_cron  # noqa: PLC0415
-    asyncio.create_task(
-        remove_watch_cron(_cache, user["id"], watch_id),
-        name=f"cron_remove_{watch_id}",
-    )
+
+    async def _cleanup_watch():
+        try:
+            await remove_watch_cron(_cache, user["id"], watch_id)
+            # Delete sweep flags for this watch so they don't linger in the UI
+            db = await _cache._get_conn()
+            await db.execute(
+                "DELETE FROM sweep_flags WHERE watch_id = ? AND user_id = ?",
+                (watch_id, user["id"]),
+            )
+            await db.commit()
+        except Exception:
+            pass
+
+    asyncio.create_task(_cleanup_watch(), name=f"cleanup_watch_{watch_id}")
 
     return {"deleted": True}
 
@@ -4044,14 +4055,21 @@ async def get_sweep_flags(
     db = await _cache._get_conn()
 
     # Build WHERE clause dynamically based on filters
-    conditions = ["user_id = ?", "flag_type != '_SNAPSHOT'"]
+    conditions = ["sf.user_id = ?", "sf.flag_type != '_SNAPSHOT'"]
     params: list = [user["id"]]
 
+    # Only show flags for tokens still in the watchlist (ignore deleted watches)
+    if not mint:
+        conditions.append(
+            "sf.mint IN (SELECT value FROM user_watches WHERE user_id = ? AND sub_type = 'mint')"
+        )
+        params.append(user["id"])
+
     if mint:
-        conditions.append("mint = ?")
+        conditions.append("sf.mint = ?")
         params.append(mint)
     if since is not None:
-        conditions.append("created_at > ?")
+        conditions.append("sf.created_at > ?")
         params.append(since)
 
     where = " AND ".join(conditions)
@@ -4060,19 +4078,18 @@ async def get_sweep_flags(
         # Single-token mode: simple chronological
         params.append(limit)
         cursor = await db.execute(
-            f"SELECT id, mint, flag_type, severity, title, detail, created_at, read "
-            f"FROM sweep_flags WHERE {where} "
-            f"ORDER BY created_at DESC LIMIT ?",
+            f"SELECT sf.id, sf.mint, sf.flag_type, sf.severity, sf.title, sf.detail, sf.created_at, sf.read "
+            f"FROM sweep_flags sf WHERE {where} "
+            f"ORDER BY sf.created_at DESC LIMIT ?",
             tuple(params),
         )
     else:
         # Multi-token mode: use ROW_NUMBER to cap flags per token
-        # This ensures all watched tokens get representation
         per_token = max(5, limit // 7)
         cursor = await db.execute(
             f"SELECT id, mint, flag_type, severity, title, detail, created_at, read FROM ("
             f"  SELECT *, ROW_NUMBER() OVER (PARTITION BY mint ORDER BY created_at DESC) as rn"
-            f"  FROM sweep_flags WHERE {where} AND flag_type != '_REFERENCE'"
+            f"  FROM sweep_flags sf WHERE {where} AND sf.flag_type != '_REFERENCE'"
             f") WHERE rn <= ? ORDER BY created_at DESC LIMIT ?",
             tuple(params) + (per_token, limit),
         )
