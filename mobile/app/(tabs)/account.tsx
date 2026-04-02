@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import {
-  View, Text, StyleSheet, ScrollView, Alert, Pressable, Image,
+  View, Text, StyleSheet, ScrollView, Alert, Pressable, Image, Modal,
 } from 'react-native';
+import { BlurView } from 'expo-blur';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeInDown } from 'react-native-reanimated';
@@ -75,6 +76,7 @@ export default function AccountScreen() {
   const [sendVisible, setSendVisible] = useState(false);
   const [receiveVisible, setReceiveVisible] = useState(false);
   const [avatarUploading, setAvatarUploading] = useState(false);
+  const [signOutVisible, setSignOutVisible] = useState(false);
 
   const isAuthenticated = !!apiKey;
   const displayName = user?.display_name ?? user?.username ?? user?.email?.split('@')[0] ?? 'Agent';
@@ -93,16 +95,14 @@ export default function AccountScreen() {
   const repScore = Math.min(999, scanCount * 2 + watches.length * 5);
 
   // ── Handlers ─────────────────────────────────────────────────────────────
-  const handleLogout = () => {
-    Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Sign Out', style: 'destructive', onPress: async () => {
-        const { purgeUserData } = await import('../../src/lib/purge-user-data');
-        await purgeUserData();
-        setApiKey(null);
-        router.replace('/(auth)/welcome');
-      }},
-    ]);
+  const handleLogout = () => setSignOutVisible(true);
+
+  const confirmLogout = async () => {
+    setSignOutVisible(false);
+    const { purgeUserData } = await import('../../src/lib/purge-user-data');
+    await purgeUserData();
+    setApiKey(null);
+    router.replace('/(auth)/welcome');
   };
 
   const handlePickAvatar = async () => {
@@ -321,6 +321,31 @@ export default function AccountScreen() {
         </ScrollView>
       </View>
 
+      {/* Sign Out Confirmation Modal */}
+      <Modal visible={signOutVisible} transparent animationType="fade" onRequestClose={() => setSignOutVisible(false)}>
+        <Pressable style={styles.modalBackdrop} onPress={() => setSignOutVisible(false)}>
+          <Pressable style={styles.modalCard}>
+            <BlurView intensity={40} tint="dark" style={StyleSheet.absoluteFill} />
+            <View style={styles.modalContent}>
+              <View style={styles.modalIconWrap}>
+                <LogOut size={24} color={tokens.accent} />
+              </View>
+              <Text style={styles.modalTitle}>Sign Out</Text>
+              <Text style={styles.modalMessage}>Are you sure you want to sign out? You'll need to sign in again to access your account.</Text>
+              <View style={styles.modalActions}>
+                <HapticButton variant="ghost" size="md" style={styles.modalBtn} onPress={() => setSignOutVisible(false)}>
+                  <Text style={styles.modalCancelText}>Cancel</Text>
+                </HapticButton>
+                <HapticButton variant="primary" size="md" style={[styles.modalBtn, styles.modalDestructiveBtn]} onPress={confirmLogout}>
+                  <LogOut size={14} color={tokens.white100} />
+                  <Text style={styles.modalDestructiveText}>Sign Out</Text>
+                </HapticButton>
+              </View>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
       {/* Sheets */}
       <EditProfileSheet visible={editVisible} onClose={() => setEditVisible(false)} />
       {walletAddr && (
@@ -406,6 +431,46 @@ const styles = StyleSheet.create({
   appVersion: {
     fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny,
     color: tokens.white20, textAlign: 'center', marginTop: 8,
+  },
+
+  // Confirmation Modal
+  modalBackdrop: {
+    flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center', alignItems: 'center', paddingHorizontal: 32,
+  },
+  modalCard: {
+    width: '100%', borderRadius: tokens.radius.xl, overflow: 'hidden',
+    borderWidth: 1, borderColor: tokens.borderSubtle,
+    backgroundColor: tokens.bgApp,
+  },
+  modalContent: {
+    alignItems: 'center', paddingHorizontal: 24, paddingVertical: 28,
+  },
+  modalIconWrap: {
+    width: 52, height: 52, borderRadius: 26,
+    backgroundColor: `${tokens.accent}15`, borderWidth: 1, borderColor: `${tokens.accent}30`,
+    alignItems: 'center', justifyContent: 'center', marginBottom: 16,
+  },
+  modalTitle: {
+    fontFamily: 'Lexend-Bold', fontSize: tokens.font.sectionHeader,
+    color: tokens.white100, marginBottom: 8,
+  },
+  modalMessage: {
+    fontFamily: 'Lexend-Regular', fontSize: tokens.font.body,
+    color: tokens.textTertiary, textAlign: 'center', lineHeight: 22, marginBottom: 24,
+  },
+  modalActions: {
+    flexDirection: 'row' as const, gap: 12, width: '100%',
+  },
+  modalBtn: { flex: 1 },
+  modalDestructiveBtn: {
+    backgroundColor: tokens.accent,
+  },
+  modalCancelText: {
+    fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.body, color: tokens.white60,
+  },
+  modalDestructiveText: {
+    fontFamily: 'Lexend-Bold', fontSize: tokens.font.body, color: tokens.white100,
   },
 
   // Not authenticated
