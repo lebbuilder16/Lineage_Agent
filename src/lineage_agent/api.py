@@ -2496,6 +2496,18 @@ async def auth_update_profile(request: Request):
     }
 
 
+@app.post("/auth/regenerate-key", tags=["auth"])
+async def auth_regenerate_key(request: Request):
+    """Regenerate the user's API key, invalidating the old one."""
+    user = await _get_current_user(request)
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+    from .auth_service import regenerate_api_key  # noqa: PLC0415
+    new_key = await regenerate_api_key(_cache, user["id"])
+    if not new_key:
+        raise HTTPException(status_code=500, detail="Key regeneration failed")
+    return {"api_key": new_key}
+
+
 class _FcmTokenRequest(BaseModel):
     fcm_token: str
 

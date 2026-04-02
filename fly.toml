@@ -45,8 +45,8 @@ primary_region = 'ams'
   timeout = "25s"
 
 [[vm]]
-  size = "performance-2x"
-  memory = "4gb"
+  size = "shared-cpu-2x"
+  memory = "2gb"
 
 [mounts]
   source = "lineage_cache"

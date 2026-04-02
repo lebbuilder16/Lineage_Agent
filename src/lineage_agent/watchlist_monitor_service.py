@@ -328,11 +328,11 @@ def _cross_reference(deltas: dict, old: dict, new: dict) -> list[dict]:
     if deltas["volume_spiking"]:
         market_facts.append(f"volume {new.get('volume_spike_ratio', 0):.0f}x normal")
 
-    detail = json.dumps({
+    detail = {
         "forensic_changes": forensic_facts or ["none"],
         "market_changes": market_facts or ["stable"],
         "deltas": {k: v for k, v in deltas.items() if v is not None and v != 0 and v is not False},
-    })
+    }
 
     if forensic_changed and market_stressed:
         title = " · ".join(market_facts) + " | " + ", ".join(forensic_facts) if market_facts else ", ".join(forensic_facts)
@@ -559,7 +559,10 @@ async def run_single_rescan(watch_id: int, user_id: int, cache) -> dict | None:
         _token_symbol = getattr(qt, "symbol", "") or ""
         for flag in flags:
             try:
-                detail_dict = json.loads(flag["detail"]) if isinstance(flag["detail"], str) else {}
+                raw = flag["detail"]
+                detail_dict = json.loads(raw) if isinstance(raw, str) else (raw if isinstance(raw, dict) else {})
+                if not isinstance(detail_dict, dict):
+                    detail_dict = {"raw": detail_dict}
             except Exception:
                 detail_dict = {}
             detail_dict["token_name"] = _token_name

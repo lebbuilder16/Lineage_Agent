@@ -119,11 +119,18 @@ async def handle_openclaw_ws(websocket: WebSocket, cache) -> None:
 
     # Auth via query param (same pattern as /ws/alerts)
     api_key = websocket.query_params.get("key", "")
-    user = await verify_api_key(cache, api_key)
-    if not user:
+    if not api_key:
+        logger.warning("[openclaw-gw] rejected: no API key in query params")
         await websocket.close(code=1008, reason="unauthorized")
         return
 
+    user = await verify_api_key(cache, api_key)
+    if not user:
+        logger.warning("[openclaw-gw] rejected: invalid API key (%s...)", api_key[:8])
+        await websocket.close(code=1008, reason="unauthorized")
+        return
+
+    logger.info("[openclaw-gw] accepting WS for user=%s (key=%s...)", user.get("id"), api_key[:8])
     await websocket.accept()
     client = OpenClawClient(websocket, user)
 
@@ -178,7 +185,7 @@ async def handle_openclaw_ws(websocket: WebSocket, cache) -> None:
             await _dispatch(client, cache, req_id, method, params)
 
     except WebSocketDisconnect:
-        logger.debug("[openclaw-gw] client disconnected (user=%s)", client.user_id)
+        logger.info("[openclaw-gw] client disconnected (user=%s)", client.user_id)
     except Exception:
         logger.exception("[openclaw-gw] error for user=%s", client.user_id)
     finally:
