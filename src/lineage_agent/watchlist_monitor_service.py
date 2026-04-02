@@ -503,11 +503,14 @@ async def run_single_rescan(watch_id: int, user_id: int, cache) -> dict | None:
         old_risk = prev[0] if prev else "unknown"
         old_score = prev[1] if prev else 0
 
-        # Rescan — force_refresh=True so deployer profiles / bundle data
-        # are fetched fresh instead of using stale 24-hour caches.
+        # Rescan — use cached lineage data (TTL 10min) to avoid RPC timeouts.
+        # The sweep's real value comes from _generate_flags (delta detection)
+        # and _check_bundle_wallet_balances (live balance check), not from
+        # re-running the full pipeline every 45 min.  force_refresh=True is
+        # only needed on user-initiated manual rescans.
         from .lineage_detector import detect_lineage
         lin = await asyncio.wait_for(
-            detect_lineage(mint, force_refresh=True), timeout=60.0
+            detect_lineage(mint, force_refresh=False), timeout=90.0
         )
 
         # Extract new forensic snapshot

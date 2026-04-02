@@ -4968,7 +4968,7 @@ async def _watchlist_sweep_loop():
                 if now - last_sweep < user_sweep_interval:
                     continue  # too soon for this user's preference
                 if _wi > 0:
-                    await asyncio.sleep(8)  # stagger rescans to reduce DB contention
+                    await asyncio.sleep(15)  # stagger rescans — 15s avoids RPC saturation
                 try:
                     result = await run_single_rescan(watch_id, user_id, _cache)
                     if not result:
