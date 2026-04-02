@@ -32,7 +32,7 @@ async def increment_usage(cache, user_id: int, counter_key: str) -> int:
 
 async def get_usage(cache, user_id: int, counter_key: str) -> int:
     """Return today's count for counter_key. Returns 0 if no entry."""
-    conn = await cache._get_conn()
+    conn = await cache._get_read_conn() if hasattr(cache, '_get_read_conn') else await cache._get_conn()
     date_key = datetime.date.today().isoformat()
 
     cursor = await conn.execute(
