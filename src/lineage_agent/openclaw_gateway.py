@@ -160,7 +160,8 @@ async def handle_openclaw_ws(websocket: WebSocket, cache) -> None:
             try:
                 raw = await asyncio.wait_for(websocket.receive_text(), timeout=120)
             except asyncio.TimeoutError:
-                break  # client gone
+                logger.info("[openclaw-gw] user=%s timed out (no message in 120s)", client.user_id)
+                break
 
             # Ignore ping/pong
             if raw.strip().lower() in ("ping", "pong"):

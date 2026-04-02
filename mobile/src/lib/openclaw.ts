@@ -152,9 +152,17 @@ async function doConnect(host: string, token: string) {
   };
 
   ws.onmessage = (event) => {
+    const raw = event.data as string;
+
+    // Respond to server keepalive pings (plain text, not JSON)
+    if (raw === 'ping') {
+      try { ws?.send('pong'); } catch { /* connection closing */ }
+      return;
+    }
+
     let frame: OpenClawResponse | OpenClawEvent;
     try {
-      frame = JSON.parse(event.data as string) as OpenClawResponse | OpenClawEvent;
+      frame = JSON.parse(raw) as OpenClawResponse | OpenClawEvent;
     } catch {
       return; // ignore malformed frames
     }
