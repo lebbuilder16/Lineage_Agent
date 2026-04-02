@@ -5015,7 +5015,7 @@ async def _watchlist_sweep_loop():
                 if watch_id in _cron_managed:
                     continue  # managed by OpenClaw cron — skip
                 # Check last sweep for this specific watch
-                cursor2 = await db.execute(
+                cursor2 = await rdb.execute(
                     "SELECT MAX(scanned_at) FROM watch_snapshots WHERE watch_id = ?",
                     (watch_id,),
                 )
