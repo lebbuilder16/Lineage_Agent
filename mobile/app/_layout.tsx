@@ -21,7 +21,6 @@ import { registerDeviceNode, startNodeCommandListener } from '../src/lib/opencla
 import { initRevenueCat, identifyUser, getCustomerInfo, resolveActivePlan } from '../src/lib/revenuecat';
 import { useSubscriptionStore } from '../src/store/subscription';
 import { startRugResponseListener } from '../src/lib/openclaw-rug-response';
-import { createBriefingCron } from '../src/lib/openclaw-cron';
 import { startBriefingListener } from '../src/lib/openclaw-briefing';
 import { tokens } from '../src/theme/tokens';
 import { ErrorBoundary } from '../src/components/ui/ErrorBoundary';
@@ -276,7 +275,7 @@ export default function RootLayout() {
     const unsubNode = startNodeCommandListener();
     const unsubRug = startRugResponseListener();
     const unsubBriefing = startBriefingListener();
-    createBriefingCron(8, Intl.DateTimeFormat().resolvedOptions().timeZone);
+    // Briefing cron is now server-managed (created at login via cron_manager)
     return () => {
       unsubNode();
       unsubRug();

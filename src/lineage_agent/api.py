@@ -2472,6 +2472,13 @@ async def auth_login(body: _LoginRequest, request: Request):
     except Exception as exc:
         logger.exception("auth_login failed: %s", exc)
         raise HTTPException(status_code=500, detail=f"User creation failed: {exc}") from exc
+    # Sync OpenClaw crons for this user (watch crons + briefing)
+    from .cron_manager import sync_all_user_crons  # noqa: PLC0415
+    asyncio.create_task(
+        sync_all_user_crons(_cache, user["id"], user.get("plan", "free")),
+        name=f"login_cron_sync_{user['id']}",
+    )
+
     return {
         "id": user["id"],
         "privy_id": user["privy_id"],
@@ -2629,6 +2636,13 @@ async def auth_add_watch(body: _WatchRequest, request: Request):
                 logger.debug("[watch] initial scan failed for %s: %s", body.value[:12], exc)
         asyncio.create_task(_initial_scan(), name=f"initial_scan_{body.value[:8]}")
 
+    # Create OpenClaw cron for this watch (server-managed)
+    from .cron_manager import ensure_watch_cron  # noqa: PLC0415
+    asyncio.create_task(
+        ensure_watch_cron(_cache, user["id"], watch),
+        name=f"cron_create_{watch.get('id', '')}",
+    )
+
     return watch
 
 
@@ -2640,6 +2654,14 @@ async def auth_remove_watch(watch_id: int, request: Request):
     deleted = await remove_user_watch(_cache, user["id"], watch_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Watch not found")
+
+    # Remove the associated OpenClaw cron
+    from .cron_manager import remove_watch_cron  # noqa: PLC0415
+    asyncio.create_task(
+        remove_watch_cron(_cache, user["id"], watch_id),
+        name=f"cron_remove_{watch_id}",
+    )
+
     return {"deleted": True}
 
 
@@ -3781,6 +3803,24 @@ async def set_agent_prefs(request: Request, body: _AgentPrefsBody):
          time.time()),
     )
     await db.commit()
+
+    # Update OpenClaw crons if briefing/sweep settings changed
+    from .cron_manager import ensure_briefing_cron, remove_briefing_cron, sync_all_user_crons  # noqa: PLC0415
+
+    async def _update_crons():
+        try:
+            plan = user.get("plan", "free")
+            if body.dailyBriefing:
+                await ensure_briefing_cron(_cache, user["id"], body.briefingHour, plan)
+            else:
+                await remove_briefing_cron(_cache, user["id"])
+            # Re-sync watch crons with potentially new sweepInterval
+            await sync_all_user_crons(_cache, user["id"], plan)
+        except Exception:
+            logger.warning("[prefs] cron update failed for user=%s", user["id"], exc_info=True)
+
+    asyncio.create_task(_update_crons(), name=f"prefs_cron_update_{user['id']}")
+
     return {"ok": True}
 
 
@@ -4955,9 +4995,24 @@ async def _watchlist_sweep_loop():
             )
             watches = await cursor.fetchall()
 
+            # Skip watches that have active OpenClaw crons (managed by cron_manager)
+            cron_cursor = await db.execute(
+                "SELECT name FROM user_crons WHERE enabled = 1 AND name LIKE 'lineage:watchlist:%'"
+            )
+            _cron_managed = set()
+            for (cn,) in await cron_cursor.fetchall():
+                parts = cn.split(":")
+                if len(parts) >= 3:
+                    try:
+                        _cron_managed.add(int(parts[2]))
+                    except ValueError:
+                        pass
+
             # Filter: only sweep users whose last sweep was > sweep_interval ago
             now = time.time()
             for _wi, (watch_id, user_id, _mint_val, user_sweep_interval) in enumerate(watches):
+                if watch_id in _cron_managed:
+                    continue  # managed by OpenClaw cron — skip
                 # Check last sweep for this specific watch
                 cursor2 = await db.execute(
                     "SELECT MAX(scanned_at) FROM watch_snapshots WHERE watch_id = ?",
@@ -4968,7 +5023,7 @@ async def _watchlist_sweep_loop():
                 if now - last_sweep < user_sweep_interval:
                     continue  # too soon for this user's preference
                 if _wi > 0:
-                    await asyncio.sleep(8)  # stagger rescans to reduce DB contention
+                    await asyncio.sleep(15)  # stagger rescans — 15s avoids RPC saturation
                 try:
                     result = await run_single_rescan(watch_id, user_id, _cache)
                     if not result:
