@@ -196,47 +196,62 @@ def _generate_flags(old: dict, new: dict, mint: str, *, ref: Optional[dict] = No
                "still_holding": new.get("bundle_holders", 0)},
               exits=new_bundle_exits, holding=new.get("bundle_holders", 0))
     elif new_bundle_exits > 0 and new.get("bundle_holders", 0) == 0:
-        _flag("BUNDLE_WALLETS_ALL_EXITED", "critical",
-              {"total_exits": new_bundle_exits})
+        # Only flag if bundles were NOT all exited at last scan
+        old_holders = old.get("bundle_holders")
+        old_exits = old.get("bundle_exits_new", 0) or 0
+        old_all_exited = old_exits > 0 and old_holders == 0
+        if not old_all_exited:
+            _flag("BUNDLE_WALLETS_ALL_EXITED", "critical",
+                  {"total_exits": new_bundle_exits})
 
     # ── Cross-signal intelligence ─────────────────────────────────────
+    # These only fire when the combination is NEW (not present in old snapshot)
     deployer_exited = new.get("deployer_exited", False)
+    old_deployer_exited = old.get("deployer_exited", False)
     bundle_wallets = new.get("bundle_wallets", 0) or 0
     bundle_holders = new.get("bundle_holders", 0)
     bundle_all_exited = (new.get("bundle_exits_new", 0) or 0) > 0 and bundle_holders == 0
+    old_bundle_all_exited = (old.get("bundle_exits_new", 0) or 0) > 0 and (old.get("bundle_holders", 0)) == 0
     cartel_wallets = new.get("cartel_wallets", 0) or 0
     sol_extracted = new.get("sol_extracted", 0) or 0
     insider_dump = new.get("insider_verdict") == "insider_dump"
+    old_insider_dump = old.get("insider_verdict") == "insider_dump"
     rug_count = new.get("rug_count", 0) or 0
     price_pct = 0.0
     if ref and ref.get("price_usd") and new.get("price_usd") and ref["price_usd"] > 0:
         price_pct = ((new["price_usd"] - ref["price_usd"]) / ref["price_usd"]) * 100
 
-    if deployer_exited and bundle_wallets > 0 and not bundle_all_exited:
+    # Cross-signals only fire when the combination JUST became true
+    # (deployer just exited, or bundles just all exited, etc.)
+    _deployer_just_exited = deployer_exited and not old_deployer_exited
+    _bundle_just_all_exited = bundle_all_exited and not old_bundle_all_exited
+    _insider_just_dumped = insider_dump and not old_insider_dump
+
+    if _deployer_just_exited and bundle_wallets > 0 and not bundle_all_exited:
         _flag("CROSS_DEPLOYER_EXIT_BUNDLE_ACTIVE", "critical",
               {"deployer_exited": True, "bundle_wallets_remaining": bundle_wallets},
               bundle=bundle_wallets)
 
-    if deployer_exited and cartel_wallets > 0:
+    if _deployer_just_exited and cartel_wallets > 0:
         _flag("CROSS_DEPLOYER_EXIT_CARTEL_ACTIVE", "critical",
               {"deployer_exited": True, "cartel_wallets": cartel_wallets},
               cartel=cartel_wallets)
 
-    if deployer_exited and sol_extracted > 5 and price_pct < -40:
+    if _deployer_just_exited and sol_extracted > 5 and price_pct < -40:
         _flag("CROSS_RUG_PATTERN", "critical",
               {"sol_extracted": sol_extracted, "price_drop_pct": round(price_pct, 1)},
               sol=sol_extracted, pct=price_pct)
 
-    if bundle_all_exited and insider_dump:
+    if _bundle_just_all_exited and insider_dump:
         _flag("CROSS_COORDINATED_EXTRACTION", "critical",
               {"insider_dump": True, "bundle_all_exited": True})
 
-    if cartel_wallets > 10 and rug_count > 1:
+    if cartel_wallets > 10 and rug_count > (old.get("rug_count", 0) or 0):
         _flag("CROSS_SERIAL_SCAM_RING", "critical",
               {"cartel_wallets": cartel_wallets, "rug_count": rug_count},
               cartel=cartel_wallets, rugs=rug_count)
 
-    if sol_extracted > 10 and bundle_all_exited:
+    if _bundle_just_all_exited and sol_extracted > 10:
         _flag("CROSS_EXTRACTION_AND_EXIT", "critical",
               {"sol_extracted": sol_extracted, "bundle_all_exited": True},
               sol=sol_extracted)
