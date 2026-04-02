@@ -629,6 +629,9 @@ async def run_single_rescan(watch_id: int, user_id: int, cache) -> dict | None:
             detail_dict["token_name"] = _token_name
             detail_dict["symbol"] = _token_symbol
             detail_dict["risk_score"] = new_score
+            _image = getattr(qt, "image_uri", None) or getattr(qt, "icon", None) or ""
+            if _image:
+                detail_dict["image_uri"] = _image
             flag["detail"] = json.dumps(detail_dict, default=str)
 
         # Store flags + new forensic snapshot
