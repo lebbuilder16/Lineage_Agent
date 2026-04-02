@@ -113,7 +113,16 @@ export default function InvestigateScreen() {
     } else if (!s.error) s.setError('Investigation completed without result');
   }, [mint]);
 
-  const handleError = useCallback((err: Error) => { useInvestigateStore.getState().setError(err.message); }, []);
+  const handleError = useCallback((err: Error) => {
+    const msg = err.message ?? '';
+    // Server-side limit hit (429/403) — redirect to paywall
+    if (msg.includes('limit reached') || msg.includes('does not include')) {
+      useInvestigateStore.getState().setError(msg);
+      router.push('/paywall' as any);
+      return;
+    }
+    useInvestigateStore.getState().setError(msg);
+  }, []);
 
   const launchStream = useCallback(() => {
     if (!mint) return;
