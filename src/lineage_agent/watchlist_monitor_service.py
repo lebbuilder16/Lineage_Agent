@@ -638,6 +638,16 @@ async def run_single_rescan(watch_id: int, user_id: int, cache, *, skip_ai: bool
                 detail_dict["image_uri"] = _image
             flag["detail"] = json.dumps(detail_dict, default=str)
 
+        # Deduplicate: skip flags of the same type created in the last hour
+        _dedup_window = 3600  # 1 hour
+        _recent_cursor = await db.execute(
+            "SELECT DISTINCT flag_type FROM sweep_flags "
+            "WHERE watch_id = ? AND created_at > ? AND flag_type NOT LIKE ?",
+            (watch_id, now - _dedup_window, "_%"),
+        )
+        _recent_types = {r[0] for r in await _recent_cursor.fetchall()}
+        flags = [f for f in flags if f["flag_type"] not in _recent_types]
+
         # Store flags + new forensic snapshot
         for _attempt in range(3):
             try:
