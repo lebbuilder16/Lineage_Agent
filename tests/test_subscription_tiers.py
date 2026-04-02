@@ -28,7 +28,10 @@ class TestGetLimitsReturnsCorrectTier:
 class TestGetLimitsUnknownDefaultsToFree:
     """Unknown or garbage plan strings must fall back to FREE."""
 
-    @pytest.mark.parametrize("bad_input", ["gold", "premium", "", "FREE", "Pro", "unknown_tier"])
+    @pytest.mark.parametrize("bad_input", [
+        "gold", "premium", "", "FREE", "Pro", "unknown_tier",
+        "pro_plus", "whale",  # legacy tier names also fall back to free
+    ])
     def test_get_limits_unknown_defaults_to_free(self, bad_input: str) -> None:
         assert get_limits(bad_input) is TIER_LIMITS[PlanTier.FREE]
 
@@ -40,8 +43,7 @@ class TestTierOrdering:
         assert TIER_ORDER == [
             PlanTier.FREE,
             PlanTier.PRO,
-            PlanTier.PRO_PLUS,
-            PlanTier.WHALE,
+            PlanTier.ELITE,
         ]
 
     def test_watchlist_increases_with_tier(self) -> None:
@@ -59,51 +61,93 @@ class TestAllTiersDefined:
     def test_no_extra_keys(self) -> None:
         assert set(TIER_LIMITS.keys()) == set(PlanTier)
 
+    def test_exactly_three_tiers(self) -> None:
+        assert len(PlanTier) == 3
+
 
 class TestFreeTierRestrictions:
-    """FREE tier must be the most restrictive."""
+    """FREE tier must be the most restrictive (with deployer + death clock as teasers)."""
 
     def test_free_tier_restrictions(self) -> None:
         free = TIER_LIMITS[PlanTier.FREE]
-        assert free.scans_per_day == 5
+        assert free.scans_per_day == 10
         assert free.history_days == 7
         assert free.has_ai_chat is False
-        assert free.max_watchlist == 0
+        assert free.max_watchlist == 3
         assert free.max_briefings == 0
         assert free.alert_channels == ["in_app"]
         assert free.has_sol_flow is False
         assert free.has_bundle_tracker is False
         assert free.has_insider_sell is False
-        assert free.has_deployer_profiler is False
         assert free.has_cartel_detection is False
         assert free.has_operator_impact is False
         assert free.has_compare is False
         assert free.has_export is False
         assert free.batch_scan_max == 0
         assert free.has_api_access is False
-        assert free.death_clock_full is False
+        assert free.has_agent is False
+        assert free.has_ai_verdict is False
+
+    def test_free_has_deployer_and_death_clock(self) -> None:
+        """Deployer profiler and death clock are free teasers."""
+        free = TIER_LIMITS[PlanTier.FREE]
+        assert free.has_deployer_profiler is True
+        assert free.death_clock_full is True
 
 
-class TestWhaleHasEverything:
-    """WHALE tier must have all features enabled and the highest limits."""
+class TestProTier:
+    """PRO tier — all forensic modules, Haiku AI, no agent."""
 
-    def test_whale_has_everything(self) -> None:
-        whale = TIER_LIMITS[PlanTier.WHALE]
-        assert whale.scans_per_day == math.inf
-        assert whale.has_ai_chat is True
-        assert whale.ai_chat_daily_limit == math.inf
-        assert whale.max_watchlist == 200
-        assert whale.max_briefings == 3
-        assert "telegram" in whale.alert_channels
-        assert "discord" in whale.alert_channels
-        assert whale.has_sol_flow is True
-        assert whale.has_bundle_tracker is True
-        assert whale.has_insider_sell is True
-        assert whale.has_deployer_profiler is True
-        assert whale.has_cartel_detection is True
-        assert whale.has_operator_impact is True
-        assert whale.has_compare is True
-        assert whale.has_export is True
-        assert whale.batch_scan_max == 50
-        assert whale.has_api_access is True
-        assert whale.death_clock_full is True
+    def test_pro_limits(self) -> None:
+        pro = TIER_LIMITS[PlanTier.PRO]
+        assert pro.scans_per_day == 50
+        assert pro.history_days == 90
+        assert pro.has_ai_chat is True
+        assert pro.ai_chat_model == "haiku"
+        assert pro.ai_chat_daily_limit == 30
+        assert pro.max_watchlist == 25
+        assert pro.max_briefings == 1
+        assert pro.has_sol_flow is True
+        assert pro.has_bundle_tracker is True
+        assert pro.has_insider_sell is True
+        assert pro.has_deployer_profiler is True
+        assert pro.has_cartel_detection is True
+        assert pro.has_operator_impact is True
+        assert pro.has_compare is True
+        assert pro.has_export is True
+        assert pro.has_ai_verdict is True
+        assert pro.has_agent is False
+        assert pro.has_api_access is False
+        assert pro.batch_scan_max == 0
+
+
+class TestEliteHasEverything:
+    """ELITE tier must have all features enabled and the highest limits."""
+
+    def test_elite_has_everything(self) -> None:
+        elite = TIER_LIMITS[PlanTier.ELITE]
+        assert elite.scans_per_day == 100
+        assert elite.history_days == 365
+        assert elite.has_ai_chat is True
+        assert elite.ai_chat_model == "haiku"
+        assert elite.ai_chat_daily_limit == 60
+        assert elite.max_watchlist == 100
+        assert elite.max_briefings == 3
+        assert "telegram" in elite.alert_channels
+        assert "discord" in elite.alert_channels
+        assert elite.has_sol_flow is True
+        assert elite.has_bundle_tracker is True
+        assert elite.has_insider_sell is True
+        assert elite.has_deployer_profiler is True
+        assert elite.has_cartel_detection is True
+        assert elite.has_operator_impact is True
+        assert elite.has_compare is True
+        assert elite.has_export is True
+        assert elite.batch_scan_max == 25
+        assert elite.has_api_access is True
+        assert elite.death_clock_full is True
+        assert elite.has_agent is True
+        assert elite.agent_daily_limit == 12
+        assert elite.has_ai_verdict is True
+        assert elite.investigate_daily_limit == 100
+        assert elite.investigate_chat_daily_limit == 60

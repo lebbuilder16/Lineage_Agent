@@ -315,6 +315,18 @@ def _heuristic_score(
             elif _sv == "suspicious_ring":
                 score += 12
 
+    # ── Cluster score signals ─────────────────────────────────────────────
+    if lineage:
+        _cluster = getattr(lineage, "cluster_score", None)
+        if _cluster:
+            _cl = getattr(_cluster, "risk_level", "") or ""
+            if _cl == "critical":
+                score += 20
+            elif _cl == "high":
+                score += 12
+            elif _cl == "medium":
+                score += 5
+
     # ── Behavioral signals ────────────────────────────────────────────────
     if behavioral_signals:
         _pc = behavioral_signals.get("phash_cluster") or {}

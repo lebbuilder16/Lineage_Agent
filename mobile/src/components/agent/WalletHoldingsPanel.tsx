@@ -538,7 +538,7 @@ export function WalletHoldingsPanel({ plan }: WalletHoldingsPanelProps) {
   }, []);
 
   useEffect(() => {
-    if (canAccess(plan, 'pro_plus')) {
+    if (canAccess(plan, 'elite')) {
       fetchHoldings();
     }
   }, []);
@@ -589,7 +589,7 @@ export function WalletHoldingsPanel({ plan }: WalletHoldingsPanelProps) {
 
   // ── Empty states ─────────────────────────────────────────────────────────
 
-  if (!canAccess(plan, 'pro_plus')) {
+  if (!canAccess(plan, 'elite')) {
     return (
       <View style={s.emptyWrap}>
         <Shield size={28} color={tokens.gold} />

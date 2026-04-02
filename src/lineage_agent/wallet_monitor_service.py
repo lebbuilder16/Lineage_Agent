@@ -731,7 +731,7 @@ async def wallet_monitor_loop(cache: Any) -> None:
                    FROM users u
                    INNER JOIN monitored_wallets mw ON mw.user_id = u.id AND mw.enabled = 1
                    LEFT JOIN agent_prefs ap ON ap.user_id = u.id
-                   WHERE u.plan IN ('pro_plus', 'whale')
+                   WHERE u.plan = 'elite'
                      AND (ap.wallet_monitor_enabled = 1
                           OR ap.wallet_monitor_enabled IS NULL)"""
             )

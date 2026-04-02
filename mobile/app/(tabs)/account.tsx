@@ -1,7 +1,10 @@
 import React, { useState } from 'react';
 import {
-  View, Text, StyleSheet, ScrollView, Alert, Pressable, Image,
+  View, Text, StyleSheet, ScrollView, Alert, Pressable, Image, Modal,
 } from 'react-native';
+import { BlurView } from 'expo-blur';
+import { LinearGradient } from 'expo-linear-gradient';
+import Animated2, { FadeIn, FadeOut, SlideInDown, SlideOutDown } from 'react-native-reanimated';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeInDown } from 'react-native-reanimated';
@@ -75,6 +78,7 @@ export default function AccountScreen() {
   const [sendVisible, setSendVisible] = useState(false);
   const [receiveVisible, setReceiveVisible] = useState(false);
   const [avatarUploading, setAvatarUploading] = useState(false);
+  const [signOutVisible, setSignOutVisible] = useState(false);
 
   const isAuthenticated = !!apiKey;
   const displayName = user?.display_name ?? user?.username ?? user?.email?.split('@')[0] ?? 'Agent';
@@ -93,16 +97,14 @@ export default function AccountScreen() {
   const repScore = Math.min(999, scanCount * 2 + watches.length * 5);
 
   // ── Handlers ─────────────────────────────────────────────────────────────
-  const handleLogout = () => {
-    Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Sign Out', style: 'destructive', onPress: async () => {
-        const { purgeUserData } = await import('../../src/lib/purge-user-data');
-        await purgeUserData();
-        setApiKey(null);
-        router.replace('/(auth)/welcome');
-      }},
-    ]);
+  const handleLogout = () => setSignOutVisible(true);
+
+  const confirmLogout = async () => {
+    setSignOutVisible(false);
+    const { purgeUserData } = await import('../../src/lib/purge-user-data');
+    await purgeUserData();
+    setApiKey(null);
+    router.replace('/(auth)/welcome');
   };
 
   const handlePickAvatar = async () => {
@@ -321,6 +323,72 @@ export default function AccountScreen() {
         </ScrollView>
       </View>
 
+      {/* Sign Out Confirmation Modal */}
+      <Modal visible={signOutVisible} transparent statusBarTranslucent animationType="none" onRequestClose={() => setSignOutVisible(false)}>
+        <Animated2.View entering={FadeIn.duration(200)} exiting={FadeOut.duration(150)} style={styles.modalBackdrop}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setSignOutVisible(false)} />
+          <BlurView intensity={30} tint="dark" style={StyleSheet.absoluteFill} />
+
+          <Animated2.View entering={SlideInDown.springify().damping(20).stiffness(300)} exiting={SlideOutDown.duration(200)} style={styles.modalCard}>
+            {/* Glass highlight gradient */}
+            <LinearGradient
+              colors={['rgba(255,255,255,0.08)', 'rgba(255,255,255,0.00)']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 0, y: 1 }}
+              style={[StyleSheet.absoluteFill, { borderRadius: tokens.radius.xl }]}
+            />
+
+            {/* Accent glow behind icon */}
+            <View style={styles.modalGlow}>
+              <View style={styles.modalGlowInner} />
+            </View>
+
+            {/* Icon */}
+            <View style={styles.modalIconWrap}>
+              <LinearGradient
+                colors={['rgba(255, 51, 102, 0.20)', 'rgba(255, 51, 102, 0.05)']}
+                style={StyleSheet.absoluteFill}
+                start={{ x: 0.5, y: 0 }}
+                end={{ x: 0.5, y: 1 }}
+              />
+              <LogOut size={22} color={tokens.accent} strokeWidth={2.5} />
+            </View>
+
+            <Text style={styles.modalTitle}>Sign Out</Text>
+            <Text style={styles.modalMessage}>
+              Are you sure you want to sign out?{'\n'}You'll need to sign in again to access your account.
+            </Text>
+
+            {/* Divider */}
+            <View style={styles.modalDivider} />
+
+            {/* Actions */}
+            <View style={styles.modalActions}>
+              <Pressable
+                style={({ pressed }) => [styles.modalBtn, styles.modalCancelBtn, pressed && { opacity: 0.7 }]}
+                onPress={() => setSignOutVisible(false)}
+              >
+                <Text style={styles.modalCancelText}>Cancel</Text>
+              </Pressable>
+
+              <Pressable
+                style={({ pressed }) => [styles.modalBtn, styles.modalDestructiveBtn, pressed && { opacity: 0.8, transform: [{ scale: 0.97 }] }]}
+                onPress={confirmLogout}
+              >
+                <LinearGradient
+                  colors={['#FF3366', '#CC2952']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={[StyleSheet.absoluteFill, { borderRadius: tokens.radius.sm }]}
+                />
+                <LogOut size={14} color={tokens.white100} strokeWidth={2.5} />
+                <Text style={styles.modalDestructiveText}>Sign Out</Text>
+              </Pressable>
+            </View>
+          </Animated2.View>
+        </Animated2.View>
+      </Modal>
+
       {/* Sheets */}
       <EditProfileSheet visible={editVisible} onClose={() => setEditVisible(false)} />
       {walletAddr && (
@@ -406,6 +474,79 @@ const styles = StyleSheet.create({
   appVersion: {
     fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny,
     color: tokens.white20, textAlign: 'center', marginTop: 8,
+  },
+
+  // Confirmation Modal
+  modalBackdrop: {
+    flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 28,
+  },
+  modalCard: {
+    width: '100%', borderRadius: tokens.radius.xl, overflow: 'hidden',
+    borderWidth: 1, borderColor: 'rgba(255, 51, 102, 0.15)',
+    backgroundColor: tokens.bgApp,
+    alignItems: 'center' as const,
+    paddingTop: 32, paddingBottom: 24, paddingHorizontal: 24,
+    // Accent glow shadow
+    shadowColor: '#FF3366',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.25,
+    shadowRadius: 32,
+    elevation: 16,
+  },
+  modalGlow: {
+    position: 'absolute' as const, top: -40, alignSelf: 'center',
+    width: 120, height: 120, borderRadius: 60,
+    backgroundColor: 'rgba(255, 51, 102, 0.08)',
+  },
+  modalGlowInner: {
+    flex: 1, borderRadius: 60,
+    backgroundColor: 'rgba(255, 51, 102, 0.06)',
+  },
+  modalIconWrap: {
+    width: 56, height: 56, borderRadius: 28,
+    overflow: 'hidden' as const,
+    borderWidth: 1, borderColor: 'rgba(255, 51, 102, 0.30)',
+    alignItems: 'center' as const, justifyContent: 'center' as const,
+    marginBottom: 20,
+  },
+  modalTitle: {
+    fontFamily: 'Lexend-Bold', fontSize: 22,
+    color: tokens.white100, marginBottom: 10, letterSpacing: -0.3,
+  },
+  modalMessage: {
+    fontFamily: 'Lexend-Regular', fontSize: tokens.font.body,
+    color: tokens.textMuted, textAlign: 'center' as const,
+    lineHeight: 22, marginBottom: 24, paddingHorizontal: 4,
+  },
+  modalDivider: {
+    width: '100%' as any, height: 1,
+    backgroundColor: tokens.borderSubtle, marginBottom: 20,
+  },
+  modalActions: {
+    flexDirection: 'row' as const, gap: 12, width: '100%',
+  },
+  modalBtn: {
+    flex: 1, height: 48, borderRadius: tokens.radius.sm,
+    alignItems: 'center' as const, justifyContent: 'center' as const,
+    flexDirection: 'row' as const, gap: 8,
+  },
+  modalCancelBtn: {
+    backgroundColor: tokens.bgGlass8,
+    borderWidth: 1, borderColor: tokens.borderSubtle,
+  },
+  modalDestructiveBtn: {
+    overflow: 'hidden' as const,
+    shadowColor: '#FF3366',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  modalCancelText: {
+    fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.body, color: tokens.white60,
+  },
+  modalDestructiveText: {
+    fontFamily: 'Lexend-Bold', fontSize: tokens.font.body, color: tokens.white100,
   },
 
   // Not authenticated

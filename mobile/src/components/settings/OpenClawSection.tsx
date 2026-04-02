@@ -1,8 +1,7 @@
 import React from 'react';
-import { View, Text, TextInput, Switch, StyleSheet } from 'react-native';
-import { Zap, LogOut, Bell } from 'lucide-react-native';
+import { View, Text, Switch, StyleSheet } from 'react-native';
+import { Zap, Bell } from 'lucide-react-native';
 import { tokens } from '../../theme/tokens';
-import { HapticButton } from '../ui/HapticButton';
 import { useAlertPrefsStore } from '../../store/alert-prefs';
 import type { AlertChannelId } from '../../types/openclaw';
 
@@ -20,9 +19,12 @@ const CHANNEL_COLORS: Record<AlertChannelId, string> = {
   push: tokens.secondary,
 };
 
-/* ── Connected sub-section ── */
+interface OpenClawSectionProps {
+  connected: boolean;
+  status: string;
+}
 
-function ConnectedView({ host, onDisconnect }: { host: string; onDisconnect: () => void }) {
+export function OpenClawSection({ connected, status }: OpenClawSectionProps) {
   const channels = useAlertPrefsStore((s) => s.channels);
   const setChannelEnabled = useAlertPrefsStore((s) => s.setChannelEnabled);
   const enrichmentEnabled = useAlertPrefsStore((s) => s.enrichmentEnabled);
@@ -30,25 +32,39 @@ function ConnectedView({ host, onDisconnect }: { host: string; onDisconnect: () 
 
   return (
     <>
-      <View style={styles.currentRow}>
-        <Text style={styles.currentLabel}>Host</Text>
-        <Text style={styles.currentValue} numberOfLines={1}>{host}</Text>
-      </View>
-      <HapticButton
-        variant="ghost"
-        size="md"
-        fullWidth
-        onPress={onDisconnect}
-        accessibilityRole="button"
-        accessibilityLabel="Disconnect OpenClaw"
-      >
-        <View style={styles.removeInner}>
-          <LogOut size={14} color={tokens.accent} />
-          <Text style={styles.removeText}>Disconnect</Text>
+      <View style={styles.divider} />
+      <View style={styles.titleRow}>
+        <View style={styles.titleLeft}>
+          <Zap size={18} color={tokens.secondary} />
+          <Text style={styles.title}>Live Gateway</Text>
         </View>
-      </HapticButton>
+        <View style={styles.statusRow}>
+          <View style={[
+            styles.statusDot,
+            status === 'connected' ? styles.statusDotConnected :
+            status === 'reconnecting' ? styles.statusDotReconnecting :
+            styles.statusDotOffline,
+          ]} />
+          <Text style={styles.statusText}>
+            {status === 'connected' ? 'Connected' :
+             status === 'reconnecting' ? 'Reconnecting...' : 'Offline'}
+          </Text>
+        </View>
+      </View>
 
-      {/* Alert Channels Config */}
+      {connected && (
+        <Text style={styles.hint}>
+          Real-time alerts, watchlist monitoring, and automated rug response active.
+        </Text>
+      )}
+
+      {!connected && (
+        <Text style={styles.hint}>
+          Connects automatically when signed in.
+        </Text>
+      )}
+
+      {/* Alert Channels Config — always visible */}
       <View style={styles.channelSection}>
         <View style={styles.channelTitleRow}>
           <Bell size={14} color={tokens.secondary} />
@@ -84,164 +100,11 @@ function ConnectedView({ host, onDisconnect }: { host: string; onDisconnect: () 
   );
 }
 
-/* ── Disconnected sub-section ── */
-
-function DisconnectedView({
-  host,
-  pendingHost,
-  onPendingHostChange,
-  pendingToken,
-  onPendingTokenChange,
-  pendingRoleToken,
-  onPendingRoleTokenChange,
-  onConnect,
-}: {
-  host: string | null;
-  pendingHost: string;
-  onPendingHostChange: (v: string) => void;
-  pendingToken: string;
-  onPendingTokenChange: (v: string) => void;
-  pendingRoleToken: string;
-  onPendingRoleTokenChange: (v: string) => void;
-  onConnect: () => void;
-}) {
-  return (
-    <>
-      <TextInput
-        style={styles.input}
-        value={pendingHost}
-        onChangeText={onPendingHostChange}
-        placeholder={host || '192.168.1.x:18789'}
-        placeholderTextColor={tokens.textPlaceholder}
-        autoCapitalize="none"
-        autoCorrect={false}
-        returnKeyType="next"
-        accessibilityLabel="OpenClaw host"
-      />
-      <TextInput
-        style={styles.input}
-        value={pendingToken}
-        onChangeText={onPendingTokenChange}
-        placeholder="Gateway token"
-        placeholderTextColor={tokens.textPlaceholder}
-        autoCapitalize="none"
-        autoCorrect={false}
-        secureTextEntry
-        returnKeyType="next"
-        accessibilityLabel="OpenClaw gateway token"
-      />
-      <TextInput
-        style={styles.input}
-        value={pendingRoleToken}
-        onChangeText={onPendingRoleTokenChange}
-        placeholder="Device token (from openclaw devices rotate)"
-        placeholderTextColor={tokens.textPlaceholder}
-        autoCapitalize="none"
-        autoCorrect={false}
-        secureTextEntry
-        returnKeyType="done"
-        onSubmitEditing={onConnect}
-        accessibilityLabel="OpenClaw device role token"
-      />
-      <HapticButton
-        variant="secondary"
-        size="md"
-        fullWidth
-        onPress={onConnect}
-        accessibilityRole="button"
-        accessibilityLabel="Connect to OpenClaw"
-      >
-        Connect
-      </HapticButton>
-    </>
-  );
-}
-
-/* ── Main exported section ── */
-
-interface OpenClawSectionProps {
-  host: string | null;
-  connected: boolean;
-  status: string;
-  pendingHost: string;
-  onPendingHostChange: (v: string) => void;
-  pendingToken: string;
-  onPendingTokenChange: (v: string) => void;
-  pendingRoleToken: string;
-  onPendingRoleTokenChange: (v: string) => void;
-  onConnect: () => void;
-  onDisconnect: () => void;
-}
-
-export function OpenClawSection({
-  host,
-  connected,
-  status,
-  pendingHost,
-  onPendingHostChange,
-  pendingToken,
-  onPendingTokenChange,
-  pendingRoleToken,
-  onPendingRoleTokenChange,
-  onConnect,
-  onDisconnect,
-}: OpenClawSectionProps) {
-  return (
-    <>
-      <View style={styles.divider} />
-      <Text style={styles.advancedHint}>
-        Advanced — All features work without OpenClaw. This is for power users who self-host their own gateway.
-      </Text>
-      <View style={styles.titleRow}>
-        <View style={styles.titleLeft}>
-          <Zap size={18} color={tokens.secondary} />
-          <Text style={styles.title}>OpenClaw (Optional)</Text>
-        </View>
-        <View style={styles.statusRow}>
-          <View style={[
-            styles.statusDot,
-            status === 'connected' ? styles.statusDotConnected :
-            status === 'reconnecting' ? styles.statusDotReconnecting :
-            styles.statusDotOffline,
-          ]} />
-          <Text style={styles.statusText}>
-            {status === 'connected' ? 'Connected' :
-             status === 'reconnecting' ? 'Reconnecting...' : 'Offline'}
-          </Text>
-        </View>
-      </View>
-
-      {connected ? (
-        <ConnectedView host={host ?? ''} onDisconnect={onDisconnect} />
-      ) : (
-        <DisconnectedView
-          host={host}
-          pendingHost={pendingHost}
-          onPendingHostChange={onPendingHostChange}
-          pendingToken={pendingToken}
-          onPendingTokenChange={onPendingTokenChange}
-          pendingRoleToken={pendingRoleToken}
-          onPendingRoleTokenChange={onPendingRoleTokenChange}
-          onConnect={onConnect}
-        />
-      )}
-    </>
-  );
-}
-
 const styles = StyleSheet.create({
   divider: {
     height: 1,
     backgroundColor: tokens.borderSubtle,
     marginVertical: 4,
-  },
-  advancedHint: {
-    fontFamily: 'Lexend-Regular',
-    fontSize: tokens.font.tiny,
-    color: tokens.textTertiary,
-    textAlign: 'center',
-    marginTop: 4,
-    marginBottom: -4,
   },
   titleRow: {
     flexDirection: 'row',
@@ -273,44 +136,11 @@ const styles = StyleSheet.create({
     fontSize: tokens.font.small,
     color: tokens.white60,
   },
-  currentRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: tokens.bgGlass8,
-    borderRadius: tokens.radius.sm,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderWidth: 1,
-    borderColor: `${tokens.secondary}30`,
-  },
-  currentLabel: {
+  hint: {
     fontFamily: 'Lexend-Regular',
-    fontSize: tokens.font.small,
-    color: tokens.white60,
-  },
-  currentValue: {
-    fontFamily: 'Lexend-SemiBold',
-    fontSize: tokens.font.small,
-    color: tokens.secondary,
-    letterSpacing: 1,
-  },
-  removeInner: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  removeText: {
-    fontFamily: 'Lexend-Regular',
-    fontSize: tokens.font.body,
-    color: tokens.accent,
-  },
-  input: {
-    backgroundColor: tokens.bgGlass8,
-    borderRadius: tokens.radius.pill,
-    borderWidth: 1,
-    borderColor: tokens.borderSubtle,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    fontFamily: 'Lexend-Regular',
-    fontSize: tokens.font.body,
-    color: tokens.white100,
+    fontSize: tokens.font.tiny,
+    color: tokens.textTertiary,
+    marginBottom: 4,
   },
   channelSection: {
     gap: 8,

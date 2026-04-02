@@ -142,15 +142,14 @@ async def _build_profile(deployer: str) -> Optional[DeployerProfile]:
                     rug_rate_pct=0.0,
                     confirmed_rug_rate_pct=0.0,
                     negative_outcome_rate_pct=0.0,
-                    avg_lifespan_hours=None,
-                    median_lifespan_hours=None,
-                    top_narratives=[],
-                    rug_mechanisms={},
+                    avg_lifespan_days=None,
+                    active_tokens=len(assets),
+                    rug_mechanism_counts={},
+                    preferred_narrative="",
                     tokens=[],
-                    wallet_age_days=None,
-                    first_activity=None,
-                    last_activity=datetime.now(tz=timezone.utc),
-                    is_active=True,
+                    first_seen=None,
+                    last_seen=datetime.now(tz=timezone.utc),
+                    confidence="low",
                 )
         except Exception as _exc:
             logger.debug("DAS fallback for deployer_profile failed: %s", _exc)

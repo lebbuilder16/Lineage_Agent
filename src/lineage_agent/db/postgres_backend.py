@@ -342,6 +342,21 @@ class PostgresBackend(DatabaseBackend):
                 )
             """)
 
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS user_crons (
+                    id          TEXT PRIMARY KEY,
+                    user_id     BIGINT NOT NULL,
+                    name        TEXT NOT NULL,
+                    schedule    TEXT NOT NULL,
+                    payload     TEXT NOT NULL DEFAULT '{}',
+                    delivery    TEXT NOT NULL DEFAULT '{}',
+                    enabled     BOOLEAN NOT NULL DEFAULT TRUE,
+                    last_run    TEXT,
+                    next_run    TEXT,
+                    created_at  DOUBLE PRECISION NOT NULL
+                )
+            """)
+
             # Key indexes
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_cache_expires ON cache (expires_at)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_ie_deployer ON intelligence_events (deployer)")
@@ -350,5 +365,6 @@ class PostgresBackend(DatabaseBackend):
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_ce_wallets ON cartel_edges (wallet_a, wallet_b)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_users_apikey ON users (api_key)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_uw_user ON user_watches (user_id)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_uc_user ON user_crons (user_id, name)")
 
-            logger.info("[pg] schema initialized (19 tables)")
+            logger.info("[pg] schema initialized (20 tables)")

@@ -328,11 +328,11 @@ def _cross_reference(deltas: dict, old: dict, new: dict) -> list[dict]:
     if deltas["volume_spiking"]:
         market_facts.append(f"volume {new.get('volume_spike_ratio', 0):.0f}x normal")
 
-    detail = json.dumps({
+    detail = {
         "forensic_changes": forensic_facts or ["none"],
         "market_changes": market_facts or ["stable"],
         "deltas": {k: v for k, v in deltas.items() if v is not None and v != 0 and v is not False},
-    })
+    }
 
     if forensic_changed and market_stressed:
         title = " · ".join(market_facts) + " | " + ", ".join(forensic_facts) if market_facts else ", ".join(forensic_facts)
@@ -467,6 +467,15 @@ async def run_single_rescan(watch_id: int, user_id: int, cache) -> dict | None:
 
         mint = row[0]
 
+        # Skip native SOL and other non-token addresses that can't be analyzed
+        _SKIP_MINTS = {
+            "So11111111111111111111111111111111111111112",   # Wrapped SOL
+            "11111111111111111111111111111111",               # System Program
+        }
+        if mint in _SKIP_MINTS:
+            logger.debug("run_single_rescan skipping non-token mint %s (watch %d)", mint[:12], watch_id)
+            return None
+
         # Get reference snapshot (first-ever snapshot for this watch)
         cursor = await db.execute(
             "SELECT detail FROM sweep_flags WHERE watch_id = ? AND flag_type = '_REFERENCE' "
@@ -559,7 +568,10 @@ async def run_single_rescan(watch_id: int, user_id: int, cache) -> dict | None:
         _token_symbol = getattr(qt, "symbol", "") or ""
         for flag in flags:
             try:
-                detail_dict = json.loads(flag["detail"]) if isinstance(flag["detail"], str) else {}
+                raw = flag["detail"]
+                detail_dict = json.loads(raw) if isinstance(raw, str) else (raw if isinstance(raw, dict) else {})
+                if not isinstance(detail_dict, dict):
+                    detail_dict = {"raw": detail_dict}
             except Exception:
                 detail_dict = {}
             detail_dict["token_name"] = _token_name
@@ -696,7 +708,10 @@ async def run_single_rescan(watch_id: int, user_id: int, cache) -> dict | None:
             "flags_count": len(flags),
         }
     except Exception as exc:
-        logger.warning("run_single_rescan failed for watch %d: %s", watch_id, exc)
+        logger.warning(
+            "run_single_rescan failed for watch %d: [%s] %s",
+            watch_id, type(exc).__name__, exc, exc_info=True,
+        )
         return None
 
 

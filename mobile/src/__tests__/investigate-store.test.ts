@@ -35,11 +35,11 @@ describe('InvestigateStore', () => {
 
   test('startInvestigation transitions to scanning with startedAt', () => {
     const before = Date.now();
-    useInvestigateStore.getState().startInvestigation(MINT, 'pro_plus');
+    useInvestigateStore.getState().startInvestigation(MINT, 'elite');
     const state = useInvestigateStore.getState();
     expect(state.status).toBe('scanning');
     expect(state.mint).toBe(MINT);
-    expect(state.tier).toBe('pro_plus');
+    expect(state.tier).toBe('elite');
     expect(state.sessionId).toBeTruthy();
     expect(state.startedAt).toBeGreaterThanOrEqual(before);
     expect(state.startedAt).toBeLessThanOrEqual(Date.now());
@@ -71,13 +71,13 @@ describe('InvestigateStore', () => {
   });
 
   test('setReasoning transitions to reasoning (pro+ tier path)', () => {
-    useInvestigateStore.getState().startInvestigation(MINT, 'pro_plus');
+    useInvestigateStore.getState().startInvestigation(MINT, 'elite');
     useInvestigateStore.getState().setReasoning();
     expect(useInvestigateStore.getState().status).toBe('reasoning');
   });
 
   test('addAgentStep accumulates agent steps', () => {
-    useInvestigateStore.getState().startInvestigation(MINT, 'pro_plus');
+    useInvestigateStore.getState().startInvestigation(MINT, 'elite');
     useInvestigateStore.getState().addAgentStep({
       type: 'thinking', turn: 1, data: { text: 'Scanning...' }, timestamp: Date.now(),
     });
@@ -89,7 +89,7 @@ describe('InvestigateStore', () => {
 
   test('setVerdict stores verdict and persists', () => {
     const AsyncStorage = require('@react-native-async-storage/async-storage');
-    useInvestigateStore.getState().startInvestigation(MINT, 'pro_plus');
+    useInvestigateStore.getState().startInvestigation(MINT, 'elite');
     useInvestigateStore.getState().setVerdict(mockVerdict(), 3, 5000);
     const state = useInvestigateStore.getState();
     expect(state.verdict).not.toBeNull();
@@ -117,13 +117,13 @@ describe('InvestigateStore', () => {
   });
 
   test('cancel transitions to cancelled', () => {
-    useInvestigateStore.getState().startInvestigation(MINT, 'pro_plus');
+    useInvestigateStore.getState().startInvestigation(MINT, 'elite');
     useInvestigateStore.getState().cancel();
     expect(useInvestigateStore.getState().status).toBe('cancelled');
   });
 
   test('reset returns to initial state including startedAt', () => {
-    useInvestigateStore.getState().startInvestigation(MINT, 'pro_plus');
+    useInvestigateStore.getState().startInvestigation(MINT, 'elite');
     expect(useInvestigateStore.getState().startedAt).not.toBeNull();
     useInvestigateStore.getState().addScanStep({ step: 'lineage', status: 'done', ms: 100, timestamp: Date.now() });
     useInvestigateStore.getState().reset();

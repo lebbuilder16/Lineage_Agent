@@ -21,8 +21,8 @@ interface ChatMessage {
 }
 
 /**
- * Chat via backend API — rich context is now built server-side.
- * OpenClaw is no longer used for chat (backend has the same enriched context).
+ * Chat — uses OpenClaw WebSocket when connected (real-time streaming),
+ * falls back to backend SSE otherwise.
  * Returns a cancel function.
  */
 export async function smartChatStream(
@@ -33,12 +33,19 @@ export async function smartChatStream(
   onDone: () => void,
   onError?: (err: Error) => void,
 ): Promise<() => void> {
+  if (isOpenClawAvailable()) {
+    try {
+      return await openClawChatStream(mint, message, onChunk, onDone, onError);
+    } catch {
+      // Fall back to backend SSE on OpenClaw failure
+    }
+  }
   return chatStream(mint, message, history, onChunk, onDone, onError);
 }
 
-/** Chat always uses backend direct mode now */
+/** Whether chat is currently routing through OpenClaw gateway */
 export function isChatOpenClawMode(): boolean {
-  return false;
+  return isOpenClawAvailable();
 }
 
 // ─── Build rich context from cached scan data ────────────────────────────────

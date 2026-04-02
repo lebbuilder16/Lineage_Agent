@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
-import { Search, X, Network, Clock } from 'lucide-react-native';
+import { Search, X, Network, Clock, Layers } from 'lucide-react-native';
 import { GlassCard } from '../../src/components/ui/GlassCard';
 import { ScreenHeader } from '../../src/components/ui/ScreenHeader';
 import { ScanOnboarding } from '../../src/components/scan/ScanOnboarding';
@@ -179,6 +179,16 @@ export default function ScanScreen() {
             </TouchableOpacity>
           </View>
 
+          {/* Batch scan shortcut */}
+          <TouchableOpacity
+            onPress={() => router.push('/batch-scan' as any)}
+            style={styles.batchBtn}
+            activeOpacity={0.7}
+          >
+            <Layers size={14} color={tokens.secondary} />
+            <Text style={styles.batchBtnText}>Batch Scan</Text>
+          </TouchableOpacity>
+
           {/* Onboarding */}
           {query.length === 0 && results.length === 0 && recentSearches.length === 0 && (
             <ScanOnboarding />
@@ -321,4 +331,11 @@ const styles = StyleSheet.create({
   recentName: { fontFamily: 'Lexend-SemiBold', fontSize: tokens.font.body, color: tokens.white100 },
   recentAddr: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny, color: tokens.textTertiary, marginTop: 1 },
   recentLogo: { width: 24, height: 24, borderRadius: 12 },
+  batchBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    paddingVertical: 10, borderRadius: 12, marginBottom: 4,
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)',
+  },
+  batchBtnText: { color: tokens.secondary, fontFamily: 'Lexend-Medium', fontSize: 13 },
 });

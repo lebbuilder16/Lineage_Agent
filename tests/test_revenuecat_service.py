@@ -73,11 +73,17 @@ class TestProductMapping:
     def test_yearly_pro(self):
         assert RC_PRODUCT_TO_PLAN["lineage_pro_yearly"] == "pro"
 
-    def test_pro_plus(self):
-        assert RC_PRODUCT_TO_PLAN["lineage_pro_plus_monthly"] == "pro_plus"
+    def test_elite_monthly(self):
+        assert RC_PRODUCT_TO_PLAN["lineage_elite_monthly"] == "elite"
 
-    def test_whale(self):
-        assert RC_PRODUCT_TO_PLAN["lineage_whale_yearly"] == "whale"
+    def test_elite_yearly(self):
+        assert RC_PRODUCT_TO_PLAN["lineage_elite_yearly"] == "elite"
+
+    def test_legacy_pro_plus_maps_to_elite(self):
+        assert RC_PRODUCT_TO_PLAN["lineage_pro_plus_monthly"] == "elite"
+
+    def test_legacy_whale_maps_to_elite(self):
+        assert RC_PRODUCT_TO_PLAN["lineage_whale_yearly"] == "elite"
 
     def test_unknown_product_not_in_map(self):
         assert "unknown_product" not in RC_PRODUCT_TO_PLAN
@@ -128,9 +134,9 @@ class TestHandleWebhookEvent:
         result = await handle_webhook_event(fake_cache, {
             "type": "RENEWAL",
             "app_user_id": str(uid),
-            "product_id": "lineage_whale_yearly",
+            "product_id": "lineage_elite_yearly",
         })
-        assert result == "whale"
+        assert result == "elite"
 
     async def test_cancellation_downgrades(self, fake_cache, mem_db):
         uid = await _seed_user(mem_db, plan="pro")
@@ -145,7 +151,7 @@ class TestHandleWebhookEvent:
         assert row[0] == "free"
 
     async def test_expiration_downgrades(self, fake_cache, mem_db):
-        uid = await _seed_user(mem_db, plan="whale")
+        uid = await _seed_user(mem_db, plan="elite")
         result = await handle_webhook_event(fake_cache, {
             "type": "EXPIRATION",
             "app_user_id": str(uid),

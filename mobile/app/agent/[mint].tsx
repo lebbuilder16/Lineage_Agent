@@ -341,7 +341,7 @@ export default function AgentScreen() {
         )}
       </View>
 
-      <FeatureGate feature="Agent Investigation" requiredPlan="pro_plus">
+      <FeatureGate feature="Agent Investigation" requiredPlan="elite">
         {/* Quota */}
         <Text style={styles.quota}>
           {remaining === -1 ? 'Unlimited' : `${remaining} investigations remaining today`}

@@ -72,6 +72,12 @@ from .sol_flow_service import get_sol_flow_report, trace_sol_flow
 from .lineage_detector import resolve_deployer as _resolve_deployer
 from .cartel_service import compute_cartel_report, run_cartel_sweep
 from .cartel_financial_service import build_financial_edges
+from .openclaw_gateway import (
+    handle_openclaw_ws,
+    schedule_cron_sweep,
+    cancel_cron_sweep,
+    forward_alert_to_openclaw,
+)
 from .data_sources._clients import operator_mapping_query
 from .logging_config import generate_request_id, request_id_ctx, setup_logging
 from .models import (
@@ -297,6 +303,10 @@ async def lifespan(application: FastAPI):
     _schedule_briefing_loop()
     _schedule_wallet_monitor()
 
+    # OpenClaw gateway cron sweep
+    from .data_sources._clients import cache as _oc_cache  # noqa: PLC0415
+    schedule_cron_sweep(_oc_cache)
+
     # ── Pump.fun real-time listener ───────────────────────────────────────
     from .pump_fun_listener import schedule_pump_fun_listener, is_listener_active
     _pf_task = schedule_pump_fun_listener()
@@ -341,6 +351,7 @@ async def lifespan(application: FastAPI):
     _cancel_briefing_loop()
     _cancel_wallet_monitor()
     _cancel_wallet_label_refresh()
+    cancel_cron_sweep()
     await close_clients()
 
 
@@ -1138,6 +1149,23 @@ async def ws_alerts(websocket: WebSocket):
         except Exception:
             pass
 
+
+
+# ------------------------------------------------------------------
+# WebSocket: OpenClaw Gateway (managed, auto-connect for all users)
+# ------------------------------------------------------------------
+
+
+@app.websocket("/ws/openclaw")
+async def ws_openclaw(websocket: WebSocket):
+    """OpenClaw-compatible WebSocket gateway.
+
+    Auth via query param: ``?key=<API_KEY>``
+    Implements: connect, cron.list, cron.add, cron.remove, node.register
+    Pushes: connect.challenge, node.invoke, alert, cron.result
+    """
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+    await handle_openclaw_ws(websocket, _cache)
 
 
 @app.get(
@@ -1973,6 +2001,21 @@ async def investigate_token(
 
     from .data_sources._clients import cache as _cache
 
+    # Check scan quota / credits before running the pipeline
+    from .scan_credit_service import can_scan, deduct_scan_credit
+    from .usage_service import increment_usage
+    if user_id:
+        allowed, source = await can_scan(_cache, user_id, user_plan)
+        if not allowed:
+            raise HTTPException(
+                status_code=429,
+                detail="Daily scan limit reached. Purchase scan credits to continue." if source == "no_credits" else "Daily scan limit reached.",
+            )
+        # Deduct credit if using credits, increment daily usage otherwise
+        if source == "credit":
+            await deduct_scan_credit(_cache, user_id)
+        await increment_usage(_cache, user_id, "scans")
+
     # Shared mutable state between the background task and the SSE generator.
     # The background task produces events into _event_queue; the generator
     # consumes and yields them to the client.  If the client disconnects the
@@ -2453,6 +2496,18 @@ async def auth_update_profile(request: Request):
     }
 
 
+@app.post("/auth/regenerate-key", tags=["auth"])
+async def auth_regenerate_key(request: Request):
+    """Regenerate the user's API key, invalidating the old one."""
+    user = await _get_current_user(request)
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+    from .auth_service import regenerate_api_key  # noqa: PLC0415
+    new_key = await regenerate_api_key(_cache, user["id"])
+    if not new_key:
+        raise HTTPException(status_code=500, detail="Key regeneration failed")
+    return {"api_key": new_key}
+
+
 class _FcmTokenRequest(BaseModel):
     fcm_token: str
 
@@ -2814,6 +2869,53 @@ async def auth_backpack_page():
         wallet_color="#E33E3F",
         wallet_bg="rgba(227,62,63,.15)",
     ))
+
+
+# ---------------------------------------------------------------------------
+# Scan credits (pay-per-scan)
+# ---------------------------------------------------------------------------
+
+@app.get("/credits", tags=["credits"])
+async def get_credits(request: Request):
+    """Return scan credit balance and available packs."""
+    user = await _get_current_user(request)
+    from .data_sources._clients import cache as _cache
+    from .scan_credit_service import get_scan_credits, CREDIT_PACKS
+    balance = await get_scan_credits(_cache, user["id"])
+    return {
+        "credits": balance,
+        "packs": [
+            {"key": k, **v} for k, v in CREDIT_PACKS.items()
+        ],
+    }
+
+
+@app.post("/credits/purchase", tags=["credits"])
+async def purchase_credits(request: Request):
+    """Add scan credits after payment verification.
+
+    Body: {"pack": "single"|"five_pack"|"fifteen_pack", "tx_signature": "..."}
+    """
+    user = await _get_current_user(request)
+    body = await request.json()
+    pack_key = body.get("pack", "")
+    tx_sig = body.get("tx_signature", "")
+
+    from .scan_credit_service import CREDIT_PACKS, add_scan_credits
+    from .data_sources._clients import cache as _cache
+
+    pack = CREDIT_PACKS.get(pack_key)
+    if not pack:
+        raise HTTPException(status_code=400, detail=f"Unknown pack: {pack_key}")
+    if not tx_sig:
+        raise HTTPException(status_code=400, detail="tx_signature required")
+
+    # TODO: verify on-chain transaction via Helio webhook or RPC
+    # For now, trust the client — will be replaced with Helio webhook verification
+    new_balance = await add_scan_credits(_cache, user["id"], pack["credits"])
+    logger.info("credits/purchase: user=%s pack=%s +%d → %d (tx=%s)",
+                user["id"], pack_key, pack["credits"], new_balance, tx_sig[:20])
+    return {"credits": new_balance, "added": pack["credits"]}
 
 
 # ---------------------------------------------------------------------------

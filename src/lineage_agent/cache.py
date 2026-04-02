@@ -925,11 +925,21 @@ class SQLiteCache:
             "ALTER TABLE users ADD COLUMN display_name TEXT",
             "ALTER TABLE users ADD COLUMN avatar_url TEXT",
             "ALTER TABLE users ADD COLUMN fcm_token TEXT",
+            "ALTER TABLE users ADD COLUMN scan_credits INTEGER NOT NULL DEFAULT 0",
         ]:
             try:
                 await db.execute(col_sql)
             except Exception:
                 pass  # column already exists
+
+        # Migrate legacy tier names to new structure
+        try:
+            await db.execute(
+                "UPDATE users SET plan = 'elite' WHERE plan IN ('pro_plus', 'whale')"
+            )
+            await db.commit()
+        except Exception:
+            pass
 
         # ── Wallet monitoring tables ──────────────────────────────────
         await db.execute("""
@@ -1045,6 +1055,25 @@ class SQLiteCache:
                 await db.execute(f"ALTER TABLE agent_prefs ADD COLUMN {col} {defn}")
             except Exception:
                 pass
+
+        # ── OpenClaw Gateway — user cron jobs ─────────────────────────
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS user_crons (
+                id          TEXT PRIMARY KEY,
+                user_id     INTEGER NOT NULL,
+                name        TEXT NOT NULL,
+                schedule    TEXT NOT NULL,
+                payload     TEXT NOT NULL DEFAULT '{}',
+                delivery    TEXT NOT NULL DEFAULT '{}',
+                enabled     INTEGER NOT NULL DEFAULT 1,
+                last_run    TEXT,
+                next_run    TEXT,
+                created_at  REAL NOT NULL
+            )
+        """)
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_uc_user ON user_crons(user_id, name)"
+        )
 
         await db.commit()
         self._initialised = True

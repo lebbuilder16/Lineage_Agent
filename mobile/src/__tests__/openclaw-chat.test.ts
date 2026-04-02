@@ -11,6 +11,7 @@ jest.mock('@react-native-async-storage/async-storage', () => ({
 jest.mock('../lib/openclaw', () => ({
   isOpenClawAvailable: jest.fn(),
   sendRequest: jest.fn(),
+  subscribe: jest.fn(() => jest.fn()), // returns unsubscribe fn
 }));
 
 jest.mock('../lib/streaming', () => ({
@@ -25,6 +26,7 @@ import * as Streaming from '../lib/streaming';
 
 const mockIsAvailable = jest.mocked(OpenClaw.isOpenClawAvailable);
 const mockSendRequest = jest.mocked(OpenClaw.sendRequest);
+const mockSubscribe = jest.mocked(OpenClaw.subscribe);
 const mockChatStream = jest.mocked(Streaming.chatStream);
 
 // ─── Setup ────────────────────────────────────────────────────────────────────
@@ -90,12 +92,20 @@ describe('smartChatStream — fallback mode (OpenClaw unavailable)', () => {
 });
 
 describe('smartChatStream — OpenClaw mode', () => {
+  let subscribeCb: ((payload: unknown) => void) | null = null;
+
   beforeEach(() => {
     mockIsAvailable.mockReturnValue(true);
+    subscribeCb = null;
+    // Capture the subscribe callback so we can simulate server events
+    mockSubscribe.mockImplementation((_event: string, cb: (payload: unknown) => void) => {
+      subscribeCb = cb;
+      return jest.fn(); // unsubscribe
+    });
   });
 
   it('sends chat.send request with correct sessionKey for a mint', async () => {
-    mockSendRequest.mockResolvedValue({ text: 'Hello world' });
+    mockSendRequest.mockResolvedValue({});
 
     const onChunk = jest.fn();
     const onDone = jest.fn();
@@ -103,12 +113,11 @@ describe('smartChatStream — OpenClaw mode', () => {
 
     expect(mockSendRequest).toHaveBeenCalledWith('chat.send', expect.objectContaining({
       sessionKey: 'lineage:token:abc123',
-      stream: false,
     }));
   });
 
   it('uses global session key when no mint provided', async () => {
-    mockSendRequest.mockResolvedValue({ text: 'response' });
+    mockSendRequest.mockResolvedValue({});
 
     await smartChatStream(undefined, 'question', [], jest.fn(), jest.fn());
 
@@ -117,78 +126,75 @@ describe('smartChatStream — OpenClaw mode', () => {
     }));
   });
 
-  it('includes context prefix in message', async () => {
-    mockSendRequest.mockResolvedValue({ text: 'answer' });
+  it('subscribes to chat events before sending request', async () => {
+    mockSendRequest.mockResolvedValue({});
 
-    await smartChatStream('mint999', 'what is risk?', [], jest.fn(), jest.fn());
+    await smartChatStream('mint', 'q', [], jest.fn(), jest.fn());
 
-    const callArgs = mockSendRequest.mock.calls[0]?.[1];
-    expect(callArgs?.message).toContain('mint999');
-    expect(callArgs?.message).toContain('what is risk?');
+    expect(mockSubscribe).toHaveBeenCalledWith('chat', expect.any(Function));
+    // subscribe must be called before sendRequest
+    const subOrder = mockSubscribe.mock.invocationCallOrder[0];
+    const sendOrder = mockSendRequest.mock.invocationCallOrder[0];
+    expect(subOrder).toBeLessThan(sendOrder);
   });
 
-  it('delivers response as word chunks via interval', async () => {
-    mockSendRequest.mockResolvedValue({ text: 'hello world test' });
+  it('delivers delta events as incremental chunks', async () => {
+    mockSendRequest.mockResolvedValue({});
 
     const onChunk = jest.fn();
     const onDone = jest.fn();
     await smartChatStream('mint', 'q', [], onChunk, onDone);
 
-    // Advance timer to deliver all chunks (3 words * 20ms each)
-    jest.advanceTimersByTime(200);
+    // Get the idempotencyKey from the sendRequest call
+    const callArgs = mockSendRequest.mock.calls[0]?.[1] as Record<string, unknown>;
+    const runId = callArgs?.idempotencyKey as string;
 
-    expect(onChunk).toHaveBeenCalledTimes(3);
-    expect(onChunk).toHaveBeenNthCalledWith(1, 'hello');
+    // Simulate delta events (cumulative text)
+    subscribeCb!({ runId, state: 'delta', message: { content: [{ type: 'text', text: 'Hello' }] } });
+    subscribeCb!({ runId, state: 'delta', message: { content: [{ type: 'text', text: 'Hello world' }] } });
+
+    expect(onChunk).toHaveBeenCalledTimes(2);
+    expect(onChunk).toHaveBeenNthCalledWith(1, 'Hello');
     expect(onChunk).toHaveBeenNthCalledWith(2, ' world');
-    expect(onChunk).toHaveBeenNthCalledWith(3, ' test');
+  });
+
+  it('calls onDone on final event', async () => {
+    mockSendRequest.mockResolvedValue({});
+
+    const onDone = jest.fn();
+    await smartChatStream('mint', 'q', [], jest.fn(), onDone);
+
+    const callArgs = mockSendRequest.mock.calls[0]?.[1] as Record<string, unknown>;
+    const runId = callArgs?.idempotencyKey as string;
+
+    subscribeCb!({ runId, state: 'final', message: { content: [{ type: 'text', text: 'Done' }] } });
     expect(onDone).toHaveBeenCalledTimes(1);
   });
 
-  it('handles string response (not object)', async () => {
-    mockSendRequest.mockResolvedValue('plain string response');
-
-    const onChunk = jest.fn();
-    const onDone = jest.fn();
-    await smartChatStream('mint', 'q', [], onChunk, onDone);
-    jest.advanceTimersByTime(500);
-
-    expect(onChunk).toHaveBeenCalled();
-    expect(onDone).toHaveBeenCalled();
-  });
-
-  it('cancel() stops chunk delivery before onDone', async () => {
-    mockSendRequest.mockResolvedValue({ text: 'word1 word2 word3 word4 word5' });
-
-    const onChunk = jest.fn();
-    const onDone = jest.fn();
-    const cancel = await smartChatStream('mint', 'q', [], onChunk, onDone);
-
-    // Fire first chunk
-    jest.advanceTimersByTime(20);
-    expect(onChunk).toHaveBeenCalledTimes(1);
-
-    // Cancel mid-stream
-    cancel();
-
-    // Advance past all remaining words
-    jest.advanceTimersByTime(500);
-
-    // No more chunks or done after cancel
-    expect(onChunk).toHaveBeenCalledTimes(1);
-    expect(onDone).not.toHaveBeenCalled();
-  });
-
-  it('calls onError and onDone when sendRequest throws (does not fall back)', async () => {
-    mockSendRequest.mockRejectedValue(new Error('WS error'));
+  it('calls onError on error event', async () => {
+    mockSendRequest.mockResolvedValue({});
 
     const onError = jest.fn();
-    const onDone = jest.fn();
-    const cancel = await smartChatStream('mint', 'q', [], jest.fn(), onDone, onError);
+    await smartChatStream('mint', 'q', [], jest.fn(), jest.fn(), onError);
 
-    // openClawChatStream catches internally — onError + onDone called, chatStream NOT called
+    const callArgs = mockSendRequest.mock.calls[0]?.[1] as Record<string, unknown>;
+    const runId = callArgs?.idempotencyKey as string;
+
+    subscribeCb!({ runId, state: 'error', errorMessage: 'AI failed' });
     expect(onError).toHaveBeenCalledWith(expect.any(Error));
-    expect(onDone).toHaveBeenCalled();
-    expect(mockChatStream).not.toHaveBeenCalled();
-    expect(typeof cancel).toBe('function');
+  });
+
+  it('falls back to chatStream when sendRequest throws', async () => {
+    mockSendRequest.mockRejectedValue(new Error('WS error'));
+    const cancel = jest.fn();
+    mockChatStream.mockResolvedValue(cancel);
+
+    const onChunk = jest.fn();
+    const onDone = jest.fn();
+    const result = await smartChatStream('mint', 'q', [], onChunk, onDone);
+
+    // Should fall back to chatStream
+    expect(mockChatStream).toHaveBeenCalled();
+    expect(result).toBe(cancel);
   });
 });

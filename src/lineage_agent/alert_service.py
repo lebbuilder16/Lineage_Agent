@@ -413,7 +413,15 @@ async def _broadcast_web_alert(payload: dict, user_id: int | None = None) -> Non
                 dead.add(ws)
         target.difference_update(dead)
 
-    # ── 2. FCM mobile push (fire-and-forget)
+    # ── 2. OpenClaw gateway push (parallel to FCM)
+    if user_id:
+        try:
+            from .openclaw_gateway import forward_alert_to_openclaw  # noqa: PLC0415
+            asyncio.ensure_future(forward_alert_to_openclaw(user_id, payload))
+        except Exception:
+            pass  # openclaw module not loaded — no-op
+
+    # ── 3. FCM mobile push (fire-and-forget)
     mint = payload.get("mint")
     title = payload.get("title", "Lineage Alert")
     body = payload.get("body", "")

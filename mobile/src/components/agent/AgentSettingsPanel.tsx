@@ -168,8 +168,8 @@ export function AgentSettingsPanel({ plan }: AgentSettingsPanelProps) {
               <TouchableOpacity
                 key={opt.key}
                 onPress={() => {
-                  if (proPlus && !canAccess(plan, 'pro_plus')) {
-                    showUpgradeAlert('pro_plus');
+                  if (proPlus && !canAccess(plan, 'elite')) {
+                    showUpgradeAlert('elite');
                     return;
                   }
                   prefs.toggleAlertType(opt.key);
@@ -177,11 +177,11 @@ export function AgentSettingsPanel({ plan }: AgentSettingsPanelProps) {
                 style={[
                   styles.alertChip,
                   on && styles.alertChipOn,
-                  proPlus && !canAccess(plan, 'pro_plus') && styles.lockedChip,
+                  proPlus && !canAccess(plan, 'elite') && styles.lockedChip,
                 ]}
                 activeOpacity={0.7}
               >
-                {proPlus && !canAccess(plan, 'pro_plus') && (
+                {proPlus && !canAccess(plan, 'elite') && (
                   <Lock size={8} color={tokens.white20} />
                 )}
                 <Text
@@ -199,7 +199,7 @@ export function AgentSettingsPanel({ plan }: AgentSettingsPanelProps) {
       <GlassCard>
         <View style={styles.sectionHeaderRow}>
           <Text style={styles.settingsSection}>AUTOMATION</Text>
-          {!canAccess(plan, 'pro_plus') && <TierLock required="pro_plus" />}
+          {!canAccess(plan, 'elite') && <TierLock required="elite" />}
         </View>
         <PrefRow
           icon={Zap}
@@ -216,8 +216,8 @@ export function AgentSettingsPanel({ plan }: AgentSettingsPanelProps) {
               <TouchableOpacity
                 key={opt.value}
                 onPress={() => {
-                  if (needsWhale && !canAccess(plan, 'whale')) {
-                    showUpgradeAlert('whale');
+                  if (needsWhale && !canAccess(plan, 'elite')) {
+                    showUpgradeAlert('elite');
                     return;
                   }
                   prefs.setInvestigationDepth(opt.value);
@@ -226,12 +226,12 @@ export function AgentSettingsPanel({ plan }: AgentSettingsPanelProps) {
                   styles.depthChip,
                   on && styles.depthChipOn,
                   needsWhale &&
-                    !canAccess(plan, 'whale') &&
+                    !canAccess(plan, 'elite') &&
                     styles.lockedChip,
                 ]}
                 activeOpacity={0.7}
               >
-                {needsWhale && !canAccess(plan, 'whale') && (
+                {needsWhale && !canAccess(plan, 'elite') && (
                   <Lock size={9} color={tokens.white20} />
                 )}
                 <Text style={[styles.depthLabel, on && styles.depthLabelOn]}>
@@ -259,8 +259,8 @@ export function AgentSettingsPanel({ plan }: AgentSettingsPanelProps) {
               <TouchableOpacity
                 key={opt.value}
                 onPress={() => {
-                  if (needsProPlus && !canAccess(plan, 'pro_plus')) {
-                    showUpgradeAlert('pro_plus');
+                  if (needsProPlus && !canAccess(plan, 'elite')) {
+                    showUpgradeAlert('elite');
                     return;
                   }
                   prefs.setSweepInterval(opt.value);
@@ -269,12 +269,12 @@ export function AgentSettingsPanel({ plan }: AgentSettingsPanelProps) {
                   styles.hourChip,
                   on && styles.hourChipOn,
                   needsProPlus &&
-                    !canAccess(plan, 'pro_plus') &&
+                    !canAccess(plan, 'elite') &&
                     styles.lockedChip,
                 ]}
                 activeOpacity={0.7}
               >
-                {needsProPlus && !canAccess(plan, 'pro_plus') && (
+                {needsProPlus && !canAccess(plan, 'elite') && (
                   <Lock size={8} color={tokens.white20} />
                 )}
                 <Text style={[styles.hourText, on && styles.hourTextOn]}>
@@ -358,7 +358,7 @@ function WalletMonitorSection({ plan }: { plan: PlanTier }) {
     <GlassCard>
       <View style={styles.sectionHeaderRow}>
         <Text style={styles.settingsSection}>WALLET MONITOR</Text>
-        {!canAccess(plan, 'pro_plus') && <TierLock required="pro_plus" />}
+        {!canAccess(plan, 'elite') && <TierLock required="elite" />}
       </View>
 
       <PrefRow

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -6,6 +6,7 @@ import {
   StyleSheet,
   TouchableOpacity,
   Platform,
+  ActivityIndicator,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router, Stack } from 'expo-router';
@@ -15,6 +16,14 @@ import { GlassCard } from '../src/components/ui/GlassCard';
 import { HapticButton } from '../src/components/ui/HapticButton';
 import { useToast } from '../src/components/ui/Toast';
 import { tokens } from '../src/theme/tokens';
+import { useSubscriptionStore } from '../src/store/subscription';
+import {
+  getOfferings,
+  purchasePackage,
+  restorePurchases,
+  isReady as isRCReady,
+} from '../src/lib/revenuecat';
+import type { PurchasesPackage } from 'react-native-purchases';
 
 // ── Plan definitions ────────────────────────────────────────────────────────
 
@@ -34,78 +43,46 @@ const PLANS: PlanDef[] = [
   {
     key: 'pro',
     name: 'Pro',
-    color: '#ADC8FF',
-    monthlyPrice: 4.99,
-    yearlyPrice: 47.88,
-    monthlyUsdc: 4.49,
-    yearlyUsdc: 43.09,
+    color: '#CFE6E4',
+    monthlyPrice: 9.99,
+    yearlyPrice: 89.99,
+    monthlyUsdc: 9.99,
+    yearlyUsdc: 89.99,
     features: [
-      { label: 'Unlimited scans', included: true },
-      { label: 'Full Death Clock', included: true },
-      { label: 'AI Chat (Haiku)', included: true },
-      { label: '10 Watchlist', included: true },
+      { label: '50 scans/day', included: true },
+      { label: 'AI Verdict (Haiku)', included: true },
+      { label: 'AI Chat (30/day)', included: true },
+      { label: '25 Watchlist', included: true },
       { label: 'Daily Briefing', included: true },
-      { label: 'SOL Flow', included: true },
-      { label: 'Bundle Detection', included: true },
-      { label: 'Deployer Profile', included: true },
-      { label: 'Telegram & Discord', included: false },
-      { label: 'Cartel Detection', included: false },
-      { label: 'Compare Tokens', included: false },
+      { label: 'All Forensic Modules', included: true },
+      { label: 'Compare + Export', included: true },
+      { label: 'Telegram Alerts', included: true },
+      { label: 'Agent Investigation', included: false },
+      { label: 'Batch Scan', included: false },
       { label: 'API Access', included: false },
     ],
   },
   {
-    key: 'pro_plus',
-    name: 'Pro+',
-    color: '#FF3366',
-    monthlyPrice: 12.99,
-    yearlyPrice: 124.68,
-    monthlyUsdc: 11.69,
-    yearlyUsdc: 112.21,
+    key: 'elite',
+    name: 'Elite',
+    color: '#FFD666',
+    monthlyPrice: 34.99,
+    yearlyPrice: 279.99,
+    monthlyUsdc: 34.99,
+    yearlyUsdc: 279.99,
     popular: true,
     features: [
-      { label: 'Unlimited scans', included: true },
-      { label: 'Full Death Clock', included: true },
-      { label: 'AI Chat (Sonnet)', included: true },
-      { label: '50 Watchlist', included: true },
-      { label: 'Daily Briefing', included: true },
-      { label: 'SOL Flow', included: true },
-      { label: 'Bundle Detection', included: true },
-      { label: 'Deployer Profile', included: true },
-      { label: 'Telegram & Discord', included: true },
-      { label: 'Cartel Detection', included: true },
-      { label: 'Operator Fingerprint', included: true },
-      { label: 'Compare Tokens', included: true },
-      { label: 'Export PDF', included: true },
-      { label: 'API Access', included: false },
-      { label: 'Batch Scan', included: false },
-    ],
-  },
-  {
-    key: 'whale',
-    name: 'Whale',
-    color: '#00FF88',
-    monthlyPrice: 49.99,
-    yearlyPrice: 479.88,
-    monthlyUsdc: 44.99,
-    yearlyUsdc: 431.89,
-    features: [
-      { label: 'Unlimited scans', included: true },
-      { label: 'Full Death Clock', included: true },
-      { label: 'AI Chat (Sonnet)', included: true },
-      { label: '200 Watchlist', included: true },
+      { label: '100 scans/day', included: true },
+      { label: 'AI Verdict (Haiku)', included: true },
+      { label: 'AI Chat (60/day)', included: true },
+      { label: '100 Watchlist', included: true },
       { label: '3 Briefings/day', included: true },
-      { label: 'SOL Flow', included: true },
-      { label: 'Bundle Detection', included: true },
-      { label: 'Deployer Profile', included: true },
-      { label: 'Telegram & Discord', included: true },
-      { label: 'Cartel Detection', included: true },
-      { label: 'Operator Fingerprint', included: true },
-      { label: 'Compare Tokens', included: true },
-      { label: 'Export PDF', included: true },
-      { label: 'Batch Scan', included: true },
+      { label: 'All Forensic Modules', included: true },
+      { label: 'Compare + Export', included: true },
+      { label: 'Telegram + Discord Alerts', included: true },
+      { label: 'Agent Investigation (12/day)', included: true },
+      { label: 'Batch Scan (25)', included: true },
       { label: 'API Access', included: true },
-      { label: 'Custom Webhooks', included: true },
     ],
   },
 ];
@@ -115,10 +92,64 @@ const PLANS: PlanDef[] = [
 export default function PaywallScreen() {
   const insets = useSafeAreaInsets();
   const [yearly, setYearly] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [rcPackages, setRcPackages] = useState<PurchasesPackage[]>([]);
   const { showToast, toast } = useToast();
-  const isAndroid = Platform.OS === 'android';
+  const setPlan = useSubscriptionStore((s) => s.setPlan);
 
-  const comingSoon = () => showToast('Coming soon \u2014 RevenueCat not yet configured');
+  // Fetch RevenueCat offerings on mount
+  useEffect(() => {
+    if (!isRCReady()) return;
+    getOfferings().then((offerings) => {
+      const current = offerings?.current;
+      if (current?.availablePackages) {
+        setRcPackages(current.availablePackages);
+      }
+    }).catch(() => {});
+  }, []);
+
+  const handlePurchase = async (planKey: string) => {
+    // Try to find matching RC package
+    const pkg = rcPackages.find((p) =>
+      p.identifier.toLowerCase().includes(planKey) &&
+      p.identifier.toLowerCase().includes(yearly ? 'year' : 'month')
+    );
+
+    if (!pkg) {
+      showToast('Purchase not available yet — configure RevenueCat products');
+      return;
+    }
+
+    setLoading(true);
+    const result = await purchasePackage(pkg);
+    setLoading(false);
+
+    if (result.success) {
+      setPlan(result.plan as any);
+      showToast(`Welcome to ${result.plan.charAt(0).toUpperCase() + result.plan.slice(1)}!`);
+      router.back();
+    } else if (!result.cancelled) {
+      showToast(result.error ?? 'Purchase failed');
+    }
+  };
+
+  const handleRestore = async () => {
+    setLoading(true);
+    const result = await restorePurchases();
+    setLoading(false);
+
+    if (result.success) {
+      setPlan(result.plan as any);
+      if (result.plan === 'free') {
+        showToast('No active subscription found');
+      } else {
+        showToast(`Restored ${result.plan.charAt(0).toUpperCase() + result.plan.slice(1)} plan`);
+        router.back();
+      }
+    } else {
+      showToast(result.error ?? 'Restore failed');
+    }
+  };
 
   return (
     <View style={styles.container}>
@@ -159,7 +190,7 @@ export default function PaywallScreen() {
             >
               <Text style={[styles.toggleText, yearly && styles.toggleTextActive]}>Yearly</Text>
               <View style={styles.saveBadge}>
-                <Text style={styles.saveBadgeText}>Save 20%</Text>
+                <Text style={styles.saveBadgeText}>Save 25%+</Text>
               </View>
             </TouchableOpacity>
           </View>
@@ -217,8 +248,12 @@ export default function PaywallScreen() {
               </View>
 
               {/* CTA: Subscribe */}
-              <HapticButton variant="primary" fullWidth onPress={comingSoon}>
-                <Text style={styles.ctaText}>Subscribe</Text>
+              <HapticButton variant="primary" fullWidth onPress={() => handlePurchase(plan.key)} disabled={loading}>
+                {loading ? (
+                  <ActivityIndicator size="small" color={tokens.white100} />
+                ) : (
+                  <Text style={styles.ctaText}>Subscribe</Text>
+                )}
               </HapticButton>
 
               {/* CTA: Pay with USDC (Android only) */}
@@ -227,7 +262,7 @@ export default function PaywallScreen() {
                   <HapticButton
                     variant="ghost"
                     fullWidth
-                    onPress={comingSoon}
+                    onPress={() => showToast('USDC payments coming soon')}
                   >
                     <Text style={styles.usdcBtnText}>Pay with USDC</Text>
                     <Text style={styles.usdcPrice}>
@@ -246,12 +281,44 @@ export default function PaywallScreen() {
           </Animated.View>
         ))}
 
+        {/* ── Scan Credit Packs ─────────────────────────────────────────── */}
+        <Animated.View
+          entering={FadeInDown.duration(350).delay(200).springify()}
+        >
+          <GlassCard style={styles.creditCard}>
+            <Text style={styles.creditTitle}>Pay Per Scan</Text>
+            <Text style={styles.creditSubtitle}>
+              Out of free scans? Buy credits with LINEAGE token.
+            </Text>
+            <View style={styles.creditPacks}>
+              {[
+                { label: '1 Scan', price: '$0.30', key: 'single' },
+                { label: '5 Scans', price: '$1.29', sub: '$0.26/scan', key: 'five_pack' },
+                { label: '15 Scans', price: '$3.49', sub: '$0.23/scan', key: 'fifteen_pack' },
+              ].map((pack) => (
+                <TouchableOpacity
+                  key={pack.key}
+                  style={styles.creditPack}
+                  onPress={() => showToast('LINEAGE token payments coming soon')}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.creditPackLabel}>{pack.label}</Text>
+                  <Text style={styles.creditPackPrice}>{pack.price}</Text>
+                  {pack.sub && (
+                    <Text style={styles.creditPackSub}>{pack.sub}</Text>
+                  )}
+                </TouchableOpacity>
+              ))}
+            </View>
+          </GlassCard>
+        </Animated.View>
+
         {/* ── Footer ───────────────────────────────────────────────────── */}
         <Animated.View
           entering={FadeInDown.duration(350).delay(280).springify()}
           style={styles.footer}
         >
-          <TouchableOpacity onPress={comingSoon}>
+          <TouchableOpacity onPress={handleRestore} disabled={loading}>
             <Text style={styles.footerLink}>Restore Purchases</Text>
           </TouchableOpacity>
           <View style={styles.footerLegal}>
@@ -454,6 +521,53 @@ const styles = StyleSheet.create({
     color: tokens.textTertiary,
   },
   footerDot: {
+    fontFamily: 'Lexend-Regular',
+    fontSize: tokens.font.tiny,
+    color: tokens.textTertiary,
+  },
+
+  // Credit packs
+  creditCard: {
+    gap: 12,
+    borderColor: tokens.borderSubtle,
+    borderWidth: 1,
+  },
+  creditTitle: {
+    fontFamily: 'Lexend-Bold',
+    fontSize: tokens.font.heading,
+    color: tokens.white100,
+  },
+  creditSubtitle: {
+    fontFamily: 'Lexend-Regular',
+    fontSize: tokens.font.small,
+    color: tokens.textTertiary,
+    marginTop: -4,
+  },
+  creditPacks: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  creditPack: {
+    flex: 1,
+    backgroundColor: tokens.bgGlass8,
+    borderRadius: tokens.radius.card,
+    borderWidth: 1,
+    borderColor: tokens.borderSubtle,
+    padding: 12,
+    alignItems: 'center',
+    gap: 4,
+  },
+  creditPackLabel: {
+    fontFamily: 'Lexend-SemiBold',
+    fontSize: tokens.font.body,
+    color: tokens.white100,
+  },
+  creditPackPrice: {
+    fontFamily: 'Lexend-Bold',
+    fontSize: tokens.font.body,
+    color: tokens.success,
+  },
+  creditPackSub: {
     fontFamily: 'Lexend-Regular',
     fontSize: tokens.font.tiny,
     color: tokens.textTertiary,
