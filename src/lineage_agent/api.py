@@ -796,6 +796,15 @@ async def get_lineage(
             status_code=400,
             detail="Invalid Solana mint address. Expected 32-44 base58 characters.",
         )
+
+    # Enforce daily scan limit (server-side)
+    api_key = request.headers.get("X-API-Key", "")
+    if api_key:
+        from .data_sources._clients import cache as _cache_auth  # noqa: PLC0415
+        _user = await verify_api_key(_cache_auth, api_key)
+        if _user:
+            await _enforce_daily_limit(_user, "scans", "scans_per_day")
+
     try:
         result = await asyncio.wait_for(
             detect_lineage(mint, force_refresh=force_refresh), timeout=ANALYSIS_TIMEOUT_SECONDS
@@ -2003,7 +2012,7 @@ async def investigate_token(
 
     # Check scan quota / credits before running the pipeline
     from .scan_credit_service import can_scan, deduct_scan_credit
-    from .usage_service import increment_usage
+    from .usage_service import increment_usage, check_limit
     if user_id:
         allowed, source = await can_scan(_cache, user_id, user_plan)
         if not allowed:
@@ -2011,10 +2020,17 @@ async def investigate_token(
                 status_code=429,
                 detail="Daily scan limit reached. Purchase scan credits to continue." if source == "no_credits" else "Daily scan limit reached.",
             )
+        # Enforce daily investigate limit
+        inv_limit = tier.investigate_daily_limit
+        if inv_limit != float("inf"):
+            inv_allowed = await check_limit(_cache, user_id, "investigate", int(inv_limit))
+            if not inv_allowed:
+                raise HTTPException(status_code=429, detail="Daily investigation limit reached")
         # Deduct credit if using credits, increment daily usage otherwise
         if source == "credit":
             await deduct_scan_credit(_cache, user_id)
         await increment_usage(_cache, user_id, "scans")
+        await increment_usage(_cache, user_id, "investigate")
 
     # Shared mutable state between the background task and the SSE generator.
     # The background task produces events into _event_queue; the generator
@@ -2127,6 +2143,7 @@ async def forensic_chat(
     request: Request,
     mint: str,
     body: ChatRequest,
+    _skip_limit: bool = False,
 ) -> EventSourceResponse:
     """Stream a Claude reply about a specific token's forensic analysis.
 
@@ -2140,6 +2157,15 @@ async def forensic_chat(
 
     if not body.message or len(body.message) > 2000:
         raise HTTPException(status_code=400, detail="Message required (max 2000 chars)")
+
+    # Enforce daily AI chat limit (skipped when called from investigate_chat)
+    if not _skip_limit:
+        api_key = request.headers.get("X-API-Key", "")
+        if api_key:
+            from .data_sources._clients import cache as _cache  # noqa: PLC0415
+            user = await verify_api_key(_cache, api_key)
+            if user:
+                await _enforce_daily_limit(user, "ai_chat", "ai_chat_daily_limit")
 
     async def _generator():
         import json as _json
@@ -2290,8 +2316,15 @@ async def investigate_chat(
     mint: str,
     body: ChatRequest,
 ) -> EventSourceResponse:
-    """Thin wrapper — delegates to the existing /chat/{mint} endpoint."""
-    return await forensic_chat(request, mint, body)
+    """Follow-up chat within an investigation — enforces investigate_chat limit."""
+    # Enforce investigate chat limit (separate from ai_chat)
+    api_key = request.headers.get("X-API-Key", "")
+    if api_key:
+        from .data_sources._clients import cache as _cache  # noqa: PLC0415
+        user = await verify_api_key(_cache, api_key)
+        if user:
+            await _enforce_daily_limit(user, "investigate_chat", "investigate_chat_daily_limit")
+    return await forensic_chat(request, mint, body, _skip_limit=True)
 
 
 # ------------------------------------------------------------------
@@ -2317,6 +2350,14 @@ async def general_chat(
     """
     if not body.message or len(body.message) > 2000:
         raise HTTPException(status_code=400, detail="Message required (max 2000 chars)")
+
+    # Enforce daily AI chat limit
+    api_key = request.headers.get("X-API-Key", "")
+    if api_key:
+        from .data_sources._clients import cache as _cache  # noqa: PLC0415
+        user = await verify_api_key(_cache, api_key)
+        if user:
+            await _enforce_daily_limit(user, "ai_chat", "ai_chat_daily_limit")
 
     async def _generator():
         import json as _json
@@ -2392,6 +2433,23 @@ async def _get_current_user(request: Request):
     if user is None:
         raise HTTPException(status_code=401, detail="Invalid API key")
     return user
+
+
+async def _enforce_daily_limit(user: dict, counter_key: str, limit_attr: str) -> None:
+    """Check + increment daily usage counter. Raises 429 if limit exceeded."""
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+    from .subscription_tiers import get_limits  # noqa: PLC0415
+    from .usage_service import check_limit, increment_usage  # noqa: PLC0415
+
+    limits = get_limits(user.get("plan", "free"))
+    daily_limit = getattr(limits, limit_attr, 0)
+    if daily_limit == 0:
+        raise HTTPException(status_code=403, detail=f"Your plan does not include this feature")
+    if daily_limit != float("inf"):
+        allowed = await check_limit(_cache, user["id"], counter_key, int(daily_limit))
+        if not allowed:
+            raise HTTPException(status_code=429, detail=f"Daily {counter_key.replace('_', ' ')} limit reached")
+    await increment_usage(_cache, user["id"], counter_key)
 
 
 @app.post("/auth/login", tags=["auth"])

@@ -333,7 +333,7 @@ export function connectAlertsWS(
             if (enriched) {
               useAlertsStore.getState().updateEnrichment(data.id, enriched);
             }
-          }).catch(() => {});
+          }).catch((e) => console.warn('[streaming] alert enrichment failed', e));
         }
 
         Notifications.scheduleNotificationAsync({
@@ -343,7 +343,7 @@ export function connectAlertsWS(
             data: { mint: data.mint },
           },
           trigger: null,
-        }).catch(() => {});
+        }).catch((e) => console.warn('[streaming] notification schedule failed', e));
       } catch {
         // ignore malformed frames
       }

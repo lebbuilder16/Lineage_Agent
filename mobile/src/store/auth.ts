@@ -78,7 +78,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set((state) => {
       const entry = { mint, name, symbol, image };
       const deduped = [entry, ...state.recentSearches.filter((r) => r.mint !== mint)].slice(0, MAX_RECENT);
-      SecureStore.setItemAsync(LS_RECENT_KEY, JSON.stringify(deduped)).catch(() => {});
+      SecureStore.setItemAsync(LS_RECENT_KEY, JSON.stringify(deduped)).catch((e) => console.warn('[auth] save recent searches failed', e));
       return { recentSearches: deduped };
     }),
 

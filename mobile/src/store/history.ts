@@ -46,7 +46,7 @@ export const useHistoryStore = create<HistoryState>((set, get) => ({
     set((s) => {
       const filtered = s.investigations.filter((r) => r.mint !== record.mint);
       const updated = [record, ...filtered].slice(0, MAX_RECORDS);
-      AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated)).catch(() => {});
+      AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated)).catch((e) => console.warn('[history] persist failed', e));
       return { investigations: updated };
     });
   },
@@ -60,7 +60,7 @@ export const useHistoryStore = create<HistoryState>((set, get) => ({
       const updated = s.investigations.map((r) =>
         r.mint === mint ? { ...r, feedback } : r,
       );
-      AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated)).catch(() => {});
+      AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated)).catch((e) => console.warn('[history] persist feedback failed', e));
       return { investigations: updated };
     });
     // Sync feedback to backend
@@ -75,7 +75,7 @@ export const useHistoryStore = create<HistoryState>((set, get) => ({
           risk_score: record.riskScore,
           rating: feedback,
         }),
-      }).catch(() => {}); // best-effort
+      }).catch((e) => console.warn('[history] feedback sync failed', e));
     }
   },
 
@@ -105,13 +105,12 @@ export const useHistoryStore = create<HistoryState>((set, get) => ({
               const merged = [...s.investigations, ...newFromServer]
                 .sort((a, b) => b.timestamp - a.timestamp)
                 .slice(0, MAX_RECORDS);
-              AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(merged)).catch(() => {});
+              AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(merged)).catch((e) => console.warn('[history] merge persist failed', e));
               return { investigations: merged };
             });
           }
         }
       }
-      // Record sync time
       AsyncStorage.setItem(LAST_SYNC_KEY, String(Date.now() / 1000)).catch(() => {});
     } catch {
       set({ hydrated: true });
@@ -141,11 +140,10 @@ export const useHistoryStore = create<HistoryState>((set, get) => ({
           const merged = [...newFromServer, ...s.investigations]
             .sort((a, b) => b.timestamp - a.timestamp)
             .slice(0, MAX_RECORDS);
-          AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(merged)).catch(() => {});
+          AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(merged)).catch((e) => console.warn('[history] catchUp persist failed', e));
           return { investigations: merged };
         });
       }
-      // Update sync timestamp
       AsyncStorage.setItem(LAST_SYNC_KEY, String(Date.now() / 1000)).catch(() => {});
     } catch {
       // best-effort — will retry on next foreground

@@ -40,6 +40,11 @@ _COINGECKO_SIMPLE = "https://api.coingecko.com/api/v3/simple/price"
 # Wrapped SOL mint address
 _WSOL_MINT = "So11111111111111111111111111111111111111112"
 
+# In-memory SOL price cache (avoid CoinGecko rate-limits during sweep bursts)
+import time as _time
+_sol_price_cache: dict[str, tuple[float, float]] = {}  # "sol" → (price, timestamp)
+_SOL_CACHE_TTL = 300  # 5 min — SOL price doesn't move fast enough to matter for forensics
+
 # TTL for the cached verified token list (seconds)
 _TOKEN_LIST_TTL = 300  # 5 minutes
 
@@ -116,26 +121,43 @@ class JupiterClient:
 
         result: dict[str, Optional[float]] = {m: None for m in mints}
 
-        # --- SOL price via CoinGecko (always free, no auth needed) ---
+        # --- SOL price via CoinGecko (with in-memory cache to avoid rate-limits) ---
         sol_mints = [m for m in mints if m == _WSOL_MINT]
         if sol_mints:
-            try:
-                client = await self._get_client()
-                cg_data = await async_http_get(
-                    client,
-                    _COINGECKO_SIMPLE,
-                    params={"ids": "solana", "vs_currencies": "usd"},
-                    max_retries=2,
-                    backoff_base=1.0,
-                    label="CoinGecko",
-                )
-                if cg_data and isinstance(cg_data, dict):
-                    sol_usd = cg_data.get("solana", {}).get("usd")
-                    if sol_usd is not None:
+            cached = _sol_price_cache.get("sol")
+            if cached and (_time.time() - cached[1]) < _SOL_CACHE_TTL:
+                for m in sol_mints:
+                    result[m] = cached[0]
+            else:
+                try:
+                    client = await self._get_client()
+                    cg_data = await async_http_get(
+                        client,
+                        _COINGECKO_SIMPLE,
+                        params={"ids": "solana", "vs_currencies": "usd"},
+                        max_retries=2,
+                        backoff_base=1.0,
+                        label="CoinGecko",
+                    )
+                    if cg_data and isinstance(cg_data, dict):
+                        sol_usd = cg_data.get("solana", {}).get("usd")
+                        if sol_usd is not None:
+                            price = float(sol_usd)
+                            _sol_price_cache["sol"] = (price, _time.time())
+                            for m in sol_mints:
+                                result[m] = price
+                        elif cached:
+                            for m in sol_mints:
+                                result[m] = cached[0]
+                    elif cached:
+                        # Rate-limited (async_http_get returned None) — use stale price
                         for m in sol_mints:
-                            result[m] = float(sol_usd)
-            except Exception as exc:
-                logger.debug("CoinGecko SOL price failed: %s", exc)
+                            result[m] = cached[0]
+                except Exception as exc:
+                    logger.debug("CoinGecko SOL price failed: %s", exc)
+                    if cached:
+                        for m in sol_mints:
+                            result[m] = cached[0]
 
         # --- Other tokens via Jupiter (paid tier — only if API key configured) ---
         import os
