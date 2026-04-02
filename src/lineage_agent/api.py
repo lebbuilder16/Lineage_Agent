@@ -4054,14 +4054,28 @@ async def get_sweep_flags(
         conditions.append("created_at > ?")
         params.append(since)
 
-    params.append(limit)
     where = " AND ".join(conditions)
-    cursor = await db.execute(
-        f"SELECT id, mint, flag_type, severity, title, detail, created_at, read "
-        f"FROM sweep_flags WHERE {where} "
-        f"ORDER BY created_at DESC LIMIT ?",
-        tuple(params),
-    )
+
+    if mint:
+        # Single-token mode: simple chronological
+        params.append(limit)
+        cursor = await db.execute(
+            f"SELECT id, mint, flag_type, severity, title, detail, created_at, read "
+            f"FROM sweep_flags WHERE {where} "
+            f"ORDER BY created_at DESC LIMIT ?",
+            tuple(params),
+        )
+    else:
+        # Multi-token mode: use ROW_NUMBER to cap flags per token
+        # This ensures all watched tokens get representation
+        per_token = max(5, limit // 7)
+        cursor = await db.execute(
+            f"SELECT id, mint, flag_type, severity, title, detail, created_at, read FROM ("
+            f"  SELECT *, ROW_NUMBER() OVER (PARTITION BY mint ORDER BY created_at DESC) as rn"
+            f"  FROM sweep_flags WHERE {where} AND flag_type != '_REFERENCE'"
+            f") WHERE rn <= ? ORDER BY created_at DESC LIMIT ?",
+            tuple(params) + (per_token, limit),
+        )
 
     rows = await cursor.fetchall()
     import json as _json
@@ -4082,6 +4096,22 @@ async def get_sweep_flags(
             "createdAt": r[6],
             "read": bool(r[7]),
         })
+
+    # In multi-token mode, balance flags across tokens so no single token dominates
+    if not mint and len(flags) > limit:
+        from collections import defaultdict
+        by_mint: dict[str, list] = defaultdict(list)
+        for f in flags:
+            by_mint[f["mint"]].append(f)
+        # Round-robin: take flags from each token in turn
+        balanced: list[dict] = []
+        max_per_token = max(3, limit // max(len(by_mint), 1))
+        for m_flags in by_mint.values():
+            balanced.extend(m_flags[:max_per_token])
+        # Sort by time, trim to limit
+        balanced.sort(key=lambda f: f["createdAt"], reverse=True)
+        flags = balanced[:limit]
+
     return {"flags": flags}
 
 
