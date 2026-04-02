@@ -1056,6 +1056,25 @@ class SQLiteCache:
             except Exception:
                 pass
 
+        # ── OpenClaw Gateway — user cron jobs ─────────────────────────
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS user_crons (
+                id          TEXT PRIMARY KEY,
+                user_id     INTEGER NOT NULL,
+                name        TEXT NOT NULL,
+                schedule    TEXT NOT NULL,
+                payload     TEXT NOT NULL DEFAULT '{}',
+                delivery    TEXT NOT NULL DEFAULT '{}',
+                enabled     INTEGER NOT NULL DEFAULT 1,
+                last_run    TEXT,
+                next_run    TEXT,
+                created_at  REAL NOT NULL
+            )
+        """)
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_uc_user ON user_crons(user_id, name)"
+        )
+
         await db.commit()
         self._initialised = True
 

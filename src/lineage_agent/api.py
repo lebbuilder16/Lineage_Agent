@@ -72,6 +72,12 @@ from .sol_flow_service import get_sol_flow_report, trace_sol_flow
 from .lineage_detector import resolve_deployer as _resolve_deployer
 from .cartel_service import compute_cartel_report, run_cartel_sweep
 from .cartel_financial_service import build_financial_edges
+from .openclaw_gateway import (
+    handle_openclaw_ws,
+    schedule_cron_sweep,
+    cancel_cron_sweep,
+    forward_alert_to_openclaw,
+)
 from .data_sources._clients import operator_mapping_query
 from .logging_config import generate_request_id, request_id_ctx, setup_logging
 from .models import (
@@ -297,6 +303,10 @@ async def lifespan(application: FastAPI):
     _schedule_briefing_loop()
     _schedule_wallet_monitor()
 
+    # OpenClaw gateway cron sweep
+    from .data_sources._clients import cache as _oc_cache  # noqa: PLC0415
+    schedule_cron_sweep(_oc_cache)
+
     # ── Pump.fun real-time listener ───────────────────────────────────────
     from .pump_fun_listener import schedule_pump_fun_listener, is_listener_active
     _pf_task = schedule_pump_fun_listener()
@@ -341,6 +351,7 @@ async def lifespan(application: FastAPI):
     _cancel_briefing_loop()
     _cancel_wallet_monitor()
     _cancel_wallet_label_refresh()
+    cancel_cron_sweep()
     await close_clients()
 
 
@@ -1138,6 +1149,23 @@ async def ws_alerts(websocket: WebSocket):
         except Exception:
             pass
 
+
+
+# ------------------------------------------------------------------
+# WebSocket: OpenClaw Gateway (managed, auto-connect for all users)
+# ------------------------------------------------------------------
+
+
+@app.websocket("/ws/openclaw")
+async def ws_openclaw(websocket: WebSocket):
+    """OpenClaw-compatible WebSocket gateway.
+
+    Auth via query param: ``?key=<API_KEY>``
+    Implements: connect, cron.list, cron.add, cron.remove, node.register
+    Pushes: connect.challenge, node.invoke, alert, cron.result
+    """
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+    await handle_openclaw_ws(websocket, _cache)
 
 
 @app.get(

@@ -13,7 +13,6 @@ import { X, Key } from 'lucide-react-native';
 import { tokens } from '../../theme/tokens';
 import { useAuthStore } from '../../store/auth';
 import { useOpenClawStore } from '../../store/openclaw';
-import { connectOpenClaw, disconnectOpenClaw } from '../../lib/openclaw';
 import { usePrivy } from '@privy-io/expo';
 import { ApiKeySection } from '../settings/ApiKeySection';
 import { OpenClawSection } from '../settings/OpenClawSection';
@@ -30,38 +29,14 @@ export function SettingsSheet({ visible, onClose }: SettingsSheetProps) {
   const { logout: privyLogout } = usePrivy();
   const [pendingKey, setPendingKey] = useState('');
 
-  const { host, connected, status } = useOpenClawStore();
-  const [pendingHost, setPendingHost] = useState('');
-  const [pendingToken, setPendingToken] = useState('');
-  const [pendingRoleToken, setPendingRoleToken] = useState('');
+  const { connected, status } = useOpenClawStore();
 
   // reset inputs each time the sheet opens
   useEffect(() => {
     if (visible) {
       setPendingKey('');
-      setPendingHost('');
-      setPendingToken('');
-      setPendingRoleToken('');
     }
   }, [visible]);
-
-  const handleConnect = () => {
-    const h = pendingHost.trim();
-    const gwToken = pendingToken.trim();
-    const roleToken = pendingRoleToken.trim();
-    const token = gwToken || roleToken; // use whichever is provided
-    if (!h) return;
-    const store = useOpenClawStore.getState();
-    store.setHost(h);
-    if (gwToken) store.setDeviceToken(gwToken);
-    if (roleToken) store.setRoleToken(roleToken);
-    connectOpenClaw(h, token);
-  };
-
-  const handleDisconnect = () => {
-    disconnectOpenClaw();
-    useOpenClawStore.getState().reset();
-  };
 
   const handleSave = () => {
     const trimmed = pendingKey.trim();
@@ -129,17 +104,8 @@ export function SettingsSheet({ visible, onClose }: SettingsSheetProps) {
           />
 
           <OpenClawSection
-            host={host}
             connected={connected}
             status={status}
-            pendingHost={pendingHost}
-            onPendingHostChange={setPendingHost}
-            pendingToken={pendingToken}
-            onPendingTokenChange={setPendingToken}
-            pendingRoleToken={pendingRoleToken}
-            onPendingRoleTokenChange={setPendingRoleToken}
-            onConnect={handleConnect}
-            onDisconnect={handleDisconnect}
           />
         </View>
       </KeyboardAvoidingView>

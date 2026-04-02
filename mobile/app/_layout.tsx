@@ -21,7 +21,6 @@ import { registerDeviceNode, startNodeCommandListener } from '../src/lib/opencla
 import { initRevenueCat, identifyUser, getCustomerInfo, resolveActivePlan } from '../src/lib/revenuecat';
 import { useSubscriptionStore } from '../src/store/subscription';
 import { startRugResponseListener } from '../src/lib/openclaw-rug-response';
-import { setupWatchlistMonitor, startWatchlistMonitorListener } from '../src/lib/openclaw-monitor';
 import { createBriefingCron } from '../src/lib/openclaw-cron';
 import { startBriefingListener } from '../src/lib/openclaw-briefing';
 import { tokens } from '../src/theme/tokens';
@@ -94,11 +93,7 @@ export default function RootLayout() {
   const hydrated = useAuthStore((s) => s.hydrated);
   const setApiKey = useAuthStore((s) => s.setApiKey);
 
-  // OpenClaw connection state
-  const ocHost = useOpenClawStore((s) => s.host);
-  const ocToken = useOpenClawStore((s) => s.deviceToken);
-
-  // Handle deep links: lineage://activate?key=XXX&wallet=phantom | lineage://openclaw?host=X&token=Y
+  // Handle deep links: lineage://activate?key=XXX&wallet=phantom
   // IMPORTANT: Ignore wallet callback URLs (wallet_action param) — those are handled by Privy connectors
   const url = Linking.useURL();
   useEffect(() => {
@@ -119,13 +114,6 @@ export default function RootLayout() {
           } catch { /* profile fetch is best-effort */ }
         };
         fetchProfile();
-      } else if (parsed.hostname === 'openclaw' && typeof parsed.queryParams?.host === 'string') {
-        const store = useOpenClawStore.getState();
-        store.setHost(parsed.queryParams.host);
-        if (typeof parsed.queryParams?.token === 'string') {
-          store.setDeviceToken(parsed.queryParams.token);
-        }
-        connectOpenClaw(parsed.queryParams.host, parsed.queryParams.token as string ?? '');
       }
     } catch { /* ignore malformed URLs */ }
   }, [url]);
@@ -258,9 +246,19 @@ export default function RootLayout() {
     };
   }, [apiKey]);
 
-  // OpenClaw is optional (power users only) — don't auto-connect.
-  // All features work via backend direct API.
-  // Only connect if user has explicitly enabled it via deep link or settings.
+  // Auto-connect to backend OpenClaw gateway when authenticated
+  useEffect(() => {
+    if (!apiKey) {
+      disconnectOpenClaw();
+      return;
+    }
+    const baseUrl = (process.env.EXPO_PUBLIC_API_URL ?? 'https://lineage-agent.fly.dev').replace(/\/$/, '');
+    const wsUrl = baseUrl.replace(/^http/, 'ws') + '/ws/openclaw?key=' + apiKey;
+    const ocStore = useOpenClawStore.getState();
+    ocStore.setHost(wsUrl);
+    connectOpenClaw(wsUrl, apiKey);
+    return () => { disconnectOpenClaw(); };
+  }, [apiKey]);
 
   // Initialize listeners + crons once OpenClaw is connected
   const ocConnected = useOpenClawStore((s) => s.connected);
@@ -269,14 +267,11 @@ export default function RootLayout() {
     registerDeviceNode();
     const unsubNode = startNodeCommandListener();
     const unsubRug = startRugResponseListener();
-    const unsubMonitor = startWatchlistMonitorListener();
     const unsubBriefing = startBriefingListener();
-    setupWatchlistMonitor();
     createBriefingCron(8, Intl.DateTimeFormat().resolvedOptions().timeZone);
     return () => {
       unsubNode();
       unsubRug();
-      unsubMonitor();
       unsubBriefing();
     };
   }, [ocConnected]);
