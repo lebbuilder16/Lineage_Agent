@@ -3878,6 +3878,51 @@ async def get_agent_prefs(request: Request):
     }
 
 
+# ── Alert channel preferences ────────────────────────────────────────────────
+
+
+class _AlertPrefsBody(BaseModel):
+    channels: dict  # e.g. {"push": true, "telegram": false, "discord": true}
+
+
+@app.post("/alert-prefs", tags=["agent"])
+async def set_alert_prefs(request: Request, body: _AlertPrefsBody):
+    """Save user's notification channel preferences."""
+    user = await _get_current_user(request)
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+    db = await _cache._get_conn()
+    for channel, enabled in body.channels.items():
+        if channel not in ("push", "telegram", "discord", "whatsapp"):
+            continue
+        await db.execute(
+            """INSERT OR REPLACE INTO alert_prefs (user_id, channel, enabled, config_json)
+               VALUES (?, ?, ?, COALESCE(
+                   (SELECT config_json FROM alert_prefs WHERE user_id = ? AND channel = ?),
+                   NULL
+               ))""",
+            (user["id"], channel, int(bool(enabled)), user["id"], channel),
+        )
+    await db.commit()
+    return {"ok": True}
+
+
+@app.get("/alert-prefs", tags=["agent"])
+async def get_alert_prefs(request: Request):
+    """Get user's notification channel preferences."""
+    user = await _get_current_user(request)
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+    db = await _cache._get_conn()
+    cursor = await db.execute(
+        "SELECT channel, enabled FROM alert_prefs WHERE user_id = ?",
+        (user["id"],),
+    )
+    rows = await cursor.fetchall()
+    channels = {"push": True, "telegram": False, "discord": False, "whatsapp": False}
+    for channel, enabled in rows:
+        channels[channel] = bool(enabled)
+    return {"channels": channels}
+
+
 @app.get("/agent/status", tags=["agent"])
 async def get_agent_status(request: Request):
     """Return real-time agent status for the Agent tab."""

@@ -201,6 +201,11 @@ export default function RootLayout() {
       useHistoryStore.getState().hydrate();
     }).catch(() => {});
 
+    // Hydrate alert channel preferences from server
+    import('../src/store/alert-prefs').then(({ useAlertPrefsStore }) => {
+      useAlertPrefsStore.getState().hydrateFromServer();
+    }).catch(() => {});
+
     const _addAlert = useAlertsStore.getState().addAlert;
     const _setWsConnected = useAlertsStore.getState().setWsConnected;
     const addAlertWithAutoInvestigate = (alert: any) => {
