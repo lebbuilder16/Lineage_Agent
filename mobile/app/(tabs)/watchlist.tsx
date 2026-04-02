@@ -22,8 +22,7 @@ import { useWatches, useDeleteWatch, useAddWatch } from '../../src/lib/query';
 import { getWatchTimeline } from '../../src/lib/api';
 import { useAuthStore } from '../../src/store/auth';
 import { useSweepFlagsStore } from '../../src/store/sweep-flags';
-import { syncWatchlistCrons } from '../../src/lib/openclaw-cron';
-import { isOpenClawAvailable } from '../../src/lib/openclaw';
+// Cron management is now server-side (cron_manager.py)
 import { useTokenSearch } from '../../src/hooks/useTokenSearch';
 import { tokens } from '../../src/theme/tokens';
 import { haptic } from '../../src/lib/haptics';
@@ -225,11 +224,7 @@ export default function WatchlistScreen() {
         onPress: () => {
           haptic.heavy();
           deleteMutation.mutate(id, {
-            onSuccess: () => {
-              refetch().then(({ data }) => {
-                if (isOpenClawAvailable() && data) syncWatchlistCrons(data).catch(() => {});
-              });
-            },
+            onSuccess: () => { refetch(); },
           });
         },
       },
@@ -239,9 +234,7 @@ export default function WatchlistScreen() {
   const handleAddSubmit = (type: 'mint' | 'deployer', value: string) => {
     addMutation.mutate({ sub_type: type, value }, {
       onSuccess: () => {
-        refetch().then(({ data }) => {
-          if (isOpenClawAvailable() && data) syncWatchlistCrons(data).catch(() => {});
-        });
+        refetch();
         setAddOpen(false);
       },
     });
