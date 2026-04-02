@@ -27,8 +27,14 @@ logger = logging.getLogger(__name__)
 # Use non-dated aliases where possible for forward-compatibility
 _MODEL = os.getenv("ANTHROPIC_MODEL", "claude-haiku-4-5")
 _MODEL_SONNET = os.getenv("ANTHROPIC_MODEL_SONNET", "claude-sonnet-4-6")
-_MAX_TOKENS = int(os.getenv("AI_MAX_TOKENS", "800"))  # keep output short to control cost (~$0.002/analysis with Haiku)
-_TIMEOUT = 55.0  # seconds — must be < Fly machine timeout (60s) to surface proper error
+_MAX_TOKENS = int(os.getenv("AI_MAX_TOKENS", "800"))
+_TIMEOUT = 55.0
+
+# Sweep model: Trinity via OpenRouter (4.5x cheaper than Haiku)
+_SWEEP_MODEL = os.getenv("SWEEP_AI_MODEL", "arcee-ai/trinity-large-thinking")
+_OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY") or os.getenv("ARCEE_API_KEY")
+_OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://api.arcee.ai/api/v1")
+
 _AI_CACHE_PREFIX = "ai:forensic-v2"
 _CONFIRMED_EVIDENCE_LEVELS = {EvidenceLevel.MODERATE.value, EvidenceLevel.STRONG.value}
 _CONFIRMED_RUG_MECHANISMS = {
@@ -73,6 +79,37 @@ def _get_client():
         raise RuntimeError("ANTHROPIC_API_KEY environment variable not set")
     _client = anthropic.AsyncAnthropic(api_key=api_key, timeout=_TIMEOUT)
     return _client
+
+
+# ── OpenRouter/Trinity client for sweep rescans (cheaper) ────────────────────
+
+_openrouter_client = None
+
+
+def _get_openrouter_client():
+    """Lazy-init OpenAI-compatible client for Trinity via OpenRouter/Arcee."""
+    global _openrouter_client
+    if _openrouter_client is not None:
+        return _openrouter_client
+    if not _OPENROUTER_API_KEY:
+        return None
+    try:
+        from openai import AsyncOpenAI  # noqa: PLC0415
+    except ImportError:
+        logger.warning("[ai_analyst] openai package not installed — Trinity unavailable")
+        return None
+    # Detect Arcee direct vs OpenRouter
+    if _OPENROUTER_API_KEY.startswith("rcai-"):
+        base_url = "https://api.arcee.ai/api/v1"
+    else:
+        base_url = "https://openrouter.ai/api/v1"
+    _openrouter_client = AsyncOpenAI(
+        base_url=base_url,
+        api_key=_OPENROUTER_API_KEY,
+        timeout=90.0,
+    )
+    logger.info("[ai_analyst] Trinity client initialized (base=%s)", base_url)
+    return _openrouter_client
 
 
 # ── System prompt (shortened: field-level docs moved to tool schema) ─────────
@@ -388,6 +425,54 @@ def _heuristic_score(
     return min(score, 100)
 
 
+async def _heuristic_fallback(
+    mint: str, lineage_result, bundle_report, sol_flow_report,
+    hscore: int, cache, cache_key: str,
+) -> Optional[dict]:
+    """Build a result from the heuristic score only (no LLM call)."""
+    from datetime import datetime, timezone
+
+    if hscore >= 75:
+        pattern, confidence = "classic_rug", "high"
+    elif hscore >= 50:
+        pattern, confidence = "pump_dump", "medium"
+    elif hscore >= 25:
+        pattern, confidence = "unknown", "low"
+    else:
+        pattern, confidence = "unknown", "low"
+
+    result = {
+        "mint": mint,
+        "risk_score": hscore,
+        "confidence": confidence,
+        "rug_pattern": pattern,
+        "verdict_summary": f"Heuristic analysis: {hscore}/100 risk score",
+        "narrative": {
+            "observation": "Analysis based on on-chain heuristics (bundle, SOL flow, deployer history).",
+            "pattern": f"Heuristic score {hscore}/100",
+            "risk": "high" if hscore >= 75 else "medium" if hscore >= 50 else "low",
+        },
+        "key_findings": [],
+        "conviction_chain": f"Heuristic-only analysis with score {hscore}/100.",
+        "model": "heuristic",
+        "analyzed_at": datetime.now(tz=timezone.utc).isoformat(),
+    }
+
+    # Cache the heuristic result too (avoids re-computation)
+    if cache and cache_key:
+        try:
+            from config import CACHE_TTL_AI_SECONDS
+            _cset = cache.set(cache_key, result, ttl=CACHE_TTL_AI_SECONDS)
+            import inspect
+            if inspect.isawaitable(_cset):
+                await _cset
+            logger.info("[ai_analyst] heuristic fallback cached for %s (score=%d)", mint[:12], hscore)
+        except Exception:
+            pass
+
+    return result
+
+
 # ── Public API ────────────────────────────────────────────────────────────────
 
 async def analyze_token(
@@ -397,6 +482,7 @@ async def analyze_token(
     sol_flow_report: Optional[Any] = None,
     cache: Optional[Any] = None,
     force_refresh: bool = False,
+    use_sweep_model: bool = False,
 ) -> Optional[dict]:
     """Generate an AI forensic analysis from available on-chain reports.
 
@@ -476,73 +562,127 @@ async def analyze_token(
                            deployer_history, behavioral_signals, heuristic_score=_hscore,
                            memory_brief=_memory_brief)
 
-    # ── Model selection: always Haiku to control costs ──────────────────────
-    # Sonnet is 15x more expensive and was burning ~$18/day on sweep rescans.
-    # Override via ANTHROPIC_MODEL env var if needed.
+    # ── Model routing ───────────────────────────────────────────────────────
+    # Sweep rescans → Trinity via OpenRouter (4.5x cheaper, fallback: heuristic)
+    # User investigations → Claude Haiku (tool_use, faster)
     _call_model = _MODEL
+    result = None
 
-    try:
-        client = _get_client()
-        for _attempt in range(3):  # up to 2 retries on transient errors (529, timeout, rate-limit)
+    if use_sweep_model:
+        or_client = _get_openrouter_client()
+        if or_client:
             try:
-                message = await client.messages.create(
-                    model=_call_model,
+                # Trinity doesn't support tool_choice — use JSON prompt
+                _trinity_system = _SYSTEM_PROMPT.replace(
+                    "After analysing the data, call the forensic_report tool with your findings.",
+                    "After analysing the data, respond with ONLY a JSON object (no markdown, no commentary) with these fields:\n"
+                    '  risk_score (int 0-100), confidence ("low"/"medium"/"high"),\n'
+                    '  rug_pattern (one of: "classic_rug","slow_rug","pump_dump","coordinated_bundle","factory_jito_bundle","serial_clone","insider_drain","unknown"),\n'
+                    '  verdict_summary (string, max 20 words),\n'
+                    '  narrative: {observation (string), pattern (string), risk (string)},\n'
+                    '  key_findings (array of 3-6 strings),\n'
+                    '  conviction_chain (string, 2-3 sentences)',
+                )
+                _trinity_model = _SWEEP_MODEL if _OPENROUTER_API_KEY.startswith("rcai-") else _SWEEP_MODEL
+                response = await or_client.chat.completions.create(
+                    model=_trinity_model,
                     max_tokens=_MAX_TOKENS,
                     temperature=0,
-                    system=_SYSTEM_PROMPT,
-                    tools=[_FORENSIC_TOOL],
-                    tool_choice={"type": "tool", "name": "forensic_report"},
-                    messages=[{"role": "user", "content": prompt}],
-                    timeout=_TIMEOUT,
+                    messages=[
+                        {"role": "system", "content": _trinity_system},
+                        {"role": "user", "content": prompt},
+                    ],
                 )
-                break
-            except Exception as _retry_exc:
-                _ename = type(_retry_exc).__name__
-                _retriable = (
-                    "RateLimit" in _ename
-                    or "Timeout" in _ename
-                    or "APIConnection" in _ename
-                    or ("InternalServer" in _ename and "overloaded" in str(_retry_exc).lower())
+                _call_model = _trinity_model
+                text_content = response.choices[0].message.content or ""
+                _usage = response.usage
+                logger.info(
+                    "[ai_analyst] %s | model=%s input_tokens=%d output_tokens=%d (Trinity/OpenRouter)",
+                    mint[:12], _trinity_model,
+                    _usage.prompt_tokens if _usage else 0,
+                    _usage.completion_tokens if _usage else 0,
                 )
-                if _attempt < 2 and _retriable:
-                    import asyncio as _asyncio
-                    _wait = (2 ** _attempt) * 3  # 3s, 6s
-                    logger.warning(
-                        "[ai_analyst] retry %d/2 after %s (%ds) for %s",
-                        _attempt + 1, _ename, _wait, mint[:12],
+                # Parse JSON from text response
+                result = _parse_response(text_content, mint)
+            except Exception as _trinity_exc:
+                logger.warning(
+                    "[ai_analyst] Trinity failed for %s: [%s] %s — falling back to heuristic",
+                    mint[:12], type(_trinity_exc).__name__, _trinity_exc,
+                )
+                # Fallback to heuristic — NOT Haiku
+                return _heuristic_fallback(mint, lineage_result, bundle_report, sol_flow_report, _hscore, cache, cache_key)
+        else:
+            # No OpenRouter key — fall back to heuristic
+            logger.debug("[ai_analyst] no OpenRouter key — using heuristic for sweep %s", mint[:12])
+            return _heuristic_fallback(mint, lineage_result, bundle_report, sol_flow_report, _hscore, cache, cache_key)
+
+    if result is None and not use_sweep_model:
+        # ── Anthropic/Haiku path (user investigations) ────────────────────────
+        try:
+            client = _get_client()
+            for _attempt in range(3):
+                try:
+                    message = await client.messages.create(
+                        model=_call_model,
+                        max_tokens=_MAX_TOKENS,
+                        temperature=0,
+                        system=_SYSTEM_PROMPT,
+                        tools=[_FORENSIC_TOOL],
+                        tool_choice={"type": "tool", "name": "forensic_report"},
+                        messages=[{"role": "user", "content": prompt}],
+                        timeout=_TIMEOUT,
                     )
-                    await _asyncio.sleep(_wait)
-                    continue
-                raise
-
-        # ── Extract result from tool_use content block ───────────────────────
-        result = None
-        for block in message.content:
-            if getattr(block, "type", None) == "tool_use" and getattr(block, "name", None) == "forensic_report":
-                result = block.input  # already a dict — guaranteed valid JSON by API
-                break
-
-        logger.info(
-            "[ai_analyst] %s | model=%s input_tokens=%d output_tokens=%d tool_use=%s",
-            mint[:12], _call_model,
-            message.usage.input_tokens, message.usage.output_tokens,
-            result is not None,
-        )
-
-        if result is None:
-            # Fallback: try text response (shouldn't happen with tool_choice forced)
-            raw = ""
-            for block in message.content:
-                if getattr(block, "type", None) == "text":
-                    raw = block.text
                     break
-            if raw:
-                logger.warning("[ai_analyst] no tool_use block, falling back to text parse for %s", mint[:12])
-                result = _parse_response(raw, mint)
-            else:
-                logger.error("[ai_analyst] no tool_use or text in response for %s, stop_reason=%s",
-                             mint[:12], getattr(message, "stop_reason", "unknown"))
-                return None
+                except Exception as _retry_exc:
+                    _ename = type(_retry_exc).__name__
+                    _retriable = (
+                        "RateLimit" in _ename
+                        or "Timeout" in _ename
+                        or "APIConnection" in _ename
+                        or ("InternalServer" in _ename and "overloaded" in str(_retry_exc).lower())
+                    )
+                    if _attempt < 2 and _retriable:
+                        import asyncio as _asyncio
+                        _wait = (2 ** _attempt) * 3
+                        logger.warning(
+                            "[ai_analyst] retry %d/2 after %s (%ds) for %s",
+                            _attempt + 1, _ename, _wait, mint[:12],
+                        )
+                        await _asyncio.sleep(_wait)
+                        continue
+                    raise
+
+            for block in message.content:
+                if getattr(block, "type", None) == "tool_use" and getattr(block, "name", None) == "forensic_report":
+                    result = block.input
+                    break
+
+            logger.info(
+                "[ai_analyst] %s | model=%s input_tokens=%d output_tokens=%d tool_use=%s",
+                mint[:12], _call_model,
+                message.usage.input_tokens, message.usage.output_tokens,
+                result is not None,
+            )
+
+            if result is None:
+                raw = ""
+                for block in message.content:
+                    if getattr(block, "type", None) == "text":
+                        raw = block.text
+                        break
+                if raw:
+                    result = _parse_response(raw, mint)
+                else:
+                    return None
+        except RuntimeError as exc:
+            logger.error("[ai_analyst] %s", exc)
+            return _heuristic_fallback(mint, lineage_result, bundle_report, sol_flow_report, _hscore, cache, cache_key)
+        except Exception as exc:
+            logger.exception("[ai_analyst] unexpected error for mint=%s", mint[:12])
+            return _heuristic_fallback(mint, lineage_result, bundle_report, sol_flow_report, _hscore, cache, cache_key)
+
+    if result is None:
+        return None
 
         ts = datetime.now(tz=timezone.utc).isoformat()
         result["mint"] = mint
@@ -582,31 +722,6 @@ async def analyze_token(
 
         return result
 
-    except RuntimeError as exc:
-        # Missing package or API key — fall through to rule-based
-        logger.error("[ai_analyst] %s", exc)
-    except Exception as exc:
-        exc_name = type(exc).__name__
-        if "RateLimit" in exc_name:
-            logger.warning("[ai_analyst] rate-limited for mint=%s", mint[:12])
-        elif "NotFound" in exc_name:
-            logger.error("[ai_analyst] model not found (%s) — set ANTHROPIC_MODEL env var. %s", _call_model, exc)
-        elif "APIConnection" in exc_name:
-            logger.error("[ai_analyst] connection error: %s", exc)
-        elif "APIStatus" in exc_name:
-            logger.error("[ai_analyst] API error: %s", exc)
-        else:
-            logger.exception("[ai_analyst] unexpected error for mint=%s", mint[:12])
-
-    # ── P3-B: rule-based fallback when Claude is unavailable ─────────────────
-    logger.info("[ai_analyst] falling back to rule-based scoring for %s", mint[:12])
-    fallback = _rule_based_fallback(mint, lineage_result, bundle_report, sol_flow_report)
-    if cache and fallback:
-        # Short TTL for fallback results — retry real analysis sooner
-        _cset = cache.set(cache_key, fallback, ttl=min(CACHE_TTL_AI_SECONDS, 60))
-        if inspect.isawaitable(_cset):
-            await _cset
-    return fallback
 
 
 # ── Prompt construction ───────────────────────────────────────────────────────
