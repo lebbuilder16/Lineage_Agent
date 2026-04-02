@@ -467,6 +467,15 @@ async def run_single_rescan(watch_id: int, user_id: int, cache) -> dict | None:
 
         mint = row[0]
 
+        # Skip native SOL and other non-token addresses that can't be analyzed
+        _SKIP_MINTS = {
+            "So11111111111111111111111111111111111111112",   # Wrapped SOL
+            "11111111111111111111111111111111",               # System Program
+        }
+        if mint in _SKIP_MINTS:
+            logger.debug("run_single_rescan skipping non-token mint %s (watch %d)", mint[:12], watch_id)
+            return None
+
         # Get reference snapshot (first-ever snapshot for this watch)
         cursor = await db.execute(
             "SELECT detail FROM sweep_flags WHERE watch_id = ? AND flag_type = '_REFERENCE' "
@@ -699,7 +708,10 @@ async def run_single_rescan(watch_id: int, user_id: int, cache) -> dict | None:
             "flags_count": len(flags),
         }
     except Exception as exc:
-        logger.warning("run_single_rescan failed for watch %d: %s", watch_id, exc)
+        logger.warning(
+            "run_single_rescan failed for watch %d: [%s] %s",
+            watch_id, type(exc).__name__, exc, exc_info=True,
+        )
         return None
 
 
