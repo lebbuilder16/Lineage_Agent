@@ -49,9 +49,6 @@ export async function purgeUserData(): Promise<void> {
   const { useInvestigateStore } = await import('../store/investigate');
   useInvestigateStore.getState().reset();
 
-  const { useAgentStore } = await import('../store/agent');
-  useAgentStore.getState().reset();
-
   const { useAgentPrefsStore } = await import('../store/agent-prefs');
   useAgentPrefsStore.setState({
     alertOnDeployerLaunch: true, alertOnHighRisk: true, autoInvestigate: false,

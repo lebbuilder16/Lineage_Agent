@@ -327,10 +327,6 @@ export default function RootLayout() {
               options={{ presentation: 'card', animation: 'slide_from_right' }}
             />
             <Stack.Screen
-              name="agent/[mint]"
-              options={{ headerShown: false, animation: 'slide_from_right' }}
-            />
-            <Stack.Screen
               name="investigate/[mint]"
               options={{ headerShown: false, animation: 'slide_from_right' }}
             />

@@ -1,5 +1,5 @@
 import { useInvestigateStore } from '../store/investigate';
-import type { AgentVerdict } from '../lib/agent-streaming';
+import type { AgentVerdict } from '../lib/investigate-streaming';
 
 // Mock AsyncStorage
 jest.mock('@react-native-async-storage/async-storage', () => ({

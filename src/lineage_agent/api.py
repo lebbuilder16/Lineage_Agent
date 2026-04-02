@@ -2455,10 +2455,20 @@ async def auth_admin_upgrade(request: Request):
 
 @app.get("/auth/me", tags=["auth"])
 async def auth_me(request: Request):
-    """Return current user info. Requires X-API-Key header."""
+    """Return current user info + daily usage counters. Requires X-API-Key header."""
     user = await _get_current_user(request)
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+    from .usage_service import get_usage  # noqa: PLC0415
+    uid = user["id"]
+    usage = {
+        "scans": await get_usage(_cache, uid, "scans"),
+        "ai_chat": await get_usage(_cache, uid, "ai_chat"),
+        "agent": await get_usage(_cache, uid, "agent"),
+        "investigate": await get_usage(_cache, uid, "investigate"),
+        "investigate_chat": await get_usage(_cache, uid, "investigate_chat"),
+    }
     return {
-        "id": user["id"],
+        "id": uid,
         "privy_id": user["privy_id"],
         "wallet_address": user["wallet_address"],
         "email": user["email"],
@@ -2467,6 +2477,7 @@ async def auth_me(request: Request):
         "display_name": user.get("display_name"),
         "avatar_url": user.get("avatar_url"),
         "created_at": user.get("created_at"),
+        "usage": usage,
     }
 
 

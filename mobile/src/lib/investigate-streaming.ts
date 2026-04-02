@@ -3,7 +3,6 @@
 // Superset of scan, agent, and verdict event types.
 
 import { createSSEParser } from './streaming';
-import type { AgentVerdict } from './agent-streaming';
 
 const BASE_URL = (
   process.env.EXPO_PUBLIC_API_URL ?? 'https://lineage-agent.fly.dev'
@@ -398,5 +397,15 @@ export function investigateChatStream(
   return () => { stopped = true; xhr.abort(); };
 }
 
-// Re-export AgentVerdict for convenience
-export type { AgentVerdict } from './agent-streaming';
+// ─── Shared verdict type ────────────────────────────────────────────────────
+
+export interface AgentVerdict {
+  risk_score: number;
+  confidence: 'low' | 'medium' | 'high';
+  rug_pattern: string;
+  verdict_summary: string;
+  narrative: { observation: string; pattern: string; risk: string };
+  key_findings: string[];
+  conviction_chain: string;
+  operator_hypothesis: string | null;
+}
