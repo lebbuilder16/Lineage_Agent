@@ -8,7 +8,7 @@
  */
 import { create } from 'zustand';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import type { AgentVerdict } from '../lib/agent-streaming';
+import type { AgentVerdict } from '../lib/investigate-streaming';
 import type { PlanTier } from '../lib/tier-limits';
 import type { ChatMessage } from '../lib/investigate-streaming';
 

@@ -19,8 +19,7 @@ import type {
 
 // Re-export streaming for callers that imported from this module
 export { analyzeStream, chatStream, connectAlertsWS, connectLineageWS } from './streaming';
-export { agentStream } from './agent-streaming';
-export type { AgentEvent, AgentDoneEvent, AgentVerdict } from './agent-streaming';
+export type { AgentVerdict } from './investigate-streaming';
 
 // search
 export async function searchTokens(q = '', offset = 0, limit = 20): Promise<TokenSearchResult[]> {
