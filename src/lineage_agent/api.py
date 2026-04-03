@@ -2618,17 +2618,43 @@ async def auth_add_watch(body: _WatchRequest, request: Request):
     """
     user = await _get_current_user(request)
     from .data_sources._clients import cache as _cache  # noqa: PLC0415
+    from .subscription_tiers import get_limits  # noqa: PLC0415
+    from .usage_service import get_usage, increment_usage  # noqa: PLC0415
+
+    plan = user.get("plan", "free")
+    limits = get_limits(plan)
+
+    # Enforce max watchlist size
+    current_watches = await get_user_watches(_cache, user["id"])
+    if len(current_watches) >= limits.max_watchlist:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Watchlist limit reached ({limits.max_watchlist} max for your plan)",
+        )
+
+    # Anti-abuse: daily add limit (prevents rotate-to-bypass)
+    _MAX_DAILY_ADDS = {"free": 2, "pro": 6, "elite": 12}
+    adds_today = await get_usage(_cache, user["id"], "watch_adds")
+    max_adds = _MAX_DAILY_ADDS.get(plan, 2)
+    if adds_today >= max_adds:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Daily watchlist add limit reached ({max_adds}/day)",
+        )
+
     watch = await add_user_watch(_cache, user["id"], body.sub_type, body.value)
     if watch is None:
         raise HTTPException(status_code=409, detail="Watch already exists")
 
-    # Trigger immediate background scan for mint watches (creates _REFERENCE + first snapshot)
+    await increment_usage(_cache, user["id"], "watch_adds")
+
+    # Trigger immediate background scan for mint watches
     if body.sub_type == "mint" and watch.get("id"):
         async def _initial_scan():
             try:
                 from .watchlist_monitor_service import run_single_rescan
                 await asyncio.wait_for(
-                    run_single_rescan(watch["id"], user["id"], _cache),
+                    run_single_rescan(watch["id"], user["id"], _cache, plan=plan),
                     timeout=30.0,
                 )
                 logger.info("[watch] initial scan completed for %s", body.value[:12])
@@ -2639,7 +2665,7 @@ async def auth_add_watch(body: _WatchRequest, request: Request):
     # Create OpenClaw cron for this watch (server-managed)
     from .cron_manager import ensure_watch_cron  # noqa: PLC0415
     asyncio.create_task(
-        ensure_watch_cron(_cache, user["id"], watch),
+        ensure_watch_cron(_cache, user["id"], watch, plan=plan),
         name=f"cron_create_{watch.get('id', '')}",
     )
 
@@ -5081,9 +5107,11 @@ async def _watchlist_sweep_loop():
             rdb = await _cache._get_read_conn() if hasattr(_cache, '_get_read_conn') else await _cache._get_conn()
             cursor = await rdb.execute(
                 "SELECT uw.id, uw.user_id, uw.value, "
-                "COALESCE(ap.sweep_interval, 2700) as sweep_interval "
+                "COALESCE(ap.sweep_interval, 2700) as sweep_interval, "
+                "COALESCE(u.plan, 'free') as plan "
                 "FROM user_watches uw "
                 "LEFT JOIN agent_prefs ap ON uw.user_id = ap.user_id "
+                "LEFT JOIN users u ON uw.user_id = u.id "
                 "WHERE uw.sub_type = 'mint'"
             )
             watches = await cursor.fetchall()
@@ -5103,7 +5131,7 @@ async def _watchlist_sweep_loop():
 
             # Filter: only sweep users whose last sweep was > sweep_interval ago
             now = time.time()
-            for _wi, (watch_id, user_id, _mint_val, user_sweep_interval) in enumerate(watches):
+            for _wi, (watch_id, user_id, _mint_val, user_sweep_interval, user_plan) in enumerate(watches):
                 if watch_id in _cron_managed:
                     continue  # managed by OpenClaw cron — skip
                 # Check last sweep for this specific watch
@@ -5118,7 +5146,7 @@ async def _watchlist_sweep_loop():
                 if _wi > 0:
                     await asyncio.sleep(15)  # stagger rescans — 15s avoids RPC saturation
                 try:
-                    result = await run_single_rescan(watch_id, user_id, _cache)
+                    result = await run_single_rescan(watch_id, user_id, _cache, plan=user_plan)
                     if not result:
                         continue
 

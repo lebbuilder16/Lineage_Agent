@@ -196,47 +196,62 @@ def _generate_flags(old: dict, new: dict, mint: str, *, ref: Optional[dict] = No
                "still_holding": new.get("bundle_holders", 0)},
               exits=new_bundle_exits, holding=new.get("bundle_holders", 0))
     elif new_bundle_exits > 0 and new.get("bundle_holders", 0) == 0:
-        _flag("BUNDLE_WALLETS_ALL_EXITED", "critical",
-              {"total_exits": new_bundle_exits})
+        # Only flag if bundles were NOT all exited at last scan
+        old_holders = old.get("bundle_holders")
+        old_exits = old.get("bundle_exits_new", 0) or 0
+        old_all_exited = old_exits > 0 and old_holders == 0
+        if not old_all_exited:
+            _flag("BUNDLE_WALLETS_ALL_EXITED", "critical",
+                  {"total_exits": new_bundle_exits})
 
     # ── Cross-signal intelligence ─────────────────────────────────────
+    # These only fire when the combination is NEW (not present in old snapshot)
     deployer_exited = new.get("deployer_exited", False)
+    old_deployer_exited = old.get("deployer_exited", False)
     bundle_wallets = new.get("bundle_wallets", 0) or 0
     bundle_holders = new.get("bundle_holders", 0)
     bundle_all_exited = (new.get("bundle_exits_new", 0) or 0) > 0 and bundle_holders == 0
+    old_bundle_all_exited = (old.get("bundle_exits_new", 0) or 0) > 0 and (old.get("bundle_holders", 0)) == 0
     cartel_wallets = new.get("cartel_wallets", 0) or 0
     sol_extracted = new.get("sol_extracted", 0) or 0
     insider_dump = new.get("insider_verdict") == "insider_dump"
+    old_insider_dump = old.get("insider_verdict") == "insider_dump"
     rug_count = new.get("rug_count", 0) or 0
     price_pct = 0.0
     if ref and ref.get("price_usd") and new.get("price_usd") and ref["price_usd"] > 0:
         price_pct = ((new["price_usd"] - ref["price_usd"]) / ref["price_usd"]) * 100
 
-    if deployer_exited and bundle_wallets > 0 and not bundle_all_exited:
+    # Cross-signals only fire when the combination JUST became true
+    # (deployer just exited, or bundles just all exited, etc.)
+    _deployer_just_exited = deployer_exited and not old_deployer_exited
+    _bundle_just_all_exited = bundle_all_exited and not old_bundle_all_exited
+    _insider_just_dumped = insider_dump and not old_insider_dump
+
+    if _deployer_just_exited and bundle_wallets > 0 and not bundle_all_exited:
         _flag("CROSS_DEPLOYER_EXIT_BUNDLE_ACTIVE", "critical",
               {"deployer_exited": True, "bundle_wallets_remaining": bundle_wallets},
               bundle=bundle_wallets)
 
-    if deployer_exited and cartel_wallets > 0:
+    if _deployer_just_exited and cartel_wallets > 0:
         _flag("CROSS_DEPLOYER_EXIT_CARTEL_ACTIVE", "critical",
               {"deployer_exited": True, "cartel_wallets": cartel_wallets},
               cartel=cartel_wallets)
 
-    if deployer_exited and sol_extracted > 5 and price_pct < -40:
+    if _deployer_just_exited and sol_extracted > 5 and price_pct < -40:
         _flag("CROSS_RUG_PATTERN", "critical",
               {"sol_extracted": sol_extracted, "price_drop_pct": round(price_pct, 1)},
               sol=sol_extracted, pct=price_pct)
 
-    if bundle_all_exited and insider_dump:
+    if _bundle_just_all_exited and insider_dump:
         _flag("CROSS_COORDINATED_EXTRACTION", "critical",
               {"insider_dump": True, "bundle_all_exited": True})
 
-    if cartel_wallets > 10 and rug_count > 1:
+    if cartel_wallets > 10 and rug_count > (old.get("rug_count", 0) or 0):
         _flag("CROSS_SERIAL_SCAM_RING", "critical",
               {"cartel_wallets": cartel_wallets, "rug_count": rug_count},
               cartel=cartel_wallets, rugs=rug_count)
 
-    if sol_extracted > 10 and bundle_all_exited:
+    if _bundle_just_all_exited and sol_extracted > 10:
         _flag("CROSS_EXTRACTION_AND_EXIT", "critical",
               {"sol_extracted": sol_extracted, "bundle_all_exited": True},
               sol=sol_extracted)
@@ -254,36 +269,51 @@ def _generate_flags(old: dict, new: dict, mint: str, *, ref: Optional[dict] = No
         })
 
     # ── Cumulative deterioration (vs reference snapshot) ──────────────
+    # Tiered thresholds: only fire when a NEW tier is crossed (-30%, -50%, -70%, -90%)
+    # so the same flag doesn't repeat every scan while the price stays flat.
     if ref:
         ref_price = ref.get("price_usd") or 0
         new_price = new.get("price_usd") or 0
+        old_price = old.get("price_usd") or 0
         ref_liq = ref.get("liq_usd") or 0
         new_liq = new.get("liq_usd") or 0
+        old_liq = old.get("liq_usd") or 0
 
-        # Cumulative price crash since first watched
-        if ref_price > 0 and new_price > 0:
-            cum_pct = (new_price - ref_price) / ref_price * 100
-            if cum_pct <= -50:
+        def _crossed_tier(ref_val, old_val, new_val, tiers=(-30, -50, -70, -90)):
+            """Return the newly crossed tier, or None if no new tier was crossed."""
+            if ref_val <= 0:
+                return None
+            new_pct = (new_val - ref_val) / ref_val * 100
+            old_pct = (old_val - ref_val) / ref_val * 100 if old_val else 0
+            for t in tiers:
+                if new_pct <= t and old_pct > t:
+                    return new_pct
+            return None
+
+        # Cumulative price crash — only when crossing a new tier
+        price_tier = _crossed_tier(ref_price, old_price, new_price)
+        if price_tier is not None:
+            if price_tier <= -50:
                 _flag("CUMULATIVE_PRICE_CRASH", "critical",
-                      {"ref_price": ref_price, "now_price": new_price, "pct": round(cum_pct, 1)},
-                      pct=cum_pct, ref=ref_price, now=new_price)
-            elif cum_pct <= -30:
+                      {"ref_price": ref_price, "now_price": new_price, "pct": round(price_tier, 1)},
+                      pct=price_tier, ref=ref_price, now=new_price)
+            else:
                 _flag("CUMULATIVE_PRICE_DECLINE", "warning",
-                      {"ref_price": ref_price, "now_price": new_price, "pct": round(cum_pct, 1)},
-                      pct=cum_pct)
+                      {"ref_price": ref_price, "now_price": new_price, "pct": round(price_tier, 1)},
+                      pct=price_tier)
 
-        # Cumulative liquidity drain
-        if ref_liq > 0 and new_liq > 0:
-            liq_pct = (new_liq - ref_liq) / ref_liq * 100
-            if liq_pct <= -50:
-                _flag("CUMULATIVE_LIQ_DRAIN", "critical",
-                      {"ref_liq": ref_liq, "now_liq": new_liq, "pct": round(liq_pct, 1)},
-                      pct=liq_pct)
+        # Cumulative liquidity drain — same tiered approach
+        liq_tier = _crossed_tier(ref_liq, old_liq, new_liq)
+        if liq_tier is not None and liq_tier <= -50:
+            _flag("CUMULATIVE_LIQ_DRAIN", "critical",
+                  {"ref_liq": ref_liq, "now_liq": new_liq, "pct": round(liq_tier, 1)},
+                  pct=liq_tier)
 
-        # Forensic deterioration since reference
+        # Forensic deterioration since reference — only if SOL extraction INCREASED since last scan
         ref_sol = ref.get("sol_extracted") or 0
+        old_sol_total = old.get("sol_extracted") or 0
         new_sol_total = new.get("sol_extracted") or 0
-        if new_sol_total > ref_sol + 20:
+        if new_sol_total > ref_sol + 20 and new_sol_total > old_sol_total:
             delta_sol = new_sol_total - ref_sol
             _flag("CUMULATIVE_SOL_EXTRACTION", "critical",
                   {"ref_sol": ref_sol, "now_sol": new_sol_total},
@@ -500,11 +530,11 @@ async def _check_bundle_wallet_balances(mint: str, lin: Any) -> dict | None:
 
 # ── Main rescan function ─────────────────────────────────────────────────────
 
-async def run_single_rescan(watch_id: int, user_id: int, cache, *, skip_ai: bool = False) -> dict | None:
+async def run_single_rescan(watch_id: int, user_id: int, cache, *, skip_ai: bool = False, plan: str = "free") -> dict | None:
     """Rescan a single watch, generate flags, return result.
 
-    *skip_ai*: When True, passes skip_forensic_enrichment=True to detect_lineage,
-    which skips the expensive AI analyst call. Used by the pulse loop to save costs.
+    *skip_ai*: When True, skips forensic enrichment entirely (pulse loop).
+    *plan*: User plan — Elite gets AI analysis (Trinity), others get heuristic.
 
     Returns {mint, old_risk, new_risk, escalated, flags_count} or None on failure.
     """
@@ -560,9 +590,11 @@ async def run_single_rescan(watch_id: int, user_id: int, cache, *, skip_ai: bool
         # and _check_bundle_wallet_balances (live balance check), not from
         # re-running the full pipeline every 45 min.  force_refresh=True is
         # only needed on user-initiated manual rescans.
+        # Free/Pro = heuristic only (skip AI), Elite = Trinity AI via write-through
+        _skip_enrichment = skip_ai or (plan != "elite")
         from .lineage_detector import detect_lineage
         lin = await asyncio.wait_for(
-            detect_lineage(mint, force_refresh=False, skip_forensic_enrichment=skip_ai),
+            detect_lineage(mint, force_refresh=False, skip_forensic_enrichment=_skip_enrichment),
             timeout=90.0,
         )
 
@@ -637,6 +669,16 @@ async def run_single_rescan(watch_id: int, user_id: int, cache, *, skip_ai: bool
             if _image:
                 detail_dict["image_uri"] = _image
             flag["detail"] = json.dumps(detail_dict, default=str)
+
+        # Deduplicate: skip flags of the same type created in the last hour
+        _dedup_window = 3600  # 1 hour
+        _recent_cursor = await db.execute(
+            "SELECT DISTINCT flag_type FROM sweep_flags "
+            "WHERE watch_id = ? AND created_at > ? AND flag_type NOT LIKE ?",
+            (watch_id, now - _dedup_window, "_%"),
+        )
+        _recent_types = {r[0] for r in await _recent_cursor.fetchall()}
+        flags = [f for f in flags if f["flag_type"] not in _recent_types]
 
         # Store flags + new forensic snapshot
         for _attempt in range(3):

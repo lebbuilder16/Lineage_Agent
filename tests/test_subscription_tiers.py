@@ -70,10 +70,10 @@ class TestFreeTierRestrictions:
 
     def test_free_tier_restrictions(self) -> None:
         free = TIER_LIMITS[PlanTier.FREE]
-        assert free.scans_per_day == 10
+        assert free.scans_per_day == 3
         assert free.history_days == 7
         assert free.has_ai_chat is False
-        assert free.max_watchlist == 3
+        assert free.max_watchlist == 1
         assert free.max_briefings == 0
         assert free.alert_channels == ["in_app"]
         assert free.has_sol_flow is False
@@ -100,12 +100,12 @@ class TestProTier:
 
     def test_pro_limits(self) -> None:
         pro = TIER_LIMITS[PlanTier.PRO]
-        assert pro.scans_per_day == 50
+        assert pro.scans_per_day == 15
         assert pro.history_days == 90
         assert pro.has_ai_chat is True
         assert pro.ai_chat_model == "haiku"
-        assert pro.ai_chat_daily_limit == 30
-        assert pro.max_watchlist == 25
+        assert pro.ai_chat_daily_limit == 10
+        assert pro.max_watchlist == 3
         assert pro.max_briefings == 1
         assert pro.has_sol_flow is True
         assert pro.has_bundle_tracker is True
@@ -126,12 +126,12 @@ class TestEliteHasEverything:
 
     def test_elite_has_everything(self) -> None:
         elite = TIER_LIMITS[PlanTier.ELITE]
-        assert elite.scans_per_day == 100
+        assert elite.scans_per_day == 50
         assert elite.history_days == 365
         assert elite.has_ai_chat is True
         assert elite.ai_chat_model == "haiku"
-        assert elite.ai_chat_daily_limit == 60
-        assert elite.max_watchlist == 100
+        assert elite.ai_chat_daily_limit == 40
+        assert elite.max_watchlist == 4
         assert elite.max_briefings == 3
         assert "telegram" in elite.alert_channels
         assert "discord" in elite.alert_channels
@@ -143,11 +143,11 @@ class TestEliteHasEverything:
         assert elite.has_operator_impact is True
         assert elite.has_compare is True
         assert elite.has_export is True
-        assert elite.batch_scan_max == 25
+        assert elite.batch_scan_max == 10
         assert elite.has_api_access is True
         assert elite.death_clock_full is True
         assert elite.has_agent is True
         assert elite.agent_daily_limit == 12
         assert elite.has_ai_verdict is True
-        assert elite.investigate_daily_limit == 100
-        assert elite.investigate_chat_daily_limit == 60
+        assert elite.investigate_daily_limit == 50
+        assert elite.investigate_chat_daily_limit == 40
