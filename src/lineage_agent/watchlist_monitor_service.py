@@ -593,10 +593,14 @@ async def run_single_rescan(watch_id: int, user_id: int, cache, *, skip_ai: bool
         # Free/Pro = heuristic only (skip AI), Elite = Trinity AI via write-through
         _skip_enrichment = skip_ai or (plan != "elite")
         from .lineage_detector import detect_lineage
-        lin = await asyncio.wait_for(
-            detect_lineage(mint, force_refresh=False, skip_forensic_enrichment=_skip_enrichment),
-            timeout=90.0,
-        )
+        try:
+            lin = await asyncio.wait_for(
+                detect_lineage(mint, force_refresh=False, skip_forensic_enrichment=_skip_enrichment),
+                timeout=90.0,
+            )
+        except asyncio.TimeoutError:
+            logger.warning("[sweep] detect_lineage timed out for %s (watch %d) — skipping", mint[:12], watch_id)
+            return None
 
         # Extract new forensic snapshot
         new_forensic = _extract_forensic_snapshot(lin)
@@ -766,8 +770,8 @@ async def run_single_rescan(watch_id: int, user_id: int, cache, *, skip_ai: bool
                         ),
                         name=f"sweep_push_{mint[:8]}",
                     )
-            except Exception:
-                pass  # best-effort, never block sweep
+            except Exception as _push_exc:
+                logger.warning("[sweep] push notification failed for %s: %s", mint[:12], _push_exc)
 
         # Record memory episode from sweep (enriches agent memory passively)
         try:

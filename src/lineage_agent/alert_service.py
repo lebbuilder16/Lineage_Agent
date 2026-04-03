@@ -18,6 +18,7 @@ When a match is found, the service:
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import re
@@ -269,8 +270,8 @@ async def _enqueue_failed_push(fcm_token: str, title: str, body: str, data: dict
             (fcm_token, title, body, json.dumps(data, default=str), time.time()),
         )
         await db.commit()
-    except Exception:
-        pass  # never block on retry queue failure
+    except Exception as exc:
+        logger.warning("[FCM] enqueue retry failed: %s", exc)
 
 
 async def retry_pending_notifications() -> int:

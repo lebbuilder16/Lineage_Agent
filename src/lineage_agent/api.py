@@ -5194,7 +5194,7 @@ async def _watchlist_sweep_loop():
                                     "read": False,
                                 }, user_id=user_id)
                                 # Direct FCM push to this user (even if not a mint watcher)
-                                _user_cursor = await db.execute(
+                                _user_cursor = await rdb.execute(
                                     "SELECT fcm_token FROM users WHERE id = ? AND fcm_token IS NOT NULL",
                                     (user_id,),
                                 )
@@ -5211,12 +5211,12 @@ async def _watchlist_sweep_loop():
                                             "urgency": "high" if flag["severity"] == "critical" else "normal",
                                         },
                                     ))
-                            except Exception:
-                                pass
+                            except Exception as _bcast_exc:
+                                logger.warning("[sweep] flag broadcast failed for watch %d: %s", watch_id, _bcast_exc)
 
                     if result.get("escalated"):
                         # Auto-investigate if user enabled it
-                        cursor2 = await db.execute(
+                        cursor2 = await rdb.execute(
                             "SELECT auto_investigate FROM agent_prefs WHERE user_id = ?",
                             (user_id,),
                         )

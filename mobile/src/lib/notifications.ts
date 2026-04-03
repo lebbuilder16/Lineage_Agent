@@ -33,6 +33,13 @@ export function setupNotificationResponseHandler(): Notifications.Subscription {
         useHistoryStore.getState().catchUp();
       }).catch((e) => console.warn('[notifications] catchUp after investigation_complete failed', e));
     }
+
+    if (data.type === 'sweep_flag' && data.mint) {
+      // Deep link to investigate screen for the flagged token
+      import('expo-router').then(({ router }) => {
+        router.push(`/investigate/${data.mint}`);
+      }).catch((e) => console.warn('[notifications] deep link to investigate failed', e));
+    }
   });
 }
 
