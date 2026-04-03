@@ -28,6 +28,9 @@ logger = logging.getLogger(__name__)
 _MODEL = os.getenv("ANTHROPIC_MODEL", "claude-haiku-4-5")
 _MODEL_SONNET = os.getenv("ANTHROPIC_MODEL_SONNET", "claude-sonnet-4-6")
 _MAX_TOKENS = int(os.getenv("AI_MAX_TOKENS", "800"))
+# Trinity-thinking uses reasoning tokens from the same budget —
+# needs a much higher ceiling so the actual JSON output isn't truncated.
+_MAX_TOKENS_TRINITY = int(os.getenv("AI_MAX_TOKENS_TRINITY", "4096"))
 _TIMEOUT = 55.0
 
 # Sweep model: Trinity via OpenRouter (4.5x cheaper than Haiku)
@@ -586,7 +589,7 @@ async def analyze_token(
                 _trinity_model = "trinity-large-thinking" if _OPENROUTER_API_KEY.startswith("rcai-") else _SWEEP_MODEL
                 response = await or_client.chat.completions.create(
                     model=_trinity_model,
-                    max_tokens=_MAX_TOKENS,
+                    max_tokens=_MAX_TOKENS_TRINITY,
                     temperature=0,
                     messages=[
                         {"role": "system", "content": _trinity_system},
@@ -594,14 +597,29 @@ async def analyze_token(
                     ],
                 )
                 _call_model = _trinity_model
-                text_content = response.choices[0].message.content or ""
+                _msg = response.choices[0].message
+                text_content = _msg.content or ""
+                # Trinity-thinking may put everything in reasoning_content
+                # and leave content empty (especially on length truncation).
+                if not text_content:
+                    _rc = getattr(_msg, "reasoning_content", None) or ""
+                    if not _rc:
+                        # Also check provider_specific_fields
+                        _psf = getattr(_msg, "provider_specific_fields", None) or {}
+                        _rc = _psf.get("reasoning_content", "")
+                    if _rc:
+                        text_content = _rc
                 _usage = response.usage
+                _finish = response.choices[0].finish_reason or ""
                 logger.info(
-                    "[ai_analyst] %s | model=%s input_tokens=%d output_tokens=%d (Trinity/OpenRouter)",
+                    "[ai_analyst] %s | model=%s input_tokens=%d output_tokens=%d finish=%s (Trinity)",
                     mint[:12], _trinity_model,
                     _usage.prompt_tokens if _usage else 0,
                     _usage.completion_tokens if _usage else 0,
+                    _finish,
                 )
+                if _finish == "length" and not text_content.strip():
+                    logger.warning("[ai_analyst] Trinity response truncated with no content for %s", mint[:12])
                 # Parse JSON from text response
                 result = _parse_response(text_content, mint)
             except Exception as _trinity_exc:
