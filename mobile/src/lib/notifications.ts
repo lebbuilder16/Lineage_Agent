@@ -90,7 +90,7 @@ export function scheduleLocalAlert(title: string, body: string) {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const _DEDUP_KEY = 'lineage-alert-dedup';
-const COOLDOWN_MS = 4 * 60 * 60 * 1000; // 4 hours per token+signal (was 1h → too aggressive)
+const COOLDOWN_MS = 1 * 60 * 60 * 1000; // 1 hour per token+signal
 let _notifiedAt: Record<string, number> = {};
 let _dedupLoaded = false;
 

@@ -247,13 +247,46 @@ async def _send_fcm_push(fcm_token: str, title: str, body: str, data: dict) -> b
         )
         if resp.status_code == 200:
             return True
-        logger.debug("[FCM] Push failed (%s): %s", resp.status_code, resp.text[:200])
+        logger.warning("[FCM] Push failed (%s): %s", resp.status_code, resp.text[:200])
+        # Handle specific FCM error codes
+        if resp.status_code in (400, 404):
+            # 400 InvalidArgument / 404 NotFound → token is dead, clear it
+            logger.info("[FCM] Clearing dead token %s... (HTTP %d)", fcm_token[:20], resp.status_code)
+            asyncio.create_task(_clear_dead_fcm_token(fcm_token))
+            return False
+        if resp.status_code == 429:
+            # Rate limited — don't enqueue immediately, let retry handle it later
+            logger.info("[FCM] Rate limited — will retry via pending queue")
+        # 401/403/5xx → transient, enqueue for retry
         asyncio.create_task(_enqueue_failed_push(fcm_token, title, body, data))
         return False
     except Exception as exc:
         logger.debug("[FCM] Push error: %s", exc)
         asyncio.create_task(_enqueue_failed_push(fcm_token, title, body, data))
         return False
+
+
+async def _clear_dead_fcm_token(fcm_token: str) -> None:
+    """Remove a dead/invalid FCM token from the users table."""
+    try:
+        from .data_sources._clients import cache as _cache
+        from .cache import SQLiteCache
+        if not isinstance(_cache, SQLiteCache):
+            return
+        db = await _cache._get_conn()
+        await db.execute(
+            "UPDATE users SET fcm_token = NULL WHERE fcm_token = ?",
+            (fcm_token,),
+        )
+        # Also purge any pending retries for this dead token
+        await db.execute(
+            "DELETE FROM pending_notifications WHERE fcm_token = ?",
+            (fcm_token,),
+        )
+        await db.commit()
+        logger.info("[FCM] Dead token cleared: %s...", fcm_token[:20])
+    except Exception as exc:
+        logger.warning("[FCM] Failed to clear dead token: %s", exc)
 
 
 async def _enqueue_failed_push(fcm_token: str, title: str, body: str, data: dict) -> None:

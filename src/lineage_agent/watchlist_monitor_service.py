@@ -528,6 +528,90 @@ async def _check_bundle_wallet_balances(mint: str, lin: Any) -> dict | None:
     }
 
 
+# ── Deployer watch rescan ────────────────────────────────────────────────────
+
+async def _rescan_deployer_watch(
+    watch_id: int, user_id: int, deployer: str, cache,
+) -> dict | None:
+    """Check if a watched deployer launched new tokens since last check."""
+    try:
+        db = await cache._get_conn()
+        # Get last check timestamp
+        cursor = await db.execute(
+            "SELECT MAX(scanned_at) FROM watch_snapshots WHERE watch_id = ?",
+            (watch_id,),
+        )
+        row = await cursor.fetchone()
+        last_check = row[0] if row and row[0] else 0
+
+        # Query intelligence_events for new tokens by this deployer
+        from .data_sources._clients import event_query
+        new_tokens = await event_query(
+            where="deployer = ? AND recorded_at > ?",
+            params=(deployer, last_check),
+            columns="mint,name,symbol,mcap_usd,recorded_at",
+            limit=10,
+        )
+
+        # Store snapshot
+        now = time.time()
+        await db.execute(
+            "INSERT INTO watch_snapshots (watch_id, mint, risk_level, risk_score, scanned_at) "
+            "VALUES (?, ?, 'unknown', 0, ?)",
+            (watch_id, deployer, now),
+        )
+
+        if not new_tokens:
+            await db.commit()
+            return None
+
+        # Generate flags for each new token
+        flags = []
+        for token in new_tokens:
+            name = token.get("name", "Unknown")
+            symbol = token.get("symbol", "?")
+            mint_addr = token.get("mint", "")
+            flags.append({
+                "flag_type": "DEPLOYER_NEW_TOKEN",
+                "severity": "warning",
+                "title": f"Deployer launched new token: {name} ({symbol})",
+                "detail": json.dumps({
+                    "deployer": deployer,
+                    "mint": mint_addr,
+                    "name": name,
+                    "symbol": symbol,
+                    "mcap_usd": token.get("mcap_usd"),
+                }, default=str),
+            })
+
+        # Store flags
+        for flag in flags:
+            await db.execute(
+                "INSERT INTO sweep_flags "
+                "(watch_id, mint, user_id, flag_type, severity, title, detail, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (watch_id, deployer, user_id, flag["flag_type"], flag["severity"],
+                 flag["title"], flag["detail"], now),
+            )
+        await db.commit()
+
+        if flags:
+            logger.info("[sweep] deployer %s: %d new token(s) detected", deployer[:12], len(flags))
+
+        return {
+            "mint": deployer,
+            "old_risk": "unknown",
+            "new_risk": "unknown",
+            "new_score": 0,
+            "escalated": False,
+            "flags_count": len(flags),
+            "flags": flags,
+        }
+    except Exception as exc:
+        logger.warning("[sweep] deployer watch %d failed: %s", watch_id, exc)
+        return None
+
+
 # ── Main rescan function ─────────────────────────────────────────────────────
 
 async def run_single_rescan(watch_id: int, user_id: int, cache, *, skip_ai: bool = False, plan: str = "free") -> dict | None:
@@ -541,13 +625,22 @@ async def run_single_rescan(watch_id: int, user_id: int, cache, *, skip_ai: bool
     try:
         db = await cache._get_conn()
         cursor = await db.execute(
-            "SELECT value FROM user_watches WHERE id = ?", (watch_id,)
+            "SELECT value, sub_type FROM user_watches WHERE id = ?", (watch_id,)
         )
         row = await cursor.fetchone()
         if not row:
             return None
 
-        mint = row[0]
+        watch_value = row[0]
+        sub_type = row[1] if len(row) > 1 else "mint"
+
+        # Deployer watches: check for new tokens launched by this deployer
+        if sub_type == "deployer":
+            return await _rescan_deployer_watch(
+                watch_id, user_id, watch_value, cache,
+            )
+
+        mint = watch_value
 
         # Skip native SOL and other non-token addresses that can't be analyzed
         _SKIP_MINTS = {

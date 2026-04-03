@@ -27,6 +27,7 @@ export const FLAG_LABELS: Record<string, string> = {
   CUMULATIVE_LIQ_DRAIN: 'Liquidity drained (cumul.)',
   CUMULATIVE_SOL_EXTRACTION: 'SOL extracted (cumul.)',
   INITIAL_ASSESSMENT: 'Initial assessment',
+  DEPLOYER_NEW_TOKEN: 'Deployer launched token',
 };
 
 /** Critical flag types that use red styling */

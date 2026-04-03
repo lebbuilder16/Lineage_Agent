@@ -4172,7 +4172,9 @@ async def get_sweep_flags(
         balanced.sort(key=lambda f: f["createdAt"], reverse=True)
         flags = balanced[:limit]
 
-    return {"flags": flags}
+    # Signal to client whether more flags exist beyond current page
+    _has_more = len(flags) >= limit
+    return {"flags": flags, "has_more": _has_more}
 
 
 @app.post("/agent/flags/{flag_id}/read", tags=["agent"])
@@ -5129,7 +5131,7 @@ async def _watchlist_sweep_loop():
                 "FROM user_watches uw "
                 "LEFT JOIN agent_prefs ap ON uw.user_id = ap.user_id "
                 "LEFT JOIN users u ON uw.user_id = u.id "
-                "WHERE uw.sub_type = 'mint'"
+                "WHERE uw.sub_type IN ('mint', 'deployer')"
             )
             watches = await cursor.fetchall()
 
