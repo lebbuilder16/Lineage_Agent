@@ -647,7 +647,37 @@ async def run_single_rescan(watch_id: int, user_id: int, cache, *, skip_ai: bool
             new_forensic["bundle_exit_wallets"] = bundle_activity["exit_wallets"]
 
         # Generate intelligence flags (with reference for cumulative detection)
-        flags = _generate_flags(old_forensic, new_forensic, mint, ref=ref_forensic)
+        # On the FIRST scan (no previous snapshot), every signal looks "new" because
+        # old_forensic is empty — generating a flood of redundant flags that all
+        # describe the same initial state.  Instead, store the baseline quietly and
+        # emit a single consolidated "initial assessment" flag.
+        _is_first_scan = not prev_snap_row
+        if _is_first_scan:
+            flags = []
+            # Single summary flag so the user knows the baseline
+            from .flag_templates import render_flag
+            _summary_parts = []
+            if new_forensic.get("sol_extracted", 0) > 0:
+                _summary_parts.append(f"{new_forensic['sol_extracted']:.1f} SOL extracted")
+            if new_forensic.get("cartel_wallets", 0) > 0:
+                _summary_parts.append(f"{new_forensic['cartel_wallets']} cartel wallets")
+            if new_forensic.get("bundle_wallets", 0) > 0:
+                _summary_parts.append(f"{new_forensic['bundle_wallets']} bundle wallets")
+            if new_forensic.get("deployer_exited"):
+                _summary_parts.append("deployer exited")
+            _risk_label = new_forensic.get("risk_level", "unknown")
+            _sev = "critical" if _risk_label in ("critical", "high") else "warning" if _risk_label == "medium" else "info"
+            _title = f"Initial scan: {_risk_label} risk"
+            if _summary_parts:
+                _title += " — " + ", ".join(_summary_parts)
+            flags.append({
+                "flag_type": "INITIAL_ASSESSMENT",
+                "severity": _sev,
+                "title": _title,
+                "detail": json.dumps({"snapshot": new_forensic, "risk_score": new_score}, default=str),
+            })
+        else:
+            flags = _generate_flags(old_forensic, new_forensic, mint, ref=ref_forensic)
         now = time.time()
 
         # Enrich flag details with token name/symbol for mobile display

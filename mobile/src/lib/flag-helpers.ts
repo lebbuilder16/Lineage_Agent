@@ -26,6 +26,7 @@ export const FLAG_LABELS: Record<string, string> = {
   CUMULATIVE_PRICE_DECLINE: 'Price decline (cumul.)',
   CUMULATIVE_LIQ_DRAIN: 'Liquidity drained (cumul.)',
   CUMULATIVE_SOL_EXTRACTION: 'SOL extracted (cumul.)',
+  INITIAL_ASSESSMENT: 'Initial assessment',
 };
 
 /** Critical flag types that use red styling */
