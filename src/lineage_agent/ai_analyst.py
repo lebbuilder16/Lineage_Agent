@@ -583,7 +583,7 @@ async def analyze_token(
                     '  key_findings (array of 3-6 strings),\n'
                     '  conviction_chain (string, 2-3 sentences)',
                 )
-                _trinity_model = _SWEEP_MODEL if _OPENROUTER_API_KEY.startswith("rcai-") else _SWEEP_MODEL
+                _trinity_model = "trinity-large-thinking" if _OPENROUTER_API_KEY.startswith("rcai-") else _SWEEP_MODEL
                 response = await or_client.chat.completions.create(
                     model=_trinity_model,
                     max_tokens=_MAX_TOKENS,
