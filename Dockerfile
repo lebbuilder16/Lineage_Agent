@@ -3,13 +3,13 @@ FROM python:3.12-slim AS backend
 
 WORKDIR /app
 
-# Install system deps for Pillow / imagehash
+# Install build deps, compile Python packages, then drop the compiler to keep the image lean
+COPY requirements.txt .
 RUN apt-get update && \
     apt-get install -y --no-install-recommends gcc libjpeg62-turbo-dev zlib1g-dev && \
+    pip install --no-cache-dir -r requirements.txt && \
+    apt-get purge -y --auto-remove gcc && \
     rm -rf /var/lib/apt/lists/*
-
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
 
 COPY src/ ./src/
 
@@ -34,11 +34,11 @@ FROM node:20-alpine AS frontend-builder
 
 WORKDIR /app
 COPY frontend/package.json frontend/package-lock.json* ./
-RUN npm install
+RUN npm ci
 COPY frontend/ .
 # Ensure public/ exists even if the project has no static assets yet
 RUN mkdir -p public
-RUN npm run build
+RUN npm run build && npm cache clean --force
 
 
 FROM nginx:stable-alpine AS frontend
