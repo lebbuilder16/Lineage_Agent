@@ -3510,28 +3510,34 @@ async def get_top_tokens(
         from .data_sources._clients import event_query as _eq  # noqa: PLC0415
 
         # Rank by weighted event count: scans count 5x more than passive events
+        # Only consider events from the last 7 days so stale tokens rotate out.
         from .data_sources._clients import cache as _cache  # noqa: PLC0415
         db = await _cache._get_conn()
+        cutoff_ts = _time.time() - 7 * 86_400  # 7 days
         sql = """
             SELECT mint,
                    MAX(name) as name,
                    MAX(symbol) as symbol,
                    MAX(narrative) as narrative,
-                   MAX(mcap_usd) as mcap_usd,
+                   -- Use mcap from the most recently recorded event, not MAX
+                   (SELECT ie2.mcap_usd FROM intelligence_events ie2
+                    WHERE ie2.mint = ie.mint AND ie2.mcap_usd IS NOT NULL
+                    ORDER BY ie2.recorded_at DESC LIMIT 1) as mcap_usd,
                    MIN(created_at) as created_at,
                    SUM(CASE WHEN event_type = 'token_scanned' THEN 5 ELSE 1 END) as event_count
-            FROM intelligence_events
+            FROM intelligence_events ie
             WHERE mint IS NOT NULL AND mint != ''
+              AND recorded_at > ?
             GROUP BY mint
-            ORDER BY event_count DESC, MAX(mcap_usd) DESC, MAX(ROWID) DESC
+            ORDER BY event_count DESC, mcap_usd DESC NULLS LAST, MAX(ROWID) DESC
             LIMIT ?
         """
-        cursor = await db.execute(sql, (limit,))
+        cursor = await db.execute(sql, (cutoff_ts, limit))
         rows = await cursor.fetchall()
         col_names = [d[0] for d in cursor.description]
         results = [dict(zip(col_names, row)) for row in rows]
 
-        # Enrich with LIVE mcap + image from DexScreener (single batch call, <200ms)
+        # Enrich with LIVE mcap + image from DexScreener (batch call)
         # Pick the pair with the HIGHEST LIQUIDITY for each token — avoids
         # dead/fake pairs with inflated mcap but zero liquidity.
         live_mcap_map: dict[str, float] = {}
@@ -3540,28 +3546,39 @@ async def get_top_tokens(
         try:
             from .data_sources._clients import get_dex_client
             dex = get_dex_client()
-            mints_csv = ",".join(r["mint"] for r in results[:30])
-            pairs = await asyncio.wait_for(dex.get_token_pairs_with_fallback(mints_csv), timeout=8.0)
-            for pair in pairs:
-                ba = pair.get("baseToken", {}).get("address", "")
-                mc = pair.get("marketCap") or pair.get("fdv")
-                liq = (pair.get("liquidity") or {}).get("usd") or 0
-                if ba and mc and isinstance(mc, (int, float)):
-                    prev_liq = _best_liq.get(ba, -1)
-                    if liq > prev_liq:
-                        live_mcap_map[ba] = mc
-                        _best_liq[ba] = liq
-                # Extract image URI from DexScreener info
-                if ba and ba not in live_image_map:
-                    info = pair.get("info", {}) or {}
-                    img_url = info.get("imageUrl") or ""
-                    if not img_url:
-                        # Fallback: header image or token icon
-                        img_url = (info.get("header") or info.get("icon") or "")
-                    if img_url:
-                        live_image_map[ba] = img_url
-        except Exception:
-            pass  # best-effort — fall back to DB values
+            # Fetch pairs for each mint concurrently (DexScreener CSV in URL
+            # works but breaks Redis cache keying). Cap at 10 concurrent.
+            _sem = asyncio.Semaphore(10)
+            async def _fetch_one(mint: str) -> list[dict]:
+                async with _sem:
+                    try:
+                        return await asyncio.wait_for(
+                            dex.get_token_pairs_with_fallback(mint), timeout=6.0
+                        )
+                    except Exception:
+                        return []
+            mint_list = [r["mint"] for r in results[:30]]
+            pair_lists = await asyncio.gather(*[_fetch_one(m) for m in mint_list])
+            for pairs in pair_lists:
+                for pair in pairs:
+                    ba = pair.get("baseToken", {}).get("address", "")
+                    mc = pair.get("marketCap") or pair.get("fdv")
+                    liq = (pair.get("liquidity") or {}).get("usd") or 0
+                    if ba and mc and isinstance(mc, (int, float)):
+                        prev_liq = _best_liq.get(ba, -1)
+                        if liq > prev_liq:
+                            live_mcap_map[ba] = mc
+                            _best_liq[ba] = liq
+                    # Extract image URI from DexScreener info
+                    if ba and ba not in live_image_map:
+                        info = pair.get("info", {}) or {}
+                        img_url = info.get("imageUrl") or ""
+                        if not img_url:
+                            img_url = (info.get("header") or info.get("icon") or "")
+                        if img_url:
+                            live_image_map[ba] = img_url
+        except Exception as exc:
+            logger.warning("[top-tokens] DexScreener enrichment failed: %s", exc)
 
         tokens_list = []
         for r in results:

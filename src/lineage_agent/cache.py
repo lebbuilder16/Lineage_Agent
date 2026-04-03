@@ -443,6 +443,9 @@ class SQLiteCache:
         await db.execute(
             "CREATE INDEX IF NOT EXISTS idx_ie_stage ON intelligence_events(lifecycle_stage)"
         )
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_ie_recorded_at ON intelligence_events(recorded_at)"
+        )
 
         # operator_mappings: maps DNA fingerprints → deployer wallets
         await db.execute(
