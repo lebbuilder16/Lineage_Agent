@@ -435,6 +435,218 @@ def _cross_reference(deltas: dict, old: dict, new: dict) -> list[dict]:
     return results
 
 
+# ── Trinity AI flag generation ──────────────────────────────────────────────
+
+_TRINITY_FLAG_SYSTEM = """\
+You are a Solana token forensics analyst generating watchlist alerts for investors.
+You receive a delta between two forensic scans of a watched token.
+Output 0-5 flags as a JSON array. Each flag:
+  {"flag_type": "SCREAMING_SNAKE_CASE", "severity": "critical"|"warning"|"info", "title": "...", "detail": "..."}
+Rules:
+- flag_type: 2-4 words describing the signal (e.g. DEPLOYER_EXIT_WITH_DRAIN, CARTEL_NETWORK_GROWING)
+- title: 1 sentence, plain English, investor-readable, include key numbers ($, SOL, %)
+- detail: 1-2 sentences expanding context and implications for a non-technical investor
+- severity: critical = immediate danger/rug signal, warning = concerning change, info = notable but not urgent
+- Output [] (empty array) if nothing meaningful changed
+- Max 5 flags, prioritize by severity
+Respond with ONLY a JSON array. No markdown, no commentary, no explanation outside the JSON."""
+
+
+def _compute_compact_delta(old: dict, new: dict) -> str:
+    """Return a compact string of only changed fields between two forensic snapshots."""
+    lines = []
+    for key in sorted(set(old.keys()) | set(new.keys())):
+        if key.startswith("_"):
+            continue
+        ov = old.get(key)
+        nv = new.get(key)
+        # Skip unchanged values
+        if ov == nv:
+            continue
+        # Skip None→None
+        if ov is None and nv is None:
+            continue
+        # Format values
+        def _fmt(v):
+            if v is None:
+                return "unknown"
+            if isinstance(v, bool):
+                return str(v).lower()
+            if isinstance(v, float):
+                if abs(v) >= 1000:
+                    return f"{v:,.0f}"
+                return f"{v:.4f}" if abs(v) < 1 else f"{v:.1f}"
+            return str(v)
+        lines.append(f"{key}: {_fmt(ov)} → {_fmt(nv)}")
+    return "\n".join(lines) if lines else "(no changes)"
+
+
+def _parse_trinity_flags(text: str) -> list[dict] | None:
+    """Parse Trinity's raw text into validated flag dicts.
+
+    Returns list[dict] on success (may be empty), None on total parse failure.
+    """
+    if not text or not text.strip():
+        return None
+
+    # Strip markdown fences
+    cleaned = text.strip()
+    if cleaned.startswith("```"):
+        # Remove opening fence (with optional language tag)
+        first_nl = cleaned.index("\n") if "\n" in cleaned else len(cleaned)
+        cleaned = cleaned[first_nl + 1:]
+        if cleaned.rstrip().endswith("```"):
+            cleaned = cleaned.rstrip()[:-3].rstrip()
+
+    # Try to extract JSON array
+    import re as _re
+    # Find first [ ... last ]
+    start = cleaned.find("[")
+    end = cleaned.rfind("]")
+    if start == -1 or end == -1 or end <= start:
+        return None
+    json_str = cleaned[start:end + 1]
+
+    try:
+        arr = json.loads(json_str)
+    except json.JSONDecodeError:
+        try:
+            import json_repair  # noqa: PLC0415
+            arr = json_repair.loads(json_str)
+        except Exception:
+            return None
+
+    if not isinstance(arr, list):
+        return None
+
+    # Validate and normalize each flag
+    valid_severities = {"critical", "warning", "info"}
+    flags = []
+    for item in arr[:5]:  # cap at 5
+        if not isinstance(item, dict):
+            continue
+        ft = item.get("flag_type", "")
+        sev = item.get("severity", "")
+        title = item.get("title", "")
+        detail_text = item.get("detail", "")
+
+        if not ft or not title:
+            continue
+        # Normalize flag_type to SCREAMING_SNAKE
+        ft = ft.upper().replace(" ", "_")
+        ft = _re.sub(r"[^A-Z0-9_]", "", ft)
+        if len(ft) < 4:
+            continue
+        if sev not in valid_severities:
+            sev = "warning"
+
+        # Build detail dict matching existing flag format
+        detail_dict = {
+            "narrative": detail_text,
+            "source": "trinity",
+        }
+
+        flags.append({
+            "flag_type": ft,
+            "severity": sev,
+            "title": title,
+            "detail": json.dumps(detail_dict, default=str),
+        })
+
+    return flags
+
+
+async def _generate_flags_trinity(
+    old: dict, new: dict, mint: str,
+    *,
+    ref: Optional[dict] = None,
+    symbol: str = "",
+    old_score: int = 0,
+    new_score: int = 0,
+) -> list[dict] | None:
+    """Generate flags using Trinity AI. Returns flags on success, None on failure."""
+    try:
+        from .ai_analyst import _get_openrouter_client, _OPENROUTER_API_KEY  # noqa: PLC0415
+
+        client = _get_openrouter_client()
+        if not client:
+            return None
+
+        delta_str = _compute_compact_delta(old, new)
+
+        # Build compact current state
+        state_lines = [
+            f"Token: {symbol or '?'} ({mint[:12]})",
+            f"Risk score: {old_score} → {new_score}",
+            "",
+            f"Changes since last scan:",
+            delta_str,
+            "",
+            "Current state:",
+            f"- SOL extracted: {new.get('sol_extracted', 0):.1f} | Deployer exited: {new.get('deployer_exited', False)}",
+            f"- Bundle: {new.get('bundle_wallets', 0)} wallets ({new.get('bundle_holders', '?')} holding)",
+            f"- Cartel: {new.get('cartel_wallets', 0)} wallets | Risk: {new.get('risk_level', 'unknown')}",
+        ]
+        price = new.get("price_usd")
+        if price:
+            h1 = new.get("price_change_h1") or 0
+            h24 = new.get("price_change_h24") or 0
+            liq = new.get("liq_usd") or 0
+            state_lines.append(f"- Price: ${price:.6f} (1h: {h1:+.1f}%, 24h: {h24:+.1f}%) | Liq: ${liq:,.0f}")
+        sp = new.get("sell_pressure_1h")
+        if sp:
+            state_lines.append(f"- Sell pressure 1h: {sp * 100:.0f}%")
+
+        user_msg = "\n".join(state_lines)
+
+        _trinity_model = "trinity-large-thinking" if _OPENROUTER_API_KEY and _OPENROUTER_API_KEY.startswith("rcai-") else "arcee-ai/trinity-large-thinking"
+
+        response = await asyncio.wait_for(
+            client.chat.completions.create(
+                model=_trinity_model,
+                max_tokens=512,
+                temperature=0,
+                messages=[
+                    {"role": "system", "content": _TRINITY_FLAG_SYSTEM},
+                    {"role": "user", "content": user_msg},
+                ],
+            ),
+            timeout=10.0,
+        )
+
+        _msg = response.choices[0].message
+        text = _msg.content or ""
+        if not text:
+            text = getattr(_msg, "reasoning_content", None) or ""
+            if not text:
+                _psf = getattr(_msg, "provider_specific_fields", None) or {}
+                text = _psf.get("reasoning_content", "")
+
+        _usage = response.usage
+        logger.info(
+            "[sweep] Trinity flags for %s | tokens=%d/%d | raw_len=%d",
+            mint[:12],
+            _usage.prompt_tokens if _usage else 0,
+            _usage.completion_tokens if _usage else 0,
+            len(text),
+        )
+
+        flags = _parse_trinity_flags(text)
+        if flags is not None:
+            logger.info("[sweep] Trinity generated %d flag(s) for %s", len(flags), mint[:12])
+            return flags
+
+        logger.warning("[sweep] Trinity flag parse failed for %s, falling back", mint[:12])
+        return None
+
+    except asyncio.TimeoutError:
+        logger.warning("[sweep] Trinity flag gen timed out for %s", mint[:12])
+        return None
+    except Exception as exc:
+        logger.warning("[sweep] Trinity flag gen failed for %s: %s", mint[:12], exc)
+        return None
+
+
 # ── Bundle wallet activity tracking ──────────────────────────────────────────
 
 async def _check_bundle_wallet_balances(mint: str, lin: Any) -> dict | None:
@@ -743,6 +955,11 @@ async def run_single_rescan(watch_id: int, user_id: int, cache, *, skip_ai: bool
             new_forensic["bundle_exits_new"] = bundle_activity["new_exits"]
             new_forensic["bundle_exit_wallets"] = bundle_activity["exit_wallets"]
 
+        # Extract token metadata early (needed for Trinity prompt + flag enrichment)
+        qt = getattr(lin, "query_token", None) or getattr(lin, "root", None)
+        _token_name = getattr(qt, "name", "") or ""
+        _token_symbol = getattr(qt, "symbol", "") or ""
+
         # Generate intelligence flags (with reference for cumulative detection)
         # On the FIRST scan (no previous snapshot), every signal looks "new" because
         # old_forensic is empty — generating a flood of redundant flags that all
@@ -774,13 +991,22 @@ async def run_single_rescan(watch_id: int, user_id: int, cache, *, skip_ai: bool
                 "detail": json.dumps({"snapshot": new_forensic, "risk_score": new_score}, default=str),
             })
         else:
-            flags = _generate_flags(old_forensic, new_forensic, mint, ref=ref_forensic)
+            flags = None
+            # Elite users: Trinity AI generates contextual flags
+            if plan == "elite":
+                flags = await _generate_flags_trinity(
+                    old_forensic, new_forensic, mint,
+                    ref=ref_forensic,
+                    symbol=_token_symbol,
+                    old_score=old_score,
+                    new_score=new_score,
+                )
+            # Fallback: deterministic flags (Free/Pro, or Trinity failure)
+            if flags is None:
+                flags = _generate_flags(old_forensic, new_forensic, mint, ref=ref_forensic)
         now = time.time()
 
         # Enrich flag details with token name/symbol for mobile display
-        qt = getattr(lin, "query_token", None) or getattr(lin, "root", None)
-        _token_name = getattr(qt, "name", "") or ""
-        _token_symbol = getattr(qt, "symbol", "") or ""
         for flag in flags:
             try:
                 raw = flag["detail"]

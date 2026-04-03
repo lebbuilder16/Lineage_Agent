@@ -38,7 +38,9 @@ const CRITICAL_FLAG_TYPES = new Set([
 ]);
 
 export function flagLabel(flagType: string): string {
-  return FLAG_LABELS[flagType] || flagType.replace(/_/g, ' ').toLowerCase();
+  if (FLAG_LABELS[flagType]) return FLAG_LABELS[flagType];
+  // Trinity-generated dynamic flags: title-case SCREAMING_SNAKE
+  return flagType.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 export function flagColor(flagType: string, severity: string): string {
