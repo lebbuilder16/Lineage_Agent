@@ -1,5 +1,5 @@
-import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { tokens } from '../../theme/tokens';
 import { flagLabel, flagColor } from '../../lib/flag-helpers';
 import type { SweepFlag } from '../../types/api';
@@ -19,22 +19,23 @@ function timeAgo(ts: number): string {
 }
 
 export function FlagTimeline({ flags, maxItems = 5 }: FlagTimelineProps) {
-  const visible = flags.slice(0, maxItems);
+  const [expanded, setExpanded] = useState(false);
+  const visible = expanded ? flags : flags.slice(0, maxItems);
+  const hiddenCount = flags.length - maxItems;
   if (!visible.length) return null;
 
   return (
     <View style={styles.container}>
+      <Text style={styles.header}>RECENT FLAGS</Text>
       {visible.map((flag, i) => {
         const color = flagColor(flag.flagType, flag.severity);
         const isLast = i === visible.length - 1;
         return (
           <View key={flag.id} style={styles.row}>
-            {/* Timeline line + dot */}
             <View style={styles.timeline}>
               <View style={[styles.dot, { backgroundColor: color }]} />
               {!isLast && <View style={[styles.line, { backgroundColor: `${color}40` }]} />}
             </View>
-            {/* Content */}
             <View style={styles.content}>
               <Text style={[styles.title, { color }]} numberOfLines={1}>
                 {flagLabel(flag.flagType)}
@@ -49,8 +50,15 @@ export function FlagTimeline({ flags, maxItems = 5 }: FlagTimelineProps) {
           </View>
         );
       })}
-      {flags.length > maxItems && (
-        <Text style={styles.more}>+{flags.length - maxItems} more</Text>
+      {hiddenCount > 0 && !expanded && (
+        <TouchableOpacity onPress={() => setExpanded(true)} activeOpacity={0.6}>
+          <Text style={styles.more}>Show {hiddenCount} more flags</Text>
+        </TouchableOpacity>
+      )}
+      {expanded && hiddenCount > 0 && (
+        <TouchableOpacity onPress={() => setExpanded(false)} activeOpacity={0.6}>
+          <Text style={styles.more}>Show less</Text>
+        </TouchableOpacity>
       )}
     </View>
   );
@@ -58,6 +66,7 @@ export function FlagTimeline({ flags, maxItems = 5 }: FlagTimelineProps) {
 
 const styles = StyleSheet.create({
   container: { gap: 2, paddingVertical: 4 },
+  header: { fontFamily: 'Lexend-Medium', fontSize: 10, color: tokens.textTertiary, letterSpacing: 1.2, paddingLeft: 28, marginBottom: 6 },
   row: { flexDirection: 'row', minHeight: 36 },
   timeline: { width: 20, alignItems: 'center' },
   dot: { width: 8, height: 8, borderRadius: 4, marginTop: 4 },
@@ -66,5 +75,5 @@ const styles = StyleSheet.create({
   title: { fontFamily: 'Lexend-Medium', fontSize: 12 },
   detail: { fontFamily: 'Lexend-Regular', fontSize: 11, color: tokens.white60, marginTop: 1 },
   time: { fontFamily: 'Lexend-Regular', fontSize: 10, color: tokens.textTertiary, marginTop: 2 },
-  more: { fontFamily: 'Lexend-Regular', fontSize: 11, color: tokens.textTertiary, paddingLeft: 28 },
+  more: { fontFamily: 'Lexend-Medium', fontSize: 12, color: tokens.secondary, paddingLeft: 28, paddingVertical: 6 },
 });

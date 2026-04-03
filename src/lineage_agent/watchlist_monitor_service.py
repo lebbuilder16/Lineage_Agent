@@ -269,36 +269,51 @@ def _generate_flags(old: dict, new: dict, mint: str, *, ref: Optional[dict] = No
         })
 
     # ── Cumulative deterioration (vs reference snapshot) ──────────────
+    # Tiered thresholds: only fire when a NEW tier is crossed (-30%, -50%, -70%, -90%)
+    # so the same flag doesn't repeat every scan while the price stays flat.
     if ref:
         ref_price = ref.get("price_usd") or 0
         new_price = new.get("price_usd") or 0
+        old_price = old.get("price_usd") or 0
         ref_liq = ref.get("liq_usd") or 0
         new_liq = new.get("liq_usd") or 0
+        old_liq = old.get("liq_usd") or 0
 
-        # Cumulative price crash since first watched
-        if ref_price > 0 and new_price > 0:
-            cum_pct = (new_price - ref_price) / ref_price * 100
-            if cum_pct <= -50:
+        def _crossed_tier(ref_val, old_val, new_val, tiers=(-30, -50, -70, -90)):
+            """Return the newly crossed tier, or None if no new tier was crossed."""
+            if ref_val <= 0:
+                return None
+            new_pct = (new_val - ref_val) / ref_val * 100
+            old_pct = (old_val - ref_val) / ref_val * 100 if old_val else 0
+            for t in tiers:
+                if new_pct <= t and old_pct > t:
+                    return new_pct
+            return None
+
+        # Cumulative price crash — only when crossing a new tier
+        price_tier = _crossed_tier(ref_price, old_price, new_price)
+        if price_tier is not None:
+            if price_tier <= -50:
                 _flag("CUMULATIVE_PRICE_CRASH", "critical",
-                      {"ref_price": ref_price, "now_price": new_price, "pct": round(cum_pct, 1)},
-                      pct=cum_pct, ref=ref_price, now=new_price)
-            elif cum_pct <= -30:
+                      {"ref_price": ref_price, "now_price": new_price, "pct": round(price_tier, 1)},
+                      pct=price_tier, ref=ref_price, now=new_price)
+            else:
                 _flag("CUMULATIVE_PRICE_DECLINE", "warning",
-                      {"ref_price": ref_price, "now_price": new_price, "pct": round(cum_pct, 1)},
-                      pct=cum_pct)
+                      {"ref_price": ref_price, "now_price": new_price, "pct": round(price_tier, 1)},
+                      pct=price_tier)
 
-        # Cumulative liquidity drain
-        if ref_liq > 0 and new_liq > 0:
-            liq_pct = (new_liq - ref_liq) / ref_liq * 100
-            if liq_pct <= -50:
-                _flag("CUMULATIVE_LIQ_DRAIN", "critical",
-                      {"ref_liq": ref_liq, "now_liq": new_liq, "pct": round(liq_pct, 1)},
-                      pct=liq_pct)
+        # Cumulative liquidity drain — same tiered approach
+        liq_tier = _crossed_tier(ref_liq, old_liq, new_liq)
+        if liq_tier is not None and liq_tier <= -50:
+            _flag("CUMULATIVE_LIQ_DRAIN", "critical",
+                  {"ref_liq": ref_liq, "now_liq": new_liq, "pct": round(liq_tier, 1)},
+                  pct=liq_tier)
 
-        # Forensic deterioration since reference
+        # Forensic deterioration since reference — only if SOL extraction INCREASED since last scan
         ref_sol = ref.get("sol_extracted") or 0
+        old_sol_total = old.get("sol_extracted") or 0
         new_sol_total = new.get("sol_extracted") or 0
-        if new_sol_total > ref_sol + 20:
+        if new_sol_total > ref_sol + 20 and new_sol_total > old_sol_total:
             delta_sol = new_sol_total - ref_sol
             _flag("CUMULATIVE_SOL_EXTRACTION", "critical",
                   {"ref_sol": ref_sol, "now_sol": new_sol_total},
