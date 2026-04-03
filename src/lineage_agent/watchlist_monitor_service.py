@@ -530,11 +530,11 @@ async def _check_bundle_wallet_balances(mint: str, lin: Any) -> dict | None:
 
 # ── Main rescan function ─────────────────────────────────────────────────────
 
-async def run_single_rescan(watch_id: int, user_id: int, cache, *, skip_ai: bool = False) -> dict | None:
+async def run_single_rescan(watch_id: int, user_id: int, cache, *, skip_ai: bool = False, plan: str = "free") -> dict | None:
     """Rescan a single watch, generate flags, return result.
 
-    *skip_ai*: When True, passes skip_forensic_enrichment=True to detect_lineage,
-    which skips the expensive AI analyst call. Used by the pulse loop to save costs.
+    *skip_ai*: When True, skips forensic enrichment entirely (pulse loop).
+    *plan*: User plan — Elite gets AI analysis (Trinity), others get heuristic.
 
     Returns {mint, old_risk, new_risk, escalated, flags_count} or None on failure.
     """
@@ -590,9 +590,11 @@ async def run_single_rescan(watch_id: int, user_id: int, cache, *, skip_ai: bool
         # and _check_bundle_wallet_balances (live balance check), not from
         # re-running the full pipeline every 45 min.  force_refresh=True is
         # only needed on user-initiated manual rescans.
+        # Free/Pro = heuristic only (skip AI), Elite = Trinity AI via write-through
+        _skip_enrichment = skip_ai or (plan != "elite")
         from .lineage_detector import detect_lineage
         lin = await asyncio.wait_for(
-            detect_lineage(mint, force_refresh=False, skip_forensic_enrichment=skip_ai),
+            detect_lineage(mint, force_refresh=False, skip_forensic_enrichment=_skip_enrichment),
             timeout=90.0,
         )
 

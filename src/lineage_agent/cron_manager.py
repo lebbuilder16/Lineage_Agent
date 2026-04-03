@@ -109,10 +109,14 @@ async def _get_sweep_interval(cache, user_id: int) -> int:
     return _DEFAULT_SWEEP_SECONDS
 
 
-async def ensure_watch_cron(cache, user_id: int, watch: dict, sweep_interval_s: int | None = None) -> str:
+async def ensure_watch_cron(cache, user_id: int, watch: dict, plan: str = "free", sweep_interval_s: int | None = None) -> str:
     """Create or update the cron for a single watch. Returns the cron ID."""
     if sweep_interval_s is None:
-        sweep_interval_s = await _get_sweep_interval(cache, user_id)
+        # Plan dictates interval: Elite=15min, others=30min
+        if plan == "elite":
+            sweep_interval_s = 900   # 15 min
+        else:
+            sweep_interval_s = 1800  # 30 min
 
     watch_id = watch["id"]
     value = watch.get("value", "")
@@ -199,9 +203,6 @@ async def sync_all_user_crons(cache, user_id: int, plan: str = "free") -> int:
     )
     existing_cron_names = {r[0] for r in await cursor.fetchall()}
 
-    # 3. Read sweep interval once
-    sweep_interval = await _get_sweep_interval(cache, user_id)
-
     synced = 0
 
     # 4. Add missing watch crons
@@ -210,7 +211,7 @@ async def sync_all_user_crons(cache, user_id: int, plan: str = "free") -> int:
         cron_name = f"{_WATCH_CRON_PREFIX}:{w['id']}"
         watch_names.add(cron_name)
         if cron_name not in existing_cron_names:
-            await ensure_watch_cron(cache, user_id, w, sweep_interval)
+            await ensure_watch_cron(cache, user_id, w, plan=plan)
             synced += 1
 
     # 5. Remove orphaned crons (watch deleted but cron still exists)

@@ -1504,7 +1504,7 @@ async def _detect_lineage_impl(
                             bundle_report=_wt_bundle,
                             sol_flow_report=_wt_sol_flow,
                             cache=_wt_cache,
-                            use_sweep_model=(progress_cb is None),  # sweep/cron = no progress_cb → use cheap model
+                            use_sweep_model=(progress_cb is None and not skip_forensic_enrichment),  # Elite sweep = Trinity, others = skip
                         ),
                         timeout=60.0,
                     )
