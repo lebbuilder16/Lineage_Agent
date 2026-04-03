@@ -2600,6 +2600,17 @@ async def auth_register_fcm_token(body: _FcmTokenRequest, request: Request):
     return {"ok": True}
 
 
+@app.delete("/auth/fcm-token", tags=["auth"])
+async def auth_deregister_fcm_token(request: Request):
+    """Clear the user's FCM token (logout / uninstall). Prevents stale pushes."""
+    user = await _get_current_user(request)
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+    db = await _cache._get_conn()
+    await db.execute("UPDATE users SET fcm_token = NULL WHERE id = ?", (user["id"],))
+    await db.commit()
+    return {"ok": True}
+
+
 @app.get("/auth/watches", tags=["auth"])
 async def auth_watches(request: Request):
     """Return user's watches. Requires X-API-Key header."""

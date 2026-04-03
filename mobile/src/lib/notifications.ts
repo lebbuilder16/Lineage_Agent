@@ -195,9 +195,19 @@ function detectSignals(data: Awaited<ReturnType<typeof getLineage>>, name: strin
  * Fires a local notification for each new signal (deduped per hour).
  */
 export async function checkWatchedTokenAlerts(): Promise<void> {
-  const watches = useAuthStore.getState().watches;
+  const { watches, user } = useAuthStore.getState();
   const mintWatches = watches.filter((w) => w.sub_type === 'mint');
   if (mintWatches.length === 0) return;
+
+  // Skip local checks when backend FCM push is active — avoids duplicate alerts.
+  // The sweep loop already sends FCM pushes for critical/warning flags.
+  // If we have a device push token registered, backend handles notifications.
+  try {
+    const token = await Notifications.getDevicePushTokenAsync();
+    if (token?.data) return; // Backend FCM active — skip local checks
+  } catch {
+    // No push token → fall through to local checks as fallback
+  }
 
   const { status } = await Notifications.getPermissionsAsync();
   if (status !== 'granted') return;

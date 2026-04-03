@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Notifications from 'expo-notifications';
 import { useAuthStore } from './auth';
 import type { SweepFlag } from '../types/api';
 
@@ -22,6 +23,12 @@ interface SweepFlagsState {
   getByMint: (mint: string) => SweepFlag[];
   getUnreadCount: () => number;
   getCriticalCount: () => number;
+}
+
+/** Sync app badge count with unread flags */
+function syncBadge(flags: SweepFlag[]) {
+  const unread = flags.filter((f) => !f.read).length;
+  Notifications.setBadgeCountAsync(unread).catch(() => {});
 }
 
 function computeUrgentMints(flags: SweepFlag[]): string[] {
@@ -82,6 +89,7 @@ export const useSweepFlagsStore = create<SweepFlagsState>()(
             ? Math.max(...merged.map((f) => f.createdAt ?? 0))
             : lastSyncTs;
 
+          syncBadge(merged);
           set({
             flags: merged,
             urgentMints: computeUrgentMints(merged),
@@ -139,6 +147,7 @@ export const useSweepFlagsStore = create<SweepFlagsState>()(
           const updated = state.flags.map((f) =>
             f.id === flagId ? { ...f, read: true } : f,
           );
+          syncBadge(updated);
           return { flags: updated, urgentMints: computeUrgentMints(updated) };
         });
         // Backend sync (fire-and-forget)
@@ -158,6 +167,7 @@ export const useSweepFlagsStore = create<SweepFlagsState>()(
           const updated = state.flags.map((f) =>
             f.mint === mint ? { ...f, read: true } : f,
           );
+          syncBadge(updated);
           return { flags: updated, urgentMints: computeUrgentMints(updated) };
         });
         // Backend sync

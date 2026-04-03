@@ -945,8 +945,8 @@ async def run_single_rescan(watch_id: int, user_id: int, cache, *, skip_ai: bool
 
 # ── Market Pulse — lightweight price check between full sweeps ─────────────
 
-# Semaphore: only 1 pulse rescan at a time to avoid starving user investigations
-_PULSE_RESCAN_SEM = asyncio.Semaphore(1)
+# Semaphore: limit concurrent pulse rescans to avoid starving user investigations
+_PULSE_RESCAN_SEM = asyncio.Semaphore(3)
 
 
 async def _pulse_rescan_one(t: dict, cache) -> None:
