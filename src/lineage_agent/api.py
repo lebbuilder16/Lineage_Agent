@@ -692,7 +692,7 @@ async def admin_sweep_status() -> dict:
     }
 
 
-@app.post("/admin/cartel-forensics/{deployer}", tags=["system"])
+@app.get("/admin/cartel-forensics/{deployer}", tags=["system"])
 async def admin_cartel_forensics(deployer: str) -> dict:
     """Trigger forensic proof signals for a deployer (no full sweep needed)."""
     from .cartel_service import (
