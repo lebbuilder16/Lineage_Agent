@@ -893,7 +893,7 @@ async def signal_factory_cluster(deployer: str) -> int:
 #  Signal 10 — Common Funder (genesis funding trace)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-_GENESIS_SIG_PAGES = 5  # walk back for wallet birthday (reduced to avoid rate limits)
+_GENESIS_SIG_PAGES = 3  # walk back for wallet birthday (conservative for rate limits)
 _MIN_GENESIS_SOL = 0.01  # minimum incoming SOL to count as funding
 
 
@@ -922,10 +922,8 @@ async def signal_common_funder(deployer: str) -> int:
         rpc = get_rpc_client()
         wallet_funders: dict[str, dict] = {}  # wallet → {funder, amount_sol, block_time}
 
-        sem = asyncio.Semaphore(2)  # conservative to avoid Helius 429s
-
-        async def _trace_genesis(wallet: str) -> None:
-            """Find the first incoming SOL transfer for a wallet."""
+        # Trace genesis funding SEQUENTIALLY to respect RPC rate limits
+        for wallet in all_deployers:
             # Check if already cached in extra_json
             cached = await event_query(
                 "event_type = 'token_created' AND deployer = ? AND extra_json LIKE '%genesis_funder%'",
@@ -941,69 +939,68 @@ async def signal_common_funder(deployer: str) -> int:
                     gf = ej.get("genesis_funder")
                     if gf and gf.get("funder"):
                         wallet_funders[wallet] = gf
-                        return
+                        continue
                 except Exception:
                     pass
 
-            async with sem:
-                try:
-                    sigs = await _get_earliest_signatures(
-                        rpc, wallet, count=5, max_pages=_GENESIS_SIG_PAGES,
-                    )
-                    if not sigs:
-                        return
-                    # Parse earliest TXs looking for first incoming SOL
-                    for sig_info in sigs:
-                        sig = sig_info.get("signature", "")
-                        if not sig or sig_info.get("err"):
-                            continue
-                        tx = await _parse_transaction(rpc, sig)
-                        if not tx:
-                            continue
-                        for xfer in tx.get("sol_transfers", []):
-                            to_addr = xfer.get("to", "")
-                            from_addr = xfer.get("from", "")
-                            amount_sol = xfer.get("amount_lamports", 0) / 1e9
-                            if (
-                                to_addr == wallet
-                                and from_addr
-                                and from_addr not in _SKIP_ADDRESSES
-                                and amount_sol >= _MIN_GENESIS_SOL
-                            ):
-                                result = {
-                                    "funder": from_addr,
-                                    "amount_sol": round(amount_sol, 4),
-                                    "block_time": tx.get("block_time"),
-                                    "signature": sig,
-                                }
-                                wallet_funders[wallet] = result
-                                # Cache in extra_json
-                                try:
-                                    events = await event_query(
-                                        "event_type = 'token_created' AND deployer = ?",
-                                        params=(wallet,),
-                                        columns="extra_json, mint",
-                                        limit=1,
+            try:
+                sigs = await _get_earliest_signatures(
+                    rpc, wallet, count=3, max_pages=_GENESIS_SIG_PAGES,
+                )
+                if not sigs:
+                    continue
+                # Parse earliest TXs looking for first incoming SOL
+                found = False
+                for sig_info in sigs:
+                    if found:
+                        break
+                    sig = sig_info.get("signature", "")
+                    if not sig or sig_info.get("err"):
+                        continue
+                    tx = await _parse_transaction(rpc, sig)
+                    if not tx:
+                        continue
+                    for xfer in tx.get("sol_transfers", []):
+                        to_addr = xfer.get("to", "")
+                        from_addr = xfer.get("from", "")
+                        amount_sol = xfer.get("amount_lamports", 0) / 1e9
+                        if (
+                            to_addr == wallet
+                            and from_addr
+                            and from_addr not in _SKIP_ADDRESSES
+                            and amount_sol >= _MIN_GENESIS_SOL
+                        ):
+                            result = {
+                                "funder": from_addr,
+                                "amount_sol": round(amount_sol, 4),
+                                "block_time": tx.get("block_time"),
+                                "signature": sig,
+                            }
+                            wallet_funders[wallet] = result
+                            # Cache in extra_json
+                            try:
+                                events = await event_query(
+                                    "event_type = 'token_created' AND deployer = ?",
+                                    params=(wallet,),
+                                    columns="extra_json, mint",
+                                    limit=1,
+                                )
+                                if events:
+                                    ej = json.loads(events[0].get("extra_json") or "{}")
+                                    if isinstance(ej, str):
+                                        ej = json.loads(ej)
+                                    ej["genesis_funder"] = result
+                                    await event_update(
+                                        "event_type = 'token_created' AND mint = ?",
+                                        (events[0]["mint"],),
+                                        extra_json=json.dumps(ej),
                                     )
-                                    if events:
-                                        ej = json.loads(events[0].get("extra_json") or "{}")
-                                        if isinstance(ej, str):
-                                            ej = json.loads(ej)
-                                        ej["genesis_funder"] = result
-                                        await event_update(
-                                            "event_type = 'token_created' AND mint = ?",
-                                            (events[0]["mint"],),
-                                            extra_json=json.dumps(ej),
-                                        )
-                                except Exception:
-                                    pass
-                                return
-                except Exception:
-                    logger.debug("genesis trace failed for %s", wallet[:12])
-
-        # Trace genesis funding for all deployers (batched)
-        tasks = [_trace_genesis(w) for w in all_deployers]
-        await asyncio.gather(*tasks, return_exceptions=True)
+                            except Exception:
+                                pass
+                            found = True
+                            break
+            except Exception:
+                logger.debug("genesis trace failed for %s", wallet[:12])
 
         # Group wallets by funder
         funder_groups: dict[str, list[str]] = {}
