@@ -937,6 +937,28 @@ async def _build_report(mint: str, deployer: str) -> Optional[CartelReport]:
         else:
             G.add_edge(w_a, w_b, weight=strength)
 
+    # ── Transitive expansion: fetch edges for all peers to include
+    # inter-peer edges (e.g. profit_convergence between two peers).
+    peer_wallets = set(G.nodes) - {deployer}
+    expanded_rows: list[dict] = []
+    for pw in peer_wallets:
+        try:
+            pw_edges = await cartel_edges_query(pw)
+            expanded_rows.extend(pw_edges)
+        except Exception:
+            pass
+
+    for row in expanded_rows:
+        w_a = row["wallet_a"]
+        w_b = row["wallet_b"]
+        # Only add edges where BOTH wallets are already in the graph
+        if w_a in G.nodes and w_b in G.nodes:
+            strength = float(row.get("signal_strength", 0.5))
+            if G.has_edge(w_a, w_b):
+                G[w_a][w_b]["weight"] = max(G[w_a][w_b]["weight"], strength)
+            else:
+                G.add_edge(w_a, w_b, weight=strength)
+
     if deployer not in G.nodes:
         return CartelReport(mint=mint, deployer_community=None)
 
@@ -1050,12 +1072,18 @@ async def _build_report(mint: str, deployer: str) -> Optional[CartelReport]:
     if ts_rows and ts_rows[0].get("created_at"):
         active_since = parse_datetime(ts_rows[0]["created_at"])
 
-    # Filter edges to only those within this community
+    # Filter edges to only those within this community (include expanded peer edges)
     community_set = set(community_wallets)
-    community_edge_rows = [
-        r for r in edges_rows
-        if r["wallet_a"] in community_set and r["wallet_b"] in community_set
-    ]
+    all_edge_rows = edges_rows + expanded_rows
+    # Deduplicate by (wallet_a, wallet_b, signal_type)
+    seen_edge_keys: set[str] = set()
+    community_edge_rows: list[dict] = []
+    for r in all_edge_rows:
+        if r["wallet_a"] in community_set and r["wallet_b"] in community_set:
+            ek = f"{r['wallet_a']}:{r['wallet_b']}:{r['signal_type']}"
+            if ek not in seen_edge_keys:
+                seen_edge_keys.add(ek)
+                community_edge_rows.append(r)
 
     strongest_signal = "dna_match"
     if community_edge_rows:

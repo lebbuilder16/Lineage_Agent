@@ -964,26 +964,19 @@ async def signal_common_funder(deployer: str) -> int:
                 except Exception:
                     pass
 
+            # Fast path: Helius Enhanced Transactions (1 call vs 3-10)
             try:
-                sigs = await _get_earliest_signatures(
-                    rpc, wallet, count=3, max_pages=_GENESIS_SIG_PAGES,
-                )
-                if not sigs:
+                txs = await rpc.get_enhanced_transactions(wallet, limit=5)
+                if not txs:
                     continue
                 resolved = False
-                for sig_info in sigs:
+                for tx in txs:
                     if resolved:
                         break
-                    sig = sig_info.get("signature", "")
-                    if not sig or sig_info.get("err"):
-                        continue
-                    tx = await _parse_transaction(rpc, sig)
-                    if not tx:
-                        continue
-                    for xfer in tx.get("sol_transfers", []):
-                        to_addr = xfer.get("to", "")
-                        from_addr = xfer.get("from", "")
-                        amount_sol = xfer.get("amount_lamports", 0) / 1e9
+                    for nt in tx.get("nativeTransfers", []):
+                        to_addr = nt.get("toUserAccount", "")
+                        from_addr = nt.get("fromUserAccount", "")
+                        amount_sol = (nt.get("amount", 0) or 0) / 1e9
                         if (
                             to_addr == wallet
                             and from_addr
@@ -993,8 +986,8 @@ async def signal_common_funder(deployer: str) -> int:
                             result = {
                                 "funder": from_addr,
                                 "amount_sol": round(amount_sol, 4),
-                                "block_time": tx.get("block_time"),
-                                "signature": sig,
+                                "block_time": tx.get("timestamp"),
+                                "signature": tx.get("signature", ""),
                             }
                             wallet_funders[wallet] = result
                             # Cache in extra_json
@@ -1031,7 +1024,7 @@ async def signal_common_funder(deployer: str) -> int:
                                             "funded_wallet_count": len(peers),
                                             "amount_sol_a": wallet_funders.get(peer, {}).get("amount_sol"),
                                             "amount_sol_b": round(amount_sol, 4),
-                                            "signature": sig,
+                                            "signature": tx.get("signature", ""),
                                         },
                                     )
                                     count += 1
