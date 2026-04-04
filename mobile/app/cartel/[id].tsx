@@ -34,6 +34,8 @@ import {
 import { tokens } from '../../src/theme/tokens';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { Breadcrumbs } from '../../src/components/investigate/Breadcrumbs';
+import Svg, { Circle, Line, Text as SvgText } from 'react-native-svg';
+import { Dimensions } from 'react-native';
 
 // ── Signal metadata ──────────────────────────────────────────────────────────
 
@@ -207,12 +209,21 @@ export default function CartelScreen() {
                   <SignalRadar edges={community.edges ?? []} />
                 )}
 
-                {/* ── 5. NETWORK LINKS ─────────────────────────────────── */}
+                {/* ── 5. EGO GRAPH ──────────────────────────────────────── */}
+                {(community.edges?.length ?? 0) > 0 && (
+                  <EgoGraph
+                    focusWallet={id ?? ''}
+                    edges={community.edges ?? []}
+                    allWallets={community.wallets ?? []}
+                  />
+                )}
+
+                {/* ── 6. NETWORK LINKS ─────────────────────────────────── */}
                 {(community.edges?.length ?? 0) > 0 && (
                   <NetworkLinks edges={community.edges ?? []} />
                 )}
 
-                {/* ── 6. DEPLOYER RANKING ──────────────────────────────── */}
+                {/* ── 7. DEPLOYER RANKING ──────────────────────────────── */}
                 {(community.wallets?.length ?? 0) > 0 && (
                   <DeployerRanking
                     wallets={community.wallets ?? []}
@@ -539,7 +550,214 @@ const radarStyles = StyleSheet.create({
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// Section 5 — NETWORK LINKS (expandable evidence)
+// Section 5 — EGO GRAPH (radial network centered on deployer)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const GRAPH_MAX_PEERS = 12;
+const GRAPH_HEIGHT = 300;
+const NODE_R_CENTER = 18;
+const NODE_R_PEER = 10;
+
+function EgoGraph({
+  focusWallet,
+  edges,
+  allWallets,
+}: {
+  focusWallet: string;
+  edges: Edge[];
+  allWallets: string[];
+}) {
+  // Find direct connections from focusWallet
+  const { peers, peerEdges, overflow } = useMemo(() => {
+    // Collect unique peers with their strongest edge
+    const peerMap = new Map<string, { signal: string; strength: number }>();
+    for (const e of edges) {
+      let peer: string | null = null;
+      if (e.wallet_a === focusWallet) peer = e.wallet_b;
+      else if (e.wallet_b === focusWallet) peer = e.wallet_a;
+      if (!peer) continue;
+      const existing = peerMap.get(peer);
+      if (!existing || e.signal_strength > existing.strength) {
+        peerMap.set(peer, { signal: e.signal_type, strength: e.signal_strength });
+      }
+    }
+    // Sort by strength descending, cap at max
+    const sorted = [...peerMap.entries()]
+      .sort((a, b) => b[1].strength - a[1].strength);
+    const visible = sorted.slice(0, GRAPH_MAX_PEERS);
+    return {
+      peers: visible.map(([addr, info]) => ({ addr, ...info })),
+      peerEdges: visible,
+      overflow: Math.max(0, sorted.length - GRAPH_MAX_PEERS),
+    };
+  }, [focusWallet, edges]);
+
+  const screenW = Dimensions.get('window').width - tokens.spacing.screenPadding * 2 - 32;
+  const W = Math.min(screenW, 400);
+  const H = GRAPH_HEIGHT;
+  const cx = W / 2;
+  const cy = H / 2;
+  const radius = Math.min(W, H) / 2 - 30;
+
+  if (peers.length === 0) return null;
+
+  return (
+    <GlassCard>
+      <Text style={styles.sectionTitle}>NETWORK GRAPH</Text>
+      <View style={{ alignItems: 'center' }}>
+        <Svg width={W} height={H}>
+          {/* Edges — lines from center to peers */}
+          {peers.map((p, i) => {
+            const angle = (2 * Math.PI * i) / peers.length - Math.PI / 2;
+            const px = cx + radius * Math.cos(angle);
+            const py = cy + radius * Math.sin(angle);
+            const meta = SIGNAL_META[p.signal] ?? { color: tokens.white35 };
+            return (
+              <Line
+                key={`edge-${i}`}
+                x1={cx}
+                y1={cy}
+                x2={px}
+                y2={py}
+                stroke={meta.color}
+                strokeWidth={Math.max(1, p.strength * 2.5)}
+                strokeOpacity={0.6}
+              />
+            );
+          })}
+
+          {/* Peer nodes */}
+          {peers.map((p, i) => {
+            const angle = (2 * Math.PI * i) / peers.length - Math.PI / 2;
+            const px = cx + radius * Math.cos(angle);
+            const py = cy + radius * Math.sin(angle);
+            const meta = SIGNAL_META[p.signal] ?? { color: tokens.white60 };
+            return (
+              <React.Fragment key={`peer-${i}`}>
+                {/* Glow */}
+                <Circle
+                  cx={px}
+                  cy={py}
+                  r={NODE_R_PEER + 3}
+                  fill={meta.color}
+                  opacity={0.15}
+                />
+                {/* Node */}
+                <Circle
+                  cx={px}
+                  cy={py}
+                  r={NODE_R_PEER}
+                  fill={tokens.bgApp}
+                  stroke={meta.color}
+                  strokeWidth={1.5}
+                />
+                {/* Label */}
+                <SvgText
+                  x={px}
+                  y={py + NODE_R_PEER + 12}
+                  fill={tokens.white60}
+                  fontSize={8}
+                  fontFamily="Lexend-Regular"
+                  textAnchor="middle"
+                >
+                  {shortAddr(p.addr)}
+                </SvgText>
+              </React.Fragment>
+            );
+          })}
+
+          {/* Center node — deployer */}
+          <Circle
+            cx={cx}
+            cy={cy}
+            r={NODE_R_CENTER + 4}
+            fill={tokens.accent}
+            opacity={0.15}
+          />
+          <Circle
+            cx={cx}
+            cy={cy}
+            r={NODE_R_CENTER}
+            fill={tokens.bgApp}
+            stroke={tokens.accent}
+            strokeWidth={2}
+          />
+          <SvgText
+            x={cx}
+            y={cy + 3}
+            fill={tokens.accent}
+            fontSize={8}
+            fontFamily="Lexend-Bold"
+            textAnchor="middle"
+          >
+            {shortAddr(focusWallet)}
+          </SvgText>
+        </Svg>
+
+        {/* Overflow indicator */}
+        {overflow > 0 && (
+          <Text style={egoStyles.overflow}>
+            +{overflow} more connection{overflow !== 1 ? 's' : ''}
+          </Text>
+        )}
+
+        {/* Legend */}
+        <View style={egoStyles.legend}>
+          {(() => {
+            // Show legend only for signal types actually in visible edges
+            const usedSignals = new Set(peers.map((p) => p.signal));
+            return [...usedSignals].map((sig) => {
+              const meta = SIGNAL_META[sig];
+              if (!meta) return null;
+              return (
+                <View key={sig} style={egoStyles.legendItem}>
+                  <View
+                    style={[egoStyles.legendDot, { backgroundColor: meta.color }]}
+                  />
+                  <Text style={egoStyles.legendText}>{meta.label}</Text>
+                </View>
+              );
+            });
+          })()}
+        </View>
+      </View>
+    </GlassCard>
+  );
+}
+
+const egoStyles = StyleSheet.create({
+  overflow: {
+    fontFamily: 'Lexend-Regular',
+    fontSize: tokens.font.tiny,
+    color: tokens.white35,
+    marginTop: 4,
+  },
+  legend: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: 10,
+    marginTop: 10,
+  },
+  legendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  legendDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  legendText: {
+    fontFamily: 'Lexend-Regular',
+    fontSize: tokens.font.tiny,
+    color: tokens.white60,
+  },
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Section 6 — NETWORK LINKS (expandable evidence)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 const MAX_VISIBLE_EDGES = 8;
