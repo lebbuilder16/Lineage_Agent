@@ -1116,41 +1116,6 @@ async def _build_report(mint: str, deployer: str) -> Optional[CartelReport]:
     else:
         confidence = "low"
 
-    # Generate human-readable narrative
-    n_wallets = len(community_wallets)
-    n_tokens = len(created_rows)
-    sol_display = f"{total_sol_extracted:.1f} SOL" if total_sol_extracted > 0 else ""
-    usd_display = f"~${estimated_extracted:,.0f}" if estimated_extracted > 0 else ""
-
-    narrative_parts = [
-        f"This deployer is part of a coordinated network of {n_wallets} wallets",
-        f"that launched {n_tokens} tokens",
-    ]
-    if strongest_signal == "shared_lp":
-        # Count distinct LP wallets
-        lp_wallets = set()
-        for e in edge_list:
-            lp = (e.evidence or {}).get("lp_wallet", "")
-            if lp:
-                lp_wallets.add(lp)
-        narrative_parts.append(
-            f"linked by {len(lp_wallets)} shared liquidity provider wallet{'s' if len(lp_wallets) > 1 else ''}"
-        )
-    elif strongest_signal:
-        narrative_parts.append(f"linked by {strongest_signal.replace('_', ' ')}")
-
-    if total_sol_extracted > 0:
-        narrative_parts.append(
-            f"— {total_sol_extracted:.1f} SOL extracted from this token by the network"
-        )
-    elif estimated_extracted > 0:
-        narrative_parts.append(f"— ~${estimated_extracted:,.0f} estimated extraction")
-
-    if total_rugs > 0:
-        narrative_parts.append(f"with {total_rugs} confirmed rug{'s' if total_rugs > 1 else ''}")
-
-    narrative = " ".join(narrative_parts) + "."
-
     # ── Per-deployer confidence: how strong is THIS deployer's link? ────
     # Signals where only a third-party connects wallets (not direct coordination)
     _WEAK_SIGNALS = {"shared_lp"}
@@ -1185,6 +1150,82 @@ async def _build_report(mint: str, deployer: str) -> Optional[CartelReport]:
     # Gate: only show cartel if deployer has at least medium-strength link
     if deployer_conf in ("low", "none"):
         return CartelReport(mint=mint, deployer_community=None)
+
+    # ── Generate deployer-centered narrative ──────────────────────────────
+    n_wallets = len(community_wallets)
+    n_tokens = len(created_rows)
+
+    # Human-readable signal names
+    _SIGNAL_LABELS = {
+        "dna_match": "identical metadata fingerprint",
+        "profit_convergence": "profits going to the same wallet",
+        "capital_recycling": "closed financial loop (funds recycled)",
+        "common_funder": "common funding source",
+        "sniper_ring": "shared early buyers (coordinated sniping)",
+        "funding_link": "direct SOL funding before launch",
+        "sol_transfer": "direct SOL transfer",
+        "timing_sync": "synchronized token launches",
+        "compute_budget_fp": "identical deployment script",
+        "shared_lp": "shared liquidity provider",
+    }
+
+    # Describe the deployer's own links
+    strong_labels = [
+        _SIGNAL_LABELS.get(s, s.replace("_", " "))
+        for s in sorted(deployer_strong_signals)
+    ]
+
+    if deployer_conf == "high":
+        link_phrase = f"directly linked to a coordinated network via {' and '.join(strong_labels)}"
+    elif deployer_conf == "medium" and strong_labels:
+        link_phrase = f"linked to a network via {strong_labels[0]}"
+    else:
+        link_phrase = "associated with a network through shared third-party wallets"
+
+    narrative_parts = [
+        f"This deployer is {link_phrase}.",
+        f"The network has {n_wallets} wallets and {n_tokens} tokens.",
+    ]
+
+    # Deployer's own track record
+    deployer_mints = {r.get("mint") for r in created_rows if r.get("deployer") == deployer}
+    deployer_rugged = any(
+        r.get("mint") in deployer_mints for r in confirmed_rugged_rows
+    )
+    # Check via created_rows for deployer's own tokens
+    deployer_own_tokens = [
+        r for r in created_rows if r.get("deployer") == deployer
+    ]
+    if deployer_rugged:
+        narrative_parts.append("This deployer has a confirmed rug.")
+    elif len(deployer_own_tokens) == 1:
+        narrative_parts.append(
+            "This deployer has launched only 1 token with no confirmed rug."
+        )
+    else:
+        narrative_parts.append(
+            f"This deployer has launched {len(deployer_own_tokens)} tokens with no confirmed rug."
+        )
+
+    # Network-level context
+    if total_rugs > 0:
+        narrative_parts.append(
+            f"The wider network has {total_rugs} confirmed rug{'s' if total_rugs > 1 else ''}."
+        )
+
+    if total_sol_extracted > 0:
+        narrative_parts.append(
+            f"{total_sol_extracted:.1f} SOL extracted from this token by network wallets."
+        )
+
+    # Link strength label
+    conf_labels = {"high": "Direct Proof", "medium": "Likely Linked"}
+    narrative_parts.append(
+        f"Link strength: {conf_labels.get(deployer_conf, deployer_conf)} "
+        f"({len(deployer_strong_signals)} strong signal{'s' if len(deployer_strong_signals) != 1 else ''})."
+    )
+
+    narrative = " ".join(narrative_parts)
 
     community = CartelCommunity(
         community_id=community_id,
