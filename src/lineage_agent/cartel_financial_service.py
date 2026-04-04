@@ -25,6 +25,7 @@ from typing import Any, Optional
 from .data_sources._clients import (
     bundle_report_query,
     cartel_edge_upsert,
+    cartel_edges_query,
     event_query,
     event_update,
     get_rpc_client,
@@ -892,7 +893,7 @@ async def signal_factory_cluster(deployer: str) -> int:
 #  Signal 10 — Common Funder (genesis funding trace)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-_GENESIS_SIG_PAGES = 10  # walk further back for wallet birthday
+_GENESIS_SIG_PAGES = 5  # walk back for wallet birthday (reduced to avoid rate limits)
 _MIN_GENESIS_SOL = 0.01  # minimum incoming SOL to count as funding
 
 
@@ -901,23 +902,27 @@ async def signal_common_funder(deployer: str) -> int:
 
     If multiple deployers were funded by the same wallet, this is strong
     evidence of a single operator controlling them all.
+
+    Scope: only traces wallets already linked to this deployer via existing
+    edges (not all deployers in the DB) to stay within RPC rate limits.
     """
     count = 0
     try:
-        # Get all known deployers from token_created events
-        deployer_rows = await event_query(
-            "event_type = 'token_created'",
-            columns="deployer",
-            limit=5000,
-        )
-        all_deployers = {r["deployer"] for r in deployer_rows if r.get("deployer")}
-        if deployer not in all_deployers:
-            all_deployers.add(deployer)
+        # Scope: only trace wallets already connected to this deployer
+        existing_edges = await cartel_edges_query(deployer)
+        all_deployers: set[str] = {deployer}
+        for e in existing_edges:
+            all_deployers.add(e["wallet_a"])
+            all_deployers.add(e["wallet_b"])
+
+        # Cap to avoid rate limiting (trace max 40 wallets)
+        if len(all_deployers) > 40:
+            all_deployers = set(list(all_deployers)[:40])
 
         rpc = get_rpc_client()
         wallet_funders: dict[str, dict] = {}  # wallet → {funder, amount_sol, block_time}
 
-        sem = asyncio.Semaphore(5)
+        sem = asyncio.Semaphore(2)  # conservative to avoid Helius 429s
 
         async def _trace_genesis(wallet: str) -> None:
             """Find the first incoming SOL transfer for a wallet."""
@@ -1043,7 +1048,7 @@ async def build_financial_edges(deployer: str) -> int:
         asyncio.wait_for(signal_shared_lp(deployer), timeout=_SIGNAL_TIMEOUT),
         asyncio.wait_for(signal_sniper_ring(deployer), timeout=_SIGNAL_TIMEOUT),
         asyncio.wait_for(signal_factory_cluster(deployer), timeout=_SIGNAL_TIMEOUT),
-        asyncio.wait_for(signal_common_funder(deployer), timeout=_SIGNAL_TIMEOUT),
+        asyncio.wait_for(signal_common_funder(deployer), timeout=_SIGNAL_TIMEOUT * 3),  # genesis tracing needs more time
         return_exceptions=True,
     )
     total = 0
