@@ -1,36 +1,58 @@
 import React, { useCallback, useRef, useState } from 'react';
-import { Animated, StyleSheet, Text } from 'react-native';
+import { Animated, StyleSheet, Text, View } from 'react-native';
 import { tokens } from '../../theme/tokens';
 
-// Defined at module level — stable component identity, never causes remount loops
-function ToastOverlay({ msg, opacity }: { msg: string; opacity: Animated.Value }) {
+type ToastVariant = 'success' | 'error' | 'info';
+
+const VARIANT_STYLES: Record<ToastVariant, { bg: string; border: string; text: string }> = {
+  success: { bg: `${tokens.success}20`, border: `${tokens.success}50`, text: tokens.success },
+  error: { bg: `${tokens.accent}20`, border: `${tokens.accent}50`, text: tokens.accent },
+  info: { bg: tokens.bgGlass12, border: tokens.borderSubtle, text: tokens.white100 },
+};
+
+function ToastOverlay({
+  msg,
+  opacity,
+  variant,
+}: {
+  msg: string;
+  opacity: Animated.Value;
+  variant: ToastVariant;
+}) {
+  const vs = VARIANT_STYLES[variant] || VARIANT_STYLES.info;
   return (
-    <Animated.View style={[styles.toast, { opacity }]} pointerEvents="none">
-      <Text style={styles.text}>{msg}</Text>
+    <Animated.View
+      style={[
+        styles.toast,
+        { opacity, backgroundColor: vs.bg, borderColor: vs.border },
+      ]}
+      pointerEvents="none"
+    >
+      <Text style={[styles.text, { color: vs.text }]}>{msg}</Text>
     </Animated.View>
   );
 }
 
 export function useToast() {
   const [msg, setMsg] = useState('');
+  const [variant, setVariant] = useState<ToastVariant>('info');
   const opacity = useRef(new Animated.Value(0)).current;
 
   const showToast = useCallback(
-    (message: string) => {
+    (message: string, type: ToastVariant = 'info') => {
       setMsg(message);
+      setVariant(type);
       opacity.setValue(0);
       Animated.sequence([
         Animated.timing(opacity, { toValue: 1, duration: 180, useNativeDriver: true }),
-        Animated.delay(1500),
+        Animated.delay(2500),
         Animated.timing(opacity, { toValue: 0, duration: 300, useNativeDriver: true }),
       ]).start();
     },
     [opacity],
   );
 
-  // Return a JSX element (not a component function) — ToastOverlay has a stable
-  // module-level identity so React never sees a "new" component type between renders.
-  return { showToast, toast: <ToastOverlay msg={msg} opacity={opacity} /> };
+  return { showToast, toast: <ToastOverlay msg={msg} opacity={opacity} variant={variant} /> };
 }
 
 const styles = StyleSheet.create({
@@ -39,10 +61,8 @@ const styles = StyleSheet.create({
     bottom: 88,
     left: 24,
     right: 24,
-    backgroundColor: tokens.bgGlass12,
     borderRadius: tokens.radius.md,
     borderWidth: 1,
-    borderColor: tokens.borderSubtle,
     paddingVertical: 12,
     paddingHorizontal: 20,
     alignItems: 'center',
@@ -51,6 +71,5 @@ const styles = StyleSheet.create({
   text: {
     fontFamily: 'Lexend-SemiBold',
     fontSize: tokens.font.small,
-    color: tokens.white100,
   },
 });
