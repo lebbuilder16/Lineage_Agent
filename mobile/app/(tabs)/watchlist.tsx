@@ -240,9 +240,13 @@ export default function WatchlistScreen() {
       },
       onError: (err: any) => {
         setAddOpen(false);
-        const msg = err?.message || err?.detail || 'Failed to add watch';
-        // Small delay so modal closes first and toast is visible
-        setTimeout(() => showToast(String(msg), 'error'), 300);
+        const { handleTierError } = require('../../src/lib/tier-error');
+        setTimeout(() => {
+          if (!handleTierError(err, showToast)) {
+            const msg = err?.message || err?.detail || 'Failed to add watch';
+            showToast(String(msg), 'error');
+          }
+        }, 300);
       },
     });
   };
