@@ -692,6 +692,35 @@ async def admin_sweep_status() -> dict:
     }
 
 
+@app.post("/admin/cartel-forensics/{deployer}", tags=["system"])
+async def admin_cartel_forensics(deployer: str) -> dict:
+    """Trigger forensic proof signals for a deployer (no full sweep needed)."""
+    from .cartel_service import (
+        _signal_profit_convergence,
+        _signal_capital_recycling,
+        _signal_temporal_fingerprint,
+        _signal_compute_budget_fingerprint,
+    )
+    from .cartel_financial_service import signal_common_funder
+
+    results = {}
+    for name, fn, timeout in [
+        ("profit_convergence", _signal_profit_convergence, 30),
+        ("temporal_fingerprint", _signal_temporal_fingerprint, 30),
+        ("compute_budget_fp", _signal_compute_budget_fingerprint, 60),
+        ("common_funder", signal_common_funder, 120),
+        ("capital_recycling", _signal_capital_recycling, 30),
+    ]:
+        try:
+            count = await asyncio.wait_for(fn(deployer), timeout=timeout)
+            results[name] = {"edges": count, "status": "ok"}
+        except asyncio.TimeoutError:
+            results[name] = {"edges": 0, "status": "timeout"}
+        except Exception as exc:
+            results[name] = {"edges": 0, "status": f"error: {exc}"}
+    return {"deployer": deployer, "signals": results}
+
+
 @app.get("/admin/memory-stats", tags=["system"])
 async def admin_memory_stats() -> dict:
     """Return enrichment state of the agent memory system."""
