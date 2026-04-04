@@ -137,6 +137,11 @@ LAUNCHPAD_PROGRAMS: dict[str, str] = {
     # Raydium Launchpad (2025)
     "WLHv2UAZm6z4KyaaELi5pjdbJh6RESMva1Rnn8pJVVh": "raydiumlaunchpad",  # Launchpad authority
     "LanMV9sAd7wArD6GNnABFhv4Vf8W4N9xCRbTPgP3czj": "raydiumlaunchpad",  # Launchpad program
+    # Bags.fm (uses Meteora DBC for bonding curve, Meteora DAMM v2 for post-migration AMM)
+    "dbcij3LWUppWqq96dh6gJWwBifmcGfLSB5D4DuSMaqN": "bagsfm",   # Meteora DBC (token creation + bonding curve)
+    "cpamdpZCGKUy5JxQXB4dcpGPiikHawvSWAd6mEn1sGG": "bagsfm",   # Meteora DAMM v2 (post-migration AMM)
+    "FEE2tBhCKAt7shrod19QttSVREUYPiyMzoku1mL1gqVK": "bagsfm",   # Bags Fee Share V2 (current fee program)
+    "BAGSB9TpGrZxQbEsrEznv5jXXdwyP6AXerN8aVRiAmcv": "bagsfm",   # Bags.fm token Update Authority / signer
 }
 
 BONDING_CURVE_LAUNCHPAD_PLATFORMS: frozenset[str] = frozenset({

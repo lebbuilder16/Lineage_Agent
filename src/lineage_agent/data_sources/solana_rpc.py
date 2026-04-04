@@ -123,6 +123,11 @@ _PROGRAM_ADDRESSES: frozenset[str] = frozenset({
     # Raydium Launchpad (2025) — confirmed authority for tokens launched via Raydium pad
     "WLHv2UAZm6z4KyaaELi5pjdbJh6RESMva1Rnn8pJVVh",     # Raydium Launchpad authority
     "LanMV9sAd7wArD6GNnABFhv4Vf8W4N9xCRbTPgP3czj",    # Raydium Launchpad program
+    # Bags.fm (Meteora-based launchpad) — program + authority addresses
+    "dbcij3LWUppWqq96dh6gJWwBifmcGfLSB5D4DuSMaqN",    # Meteora DBC (token creation)
+    "cpamdpZCGKUy5JxQXB4dcpGPiikHawvSWAd6mEn1sGG",    # Meteora DAMM v2 (post-migration AMM)
+    "FEE2tBhCKAt7shrod19QttSVREUYPiyMzoku1mL1gqVK",    # Bags Fee Share V2
+    "BAGSB9TpGrZxQbEsrEznv5jXXdwyP6AXerN8aVRiAmcv",    # Bags.fm Update Authority / signer
 })
 
 
