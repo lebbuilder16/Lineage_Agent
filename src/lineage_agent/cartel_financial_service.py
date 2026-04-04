@@ -1049,14 +1049,17 @@ async def signal_common_funder(deployer: str) -> int:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 async def build_financial_edges(deployer: str) -> int:
-    """Run all financial signals for a deployer.  Returns total edge count."""
-    signal_names = ("funding_link", "shared_lp", "sniper_ring", "factory_cluster", "common_funder")
+    """Run all financial signals for a deployer.  Returns total edge count.
+
+    Note: signal_common_funder is NOT included here — it runs in the
+    cartel_service sweep phase 2 to avoid blocking the API endpoint.
+    """
+    signal_names = ("funding_link", "shared_lp", "sniper_ring", "factory_cluster")
     results = await asyncio.gather(
         asyncio.wait_for(signal_funding_link(deployer), timeout=_SIGNAL_TIMEOUT),
         asyncio.wait_for(signal_shared_lp(deployer), timeout=_SIGNAL_TIMEOUT),
         asyncio.wait_for(signal_sniper_ring(deployer), timeout=_SIGNAL_TIMEOUT),
         asyncio.wait_for(signal_factory_cluster(deployer), timeout=_SIGNAL_TIMEOUT),
-        asyncio.wait_for(signal_common_funder(deployer), timeout=_SIGNAL_TIMEOUT * 3),  # genesis tracing needs more time
         return_exceptions=True,
     )
     total = 0

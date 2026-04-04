@@ -119,11 +119,14 @@ async def build_cartel_edges_for_deployer(deployer: str) -> int:
     )
     total = sum(r for r in results if isinstance(r, int))
 
-    # Phase 2: Cross-community forensic proofs (depend on edges from phase 1)
+    # Phase 2: Forensic proofs (cross-community + genesis tracing)
+    from .cartel_financial_service import signal_common_funder
+
     forensic_results = await asyncio.gather(
-        _signal_profit_convergence(deployer),
-        _signal_temporal_fingerprint(deployer),
-        _signal_compute_budget_fingerprint(deployer),
+        asyncio.wait_for(_signal_profit_convergence(deployer), timeout=30),
+        asyncio.wait_for(_signal_temporal_fingerprint(deployer), timeout=30),
+        asyncio.wait_for(_signal_compute_budget_fingerprint(deployer), timeout=60),
+        asyncio.wait_for(signal_common_funder(deployer), timeout=120),
         return_exceptions=True,
     )
     total += sum(r for r in forensic_results if isinstance(r, int))
