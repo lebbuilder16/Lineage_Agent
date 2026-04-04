@@ -13,6 +13,7 @@ import { ChevronLeft, ChevronRight, AlertCircle } from 'lucide-react-native';
 import { GlassCard } from '../src/components/ui/GlassCard';
 import { HapticButton } from '../src/components/ui/HapticButton';
 import { RiskBadge } from '../src/components/ui/RiskBadge';
+import { FeatureGate } from '../src/components/ui/FeatureGate';
 import { tokens } from '../src/theme/tokens';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import type { LineageResult } from '../src/types/api';
@@ -151,6 +152,7 @@ export default function BatchScanScreen() {
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
+          <FeatureGate feature="Batch Scan" requiredPlan="elite">
           {/* Input area */}
           <GlassCard>
             <Text style={styles.sectionTitle}>MINT ADDRESSES</Text>
@@ -257,6 +259,7 @@ export default function BatchScanScreen() {
               </GlassCard>
             </Animated.View>
           )}
+          </FeatureGate>
         </ScrollView>
       </View>
     </View>
