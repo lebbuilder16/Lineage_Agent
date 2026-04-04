@@ -731,6 +731,18 @@ export interface components {
             total_rugs: number;
             /** Estimated Extracted Usd */
             estimated_extracted_usd: number;
+            /**
+             * Total Sol Extracted
+             * @description Real SOL extracted from on-chain sol_flows
+             * @default 0
+             */
+            total_sol_extracted: number;
+            /**
+             * Narrative
+             * @description Human-readable cartel summary for the mobile app
+             * @default
+             */
+            narrative: string;
             /** Active Since */
             active_since?: string | null;
             /**
