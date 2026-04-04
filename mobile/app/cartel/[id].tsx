@@ -231,9 +231,12 @@ export default function CartelScreen() {
                   />
                 )}
 
-                {/* ── 6. NETWORK LINKS ─────────────────────────────────── */}
+                {/* ── 6. PROOF CHAIN ───────────────────────────────────── */}
                 {(community.edges?.length ?? 0) > 0 && (
-                  <NetworkLinks edges={community.edges ?? []} />
+                  <ProofChain
+                    deployer={id ?? ''}
+                    edges={community.edges ?? []}
+                  />
                 )}
 
                 {/* ── 7. DEPLOYER RANKING ──────────────────────────────── */}
@@ -844,33 +847,352 @@ const egoStyles = StyleSheet.create({
 
 const MAX_VISIBLE_EDGES = 8;
 
-function NetworkLinks({ edges }: { edges: Edge[] }) {
-  const [showAll, setShowAll] = useState(false);
-  const visible = showAll ? edges : edges.slice(0, MAX_VISIBLE_EDGES);
-  const hasMore = edges.length > MAX_VISIBLE_EDGES;
+// Human-readable proof titles and explanations per signal type
+const PROOF_INFO: Record<string, { title: string; icon: string; explain: (ev: Record<string, unknown>, peer: string) => string }> = {
+  dna_match: {
+    title: 'Same Deployment Script',
+    icon: '🧬',
+    explain: (_ev, peer) =>
+      `Your token was deployed with identical metadata as ${shortAddr(peer)}. Same bot or script created both tokens.`,
+  },
+  profit_convergence: {
+    title: 'Profits Go to Same Wallet',
+    icon: '💰',
+    explain: (ev, peer) => {
+      const tw = ev.terminal_wallet ? shortAddr(String(ev.terminal_wallet)) : 'unknown';
+      return `After selling tokens, both your deployer and ${shortAddr(peer)} send profits to the same wallet (${tw}).`;
+    },
+  },
+  capital_recycling: {
+    title: 'Closed Financial Loop',
+    icon: '🔄',
+    explain: (ev) => {
+      const rw = ev.recycling_wallet ? shortAddr(String(ev.recycling_wallet)) : 'unknown';
+      return `The same wallet (${rw}) funds deployers AND receives their profits — capital is recycled.`;
+    },
+  },
+  common_funder: {
+    title: 'Same Funding Source',
+    icon: '🏦',
+    explain: (ev) => {
+      const f = ev.funder ? shortAddr(String(ev.funder)) : 'unknown';
+      const n = ev.funded_wallet_count ?? '?';
+      return `Both wallets were funded by the same source (${f}) which also funded ${n} other deployers.`;
+    },
+  },
+  sniper_ring: {
+    title: 'Shared Early Buyers',
+    icon: '🎯',
+    explain: (ev, peer) => {
+      const n = ev.shared_count ?? '?';
+      return `${n} same wallets bought both your token and tokens from ${shortAddr(peer)} within seconds of launch.`;
+    },
+  },
+  funding_link: {
+    title: 'Direct SOL Funding',
+    icon: '💸',
+    explain: (ev, peer) => {
+      const sol = ev.amount_sol ?? '?';
+      return `${sol} SOL was transferred directly between your deployer and ${shortAddr(peer)} before launch.`;
+    },
+  },
+  timing_sync: {
+    title: 'Synchronized Launch',
+    icon: '⏱️',
+    explain: (ev, peer) => {
+      const narr = ev.narrative ? `"${ev.narrative}"` : 'same theme';
+      return `Your deployer and ${shortAddr(peer)} launched tokens with ${narr} within 30 minutes of each other.`;
+    },
+  },
+  compute_budget_fp: {
+    title: 'Same Script Fingerprint',
+    icon: '🤖',
+    explain: (ev, peer) => {
+      const fields = ev.match_fields ?? 'unknown';
+      return `Your deployer and ${shortAddr(peer)} use identical deployment parameters (${fields}).`;
+    },
+  },
+  shared_lp: {
+    title: 'Shared Liquidity Provider',
+    icon: '💧',
+    explain: (ev) => {
+      const lp = ev.lp_wallet ? shortAddr(String(ev.lp_wallet)) : 'unknown';
+      const excl = ev.lp_exclusivity != null ? ` (${Math.round(Number(ev.lp_exclusivity) * 100)}% exclusive to this cartel)` : '';
+      const delay = ev.lp_delay_sec != null
+        ? Number(ev.lp_delay_sec) < 60
+          ? ` LP added ${ev.lp_delay_sec}s after launch (insider).`
+          : ''
+        : '';
+      return `Wallet ${lp} provided liquidity to both tokens${excl}.${delay}`;
+    },
+  },
+};
+
+function ProofChain({ deployer, edges }: { deployer: string; edges: Edge[] }) {
+  // Separate direct links (involving deployer) from peer links
+  const directEdges = edges.filter(
+    (e) => e.wallet_a === deployer || e.wallet_b === deployer,
+  );
+  const peerEdges = edges.filter(
+    (e) => e.wallet_a !== deployer && e.wallet_b !== deployer,
+  );
+
+  // Group direct edges by signal type, strong signals first
+  const STRONG_ORDER = [
+    'capital_recycling', 'common_funder', 'profit_convergence',
+    'sniper_ring', 'funding_link', 'dna_match', 'compute_budget_fp',
+    'timing_sync', 'shared_lp',
+  ];
+  const directBySignal = new Map<string, Edge[]>();
+  for (const e of directEdges) {
+    const list = directBySignal.get(e.signal_type) ?? [];
+    list.push(e);
+    directBySignal.set(e.signal_type, list);
+  }
+  const sortedSignals = [...directBySignal.keys()].sort(
+    (a, b) => (STRONG_ORDER.indexOf(a) === -1 ? 99 : STRONG_ORDER.indexOf(a))
+            - (STRONG_ORDER.indexOf(b) === -1 ? 99 : STRONG_ORDER.indexOf(b)),
+  );
+
+  // Count peer edges by signal
+  const peerCounts = new Map<string, number>();
+  for (const e of peerEdges) {
+    peerCounts.set(e.signal_type, (peerCounts.get(e.signal_type) ?? 0) + 1);
+  }
 
   return (
-    <GlassCard>
-      <Text style={styles.sectionTitle}>NETWORK LINKS</Text>
-      <View style={{ gap: 4 }}>
-        {visible.map((edge, i) => (
-          <EdgeLink key={i} edge={edge} />
-        ))}
-      </View>
-      {hasMore && !showAll && (
-        <TouchableOpacity
-          onPress={() => setShowAll(true)}
-          style={linkStyles.showAllBtn}
-          activeOpacity={0.7}
-        >
-          <Text style={linkStyles.showAllText}>
-            Show all {edges.length} links
+    <>
+      {/* Direct proofs */}
+      {directEdges.length > 0 && (
+        <GlassCard>
+          <Text style={styles.sectionTitle}>PROOF CHAIN</Text>
+          <Text style={proofStyles.subtitle}>
+            Why your deployer is linked to this network
           </Text>
-        </TouchableOpacity>
+          <View style={{ gap: 12, marginTop: 8 }}>
+            {sortedSignals.map((sig) => {
+              const sigEdges = directBySignal.get(sig) ?? [];
+              const info = PROOF_INFO[sig];
+              if (!info) return null;
+              const meta = SIGNAL_META[sig] ?? { label: sig, color: tokens.white60 };
+              // Pick first edge for explanation, show peer
+              const firstEdge = sigEdges[0];
+              const peer = firstEdge.wallet_a === deployer ? firstEdge.wallet_b : firstEdge.wallet_a;
+              const ev = firstEdge.evidence ?? {};
+
+              return (
+                <Animated.View
+                  key={sig}
+                  entering={FadeInDown.duration(250).springify()}
+                >
+                  <View style={proofStyles.proofCard}>
+                    {/* Header */}
+                    <View style={proofStyles.proofHeader}>
+                      <Text style={proofStyles.proofIcon}>{info.icon}</Text>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[proofStyles.proofTitle, { color: meta.color }]}>
+                          {info.title}
+                        </Text>
+                        <Text style={proofStyles.proofCount}>
+                          {sigEdges.length} link{sigEdges.length !== 1 ? 's' : ''}
+                        </Text>
+                      </View>
+                      <View style={[proofStyles.strengthBadge, { borderColor: `${meta.color}40`, backgroundColor: `${meta.color}12` }]}>
+                        <Text style={[proofStyles.strengthText, { color: meta.color }]}>
+                          {strengthPercent(firstEdge.signal_strength)}
+                        </Text>
+                      </View>
+                    </View>
+                    {/* Explanation */}
+                    <Text style={proofStyles.proofExplain}>
+                      {info.explain(ev, peer)}
+                    </Text>
+                    {/* Verifiable links */}
+                    <View style={proofStyles.verifyRow}>
+                      <TouchableOpacity
+                        onPress={() => router.push(`/deployer/${peer}` as any)}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={proofStyles.verifyLink}>
+                          {shortAddr(peer)}
+                        </Text>
+                      </TouchableOpacity>
+                      {ev.terminal_wallet ? (
+                        <TouchableOpacity
+                          onPress={() => Linking.openURL(`https://solscan.io/account/${String(ev.terminal_wallet)}`).catch(() => {})}
+                          activeOpacity={0.7}
+                        >
+                          <View style={proofStyles.solscanBadge}>
+                            <ExternalLink size={9} color={tokens.cyan} />
+                            <Text style={proofStyles.solscanText}>Verify</Text>
+                          </View>
+                        </TouchableOpacity>
+                      ) : null}
+                      {ev.lp_wallet ? (
+                        <TouchableOpacity
+                          onPress={() => Linking.openURL(`https://solscan.io/account/${String(ev.lp_wallet)}`).catch(() => {})}
+                          activeOpacity={0.7}
+                        >
+                          <View style={proofStyles.solscanBadge}>
+                            <ExternalLink size={9} color={tokens.cyan} />
+                            <Text style={proofStyles.solscanText}>LP</Text>
+                          </View>
+                        </TouchableOpacity>
+                      ) : null}
+                      {ev.signature ? (
+                        <TouchableOpacity
+                          onPress={() => openSolscanTx(String(ev.signature))}
+                          activeOpacity={0.7}
+                        >
+                          <View style={proofStyles.solscanBadge}>
+                            <ExternalLink size={9} color={tokens.cyan} />
+                            <Text style={proofStyles.solscanText}>TX</Text>
+                          </View>
+                        </TouchableOpacity>
+                      ) : null}
+                      {ev.funder ? (
+                        <TouchableOpacity
+                          onPress={() => Linking.openURL(`https://solscan.io/account/${String(ev.funder)}`).catch(() => {})}
+                          activeOpacity={0.7}
+                        >
+                          <View style={proofStyles.solscanBadge}>
+                            <ExternalLink size={9} color={tokens.cyan} />
+                            <Text style={proofStyles.solscanText}>Funder</Text>
+                          </View>
+                        </TouchableOpacity>
+                      ) : null}
+                    </View>
+                  </View>
+                </Animated.View>
+              );
+            })}
+          </View>
+        </GlassCard>
       )}
-    </GlassCard>
+
+      {/* Network-level evidence summary */}
+      {peerEdges.length > 0 && (
+        <GlassCard>
+          <Text style={styles.sectionTitle}>NETWORK EVIDENCE</Text>
+          <Text style={proofStyles.subtitle}>
+            Additional links between other network members
+          </Text>
+          <View style={{ gap: 6, marginTop: 8 }}>
+            {[...peerCounts.entries()]
+              .sort((a, b) => {
+                const ia = STRONG_ORDER.indexOf(a[0]);
+                const ib = STRONG_ORDER.indexOf(b[0]);
+                return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
+              })
+              .map(([sig, count]) => {
+                const info = PROOF_INFO[sig];
+                const meta = SIGNAL_META[sig] ?? { label: sig, color: tokens.white60 };
+                return (
+                  <View key={sig} style={proofStyles.peerRow}>
+                    <Text style={proofStyles.peerIcon}>{info?.icon ?? '🔗'}</Text>
+                    <Text style={proofStyles.peerLabel}>{info?.title ?? meta.label}</Text>
+                    <Text style={[proofStyles.peerCount, { color: meta.color }]}>{count}</Text>
+                  </View>
+                );
+              })}
+          </View>
+        </GlassCard>
+      )}
+    </>
   );
 }
+
+const proofStyles = StyleSheet.create({
+  subtitle: {
+    fontFamily: 'Lexend-Regular',
+    fontSize: tokens.font.tiny,
+    color: tokens.white35,
+    marginTop: -8,
+    marginBottom: 4,
+  },
+  proofCard: {
+    padding: 10,
+    borderRadius: tokens.radius.sm,
+    backgroundColor: tokens.bgGlass,
+    gap: 8,
+  },
+  proofHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  proofIcon: { fontSize: 18 },
+  proofTitle: {
+    fontFamily: 'Lexend-SemiBold',
+    fontSize: tokens.font.body,
+  },
+  proofCount: {
+    fontFamily: 'Lexend-Regular',
+    fontSize: tokens.font.tiny,
+    color: tokens.white35,
+  },
+  strengthBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: tokens.radius.pill,
+    borderWidth: 1,
+  },
+  strengthText: {
+    fontFamily: 'Lexend-Bold',
+    fontSize: tokens.font.tiny,
+  },
+  proofExplain: {
+    fontFamily: 'Lexend-Regular',
+    fontSize: tokens.font.small,
+    color: tokens.textBody,
+    lineHeight: 18,
+  },
+  verifyRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    alignItems: 'center',
+  },
+  verifyLink: {
+    fontFamily: 'Lexend-SemiBold',
+    fontSize: tokens.font.tiny,
+    color: tokens.secondary,
+  },
+  solscanBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: tokens.radius.pill,
+    borderWidth: 1,
+    borderColor: `${tokens.cyan}40`,
+    backgroundColor: `${tokens.cyan}10`,
+  },
+  solscanText: {
+    fontFamily: 'Lexend-Bold',
+    fontSize: 8,
+    color: tokens.cyan,
+    letterSpacing: 0.5,
+  },
+  peerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 4,
+  },
+  peerIcon: { fontSize: 14 },
+  peerLabel: {
+    fontFamily: 'Lexend-Regular',
+    fontSize: tokens.font.small,
+    color: tokens.white60,
+    flex: 1,
+  },
+  peerCount: {
+    fontFamily: 'Lexend-Bold',
+    fontSize: tokens.font.body,
+  },
+});
 
 function EdgeLink({ edge }: { edge: Edge }) {
   const [expanded, setExpanded] = useState(false);
