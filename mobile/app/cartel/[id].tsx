@@ -49,6 +49,11 @@ const SIGNAL_META: Record<string, { label: string; color: string }> = {
   funding_link: { label: 'Funding Link', color: tokens.rose },
   shared_lp: { label: 'Shared LP', color: tokens.teal },
   sniper_ring: { label: 'Sniper Ring', color: tokens.peach },
+  common_funder: { label: 'Common Funder', color: tokens.accent },
+  profit_convergence: { label: 'Profit Convergence', color: tokens.rose },
+  capital_recycling: { label: 'Capital Recycling', color: tokens.error },
+  temporal_fingerprint: { label: 'Time Pattern', color: tokens.amber },
+  compute_budget_fp: { label: 'Script Match', color: tokens.indigo },
 };
 
 const CONFIDENCE_MAP: Record<string, 'critical' | 'high' | 'medium'> = {
@@ -991,6 +996,23 @@ function EvidenceDetail({
           label: 'Shared LPs',
           value: String(evidence.shared_count),
         });
+      if (evidence.lp_exclusivity != null)
+        lines.push({
+          label: 'Exclusivity',
+          value: `${Math.round(Number(evidence.lp_exclusivity) * 100)}%`,
+        });
+      if (evidence.lp_delay_sec != null) {
+        const sec = Number(evidence.lp_delay_sec);
+        lines.push({
+          label: 'LP delay',
+          value: sec < 60 ? `${sec}s (insider)` : `${Math.round(sec / 60)}min`,
+        });
+      }
+      if (evidence.lp_sol_amount != null)
+        lines.push({
+          label: 'LP amount',
+          value: `${evidence.lp_sol_amount} SOL`,
+        });
       break;
     case 'cross_holding':
       if (evidence.held_mint)
@@ -1017,6 +1039,46 @@ function EvidenceDetail({
           label: 'Shared factories',
           value: String(evidence.shared_factory_count),
         });
+      break;
+    case 'common_funder':
+      if (evidence.funder)
+        lines.push({ label: 'Funder', value: shortAddr(String(evidence.funder)) });
+      if (evidence.funded_wallet_count != null)
+        lines.push({ label: 'Wallets funded', value: String(evidence.funded_wallet_count) });
+      if (evidence.amount_sol_a != null)
+        lines.push({ label: 'Amount', value: `${evidence.amount_sol_a} SOL` });
+      break;
+    case 'profit_convergence':
+      if (evidence.terminal_wallet)
+        lines.push({ label: 'Terminal wallet', value: shortAddr(String(evidence.terminal_wallet)) });
+      if (evidence.deployer_count != null)
+        lines.push({ label: 'Deployers', value: String(evidence.deployer_count) });
+      if (evidence.entity_type)
+        lines.push({ label: 'Type', value: String(evidence.entity_type) });
+      break;
+    case 'capital_recycling':
+      if (evidence.recycling_wallet)
+        lines.push({ label: 'Recycling wallet', value: shortAddr(String(evidence.recycling_wallet)) });
+      if (Array.isArray(evidence.funded_deployers))
+        lines.push({ label: 'Funded', value: `${evidence.funded_deployers.length} deployers` });
+      if (Array.isArray(evidence.received_from_deployers))
+        lines.push({ label: 'Received from', value: `${evidence.received_from_deployers.length} deployers` });
+      break;
+    case 'temporal_fingerprint':
+      if (evidence.jsd_score != null)
+        lines.push({ label: 'JSD score', value: String(Number(evidence.jsd_score).toFixed(4)) });
+      if (evidence.deployer_a_peak_hours)
+        lines.push({ label: 'Peak hours A', value: String(evidence.deployer_a_peak_hours) });
+      if (evidence.deployer_b_peak_hours)
+        lines.push({ label: 'Peak hours B', value: String(evidence.deployer_b_peak_hours) });
+      break;
+    case 'compute_budget_fp':
+      if (evidence.unit_price != null)
+        lines.push({ label: 'Unit price', value: String(evidence.unit_price) });
+      if (evidence.program_hash)
+        lines.push({ label: 'Program hash', value: String(evidence.program_hash) });
+      if (evidence.match_fields)
+        lines.push({ label: 'Matched', value: String(evidence.match_fields) });
       break;
   }
 

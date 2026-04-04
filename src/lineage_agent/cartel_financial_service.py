@@ -231,24 +231,32 @@ async def _collect_token_financial_data(
         }
 
     lp_providers: list[str] = []
+    lp_details: list[dict] = []  # Proof 5: LP timing details
     early_buyers: list[str] = []
     seen_lp: set[str] = set()
     seen_buyers: set[str] = set()
 
     sem = asyncio.Semaphore(_SEM_CONCURRENCY)
 
-    async def _process(sig_info: dict) -> Optional[dict]:
+    # Store signature alongside parsed data for LP timing proof
+    sig_list = sigs[:_EARLY_TX_LIMIT]
+
+    async def _process(sig_info: dict) -> Optional[tuple[str, dict]]:
         sig = sig_info.get("signature", "")
         if not sig or sig_info.get("err"):
             return None
         async with sem:
-            return await _parse_transaction(rpc, sig, target_mint=mint)
+            tx = await _parse_transaction(rpc, sig, target_mint=mint)
+            return (sig, tx) if tx else None
 
-    tasks = [_process(s) for s in sigs[:_EARLY_TX_LIMIT]]
+    tasks = [_process(s) for s in sig_list]
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
-    for tx_data in results:
-        if not isinstance(tx_data, dict) or not tx_data:
+    for item in results:
+        if not isinstance(item, tuple):
+            continue
+        sig, tx_data = item
+        if not tx_data:
             continue
 
         fee_payer = tx_data.get("fee_payer", "")
@@ -264,6 +272,18 @@ async def _collect_token_financial_data(
         ):
             seen_lp.add(fee_payer)
             lp_providers.append(fee_payer)
+            # Proof 5: Capture LP timing + TX signature + SOL amount
+            sol_amount = sum(
+                t.get("amount_lamports", 0) / 1e9
+                for t in tx_data.get("sol_transfers", [])
+                if t.get("from") == fee_payer
+            )
+            lp_details.append({
+                "wallet": fee_payer,
+                "tx_sig": sig,
+                "block_time": tx_data.get("block_time"),
+                "sol_amount": round(sol_amount, 4),
+            })
 
         # Early buyers: wallets that received the target token, excluding
         # the deployer and LP-program interactions.
@@ -278,6 +298,7 @@ async def _collect_token_financial_data(
 
     return {
         "lp_providers": lp_providers[:10],
+        "lp_details": lp_details[:10],
         "early_buyers": early_buyers[:20],
         "collected_at": datetime.now(timezone.utc).isoformat(),
     }
@@ -306,6 +327,7 @@ async def _ensure_financial_data(
         # Already collected — return cached
         return ej, {
             "lp_providers": ej.get("lp_providers", []),
+            "lp_details": ej.get("lp_details", []),
             "early_buyers": ej.get("early_buyers", []),
         }
 
@@ -516,6 +538,8 @@ async def signal_shared_lp(deployer: str) -> int:
 
         rpc = get_rpc_client()
         my_lp_map: dict[str, set[str]] = {}  # mint → LP provider wallets
+        my_lp_details: dict[str, list[dict]] = {}  # mint → LP timing details
+        my_created_at: dict[str, float] = {}  # mint → creation unix timestamp
 
         for ev in my_events:
             mint = ev.get("mint", "")
@@ -527,6 +551,15 @@ async def signal_shared_lp(deployer: str) -> int:
             providers = set(fin.get("lp_providers", []))
             if providers:
                 my_lp_map[mint] = providers
+                my_lp_details[mint] = fin.get("lp_details", [])
+            # Parse token creation timestamp for LP delay calculation
+            ca = ev.get("created_at", "")
+            if ca:
+                try:
+                    from datetime import datetime as _dt, timezone as _tz
+                    my_created_at[mint] = _dt.fromisoformat(ca.replace("Z", "+00:00")).timestamp()
+                except Exception:
+                    pass
 
         # Flatten all my LP providers
         all_my_lps: set[str] = set()
@@ -535,6 +568,9 @@ async def signal_shared_lp(deployer: str) -> int:
 
         if not all_my_lps:
             return 0
+
+        # ── Proof 4: LP Exclusivity — count total appearances per LP wallet ──
+        lp_exclusivity_cache: dict[str, tuple[int, int]] = {}  # wallet → (total, cartel)
 
         # Cross-reference against other deployers' cached data
         other_events = await event_query(
@@ -545,6 +581,8 @@ async def signal_shared_lp(deployer: str) -> int:
             limit=5000,
         )
 
+        # Build a set of all deployers that share LP with us (for exclusivity calc)
+        known_cartel_deployers: set[str] = {deployer}
         seen_edges: set[str] = set()
 
         for oev in other_events:
@@ -564,6 +602,8 @@ async def signal_shared_lp(deployer: str) -> int:
             if not shared:
                 continue
 
+            known_cartel_deployers.add(od)
+
             edge_key = f"{deployer}:{od}"
             if edge_key in seen_edges:
                 continue
@@ -574,18 +614,69 @@ async def signal_shared_lp(deployer: str) -> int:
                     (m for m, ps in my_lp_map.items() if lp_wallet in ps),
                     "",
                 )
-                strength = round(min(1.0, 0.65 + 0.1 * len(shared)), 4)
+                base_strength = round(min(1.0, 0.65 + 0.1 * len(shared)), 4)
+
+                # ── Proof 4: LP Exclusivity ──────────────────────────
+                excl_total, excl_cartel = 0, 0
+                if lp_wallet not in lp_exclusivity_cache:
+                    try:
+                        rows = await event_query(
+                            "event_type = 'token_created' AND extra_json LIKE ?",
+                            params=(f'%"{lp_wallet}"%',),
+                            columns="deployer",
+                            limit=5000,
+                        )
+                        excl_total = len(rows)
+                        excl_cartel = sum(
+                            1 for r in rows if r.get("deployer") in known_cartel_deployers
+                        )
+                        lp_exclusivity_cache[lp_wallet] = (excl_total, excl_cartel)
+                    except Exception:
+                        lp_exclusivity_cache[lp_wallet] = (0, 0)
+                excl_total, excl_cartel = lp_exclusivity_cache.get(lp_wallet, (0, 0))
+                exclusivity = excl_cartel / max(1, excl_total)
+                exclusivity_boost = round(exclusivity * 0.15, 4)
+
+                # ── Proof 5: LP Timing ───────────────────────────────
+                timing_boost = 0.0
+                lp_delay_sec: int | None = None
+                lp_tx_sig: str | None = None
+                lp_sol_amount: float | None = None
+                details_list = my_lp_details.get(my_mint, [])
+                detail = next((d for d in details_list if d.get("wallet") == lp_wallet), None)
+                token_ts = my_created_at.get(my_mint)
+                if detail and token_ts and detail.get("block_time"):
+                    lp_delay_sec = int(detail["block_time"] - token_ts)
+                    lp_tx_sig = detail.get("tx_sig")
+                    lp_sol_amount = detail.get("sol_amount")
+                    if lp_delay_sec < 60:
+                        timing_boost = 0.10
+                    elif lp_delay_sec < 300:
+                        timing_boost = 0.05
+
+                final_strength = round(min(1.0, base_strength + exclusivity_boost + timing_boost), 4)
+
+                evidence: dict = {
+                    "lp_wallet": lp_wallet,
+                    "my_mint": my_mint,
+                    "other_mint": om,
+                    "shared_count": len(shared),
+                }
+                # Proof 4 enrichment
+                if excl_total > 0:
+                    evidence["lp_exclusivity"] = round(exclusivity, 3)
+                    evidence["lp_total_tokens"] = excl_total
+                    evidence["lp_cartel_tokens"] = excl_cartel
+                # Proof 5 enrichment
+                if lp_tx_sig:
+                    evidence["signature"] = lp_tx_sig
+                if lp_delay_sec is not None:
+                    evidence["lp_delay_sec"] = lp_delay_sec
+                if lp_sol_amount is not None:
+                    evidence["lp_sol_amount"] = round(lp_sol_amount, 4)
+
                 await cartel_edge_upsert(
-                    deployer,
-                    od,
-                    "shared_lp",
-                    strength,
-                    {
-                        "lp_wallet": lp_wallet,
-                        "my_mint": my_mint,
-                        "other_mint": om,
-                        "shared_count": len(shared),
-                    },
+                    deployer, od, "shared_lp", final_strength, evidence,
                 )
                 count += 1
     except Exception:
@@ -798,17 +889,161 @@ async def signal_factory_cluster(deployer: str) -> int:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+#  Signal 10 — Common Funder (genesis funding trace)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+_GENESIS_SIG_PAGES = 10  # walk further back for wallet birthday
+_MIN_GENESIS_SOL = 0.01  # minimum incoming SOL to count as funding
+
+
+async def signal_common_funder(deployer: str) -> int:
+    """Trace the genesis funding source for deployer wallets.
+
+    If multiple deployers were funded by the same wallet, this is strong
+    evidence of a single operator controlling them all.
+    """
+    count = 0
+    try:
+        # Get all known deployers from token_created events
+        deployer_rows = await event_query(
+            "event_type = 'token_created'",
+            columns="deployer",
+            limit=5000,
+        )
+        all_deployers = {r["deployer"] for r in deployer_rows if r.get("deployer")}
+        if deployer not in all_deployers:
+            all_deployers.add(deployer)
+
+        rpc = get_rpc_client()
+        wallet_funders: dict[str, dict] = {}  # wallet → {funder, amount_sol, block_time}
+
+        sem = asyncio.Semaphore(5)
+
+        async def _trace_genesis(wallet: str) -> None:
+            """Find the first incoming SOL transfer for a wallet."""
+            # Check if already cached in extra_json
+            cached = await event_query(
+                "event_type = 'token_created' AND deployer = ? AND extra_json LIKE '%genesis_funder%'",
+                params=(wallet,),
+                columns="extra_json",
+                limit=1,
+            )
+            if cached:
+                try:
+                    ej = json.loads(cached[0].get("extra_json") or "{}")
+                    if isinstance(ej, str):
+                        ej = json.loads(ej)
+                    gf = ej.get("genesis_funder")
+                    if gf and gf.get("funder"):
+                        wallet_funders[wallet] = gf
+                        return
+                except Exception:
+                    pass
+
+            async with sem:
+                try:
+                    sigs = await _get_earliest_signatures(
+                        rpc, wallet, count=5, max_pages=_GENESIS_SIG_PAGES,
+                    )
+                    if not sigs:
+                        return
+                    # Parse earliest TXs looking for first incoming SOL
+                    for sig_info in sigs:
+                        sig = sig_info.get("signature", "")
+                        if not sig or sig_info.get("err"):
+                            continue
+                        tx = await _parse_transaction(rpc, sig)
+                        if not tx:
+                            continue
+                        for xfer in tx.get("sol_transfers", []):
+                            to_addr = xfer.get("to", "")
+                            from_addr = xfer.get("from", "")
+                            amount_sol = xfer.get("amount_lamports", 0) / 1e9
+                            if (
+                                to_addr == wallet
+                                and from_addr
+                                and from_addr not in _SKIP_ADDRESSES
+                                and amount_sol >= _MIN_GENESIS_SOL
+                            ):
+                                result = {
+                                    "funder": from_addr,
+                                    "amount_sol": round(amount_sol, 4),
+                                    "block_time": tx.get("block_time"),
+                                    "signature": sig,
+                                }
+                                wallet_funders[wallet] = result
+                                # Cache in extra_json
+                                try:
+                                    events = await event_query(
+                                        "event_type = 'token_created' AND deployer = ?",
+                                        params=(wallet,),
+                                        columns="extra_json, mint",
+                                        limit=1,
+                                    )
+                                    if events:
+                                        ej = json.loads(events[0].get("extra_json") or "{}")
+                                        if isinstance(ej, str):
+                                            ej = json.loads(ej)
+                                        ej["genesis_funder"] = result
+                                        await event_update(
+                                            "event_type = 'token_created' AND mint = ?",
+                                            (events[0]["mint"],),
+                                            extra_json=json.dumps(ej),
+                                        )
+                                except Exception:
+                                    pass
+                                return
+                except Exception:
+                    logger.debug("genesis trace failed for %s", wallet[:12])
+
+        # Trace genesis funding for all deployers (batched)
+        tasks = [_trace_genesis(w) for w in all_deployers]
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Group wallets by funder
+        funder_groups: dict[str, list[str]] = {}
+        for wallet, info in wallet_funders.items():
+            funder = info.get("funder", "")
+            if funder:
+                funder_groups.setdefault(funder, []).append(wallet)
+
+        # Create edges between wallets sharing a common funder
+        for funder, wallets in funder_groups.items():
+            if len(wallets) < 2:
+                continue
+            strength = round(min(1.0, 0.70 + 0.05 * len(wallets)), 4)
+            # Create edges between all pairs
+            for i, wa in enumerate(wallets):
+                for wb in wallets[i + 1:]:
+                    await cartel_edge_upsert(
+                        wa, wb, "common_funder", strength,
+                        {
+                            "funder": funder,
+                            "funded_wallet_count": len(wallets),
+                            "amount_sol_a": wallet_funders[wa].get("amount_sol"),
+                            "amount_sol_b": wallet_funders[wb].get("amount_sol"),
+                            "signature": wallet_funders[wa].get("signature"),
+                        },
+                    )
+                    count += 1
+    except Exception:
+        logger.exception("signal_common_funder failed for %s", deployer)
+    return count
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 #  Aggregate runner
 # ═══════════════════════════════════════════════════════════════════════════════
 
 async def build_financial_edges(deployer: str) -> int:
     """Run all financial signals for a deployer.  Returns total edge count."""
-    signal_names = ("funding_link", "shared_lp", "sniper_ring", "factory_cluster")
+    signal_names = ("funding_link", "shared_lp", "sniper_ring", "factory_cluster", "common_funder")
     results = await asyncio.gather(
         asyncio.wait_for(signal_funding_link(deployer), timeout=_SIGNAL_TIMEOUT),
         asyncio.wait_for(signal_shared_lp(deployer), timeout=_SIGNAL_TIMEOUT),
         asyncio.wait_for(signal_sniper_ring(deployer), timeout=_SIGNAL_TIMEOUT),
         asyncio.wait_for(signal_factory_cluster(deployer), timeout=_SIGNAL_TIMEOUT),
+        asyncio.wait_for(signal_common_funder(deployer), timeout=_SIGNAL_TIMEOUT),
         return_exceptions=True,
     )
     total = 0

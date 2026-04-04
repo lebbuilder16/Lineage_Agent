@@ -101,10 +101,14 @@ async def build_cartel_edges_for_deployer(deployer: str) -> int:
 
     Returns number of new/updated edges.
     Runs the 5 original metadata/timing signals PLUS
-    the 3 financial graph signals (funding_link, shared_lp, sniper_ring).
+    the financial graph signals (funding_link, shared_lp, sniper_ring,
+    factory_cluster, common_funder) PLUS 4 forensic proof signals
+    (profit_convergence, capital_recycling, temporal_fingerprint,
+    compute_budget_fp).
     """
     from .cartel_financial_service import build_financial_edges
 
+    # Phase 1: Original signals + financial (parallel)
     results = await asyncio.gather(
         _signal_timing_sync(deployer),
         _signal_phash_cluster(deployer),
@@ -114,6 +118,22 @@ async def build_cartel_edges_for_deployer(deployer: str) -> int:
         return_exceptions=True,
     )
     total = sum(r for r in results if isinstance(r, int))
+
+    # Phase 2: Cross-community forensic proofs (depend on edges from phase 1)
+    forensic_results = await asyncio.gather(
+        _signal_profit_convergence(deployer),
+        _signal_temporal_fingerprint(deployer),
+        _signal_compute_budget_fingerprint(deployer),
+        return_exceptions=True,
+    )
+    total += sum(r for r in forensic_results if isinstance(r, int))
+
+    # Phase 3: Capital recycling (depends on common_funder from phase 1 + profit_convergence)
+    try:
+        total += await _signal_capital_recycling(deployer)
+    except Exception:
+        logger.warning("_signal_capital_recycling failed for %s", deployer)
+
     return total
 
 
@@ -470,6 +490,421 @@ async def _signal_cross_holdings(deployer: str) -> int:
                 count += 1
     except Exception:
         logger.exception("_signal_cross_holdings failed for %s", deployer)
+    return count
+
+
+# ── Forensic proof signals (post-financial, cross-community) ─────────────────
+
+
+async def _signal_profit_convergence(deployer: str) -> int:
+    """Proof 2: Detect when profits from different deployers converge to the
+    same terminal wallet (CEX, consolidation wallet, or bridge).
+
+    Uses pre-cached sol_flows data — zero RPC cost.
+    """
+    count = 0
+    try:
+        edges = await cartel_edges_query(deployer)
+        peer_wallets: set[str] = {deployer}
+        for e in edges:
+            peer_wallets.add(e["wallet_a"])
+            peer_wallets.add(e["wallet_b"])
+        if len(peer_wallets) < 2:
+            return 0
+
+        # For each deployer, collect terminal wallets from sol_flows
+        deployer_terminals: dict[str, set[str]] = {}  # deployer → terminal addrs
+        for w in peer_wallets:
+            flows = await sol_flows_query_by_from(w)
+            if not flows:
+                continue
+            # Terminal = to_addresses that never appear as from_addresses
+            senders = {f["from_address"] for f in flows}
+            terminals = {f["to_address"] for f in flows if f["to_address"] not in senders}
+            if terminals:
+                deployer_terminals[w] = terminals
+
+        if len(deployer_terminals) < 2:
+            return 0
+
+        # Find terminal wallets receiving from ≥ 2 deployers
+        terminal_to_deployers: dict[str, set[str]] = defaultdict(set)
+        for d, terms in deployer_terminals.items():
+            for t in terms:
+                terminal_to_deployers[t].add(d)
+
+        from .wallet_labels import classify_address
+
+        for terminal, deployers_set in terminal_to_deployers.items():
+            if len(deployers_set) < 2:
+                continue
+            wallet_info = classify_address(terminal)
+            entity_type = wallet_info.entity_type or "unknown"
+            strength = round(min(1.0, 0.80 + 0.05 * len(deployers_set)), 4)
+            deployers_list = sorted(deployers_set)
+            for i, wa in enumerate(deployers_list):
+                for wb in deployers_list[i + 1:]:
+                    await cartel_edge_upsert(
+                        wa, wb, "profit_convergence", strength,
+                        {
+                            "terminal_wallet": terminal,
+                            "entity_type": entity_type,
+                            "deployer_count": len(deployers_set),
+                        },
+                    )
+                    count += 1
+    except Exception:
+        logger.exception("_signal_profit_convergence failed for %s", deployer)
+    return count
+
+
+async def _signal_capital_recycling(deployer: str) -> int:
+    """Proof 3: Detect closed financial loops where the same wallet both funds
+    deployers (genesis funder) AND receives extraction proceeds.
+
+    Must run AFTER signal_common_funder (proof 1) and _signal_profit_convergence (proof 2).
+    """
+    count = 0
+    try:
+        edges = await cartel_edges_query(deployer)
+        peer_wallets: set[str] = {deployer}
+        for e in edges:
+            peer_wallets.add(e["wallet_a"])
+            peer_wallets.add(e["wallet_b"])
+
+        # Collect genesis funders from cached extra_json
+        genesis_funders: dict[str, str] = {}  # deployer → funder_wallet
+        for w in peer_wallets:
+            rows = await event_query(
+                "event_type = 'token_created' AND deployer = ? AND extra_json LIKE '%genesis_funder%'",
+                params=(w,),
+                columns="extra_json",
+                limit=1,
+            )
+            if rows:
+                try:
+                    ej = json.loads(rows[0].get("extra_json") or "{}")
+                    if isinstance(ej, str):
+                        ej = json.loads(ej)
+                    gf = ej.get("genesis_funder", {})
+                    if gf.get("funder"):
+                        genesis_funders[w] = gf["funder"]
+                except Exception:
+                    pass
+
+        if not genesis_funders:
+            return 0
+
+        # Collect terminal wallets from sol_flows
+        terminal_receivers: set[str] = set()
+        for w in peer_wallets:
+            flows = await sol_flows_query_by_from(w)
+            if not flows:
+                continue
+            senders = {f["from_address"] for f in flows}
+            for f in flows:
+                if f["to_address"] not in senders:
+                    terminal_receivers.add(f["to_address"])
+
+        # Find recycling wallets: appear as both funder AND terminal receiver
+        funder_set = set(genesis_funders.values())
+        recycling_wallets = funder_set & terminal_receivers
+
+        if not recycling_wallets:
+            return 0
+
+        for recycling_wallet in recycling_wallets:
+            funded_deployers = [d for d, f in genesis_funders.items() if f == recycling_wallet]
+            # Find which deployers send profits to this wallet
+            received_from: list[str] = []
+            for w in peer_wallets:
+                flows = await sol_flows_query_by_from(w)
+                for f in (flows or []):
+                    if f["to_address"] == recycling_wallet:
+                        received_from.append(w)
+                        break
+
+            if len(funded_deployers) < 1 or len(received_from) < 1:
+                continue
+
+            all_involved = sorted(set(funded_deployers) | set(received_from))
+            for i, wa in enumerate(all_involved):
+                for wb in all_involved[i + 1:]:
+                    await cartel_edge_upsert(
+                        wa, wb, "capital_recycling", 0.98,
+                        {
+                            "recycling_wallet": recycling_wallet,
+                            "funded_deployers": funded_deployers[:10],
+                            "received_from_deployers": received_from[:10],
+                        },
+                    )
+                    count += 1
+    except Exception:
+        logger.exception("_signal_capital_recycling failed for %s", deployer)
+    return count
+
+
+async def _signal_temporal_fingerprint(deployer: str) -> int:
+    """Proof 6: Detect deployers with matching activity time-of-day patterns.
+
+    Uses Jensen-Shannon divergence on 24-hour activity histograms.
+    Matching distributions strongly suggest the same human operator.
+    """
+    import math
+
+    count = 0
+    try:
+        edges = await cartel_edges_query(deployer)
+        peer_wallets: set[str] = {deployer}
+        for e in edges:
+            peer_wallets.add(e["wallet_a"])
+            peer_wallets.add(e["wallet_b"])
+
+        # Build 24-bin activity heatmap per deployer
+        deployer_heatmaps: dict[str, list[float]] = {}
+        for w in peer_wallets:
+            rows = await event_query(
+                "event_type = 'token_created' AND deployer = ?",
+                params=(w,),
+                columns="created_at",
+                limit=200,
+            )
+            if len(rows) < 3:  # need ≥ 3 tokens for meaningful distribution
+                continue
+            bins = [0.0] * 24
+            for r in rows:
+                ca = r.get("created_at", "")
+                if not ca:
+                    continue
+                try:
+                    dt = parse_datetime(ca)
+                    if dt:
+                        bins[dt.hour] += 1.0
+                except Exception:
+                    pass
+            total = sum(bins)
+            if total < 3:
+                continue
+            deployer_heatmaps[w] = [b / total for b in bins]
+
+        if len(deployer_heatmaps) < 2:
+            return 0
+
+        def _jsd(p: list[float], q: list[float]) -> float:
+            """Jensen-Shannon divergence (0 = identical, 1 = maximally different)."""
+            eps = 1e-10
+            m = [(pi + qi) / 2 for pi, qi in zip(p, q)]
+            kl_pm = sum(
+                pi * math.log((pi + eps) / (mi + eps))
+                for pi, mi in zip(p, m) if pi > 0
+            )
+            kl_qm = sum(
+                qi * math.log((qi + eps) / (mi + eps))
+                for qi, mi in zip(q, m) if qi > 0
+            )
+            return 0.5 * kl_pm + 0.5 * kl_qm
+
+        def _peak_hours(heatmap: list[float]) -> str:
+            """Return top 3 active hours as string."""
+            indexed = sorted(enumerate(heatmap), key=lambda x: -x[1])
+            return ",".join(f"{h}h" for h, _ in indexed[:3])
+
+        wallets = sorted(deployer_heatmaps.keys())
+        seen: set[str] = set()
+        for i, wa in enumerate(wallets):
+            for wb in wallets[i + 1:]:
+                edge_key = f"{wa}:{wb}"
+                if edge_key in seen:
+                    continue
+                seen.add(edge_key)
+                jsd = _jsd(deployer_heatmaps[wa], deployer_heatmaps[wb])
+                if jsd >= 0.10:
+                    continue
+                strength = round(max(0.60, 1.0 - jsd * 10), 4)
+                await cartel_edge_upsert(
+                    wa, wb, "temporal_fingerprint", strength,
+                    {
+                        "jsd_score": round(jsd, 4),
+                        "deployer_a_peak_hours": _peak_hours(deployer_heatmaps[wa]),
+                        "deployer_b_peak_hours": _peak_hours(deployer_heatmaps[wb]),
+                        "tokens_compared_a": int(sum(deployer_heatmaps[wa]) * sum(1 for x in deployer_heatmaps[wa] if x > 0)),
+                        "tokens_compared_b": int(sum(deployer_heatmaps[wb]) * sum(1 for x in deployer_heatmaps[wb] if x > 0)),
+                    },
+                )
+                count += 1
+    except Exception:
+        logger.exception("_signal_temporal_fingerprint failed for %s", deployer)
+    return count
+
+
+async def _signal_compute_budget_fingerprint(deployer: str) -> int:
+    """Proof 7: Detect deployers using the same deployment script by comparing
+    ComputeBudget parameters (unitLimit, unitPrice) and program invocation order.
+    """
+    count = 0
+    try:
+        edges = await cartel_edges_query(deployer)
+        peer_wallets: set[str] = {deployer}
+        for e in edges:
+            peer_wallets.add(e["wallet_a"])
+            peer_wallets.add(e["wallet_b"])
+
+        rpc = get_rpc_client()
+
+        # Build fingerprint per deployer
+        deployer_fps: dict[str, dict] = {}  # wallet → fingerprint dict
+
+        for w in peer_wallets:
+            # Check cached fingerprint in extra_json
+            rows = await event_query(
+                "event_type = 'token_created' AND deployer = ? AND extra_json LIKE '%compute_fp%'",
+                params=(w,),
+                columns="extra_json",
+                limit=1,
+            )
+            if rows:
+                try:
+                    ej = json.loads(rows[0].get("extra_json") or "{}")
+                    if isinstance(ej, str):
+                        ej = json.loads(ej)
+                    cfp = ej.get("compute_fp")
+                    if cfp:
+                        deployer_fps[w] = cfp
+                        continue
+                except Exception:
+                    pass
+
+            # Fetch creation TX and parse ComputeBudget
+            events = await event_query(
+                "event_type = 'token_created' AND deployer = ?",
+                params=(w,),
+                columns="mint",
+                limit=5,
+            )
+            unit_limits: list[int] = []
+            unit_prices: list[int] = []
+            program_ids_set: list[str] = []
+
+            for ev in events[:3]:  # sample up to 3 tokens per deployer
+                mint = ev.get("mint", "")
+                if not mint:
+                    continue
+                try:
+                    from .cartel_financial_service import _get_earliest_signatures, _parse_transaction
+
+                    sigs = await _get_earliest_signatures(rpc, mint, count=1, max_pages=2)
+                    if not sigs:
+                        continue
+                    sig = sigs[0].get("signature", "")
+                    if not sig:
+                        continue
+                    # Full TX with jsonParsed for ComputeBudget
+                    tx_raw = await rpc._call(
+                        "getTransaction",
+                        [sig, {"encoding": "jsonParsed", "maxSupportedTransactionVersion": 0}],
+                    )
+                    if not tx_raw or not isinstance(tx_raw, dict):
+                        continue
+                    instructions = (
+                        tx_raw.get("transaction", {}).get("message", {}).get("instructions", [])
+                    )
+                    prog_order: list[str] = []
+                    for ix in instructions:
+                        prog_id = ix.get("programId", "")
+                        prog_order.append(prog_id)
+                        if prog_id == "ComputeBudget111111111111111111111111111111":
+                            parsed = ix.get("parsed", {})
+                            if isinstance(parsed, dict):
+                                ptype = parsed.get("type", "")
+                                info = parsed.get("info", {})
+                                if ptype == "setComputeUnitLimit":
+                                    unit_limits.append(info.get("units", 0))
+                                elif ptype == "setComputeUnitPrice":
+                                    unit_prices.append(info.get("microLamportsPerComputeUnit", 0))
+                    if prog_order:
+                        program_ids_set = prog_order
+                except Exception:
+                    continue
+
+            if not unit_prices and not program_ids_set:
+                continue
+
+            # Compute fingerprint
+            prog_hash = hashlib.sha256(
+                ",".join(program_ids_set).encode()
+            ).hexdigest()[:8] if program_ids_set else ""
+            fp = {
+                "unit_limit": int(sorted(unit_limits)[len(unit_limits) // 2]) if unit_limits else 0,
+                "unit_price": int(sorted(unit_prices)[len(unit_prices) // 2]) if unit_prices else 0,
+                "instruction_count": len(program_ids_set),
+                "program_hash": prog_hash,
+            }
+            deployer_fps[w] = fp
+
+            # Cache fingerprint
+            try:
+                ev_rows = await event_query(
+                    "event_type = 'token_created' AND deployer = ?",
+                    params=(w,),
+                    columns="extra_json, mint",
+                    limit=1,
+                )
+                if ev_rows:
+                    ej = json.loads(ev_rows[0].get("extra_json") or "{}")
+                    if isinstance(ej, str):
+                        ej = json.loads(ej)
+                    ej["compute_fp"] = fp
+                    from .data_sources._clients import event_update
+                    await event_update(
+                        "event_type = 'token_created' AND mint = ?",
+                        (ev_rows[0]["mint"],),
+                        extra_json=json.dumps(ej),
+                    )
+            except Exception:
+                pass
+
+        if len(deployer_fps) < 2:
+            return 0
+
+        # Compare fingerprints between all pairs
+        wallets = sorted(deployer_fps.keys())
+        seen: set[str] = set()
+        for i, wa in enumerate(wallets):
+            fp_a = deployer_fps[wa]
+            for wb in wallets[i + 1:]:
+                edge_key = f"{wa}:{wb}"
+                if edge_key in seen:
+                    continue
+                seen.add(edge_key)
+                fp_b = deployer_fps[wb]
+
+                match_fields: list[str] = []
+                if fp_a.get("unit_price") and fp_a["unit_price"] == fp_b.get("unit_price"):
+                    match_fields.append("unit_price")
+                if fp_a.get("program_hash") and fp_a["program_hash"] == fp_b.get("program_hash"):
+                    match_fields.append("program_hash")
+                if fp_a.get("unit_limit") and fp_a["unit_limit"] == fp_b.get("unit_limit"):
+                    match_fields.append("unit_limit")
+                if fp_a.get("instruction_count") and fp_a["instruction_count"] == fp_b.get("instruction_count"):
+                    match_fields.append("instruction_count")
+
+                if len(match_fields) < 2:
+                    continue
+
+                strength = round(min(1.0, 0.55 + 0.10 * len(match_fields)), 4)
+                await cartel_edge_upsert(
+                    wa, wb, "compute_budget_fp", strength,
+                    {
+                        "unit_limit": fp_a.get("unit_limit", 0),
+                        "unit_price": fp_a.get("unit_price", 0),
+                        "instruction_count": fp_a.get("instruction_count", 0),
+                        "program_hash": fp_a.get("program_hash", ""),
+                        "match_fields": ",".join(match_fields),
+                    },
+                )
+                count += 1
+    except Exception:
+        logger.exception("_signal_compute_budget_fingerprint failed for %s", deployer)
     return count
 
 

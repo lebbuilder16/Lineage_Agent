@@ -772,7 +772,7 @@ export interface components {
              * Signal Type
              * @enum {string}
              */
-            signal_type: "dna_match" | "sol_transfer" | "timing_sync" | "phash_cluster" | "cross_holding" | "funding_link" | "shared_lp" | "sniper_ring";
+            signal_type: "dna_match" | "sol_transfer" | "timing_sync" | "phash_cluster" | "cross_holding" | "funding_link" | "shared_lp" | "sniper_ring" | "common_funder" | "profit_convergence" | "capital_recycling" | "temporal_fingerprint" | "compute_budget_fp";
             /** Signal Strength */
             signal_strength: number;
             /** Evidence */
