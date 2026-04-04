@@ -5,9 +5,9 @@ import { tokens } from '../../theme/tokens';
 type ToastVariant = 'success' | 'error' | 'info';
 
 const VARIANT_STYLES: Record<ToastVariant, { bg: string; border: string; text: string }> = {
-  success: { bg: `${tokens.success}20`, border: `${tokens.success}50`, text: tokens.success },
-  error: { bg: `${tokens.accent}20`, border: `${tokens.accent}50`, text: tokens.accent },
-  info: { bg: tokens.bgGlass12, border: tokens.borderSubtle, text: tokens.white100 },
+  success: { bg: '#0A2A18', border: `${tokens.success}60`, text: tokens.success },
+  error: { bg: '#2A0A14', border: `${tokens.accent}60`, text: tokens.accent },
+  info: { bg: tokens.bgApp, border: tokens.borderMedium, text: tokens.white100 },
 };
 
 function ToastOverlay({
