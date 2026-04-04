@@ -239,8 +239,10 @@ export default function WatchlistScreen() {
         showToast('Watch added', 'success');
       },
       onError: (err: any) => {
+        setAddOpen(false);
         const msg = err?.message || err?.detail || 'Failed to add watch';
-        showToast(String(msg), 'error');
+        // Small delay so modal closes first and toast is visible
+        setTimeout(() => showToast(String(msg), 'error'), 300);
       },
     });
   };
