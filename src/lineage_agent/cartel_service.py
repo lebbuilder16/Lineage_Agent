@@ -1187,24 +1187,27 @@ async def _build_report(mint: str, deployer: str) -> Optional[CartelReport]:
         f"The network has {n_wallets} wallets and {n_tokens} tokens.",
     ]
 
-    # Deployer's own track record
-    deployer_mints = {r.get("mint") for r in created_rows if r.get("deployer") == deployer}
+    # Deployer's own track record — query directly to avoid community filter issues
+    _deployer_tokens = await event_query(
+        "event_type = 'token_created' AND deployer = ?",
+        params=(deployer,),
+        columns="mint",
+        limit=100,
+    )
+    deployer_token_count = len(_deployer_tokens)
+    deployer_mints = {r.get("mint") for r in _deployer_tokens}
     deployer_rugged = any(
         r.get("mint") in deployer_mints for r in confirmed_rugged_rows
     )
-    # Check via created_rows for deployer's own tokens
-    deployer_own_tokens = [
-        r for r in created_rows if r.get("deployer") == deployer
-    ]
     if deployer_rugged:
         narrative_parts.append("This deployer has a confirmed rug.")
-    elif len(deployer_own_tokens) == 1:
+    elif deployer_token_count <= 1:
         narrative_parts.append(
             "This deployer has launched only 1 token with no confirmed rug."
         )
     else:
         narrative_parts.append(
-            f"This deployer has launched {len(deployer_own_tokens)} tokens with no confirmed rug."
+            f"This deployer has launched {deployer_token_count} tokens with no confirmed rug."
         )
 
     # Network-level context
