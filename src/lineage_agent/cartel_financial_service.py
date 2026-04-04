@@ -922,7 +922,10 @@ async def signal_common_funder(deployer: str) -> int:
         rpc = get_rpc_client()
         wallet_funders: dict[str, dict] = {}  # wallet → {funder, amount_sol, block_time}
 
-        # Trace genesis funding SEQUENTIALLY to respect RPC rate limits
+        # funder → [wallets already resolved]
+        funder_groups: dict[str, list[str]] = {}
+
+        # Trace genesis funding SEQUENTIALLY, creating edges progressively
         for wallet in all_deployers:
             # Check if already cached in extra_json
             cached = await event_query(
@@ -939,6 +942,24 @@ async def signal_common_funder(deployer: str) -> int:
                     gf = ej.get("genesis_funder")
                     if gf and gf.get("funder"):
                         wallet_funders[wallet] = gf
+                        funder = gf["funder"]
+                        funder_groups.setdefault(funder, []).append(wallet)
+                        # Create edges immediately with already-known peers
+                        peers = funder_groups[funder]
+                        if len(peers) >= 2:
+                            strength = round(min(1.0, 0.70 + 0.05 * len(peers)), 4)
+                            for peer in peers[:-1]:
+                                await cartel_edge_upsert(
+                                    wallet, peer, "common_funder", strength,
+                                    {
+                                        "funder": funder,
+                                        "funded_wallet_count": len(peers),
+                                        "amount_sol_a": wallet_funders.get(peer, {}).get("amount_sol"),
+                                        "amount_sol_b": gf.get("amount_sol"),
+                                        "signature": gf.get("signature"),
+                                    },
+                                )
+                                count += 1
                         continue
                 except Exception:
                     pass
@@ -949,10 +970,9 @@ async def signal_common_funder(deployer: str) -> int:
                 )
                 if not sigs:
                     continue
-                # Parse earliest TXs looking for first incoming SOL
-                found = False
+                resolved = False
                 for sig_info in sigs:
-                    if found:
+                    if resolved:
                         break
                     sig = sig_info.get("signature", "")
                     if not sig or sig_info.get("err"):
@@ -997,37 +1017,28 @@ async def signal_common_funder(deployer: str) -> int:
                                     )
                             except Exception:
                                 pass
-                            found = True
+
+                            # Create edges progressively
+                            funder_groups.setdefault(from_addr, []).append(wallet)
+                            peers = funder_groups[from_addr]
+                            if len(peers) >= 2:
+                                strength = round(min(1.0, 0.70 + 0.05 * len(peers)), 4)
+                                for peer in peers[:-1]:
+                                    await cartel_edge_upsert(
+                                        wallet, peer, "common_funder", strength,
+                                        {
+                                            "funder": from_addr,
+                                            "funded_wallet_count": len(peers),
+                                            "amount_sol_a": wallet_funders.get(peer, {}).get("amount_sol"),
+                                            "amount_sol_b": round(amount_sol, 4),
+                                            "signature": sig,
+                                        },
+                                    )
+                                    count += 1
+                            resolved = True
                             break
             except Exception:
                 logger.debug("genesis trace failed for %s", wallet[:12])
-
-        # Group wallets by funder
-        funder_groups: dict[str, list[str]] = {}
-        for wallet, info in wallet_funders.items():
-            funder = info.get("funder", "")
-            if funder:
-                funder_groups.setdefault(funder, []).append(wallet)
-
-        # Create edges between wallets sharing a common funder
-        for funder, wallets in funder_groups.items():
-            if len(wallets) < 2:
-                continue
-            strength = round(min(1.0, 0.70 + 0.05 * len(wallets)), 4)
-            # Create edges between all pairs
-            for i, wa in enumerate(wallets):
-                for wb in wallets[i + 1:]:
-                    await cartel_edge_upsert(
-                        wa, wb, "common_funder", strength,
-                        {
-                            "funder": funder,
-                            "funded_wallet_count": len(wallets),
-                            "amount_sol_a": wallet_funders[wa].get("amount_sol"),
-                            "amount_sol_b": wallet_funders[wb].get("amount_sol"),
-                            "signature": wallet_funders[wa].get("signature"),
-                        },
-                    )
-                    count += 1
     except Exception:
         logger.exception("signal_common_funder failed for %s", deployer)
     return count
