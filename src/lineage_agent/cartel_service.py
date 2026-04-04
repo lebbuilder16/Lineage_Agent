@@ -119,23 +119,81 @@ async def build_cartel_edges_for_deployer(deployer: str) -> int:
     )
     total = sum(r for r in results if isinstance(r, int))
 
-    # Phase 2: Forensic proofs (cross-community + genesis tracing)
-    from .cartel_financial_service import signal_common_funder
-
+    # Phase 2: Lightweight forensic proofs (DB-only, no RPC)
     forensic_results = await asyncio.gather(
         asyncio.wait_for(_signal_profit_convergence(deployer), timeout=30),
         asyncio.wait_for(_signal_temporal_fingerprint(deployer), timeout=30),
-        asyncio.wait_for(_signal_compute_budget_fingerprint(deployer), timeout=60),
-        asyncio.wait_for(signal_common_funder(deployer), timeout=120),
         return_exceptions=True,
     )
     total += sum(r for r in forensic_results if isinstance(r, int))
 
-    # Phase 3: Capital recycling (depends on common_funder from phase 1 + profit_convergence)
+    # Phase 3: Capital recycling (depends on common_funder + profit_convergence)
     try:
         total += await _signal_capital_recycling(deployer)
     except Exception:
         logger.warning("_signal_capital_recycling failed for %s", deployer)
+
+    return total
+
+
+async def _run_global_forensic_proofs(eligible_deployers: list[str]) -> int:
+    """Run RPC-heavy forensic proofs globally with rate limiting.
+
+    Instead of running common_funder and compute_budget_fp for each of the
+    285 eligible deployers (causing Helius 429s), we:
+    1. Pick deployers that already have cartel edges (worth investigating)
+    2. Run sequentially with 1s delays between wallets
+    3. Cache results so subsequent runs are instant
+    """
+    from .cartel_financial_service import signal_common_funder
+
+    total = 0
+
+    # Only run forensics for deployers that have existing edges (= part of a cartel)
+    deployers_with_edges: list[str] = []
+    for d in eligible_deployers:
+        edges = await cartel_edges_query(d)
+        if len(edges) >= 2:  # at least 2 edges = worth investigating
+            deployers_with_edges.append(d)
+
+    if not deployers_with_edges:
+        return 0
+
+    # Cap to avoid excessive RPC usage (top 20 most connected deployers)
+    deployers_with_edges = deployers_with_edges[:20]
+    logger.info("Forensic proofs: %d deployers with edges (capped at 20)", len(deployers_with_edges))
+
+    # common_funder — sequential with 2s delay between deployers
+    for i, deployer in enumerate(deployers_with_edges):
+        try:
+            count = await asyncio.wait_for(
+                signal_common_funder(deployer), timeout=60,
+            )
+            total += count
+            if count:
+                logger.info("common_funder: %d edges for %s", count, deployer[:12])
+        except asyncio.TimeoutError:
+            logger.debug("common_funder timeout for %s", deployer[:12])
+        except Exception:
+            logger.debug("common_funder failed for %s", deployer[:12])
+        if i < len(deployers_with_edges) - 1:
+            await asyncio.sleep(2)  # rate limit protection
+
+    # compute_budget_fp — sequential with 2s delay
+    for i, deployer in enumerate(deployers_with_edges):
+        try:
+            count = await asyncio.wait_for(
+                _signal_compute_budget_fingerprint(deployer), timeout=60,
+            )
+            total += count
+            if count:
+                logger.info("compute_budget_fp: %d edges for %s", count, deployer[:12])
+        except asyncio.TimeoutError:
+            logger.debug("compute_budget_fp timeout for %s", deployer[:12])
+        except Exception:
+            logger.debug("compute_budget_fp failed for %s", deployer[:12])
+        if i < len(deployers_with_edges) - 1:
+            await asyncio.sleep(2)
 
     return total
 
@@ -176,7 +234,18 @@ async def run_cartel_sweep() -> int:
             )
             total += sum(r for r in results if isinstance(r, int))
 
-        logger.info("Cartel sweep complete: %d edges processed", total)
+        logger.info("Cartel sweep phase 1 complete: %d edges processed", total)
+
+        # ── Phase 2: RPC-heavy forensic proofs (run ONCE globally, rate-limited) ──
+        # common_funder and compute_budget_fp are expensive (RPC per wallet),
+        # so we run them for a subset of deployers that already have edges,
+        # sequentially with delays to avoid Helius rate limiting.
+        try:
+            forensic_total = await _run_global_forensic_proofs(eligible)
+            total += forensic_total
+            logger.info("Forensic proofs: %d edges from global pass", forensic_total)
+        except Exception:
+            logger.exception("Global forensic proofs failed")
 
         # Populate community_lookup table for O(1) API lookups
         await _populate_community_lookup()
@@ -777,7 +846,8 @@ async def _signal_compute_budget_fingerprint(deployer: str) -> int:
                 except Exception:
                     pass
 
-            # Fetch creation TX and parse ComputeBudget
+            # Fetch creation TX and parse ComputeBudget (rate-limited)
+            await asyncio.sleep(1)
             events = await event_query(
                 "event_type = 'token_created' AND deployer = ?",
                 params=(w,),
@@ -788,7 +858,7 @@ async def _signal_compute_budget_fingerprint(deployer: str) -> int:
             unit_prices: list[int] = []
             program_ids_set: list[str] = []
 
-            for ev in events[:3]:  # sample up to 3 tokens per deployer
+            for ev in events[:1]:  # sample 1 token per deployer (rate limit friendly)
                 mint = ev.get("mint", "")
                 if not mint:
                     continue

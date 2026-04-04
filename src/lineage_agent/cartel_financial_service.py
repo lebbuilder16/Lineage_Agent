@@ -965,6 +965,8 @@ async def signal_common_funder(deployer: str) -> int:
                     pass
 
             # Fast path: Helius Enhanced Transactions (1 call vs 3-10)
+            # Rate limit: 1s delay between uncached RPC calls
+            await asyncio.sleep(1)
             try:
                 txs = await rpc.get_enhanced_transactions(wallet, limit=5)
                 if not txs:
