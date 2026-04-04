@@ -1182,6 +1182,10 @@ async def _build_report(mint: str, deployer: str) -> Optional[CartelReport]:
     else:
         deployer_conf = "none"
 
+    # Gate: only show cartel if deployer has at least medium-strength link
+    if deployer_conf in ("low", "none"):
+        return CartelReport(mint=mint, deployer_community=None)
+
     community = CartelCommunity(
         community_id=community_id,
         wallets=community_wallets,
