@@ -17,6 +17,7 @@ import {
   Link2,
   Brain,
   Shield,
+  ExternalLink,
 } from 'lucide-react-native';
 import { FeatureGate } from '../../src/components/ui/FeatureGate';
 import { GlassCard } from '../../src/components/ui/GlassCard';
@@ -35,7 +36,7 @@ import { tokens } from '../../src/theme/tokens';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { Breadcrumbs } from '../../src/components/investigate/Breadcrumbs';
 import Svg, { Circle, Line, Text as SvgText } from 'react-native-svg';
-import { Dimensions } from 'react-native';
+import { Dimensions, Linking } from 'react-native';
 
 // ── Signal metadata ──────────────────────────────────────────────────────────
 
@@ -66,6 +67,10 @@ const CONFIDENCE_SHADOW: Record<string, object> = {
 
 function shortAddr(addr: string) {
   return addr.length > 10 ? `${addr.slice(0, 4)}…${addr.slice(-4)}` : addr;
+}
+
+function openSolscanTx(sig: string) {
+  Linking.openURL(`https://solscan.io/tx/${sig}`).catch(() => {});
 }
 
 function strengthPercent(v: number) {
@@ -796,6 +801,9 @@ function EdgeLink({ edge }: { edge: Edge }) {
     label: edge.signal_type,
     color: tokens.white60,
   };
+  const txSig = edge.evidence?.signature
+    ? String(edge.evidence.signature)
+    : null;
 
   return (
     <TouchableOpacity
@@ -839,18 +847,31 @@ function EdgeLink({ edge }: { edge: Edge }) {
         </View>
         {/* Badge row */}
         <View style={linkStyles.badgeRow}>
-          <View
-            style={[
-              linkStyles.badge,
-              {
-                borderColor: `${meta.color}40`,
-                backgroundColor: `${meta.color}12`,
-              },
-            ]}
-          >
-            <Text style={[linkStyles.badgeText, { color: meta.color }]}>
-              {meta.label}
-            </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <View
+              style={[
+                linkStyles.badge,
+                {
+                  borderColor: `${meta.color}40`,
+                  backgroundColor: `${meta.color}12`,
+                },
+              ]}
+            >
+              <Text style={[linkStyles.badgeText, { color: meta.color }]}>
+                {meta.label}
+              </Text>
+            </View>
+            {txSig ? (
+              <TouchableOpacity
+                onPress={() => openSolscanTx(txSig)}
+                hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                style={linkStyles.txBadge}
+                activeOpacity={0.7}
+              >
+                <ExternalLink size={9} color={tokens.cyan} />
+                <Text style={linkStyles.txBadgeText}>TX</Text>
+              </TouchableOpacity>
+            ) : null}
           </View>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
             <Text style={linkStyles.strength}>
@@ -999,21 +1020,45 @@ function EvidenceDetail({
       break;
   }
 
-  if (lines.length === 0)
+  // Extract TX signature for clickable link
+  const sig = evidence.signature ? String(evidence.signature) : null;
+
+  if (lines.length === 0 && !sig)
     return (
       <Text style={evidenceStyles.empty}>No detailed evidence available</Text>
     );
 
   return (
     <View style={evidenceStyles.container}>
-      {lines.map((l, i) => (
-        <View key={i} style={evidenceStyles.row}>
-          <Text style={evidenceStyles.label}>{l.label}</Text>
-          <Text style={evidenceStyles.value} numberOfLines={1}>
-            {l.value}
-          </Text>
-        </View>
-      ))}
+      {lines.map((l, i) =>
+        l.label === 'TX' && sig ? (
+          <TouchableOpacity
+            key={i}
+            onPress={() => openSolscanTx(sig)}
+            activeOpacity={0.7}
+          >
+            <View style={evidenceStyles.row}>
+              <Text style={evidenceStyles.label}>{l.label}</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                <Text
+                  style={[evidenceStyles.value, { color: tokens.cyan }]}
+                  numberOfLines={1}
+                >
+                  {l.value}
+                </Text>
+                <ExternalLink size={9} color={tokens.cyan} />
+              </View>
+            </View>
+          </TouchableOpacity>
+        ) : (
+          <View key={i} style={evidenceStyles.row}>
+            <Text style={evidenceStyles.label}>{l.label}</Text>
+            <Text style={evidenceStyles.value} numberOfLines={1}>
+              {l.value}
+            </Text>
+          </View>
+        ),
+      )}
     </View>
   );
 }
@@ -1065,6 +1110,23 @@ const linkStyles = StyleSheet.create({
     fontFamily: 'Lexend-Bold',
     fontSize: tokens.font.small,
     color: tokens.white60,
+  },
+  txBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: tokens.radius.pill,
+    borderWidth: 1,
+    borderColor: `${tokens.cyan}40`,
+    backgroundColor: `${tokens.cyan}10`,
+  },
+  txBadgeText: {
+    fontFamily: 'Lexend-Bold',
+    fontSize: 8,
+    color: tokens.cyan,
+    letterSpacing: 0.5,
   },
   showAllBtn: {
     marginTop: 12,
