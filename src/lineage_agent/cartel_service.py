@@ -1206,11 +1206,18 @@ async def _build_report(mint: str, deployer: str) -> Optional[CartelReport]:
         (e.signal_strength for e in deployer_direct_edges), default=0.0,
     )
 
+    # Only count max strength from STRONG signals (not shared_lp)
+    strong_edge_strengths = [
+        e.signal_strength for e in deployer_direct_edges
+        if e.signal_type in _STRONG_SIGNALS
+    ]
+    deployer_strong_max = max(strong_edge_strengths, default=0.0)
+
     if len(deployer_strong_signals) >= 2:
         deployer_conf: Literal["high", "medium", "low", "none"] = "high"
     elif len(deployer_strong_signals) >= 1:
         deployer_conf = "medium"
-    elif deployer_direct_edges and deployer_max_strength >= 0.80:
+    elif deployer_direct_edges and deployer_strong_max >= 0.80:
         deployer_conf = "medium"
     elif deployer_direct_edges:
         deployer_conf = "low"
