@@ -202,6 +202,9 @@ export default function CartelScreen() {
                 {/* ── 1. THREAT HERO ────────────────────────────────────── */}
                 <ThreatHero
                   confidence={community.confidence}
+                  deployerConfidence={(data as any)?.deployer_confidence ?? 'none'}
+                  deployerDirectSignals={(data as any)?.deployer_direct_signals ?? []}
+                  deployerDirectEdgeCount={(data as any)?.deployer_direct_edge_count ?? 0}
                   activeSince={community.active_since}
                   strongestSignal={community.strongest_signal}
                 />
@@ -253,12 +256,25 @@ export default function CartelScreen() {
 // Section 1 — THREAT HERO
 // ═══════════════════════════════════════════════════════════════════════════════
 
+const DEPLOYER_CONF_LABELS: Record<string, { label: string; color: string }> = {
+  high: { label: 'DIRECT PROOF', color: tokens.risk.critical },
+  medium: { label: 'LIKELY LINKED', color: tokens.risk.high },
+  low: { label: 'WEAK LINK', color: tokens.risk.medium },
+  none: { label: 'NO DIRECT LINK', color: tokens.neutral },
+};
+
 function ThreatHero({
   confidence,
+  deployerConfidence,
+  deployerDirectSignals,
+  deployerDirectEdgeCount,
   activeSince,
   strongestSignal,
 }: {
   confidence: string;
+  deployerConfidence: string;
+  deployerDirectSignals: string[];
+  deployerDirectEdgeCount: number;
   activeSince?: string | null;
   strongestSignal?: string;
 }) {
@@ -266,13 +282,38 @@ function ThreatHero({
   const shadow = CONFIDENCE_SHADOW[confidence] ?? {};
   const signalMeta = SIGNAL_META[strongestSignal ?? ''];
   const duration = formatDuration(activeSince);
+  const dConf = DEPLOYER_CONF_LABELS[deployerConfidence] ?? DEPLOYER_CONF_LABELS.none;
 
   return (
     <GlassCard style={shadow}>
       <View style={heroStyles.container}>
-        <Shield size={20} color={tokens.white35} style={{ marginBottom: 8 }} />
-        <RiskBadge level={riskLevel} size="md" />
-        <Text style={heroStyles.confidenceLabel}>THREAT CONFIDENCE</Text>
+        {/* Deployer-specific confidence (primary) */}
+        <Shield size={20} color={dConf.color} style={{ marginBottom: 8 }} />
+        <View style={[heroStyles.deployerBadge, { borderColor: `${dConf.color}50`, backgroundColor: `${dConf.color}1A` }]}>
+          <Text style={[heroStyles.deployerBadgeText, { color: dConf.color }]}>{dConf.label}</Text>
+        </View>
+        <Text style={heroStyles.confidenceLabel}>DEPLOYER LINK STRENGTH</Text>
+
+        {/* Direct signals summary */}
+        {deployerDirectSignals.length > 0 ? (
+          <Text style={heroStyles.directSignals}>
+            {deployerDirectEdgeCount} direct link{deployerDirectEdgeCount !== 1 ? 's' : ''} via {deployerDirectSignals.map(s => SIGNAL_META[s]?.label ?? s).join(', ')}
+          </Text>
+        ) : (
+          <Text style={heroStyles.directSignals}>
+            Linked only through shared third-party wallets
+          </Text>
+        )}
+
+        {/* Separator */}
+        <View style={heroStyles.separator} />
+
+        {/* Network confidence (secondary) */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <Text style={heroStyles.networkLabel}>NETWORK:</Text>
+          <RiskBadge level={riskLevel} size="sm" />
+        </View>
+
         {duration ? (
           <Text style={heroStyles.duration}>{duration}</Text>
         ) : null}
@@ -298,12 +339,43 @@ function ThreatHero({
 
 const heroStyles = StyleSheet.create({
   container: { alignItems: 'center', paddingVertical: 8 },
+  deployerBadge: {
+    paddingHorizontal: 14,
+    paddingVertical: 5,
+    borderRadius: tokens.radius.pill,
+    borderWidth: 1,
+  },
+  deployerBadgeText: {
+    fontFamily: 'Lexend-Bold',
+    fontSize: tokens.font.small,
+    letterSpacing: 1,
+  },
   confidenceLabel: {
     fontFamily: 'Lexend-SemiBold',
     fontSize: tokens.font.tiny,
     color: tokens.white35,
     letterSpacing: 1.5,
     marginTop: 8,
+  },
+  directSignals: {
+    fontFamily: 'Lexend-Regular',
+    fontSize: tokens.font.tiny,
+    color: tokens.white60,
+    textAlign: 'center',
+    marginTop: 4,
+    paddingHorizontal: 16,
+  },
+  separator: {
+    width: 40,
+    height: 1,
+    backgroundColor: tokens.borderSubtle,
+    marginVertical: 10,
+  },
+  networkLabel: {
+    fontFamily: 'Lexend-SemiBold',
+    fontSize: tokens.font.tiny,
+    color: tokens.white35,
+    letterSpacing: 1,
   },
   duration: {
     fontFamily: 'Lexend-Regular',

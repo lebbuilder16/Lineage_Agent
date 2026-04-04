@@ -1151,6 +1151,37 @@ async def _build_report(mint: str, deployer: str) -> Optional[CartelReport]:
 
     narrative = " ".join(narrative_parts) + "."
 
+    # ── Per-deployer confidence: how strong is THIS deployer's link? ────
+    # Signals where only a third-party connects wallets (not direct coordination)
+    _WEAK_SIGNALS = {"shared_lp"}
+    # Signals that prove direct coordination between deployers
+    _STRONG_SIGNALS = {
+        "dna_match", "profit_convergence", "capital_recycling",
+        "common_funder", "sniper_ring", "funding_link",
+        "sol_transfer", "timing_sync", "compute_budget_fp",
+    }
+
+    deployer_direct_edges = [
+        e for e in edge_list
+        if e.wallet_a == deployer or e.wallet_b == deployer
+    ]
+    deployer_direct_signal_types = {e.signal_type for e in deployer_direct_edges}
+    deployer_strong_signals = deployer_direct_signal_types & _STRONG_SIGNALS
+    deployer_max_strength = max(
+        (e.signal_strength for e in deployer_direct_edges), default=0.0,
+    )
+
+    if len(deployer_strong_signals) >= 2:
+        deployer_conf: Literal["high", "medium", "low", "none"] = "high"
+    elif len(deployer_strong_signals) >= 1:
+        deployer_conf = "medium"
+    elif deployer_direct_edges and deployer_max_strength >= 0.80:
+        deployer_conf = "medium"
+    elif deployer_direct_edges:
+        deployer_conf = "low"
+    else:
+        deployer_conf = "none"
+
     community = CartelCommunity(
         community_id=community_id,
         wallets=community_wallets,
@@ -1164,4 +1195,10 @@ async def _build_report(mint: str, deployer: str) -> Optional[CartelReport]:
         edges=edge_list,
         confidence=confidence,
     )
-    return CartelReport(mint=mint, deployer_community=community)
+    return CartelReport(
+        mint=mint,
+        deployer_community=community,
+        deployer_confidence=deployer_conf,
+        deployer_direct_signals=sorted(deployer_direct_signal_types),
+        deployer_direct_edge_count=len(deployer_direct_edges),
+    )

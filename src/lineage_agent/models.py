@@ -921,6 +921,9 @@ class CartelReport(BaseModel):
 
     mint: str
     deployer_community: Optional[CartelCommunity] = None
+    deployer_confidence: Literal["high", "medium", "low", "none"] = "none"
+    deployer_direct_signals: list[str] = Field(default_factory=list, description="Signal types directly linking this deployer to the cartel")
+    deployer_direct_edge_count: int = 0
 
 
 class FinancialGraphSummary(BaseModel):

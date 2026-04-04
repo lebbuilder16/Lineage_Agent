@@ -788,6 +788,17 @@ export interface components {
             /** Mint */
             mint: string;
             deployer_community?: components["schemas"]["CartelCommunity"] | null;
+            /**
+             * Deployer Confidence
+             * @description How strong is this specific deployer's link to the cartel (direct edges only)
+             * @default none
+             * @enum {string}
+             */
+            deployer_confidence: "high" | "medium" | "low" | "none";
+            /** Deployer Direct Signals */
+            deployer_direct_signals: string[];
+            /** Deployer Direct Edge Count */
+            deployer_direct_edge_count: number;
         };
         /** ChatMessage */
         ChatMessage: {
