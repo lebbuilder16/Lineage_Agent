@@ -236,6 +236,11 @@ export default function WatchlistScreen() {
       onSuccess: () => {
         refetch();
         setAddOpen(false);
+        showToast('Watch added', 'success');
+      },
+      onError: (err: any) => {
+        const msg = err?.message || err?.detail || 'Failed to add watch';
+        showToast(String(msg), 'error');
       },
     });
   };
