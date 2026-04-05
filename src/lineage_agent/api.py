@@ -5205,9 +5205,12 @@ async def _watchlist_sweep_loop():
                 )
                 last_sweep_row = await cursor2.fetchone()
                 last_sweep = last_sweep_row[0] if last_sweep_row and last_sweep_row[0] else 0
+                _age = int(now - last_sweep) if last_sweep else 999999
                 if now - last_sweep < user_sweep_interval:
+                    if user_id == 17:  # debug: log skipped watches for test user
+                        logger.info("[sweep] SKIP watch=%d user=%d mint=%s (last=%ds ago, interval=%ds)", watch_id, user_id, _mint_val[:12], _age, user_sweep_interval)
                     continue  # too soon for this user's preference
-                logger.info("[sweep] rescanning watch=%d user=%d mint=%s (last=%ds ago)", watch_id, user_id, _mint_val[:12], int(now - last_sweep))
+                logger.info("[sweep] rescanning watch=%d user=%d mint=%s (last=%ds ago)", watch_id, user_id, _mint_val[:12], _age)
                 if _wi > 0:
                     await asyncio.sleep(15)  # stagger rescans — 15s avoids RPC saturation
                 _heartbeat("sweep")  # keep watchdog alive between watches
