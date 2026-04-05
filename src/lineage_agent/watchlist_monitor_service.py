@@ -74,7 +74,6 @@ def _extract_forensic_snapshot(lin: Any) -> dict:
         snapshot["liq_usd"] = getattr(qt, "liquidity_usd", None)
     if ins:
         snapshot["sell_pressure_1h"] = getattr(ins, "sell_pressure_1h", None)
-        snapshot["sell_pressure_24h_snap"] = getattr(ins, "sell_pressure_24h", None)
         snapshot["volume_spike_ratio"] = getattr(ins, "volume_spike_ratio", None)
         snapshot["price_change_h1"] = getattr(ins, "price_change_1h", None)
         snapshot["price_change_h24"] = getattr(ins, "price_change_24h", None)
@@ -158,11 +157,18 @@ def _generate_flags(old: dict, new: dict, mint: str, *, ref: Optional[dict] = No
               {"old": old_cw, "new": new_cw, "delta": delta_cw},
               delta=delta_cw, old=old_cw, new=new_cw)
 
-    # Risk escalation
+    # Risk escalation — only emit when no causal critical flag already explains
+    # WHY the risk changed.  If SOL extraction / deployer exit / insider dump
+    # already fired, the user can infer the escalation; showing both is noise.
+    _CAUSAL_CRITICAL_TYPES = {
+        "SOL_EXTRACTION_NEW", "SOL_EXTRACTION_INCREASED", "DEPLOYER_EXITED",
+        "INSIDER_DUMP_DETECTED", "DEPLOYER_NEW_RUG", "BUNDLE_WALLETS_ALL_EXITED",
+    }
+    _has_causal = bool({f["flag_type"] for f in flags} & _CAUSAL_CRITICAL_TYPES)
     risk_order = ["unknown", "insufficient_data", "low", "medium", "high", "critical"]
     old_ri = risk_order.index(old.get("risk_level", "unknown")) if old.get("risk_level") in risk_order else 0
     new_ri = risk_order.index(new.get("risk_level", "unknown")) if new.get("risk_level") in risk_order else 0
-    if new_ri > old_ri and new_ri >= 3:
+    if new_ri > old_ri and new_ri >= 3 and not _has_causal:
         old_r = old.get("risk_level", "unknown")
         new_r = new.get("risk_level", "unknown")
         _flag("RISK_ESCALATION", "critical",
@@ -258,7 +264,8 @@ def _generate_flags(old: dict, new: dict, mint: str, *, ref: Optional[dict] = No
 
     # ── Correlative intelligence: forensic × market cross-reference ──
     deltas = _compute_deltas(old, new)
-    correlated = _cross_reference(deltas, old, new)
+    _existing_types = {f["flag_type"] for f in flags}
+    correlated = _cross_reference(deltas, old, new, covered_types=_existing_types)
     for c in correlated:
         # _cross_reference returns pre-formatted flags with title+detail
         flags.append({
@@ -280,11 +287,18 @@ def _generate_flags(old: dict, new: dict, mint: str, *, ref: Optional[dict] = No
         old_liq = old.get("liq_usd") or 0
 
         def _crossed_tier(ref_val, old_val, new_val, tiers=(-30, -50, -70, -90)):
-            """Return the newly crossed tier, or None if no new tier was crossed."""
+            """Return the newly crossed tier, or None if no new tier was crossed.
+
+            When *old_val* is 0/None (first rescan after INITIAL_ASSESSMENT),
+            we don't know what tier was already crossed at the initial snapshot
+            — so we skip to avoid false-positive cumulative flags.
+            """
             if ref_val <= 0:
                 return None
+            if not old_val:
+                return None  # first rescan: no baseline to compare tiers
             new_pct = (new_val - ref_val) / ref_val * 100
-            old_pct = (old_val - ref_val) / ref_val * 100 if old_val else 0
+            old_pct = (old_val - ref_val) / ref_val * 100
             for t in tiers:
                 if new_pct <= t and old_pct > t:
                     return new_pct
@@ -309,11 +323,17 @@ def _generate_flags(old: dict, new: dict, mint: str, *, ref: Optional[dict] = No
                   {"ref_liq": ref_liq, "now_liq": new_liq, "pct": round(liq_tier, 1)},
                   pct=liq_tier)
 
-        # Forensic deterioration since reference — only if SOL extraction INCREASED since last scan
+        # Forensic deterioration since reference — only if SOL extraction INCREASED
+        # since last scan AND no SOL_EXTRACTION_NEW already covers first detection.
+        _sol_flag_exists = any(f["flag_type"] in ("SOL_EXTRACTION_NEW", "SOL_EXTRACTION_INCREASED") for f in flags)
         ref_sol = ref.get("sol_extracted") or 0
         old_sol_total = old.get("sol_extracted") or 0
         new_sol_total = new.get("sol_extracted") or 0
-        if new_sol_total > ref_sol + 20 and new_sol_total > old_sol_total:
+        # Proportional threshold: at least +20 SOL absolute OR +50% relative
+        _cumul_threshold = max(20, ref_sol * 0.5) if ref_sol > 0 else 20
+        if (new_sol_total > ref_sol + _cumul_threshold
+                and new_sol_total > old_sol_total
+                and not _sol_flag_exists):
             delta_sol = new_sol_total - ref_sol
             _flag("CUMULATIVE_SOL_EXTRACTION", "critical",
                   {"ref_sol": ref_sol, "now_sol": new_sol_total},
@@ -348,14 +368,38 @@ def _compute_deltas(old: dict, new: dict) -> dict:
         ov, nv = old.get(key), new.get(key)
         d[f"{key}_pct"] = round((nv - ov) / ov * 100, 1) if ov and nv and ov > 0 else None
 
-    d["sell_pressure_shift"] = (new.get("sell_pressure_1h") or 0) - (old.get("sell_pressure_1h") or 0)
+    # Only compute sell pressure shift when old snapshot had actual data;
+    # otherwise the "shift" is just discovering the current state for the first time.
+    if old.get("sell_pressure_1h") is not None:
+        d["sell_pressure_shift"] = (new.get("sell_pressure_1h") or 0) - (old.get("sell_pressure_1h") or 0)
+    else:
+        d["sell_pressure_shift"] = 0
     d["volume_spiking"] = (new.get("volume_spike_ratio") or 0) >= 5
     return d
 
 
-def _cross_reference(deltas: dict, old: dict, new: dict) -> list[dict]:
-    """Cross-reference forensic and market layers. Observational, not causal."""
+def _cross_reference(deltas: dict, old: dict, new: dict, *, covered_types: set[str] | None = None) -> list[dict]:
+    """Cross-reference forensic and market layers. Observational, not causal.
+
+    *covered_types*: flag types already emitted by phase-1 checks.  When a
+    forensic signal is already reported by a dedicated flag, we skip it here
+    to avoid showing the same information twice.
+    """
     results: list[dict] = []
+    _ct = covered_types or set()
+
+    # Map: forensic signal → flag types that already cover it
+    _COVERED_BY = {
+        "sol_delta": {"SOL_EXTRACTION_NEW", "SOL_EXTRACTION_INCREASED"},
+        "deployer_just_exited": {"DEPLOYER_EXITED"},
+        "insider_escalated": {"INSIDER_DUMP_DETECTED"},
+        "bundle_wallets_delta": {"BUNDLE_WALLETS_NEW", "BUNDLE_DETECTED"},
+        "cartel_wallets_delta": {"CARTEL_DETECTED", "CARTEL_EXPANDED"},
+        "bundle_exits_new": {"BUNDLE_WALLET_EXIT", "BUNDLE_WALLETS_ALL_EXITED"},
+    }
+
+    def _already_covered(signal_key: str) -> bool:
+        return bool(_ct & _COVERED_BY.get(signal_key, set()))
 
     forensic_changed = (
         deltas["sol_delta"] > 0
@@ -374,21 +418,21 @@ def _cross_reference(deltas: dict, old: dict, new: dict) -> list[dict]:
     if not forensic_changed and not market_stressed:
         return results
 
-    # Build factual observations per layer
+    # Build factual observations per layer — skip facts already covered
     forensic_facts = []
-    if deltas["sol_delta"] > 0:
+    if deltas["sol_delta"] > 0 and not _already_covered("sol_delta"):
         forensic_facts.append(f"+{deltas['sol_delta']:.1f} SOL extracted")
-    if deltas["deployer_just_exited"]:
+    if deltas["deployer_just_exited"] and not _already_covered("deployer_just_exited"):
         forensic_facts.append("deployer exited")
-    if deltas["insider_escalated"]:
+    if deltas["insider_escalated"] and not _already_covered("insider_escalated"):
         forensic_facts.append("insider dump detected")
-    if deltas["bundle_wallets_delta"] > 0:
+    if deltas["bundle_wallets_delta"] > 0 and not _already_covered("bundle_wallets_delta"):
         forensic_facts.append(f"+{deltas['bundle_wallets_delta']} bundle wallets")
-    if deltas["cartel_wallets_delta"] > 0:
+    if deltas["cartel_wallets_delta"] > 0 and not _already_covered("cartel_wallets_delta"):
         forensic_facts.append(f"+{deltas['cartel_wallets_delta']} cartel wallets")
     if deltas["rug_count_delta"] > 0:
         forensic_facts.append(f"+{deltas['rug_count_delta']} new rug(s)")
-    if deltas.get("bundle_exits_new", 0) > 0:
+    if deltas.get("bundle_exits_new", 0) > 0 and not _already_covered("bundle_exits_new"):
         forensic_facts.append(f"{deltas['bundle_exits_new']} bundle wallet(s) sold")
 
     market_facts = []
@@ -413,10 +457,10 @@ def _cross_reference(deltas: dict, old: dict, new: dict) -> list[dict]:
         "deltas": {k: v for k, v in deltas.items() if v is not None and v != 0 and v is not False},
     }
 
-    if forensic_changed and market_stressed:
+    if forensic_changed and market_stressed and forensic_facts:
         title = " · ".join(market_facts) + " | " + ", ".join(forensic_facts) if market_facts else ", ".join(forensic_facts)
         results.append({"type": "CORRELATED_FORENSIC_MARKET", "severity": "critical", "title": title, "detail": detail})
-    elif forensic_changed:
+    elif forensic_changed and forensic_facts:
         results.append({"type": "FORENSIC_ACTIVITY", "severity": "warning",
                         "title": ", ".join(forensic_facts) + (" · market: " + " · ".join(market_facts) if market_facts else " · market stable"),
                         "detail": detail})
@@ -633,6 +677,30 @@ async def _generate_flags_trinity(
 
         flags = _parse_trinity_flags(text)
         if flags is not None:
+            # Deduplicate Trinity flags within the batch: collapse flags whose
+            # types map to the same logical signal (e.g. SOL_DRAIN + EXTRACTION
+            # both describing the same SOL movement).
+            _TRINITY_DEDUP_KEYWORDS = {
+                "SOL": "sol_group",
+                "EXTRACT": "sol_group",
+                "DRAIN": "sol_group",
+                "DEPLOY": "deployer_group",
+                "CREATOR": "deployer_group",
+                "BUNDLE": "bundle_group",
+                "CARTEL": "cartel_group",
+                "INSIDER": "insider_group",
+                "DUMP": "insider_group",
+            }
+            seen_groups: set[str] = set()
+            deduped: list[dict] = []
+            for f in flags:
+                groups_hit = {g for kw, g in _TRINITY_DEDUP_KEYWORDS.items() if kw in f["flag_type"]}
+                if groups_hit and groups_hit & seen_groups:
+                    continue  # skip: same logical group already present
+                seen_groups |= groups_hit
+                deduped.append(f)
+            flags = deduped
+
             logger.info("[sweep] Trinity generated %d flag(s) for %s", len(flags), mint[:12])
             return flags
 
@@ -1023,7 +1091,8 @@ async def run_single_rescan(watch_id: int, user_id: int, cache, *, skip_ai: bool
                 detail_dict["image_uri"] = _image
             flag["detail"] = json.dumps(detail_dict, default=str)
 
-        # Deduplicate: skip flags of the same type created in the last hour
+        # Deduplicate: skip flags of the same type created in the last hour,
+        # AND expand to logical groups so related flags don't repeat.
         _dedup_window = 3600  # 1 hour
         _recent_cursor = await db.execute(
             "SELECT DISTINCT flag_type FROM sweep_flags "
@@ -1031,6 +1100,17 @@ async def run_single_rescan(watch_id: int, user_id: int, cache, *, skip_ai: bool
             (watch_id, now - _dedup_window, "_%"),
         )
         _recent_types = {r[0] for r in await _recent_cursor.fetchall()}
+
+        # Logical groups: if any member was recently emitted, suppress all members
+        _DEDUP_GROUPS = [
+            {"SOL_EXTRACTION_NEW", "SOL_EXTRACTION_INCREASED", "CUMULATIVE_SOL_EXTRACTION", "FORENSIC_ACTIVITY"},
+            {"DEPLOYER_EXITED", "CROSS_DEPLOYER_EXIT_BUNDLE_ACTIVE", "CROSS_DEPLOYER_EXIT_CARTEL_ACTIVE"},
+            {"BUNDLE_WALLET_EXIT", "BUNDLE_WALLETS_ALL_EXITED", "CROSS_EXTRACTION_AND_EXIT", "CROSS_COORDINATED_EXTRACTION"},
+        ]
+        for group in _DEDUP_GROUPS:
+            if _recent_types & group:
+                _recent_types |= group  # expand: block all members of the group
+
         flags = [f for f in flags if f["flag_type"] not in _recent_types]
 
         # Store flags + new forensic snapshot
@@ -1076,7 +1156,11 @@ async def run_single_rescan(watch_id: int, user_id: int, cache, *, skip_ai: bool
             # ── Push notification to user for critical/warning flags ─────
             try:
                 from .alert_service import _push_fcm_to_watchers
-                critical_flags = [f for f in flags if f["severity"] in ("critical", "warning")]
+                _SEV_RANK = {"critical": 0, "warning": 1, "info": 2}
+                critical_flags = sorted(
+                    [f for f in flags if f["severity"] in ("critical", "warning")],
+                    key=lambda f: _SEV_RANK.get(f["severity"], 9),
+                )
                 if critical_flags:
                     top = critical_flags[0]
                     _token_name = detail_dict.get("token_name") or detail_dict.get("name") or mint[:12]
