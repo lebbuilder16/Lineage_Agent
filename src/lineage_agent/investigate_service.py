@@ -104,7 +104,7 @@ async def run_investigation(
             from .ai_analyst import _build_calibration_context  # noqa: PLC0415
             _hv = _build_heuristic_verdict(hscore, mint)
             _cal_ctx = _build_calibration_context(_hv, lineage_res)
-            _cal_off = await get_calibration_offset(_cal_ctx)
+            _cal_off, _cal_matched = await get_calibration_offset(_cal_ctx)
             if _cal_off != 0:
                 calibrated_hscore = max(0, min(100, int(hscore + _cal_off)))
                 logger.info("[investigate] heuristic calibration: %+.0f (%d → %d) for %s",

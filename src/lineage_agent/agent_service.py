@@ -1054,7 +1054,7 @@ async def run_agent(
             if scan_summary:
                 _cal_lineage = scan_summary  # dict-based, _build_calibration_context handles both
             cal_ctx = _build_calibration_context(verdict, _cal_lineage)
-            cal_offset = await get_calibration_offset(cal_ctx)
+            cal_offset, _cal_matched = await get_calibration_offset(cal_ctx)
             if cal_offset != 0:
                 pre_cal = verdict["risk_score"]
                 verdict["risk_score"] = max(0, min(100, int(pre_cal + cal_offset)))
