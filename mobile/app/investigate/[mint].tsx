@@ -35,6 +35,7 @@ import { tokens } from '../../src/theme/tokens';
 import { VerdictHero } from '../../src/components/investigate/VerdictHero';
 import { AgentMemoryCard } from '../../src/components/investigate/AgentMemoryCard';
 import { ForensicScanSection } from '../../src/components/investigate/ForensicScanSection';
+import { ForensicSnapshotCard } from '../../src/components/investigate/ForensicSnapshotCard';
 import { MarketDataStrip } from '../../src/components/investigate/MarketDataStrip';
 import { AgentReasoningSection } from '../../src/components/investigate/AgentReasoningSection';
 import { ChatPanel } from '../../src/components/investigate/ChatPanel';
@@ -54,6 +55,7 @@ export default function InvestigateScreen() {
   const scanSteps = useInvestigateStore((s) => s.scanSteps);
   const agentSteps = useInvestigateStore((s) => s.agentSteps);
   const heuristicScore = useInvestigateStore((s) => s.heuristicScore);
+  const forensicSnapshot = useInvestigateStore((s) => s.forensicSnapshot);
   const verdict = useInvestigateStore((s) => s.verdict);
   const chatAvailable = useInvestigateStore((s) => s.chatAvailable);
   const error = useInvestigateStore((s) => s.error);
@@ -89,6 +91,9 @@ export default function InvestigateScreen() {
           price_change_24h: event.data.price_change_24h,
           boost_count: event.data.boost_count,
         });
+        break;
+      case 'forensic_snapshot':
+        s.setForensicSnapshot(event.data as any);
         break;
       case 'heuristic_complete':
         s.setHeuristicComplete(event.data.heuristic_score, event.data.risk_level, event.data.findings);
@@ -245,6 +250,7 @@ export default function InvestigateScreen() {
       <ScrollView ref={scrollRef} style={styles.timeline} showsVerticalScrollIndicator={false} contentContainerStyle={styles.timelineContent}>
         {status === 'done' && verdict && <VerdictHero />}
         {status === 'done' && verdict && <AgentMemoryCard />}
+        {status === 'done' && forensicSnapshot && <ForensicSnapshotCard snapshot={forensicSnapshot} mint={mint ?? ''} />}
         {status === 'done' && verdict && <VerdictFeedback />}
         {status === 'done' && heuristicScore != null && !verdict && (<><HeuristicCard score={heuristicScore} /><UpgradePrompt feature="AI Analysis" requiredPlan="pro" /></>)}
         {isRunning && <VerdictSkeleton />}

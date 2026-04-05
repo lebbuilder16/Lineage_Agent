@@ -423,6 +423,16 @@ async def run_forensic_pipeline(
                     results["bundle_report"] = cached
                     _sub_step("bundle", "done", ms=int((time.monotonic() - t) * 1000))
                     return
+                # Skip if all RPC circuit breakers are open (would just timeout)
+                try:
+                    from .circuit_breaker import _registry as _cb_reg
+                    _rpc_cbs = [cb for name, cb in _cb_reg.items() if "solana_rpc" in name]
+                    if _rpc_cbs and all(cb.state.value == "open" for cb in _rpc_cbs):
+                        logger.info("[pipeline] skipping bundle — all RPC circuit breakers open for %s", mint[:12])
+                        _sub_step("bundle", "done", ms=int((time.monotonic() - t) * 1000), ok=False)
+                        return
+                except Exception:
+                    pass
                 if deployer:
                     results["bundle_report"] = await asyncio.wait_for(
                         analyze_bundle(mint, deployer), timeout=25.0,
