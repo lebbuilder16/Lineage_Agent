@@ -20,6 +20,7 @@ interface SweepFlagsState {
   loadMore: () => Promise<void>;
   markRead: (flagId: number) => void;
   markAllReadForMint: (mint: string) => void;
+  submitFeedback: (flagId: number, rating: 'useful' | 'not_useful' | 'snoozed', snoozeHours?: number) => void;
   getByMint: (mint: string) => SweepFlag[];
   getUnreadCount: () => number;
   getCriticalCount: () => number;
@@ -178,6 +179,26 @@ export const useSweepFlagsStore = create<SweepFlagsState>()(
               headers: { 'X-API-Key': apiKey },
             }).catch(() => {});
           }
+        }
+      },
+
+      submitFeedback: (flagId, rating, snoozeHours = 24) => {
+        const apiKey = useAuthStore.getState().apiKey;
+        // Optimistic: mark as read immediately
+        set((state) => {
+          const updated = state.flags.map((f) =>
+            f.id === flagId ? { ...f, read: true } : f,
+          );
+          syncBadge(updated);
+          return { flags: updated, urgentMints: computeUrgentMints(updated) };
+        });
+        // Backend sync (fire-and-forget)
+        if (apiKey) {
+          fetch(`${BASE_URL}/agent/flags/${flagId}/feedback`, {
+            method: 'POST',
+            headers: { 'X-API-Key': apiKey, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ rating, snooze_hours: snoozeHours }),
+          }).catch(() => {});
         }
       },
 
