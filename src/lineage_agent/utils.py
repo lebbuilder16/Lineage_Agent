@@ -178,10 +178,10 @@ async def classify_narrative_llm(name: str, symbol: str) -> str:
 
     api_key = os.getenv("ANTHROPIC_API_KEY", "")
     if not api_key:
-        logger.warning(
-            "classify_narrative_llm: ANTHROPIC_API_KEY not set — returning 'other' for '%s %s'",
-            name, symbol,
-        )
+        return "other"
+
+    # Track consecutive failures to avoid spamming a dead API (e.g. empty credits)
+    if getattr(classify_narrative_llm, "_consecutive_fails", 0) >= 3:
         return "other"
 
     try:
@@ -200,10 +200,12 @@ async def classify_narrative_llm(name: str, symbol: str) -> str:
         raw: str = (_blk.text if hasattr(_blk, "text") else "").strip().lower()
         # Accept only known categories; default to "other" for unexpected output
         result = raw if raw in NARRATIVE_TAXONOMY or raw == "other" else "other"
+        classify_narrative_llm._consecutive_fails = 0  # type: ignore[attr-defined]
     except Exception:
+        classify_narrative_llm._consecutive_fails = getattr(classify_narrative_llm, "_consecutive_fails", 0) + 1  # type: ignore[attr-defined]
         logger.warning(
-            "classify_narrative_llm: LLM call failed for '%s %s' — returning 'other'",
-            name, symbol, exc_info=True,
+            "classify_narrative_llm: LLM call failed for '%s %s' — returning 'other' (fails=%d)",
+            name, symbol, classify_narrative_llm._consecutive_fails, exc_info=True,
         )
         result = "other"
 
