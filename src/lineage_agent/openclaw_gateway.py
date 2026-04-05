@@ -391,6 +391,8 @@ async def _cron_sweep_loop(cache) -> None:
             )
             jobs = await cursor.fetchall()
             now = time.time()
+            if jobs:
+                logger.info("[openclaw-gw] cron check: %d enabled jobs", len(jobs))
 
             for row in jobs:
                 cron_id, user_id, name, schedule_json, payload_json, delivery_json, last_run = row
