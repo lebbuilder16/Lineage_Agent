@@ -11,14 +11,41 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+import re as _re
 import time
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Optional
 
 import httpx
 
 from ._retry import async_http_post_json
-from ..circuit_breaker import CircuitBreaker, CircuitOpenError
+from ..circuit_breaker import CircuitBreaker, CircuitOpenError, register
+
+
+# ---------------------------------------------------------------------------
+# RPC endpoint descriptor — one per provider
+# ---------------------------------------------------------------------------
+
+@dataclass
+class RpcEndpoint:
+    """Describes a single Solana RPC provider endpoint."""
+
+    url: str
+    circuit_breaker: CircuitBreaker
+    helius_api_key: str = ""
+    supports_das: bool = False
+    _client: httpx.AsyncClient | None = field(default=None, repr=False)
+
+    def __post_init__(self) -> None:
+        self.url = self.url.rstrip("/")
+        qs = _re.search(r"api-key=([^&]+)", self.url)
+        if qs:
+            self.helius_api_key = qs.group(1)
+        # Helius & Shyft support DAS; detect by domain
+        host = self.url.split("//")[-1].split("/")[0].split("?")[0].lower()
+        if any(p in host for p in ("helius", "shyft")):
+            self.supports_das = True
 
 logger = logging.getLogger(__name__)
 
@@ -160,33 +187,46 @@ def _tx_cache_put(sig: str, result: Any) -> None:
 
 
 class SolanaRpcClient:
-    """Async Solana JSON-RPC client."""
+    """Async Solana JSON-RPC client with multi-endpoint fallback."""
 
     def __init__(
         self,
         endpoint: str,
         timeout: int = 15,
         circuit_breaker: CircuitBreaker | None = None,
+        fallback_endpoints: list[RpcEndpoint] | None = None,
     ) -> None:
-        self._endpoint = endpoint.rstrip("/")
         self._timeout = timeout
-        self._client: httpx.AsyncClient | None = None
         self._id_counter = 0
-        self._cb = circuit_breaker
 
-        # Pre-extract Helius API key (if present) to avoid regex on every call
-        import re as _re
-        _qs = _re.search(r'api-key=([^&]+)', self._endpoint)
-        self._helius_api_key: str = _qs.group(1) if _qs else ""
+        # Build primary endpoint descriptor
+        if circuit_breaker is None:
+            circuit_breaker = CircuitBreaker("solana_rpc_primary", failure_threshold=8, recovery_timeout=60)
+        primary = RpcEndpoint(url=endpoint, circuit_breaker=circuit_breaker)
+        self._endpoints: list[RpcEndpoint] = [primary]
+        if fallback_endpoints:
+            self._endpoints.extend(fallback_endpoints)
+
+        # Backwards-compat aliases
+        self._endpoint = primary.url
+        self._cb = circuit_breaker
 
     @property
     def helius_api_key(self) -> str:
-        """Return the Helius API key extracted from the RPC URL, or ''."""
-        return self._helius_api_key
+        """Return the Helius API key from the first endpoint that has one."""
+        for ep in self._endpoints:
+            if ep.helius_api_key:
+                return ep.helius_api_key
+        return ""
 
-    async def _get_client(self) -> httpx.AsyncClient:
-        if self._client is None or self._client.is_closed:
-            self._client = httpx.AsyncClient(
+    @property
+    def _helius_api_key(self) -> str:
+        return self.helius_api_key
+
+    async def _get_client_for(self, ep: RpcEndpoint) -> httpx.AsyncClient:
+        """Return (or create) the httpx client for a specific endpoint."""
+        if ep._client is None or ep._client.is_closed:
+            ep._client = httpx.AsyncClient(
                 timeout=self._timeout,
                 headers={"Content-Type": "application/json"},
                 http2=True,
@@ -196,11 +236,17 @@ class SolanaRpcClient:
                     keepalive_expiry=30,
                 ),
             )
-        return self._client
+        return ep._client
+
+    async def _get_client(self) -> httpx.AsyncClient:
+        """Backwards-compat: return client for primary endpoint."""
+        return await self._get_client_for(self._endpoints[0])
 
     async def close(self) -> None:
-        if self._client and not self._client.is_closed:
-            await self._client.aclose()
+        for ep in self._endpoints:
+            if ep._client and not ep._client.is_closed:
+                await ep._client.aclose()
+                ep._client = None
 
     # ------------------------------------------------------------------
     # Public API
@@ -845,20 +891,17 @@ class SolanaRpcClient:
 
         Requires Helius API key in the RPC endpoint URL.
         """
-        import re as _re
-        # Extract Helius API key from RPC URL
-        _qs_match = _re.search(r'api-key=([^&]+)', self._endpoint)
-        if not _qs_match:
+        api_key = self.helius_api_key
+        if not api_key:
             return []  # Not a Helius endpoint
 
-        api_key = _qs_match.group(1)
         url = f"https://api.helius.xyz/v0/addresses/{address}/transactions"
         params: dict = {"api-key": api_key, "limit": min(limit, 100)}
         if tx_type:
             params["type"] = tx_type
 
         try:
-            client = await self._get_client()
+            client = await self._get_client_for(self._endpoints[0])
             resp = await client.get(url, params=params, timeout=12.0)
             if resp.status_code == 200:
                 data = resp.json()
@@ -875,16 +918,14 @@ class SolanaRpcClient:
         Up to 100 signatures per call. Returns enriched transaction data
         with tokenTransfers, nativeTransfers pre-parsed.
         """
-        import re as _re
-        _qs_match = _re.search(r'api-key=([^&]+)', self._endpoint)
-        if not _qs_match:
+        api_key = self.helius_api_key
+        if not api_key:
             return []
 
-        api_key = _qs_match.group(1)
-        url = f"https://api.helius.xyz/v0/transactions"
+        url = "https://api.helius.xyz/v0/transactions"
 
         try:
-            client = await self._get_client()
+            client = await self._get_client_for(self._endpoints[0])
             resp = await client.post(
                 url,
                 params={"api-key": api_key},
@@ -899,6 +940,17 @@ class SolanaRpcClient:
             return []
 
     # ------------------------------------------------------------------
+    # DAS methods — only work on endpoints that support DAS
+    # ------------------------------------------------------------------
+    _DAS_METHODS = frozenset({"getAsset", "getAssetsByOwner", "searchAssets"})
+
+    def _eligible_endpoints(self, method: str) -> list[RpcEndpoint]:
+        """Return endpoints eligible for *method*, respecting DAS support."""
+        if method in self._DAS_METHODS:
+            return [ep for ep in self._endpoints if ep.supports_das]
+        return list(self._endpoints)
+
+    # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------
 
@@ -909,15 +961,10 @@ class SolanaRpcClient:
         *,
         circuit_protect: bool = True,
     ) -> Any:
-        """JSON-RPC call with retry + exponential backoff, guarded by circuit breaker.
+        """JSON-RPC call with retry, circuit breaker, and multi-endpoint fallback.
 
-        Parameters
-        ----------
-        circuit_protect:
-            When *False* the call bypasses the shared circuit breaker entirely.
-            Use this for optional enrichment methods (e.g. ``searchAssets``) whose
-            failures should not cascade to block critical RPC calls such as
-            ``getSignaturesForAddress`` or ``getAsset``.
+        Tries each eligible endpoint in order. If an endpoint's circuit
+        breaker is OPEN or the call fails, the next endpoint is attempted.
         """
         # TX-level cache for getTransaction (avoids redundant RPC calls)
         _cache_sig: str | None = None
@@ -927,6 +974,11 @@ class SolanaRpcClient:
             if cached is not None:
                 return cached
 
+        endpoints = self._eligible_endpoints(method)
+        if not endpoints:
+            # No endpoint supports this method (DAS on non-DAS providers)
+            return None
+
         self._id_counter += 1
         payload = {
             "jsonrpc": "2.0",
@@ -934,34 +986,47 @@ class SolanaRpcClient:
             "method": method,
             "params": params,
         }
-        client = await self._get_client()
 
-        async def _do() -> Any:
-            result = await async_http_post_json(
-                client, self._endpoint, json_payload=payload,
-                max_retries=_MAX_RETRIES, backoff_base=_BACKOFF_BASE,
-                label=f"Solana RPC ({method})",
-            )
-            if result is None:
-                raise httpx.RequestError(f"Solana RPC {method}: all retries exhausted")
-            # Cache successful getTransaction results
-            if _cache_sig and result:
-                _tx_cache_put(_cache_sig, result)
-            return result
+        for i, ep in enumerate(endpoints):
+            client = await self._get_client_for(ep)
+            is_last = i == len(endpoints) - 1
 
-        if self._cb is not None and circuit_protect:
-            try:
-                return await self._cb.call(_do)
-            except CircuitOpenError:
-                logger.warning("Solana RPC circuit OPEN \u2013 fast-failing %s", method)
-                return None
-            except Exception:
-                return None
-        # Either circuit_protect=False (bypass CB) or no CB configured: call directly.
-        try:
-            return await _do()
-        except Exception:
-            return None
+            async def _do(c=client, e=ep) -> Any:
+                result = await async_http_post_json(
+                    c, e.url, json_payload=payload,
+                    max_retries=_MAX_RETRIES, backoff_base=_BACKOFF_BASE,
+                    label=f"Solana RPC ({method})",
+                )
+                if result is None:
+                    raise httpx.RequestError(f"Solana RPC {method}: all retries exhausted")
+                if _cache_sig and result:
+                    _tx_cache_put(_cache_sig, result)
+                return result
+
+            if circuit_protect:
+                try:
+                    return await ep.circuit_breaker.call(_do)
+                except CircuitOpenError:
+                    if is_last:
+                        logger.warning(
+                            "Solana RPC all endpoints OPEN – fast-failing %s", method
+                        )
+                        return None
+                    # Try next endpoint
+                    continue
+                except Exception:
+                    if is_last:
+                        return None
+                    continue
+            else:
+                try:
+                    return await _do()
+                except Exception:
+                    if is_last:
+                        return None
+                    continue
+
+        return None  # pragma: no cover
 
     async def _call_batch(
         self,
@@ -971,16 +1036,7 @@ class SolanaRpcClient:
     ) -> list[Any]:
         """Execute multiple JSON-RPC calls in a single HTTP request (batch mode).
 
-        Parameters
-        ----------
-        calls:
-            List of (method, params) tuples to execute in one batch.
-        circuit_protect:
-            When False, bypass the circuit breaker.
-
-        Returns
-        -------
-        List of results in the same order as *calls*. Failed items are None.
+        Tries each eligible endpoint in order with fallback.
         """
         if not calls:
             return []
@@ -999,47 +1055,57 @@ class SolanaRpcClient:
         # Map id -> index for reordering
         id_to_idx = {p["id"]: i for i, p in enumerate(payloads)}
 
-        client = await self._get_client()
+        # Use all endpoints (batch calls are standard RPC, not DAS)
+        endpoints = list(self._endpoints)
 
-        async def _do() -> list[Any]:
-            resp = await client.post(
-                self._endpoint,
-                json=payloads,
-                timeout=max(self._timeout, len(calls) * 0.5),
-            )
-            if resp.status_code == 429:
-                # Rate limited — wait and retry once
-                wait = float(resp.headers.get("retry-after", "2"))
-                await asyncio.sleep(min(wait, 5.0))
-                resp = await client.post(
-                    self._endpoint, json=payloads, timeout=self._timeout
+        for i, ep in enumerate(endpoints):
+            client = await self._get_client_for(ep)
+            is_last = i == len(endpoints) - 1
+
+            async def _do(c=client, e=ep) -> list[Any]:
+                resp = await c.post(
+                    e.url,
+                    json=payloads,
+                    timeout=max(self._timeout, len(calls) * 0.5),
                 )
-            resp.raise_for_status()
-            body = resp.json()
+                if resp.status_code == 429:
+                    wait = float(resp.headers.get("retry-after", "2"))
+                    await asyncio.sleep(min(wait, 5.0))
+                    resp = await c.post(
+                        e.url, json=payloads, timeout=self._timeout
+                    )
+                resp.raise_for_status()
+                body = resp.json()
 
-            # body is a list of {jsonrpc, id, result?, error?}
-            results: list[Any] = [None] * len(calls)
-            if isinstance(body, list):
-                for item in body:
-                    idx = id_to_idx.get(item.get("id"))
-                    if idx is not None:
-                        if "error" in item:
-                            logger.debug(
-                                "Batch RPC error id=%s: %s",
-                                item.get("id"),
-                                item["error"],
-                            )
-                        else:
-                            results[idx] = item.get("result")
-            return results
+                results: list[Any] = [None] * len(calls)
+                if isinstance(body, list):
+                    for item in body:
+                        idx = id_to_idx.get(item.get("id"))
+                        if idx is not None:
+                            if "error" in item:
+                                logger.debug(
+                                    "Batch RPC error id=%s: %s",
+                                    item.get("id"),
+                                    item["error"],
+                                )
+                            else:
+                                results[idx] = item.get("result")
+                return results
 
-        if self._cb is not None and circuit_protect:
-            try:
-                return await self._cb.call(_do)
-            except Exception:
-                return [None] * len(calls)
-        try:
-            return await _do()
-        except Exception as exc:
-            logger.warning("Batch RPC failed (%d calls): %s", len(calls), exc)
-            return [None] * len(calls)
+            if circuit_protect:
+                try:
+                    return await ep.circuit_breaker.call(_do)
+                except Exception:
+                    if is_last:
+                        return [None] * len(calls)
+                    continue
+            else:
+                try:
+                    return await _do()
+                except Exception as exc:
+                    if is_last:
+                        logger.warning("Batch RPC failed (%d calls): %s", len(calls), exc)
+                        return [None] * len(calls)
+                    continue
+
+        return [None] * len(calls)  # pragma: no cover
