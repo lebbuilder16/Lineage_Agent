@@ -27,31 +27,65 @@ export function setupNotificationResponseHandler(): Notifications.Subscription {
     const data = response.notification.request.content.data as Record<string, string> | undefined;
     if (!data) return;
 
-    if (data.type === 'investigation_complete' && data.mint) {
-      // Trigger incremental catch-up so the investigation appears in history
+    const type = data.type;
+    const mint = data.mint;
+
+    // ── Investigation complete → sync history + navigate to token ────
+    if (type === 'investigation_complete') {
       import('../store/history').then(({ useHistoryStore }) => {
         useHistoryStore.getState().catchUp();
-      }).catch((e) => console.warn('[notifications] catchUp after investigation_complete failed', e));
+      }).catch((e) => console.warn('[notifications] catchUp failed', e));
+      if (mint) {
+        import('expo-router').then(({ router }) => {
+          router.push(`/token/${mint}` as any);
+        }).catch(() => {});
+      }
+      return;
     }
 
-    if (data.type === 'sweep_flag' && data.mint) {
-      // Deep link to watchlist tab — the auto-expand logic in watchlist.tsx
-      // will expand the card for urgent mints automatically
-      import('expo-router').then(({ router }) => {
-        router.replace('/(tabs)/watchlist');
-      }).catch((e) => console.warn('[notifications] deep link to watchlist failed', e));
-      // Refresh flags so the new flag appears immediately
+    // ── Watchlist flags (sweep/pulse) → token detail if mint, else watchlist tab ──
+    if (type === 'sweep_flag' || type === 'pulse_flag' || type === 'pulse_alert') {
       import('../store/sweep-flags').then(({ useSweepFlagsStore }) => {
         useSweepFlagsStore.getState().fetchFlags();
       }).catch(() => {});
+      import('expo-router').then(({ router }) => {
+        if (mint) {
+          router.push(`/token/${mint}` as any);
+        } else {
+          router.replace('/(tabs)/watchlist');
+        }
+      }).catch((e) => console.warn('[notifications] deep link to watchlist failed', e));
+      return;
     }
 
-    if (data.type === 'pulse_alert' && data.mint) {
+    // ── Rug detected → token detail page ────────────────────────────
+    if (type === 'rug_detected' && mint) {
       import('expo-router').then(({ router }) => {
-        router.replace('/(tabs)/watchlist');
-      }).catch((e) => console.warn('[notifications] deep link to watchlist failed', e));
-      import('../store/sweep-flags').then(({ useSweepFlagsStore }) => {
-        useSweepFlagsStore.getState().fetchFlags();
+        router.push(`/token/${mint}` as any);
+      }).catch(() => {});
+      return;
+    }
+
+    // ── Wallet risk → alerts tab ────────────────────────────────────
+    if (type === 'wallet_risk') {
+      import('expo-router').then(({ router }) => {
+        router.replace('/(tabs)/alerts');
+      }).catch(() => {});
+      return;
+    }
+
+    // ── Briefing → radar tab ────────────────────────────────────────
+    if (type === 'daily_briefing' || type === 'briefing') {
+      import('expo-router').then(({ router }) => {
+        router.replace('/(tabs)/radar');
+      }).catch(() => {});
+      return;
+    }
+
+    // ── Fallback: if mint is present, go to token detail ────────────
+    if (mint) {
+      import('expo-router').then(({ router }) => {
+        router.push(`/token/${mint}` as any);
       }).catch(() => {});
     }
   });

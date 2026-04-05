@@ -366,6 +366,8 @@ async def _push_fcm_to_watchers(
     title: str,
     body: str,
     alert_type: str,
+    *,
+    token_name: str = "",
 ) -> None:
     """Fetch FCM tokens for all users watching *mint* and send them a push.
 
@@ -397,7 +399,7 @@ async def _push_fcm_to_watchers(
                     token,
                     title=title,
                     body=body,
-                    data={"type": alert_type, "mint": mint or ""},
+                    data={"type": alert_type, "mint": mint or "", "token_name": token_name},
                 )
     except Exception as exc:
         logger.debug("[FCM] push_to_watchers error: %s", exc)

@@ -3472,7 +3472,13 @@ async def get_global_stats(request: Request) -> GlobalStats:
                 columns="mint, rug_mechanism, evidence_level",
             )
 
-        tokens_scanned = len(created_rows)
+        created_mints = {r.get("mint", "") for r in created_rows if r.get("mint")}
+        rugged_mints = {r.get("mint", "") for r in rugged_rows if r.get("mint")}
+        # Denominator: all unique mints that were either created OR rugged in the window.
+        # This prevents rug_rate > 100% when tokens created before the 24h window
+        # are rugged within it.
+        all_mints = created_mints | rugged_mints
+        tokens_scanned = len(all_mints)
         tokens_negative_outcomes = len(rugged_rows)
         tokens_rugged = sum(1 for row in rugged_rows if _is_confirmed_rug_stats_row(row))
         rug_rate = round((tokens_rugged / tokens_scanned * 100) if tokens_scanned > 0 else 0.0, 2)
@@ -4268,6 +4274,20 @@ async def get_sweep_flags(
             "createdAt": r[6],
             "read": bool(r[7]),
         })
+
+    # Deduplicate: collapse consecutive same flagType per mint within 1h window.
+    # Guards against race-condition duplicates from concurrent pulse/sweep scans.
+    _deduped: list[dict] = []
+    _seen: dict[tuple, float] = {}  # (mint, flagType) → latest createdAt
+    _DEDUP_API_WINDOW = 3600  # 1 hour
+    for f in flags:
+        key = (f["mint"], f["flagType"])
+        prev_ts = _seen.get(key)
+        if prev_ts is not None and abs(prev_ts - f["createdAt"]) < _DEDUP_API_WINDOW:
+            continue  # skip duplicate
+        _seen[key] = f["createdAt"]
+        _deduped.append(f)
+    flags = _deduped
 
     # In multi-token mode, balance flags across tokens so no single token dominates
     if not mint and len(flags) > limit:

@@ -71,6 +71,9 @@ def _extract_forensic_snapshot(lin: Any) -> dict:
         snapshot["price_usd"] = getattr(qt, "price_usd", None)
         snapshot["mcap_usd"] = getattr(qt, "market_cap_usd", None)
         snapshot["liq_usd"] = getattr(qt, "liquidity_usd", None)
+        # Token identity — needed for push notification titles
+        snapshot["token_name"] = getattr(qt, "name", None) or ""
+        snapshot["token_symbol"] = getattr(qt, "symbol", None) or ""
     if ins:
         snapshot["sell_pressure_1h"] = getattr(ins, "sell_pressure_1h", None)
         snapshot["volume_spike_ratio"] = getattr(ins, "volume_spike_ratio", None)
@@ -997,6 +1000,15 @@ async def run_single_rescan(watch_id: int, user_id: int, cache, *, skip_ai: bool
         # Extract new forensic snapshot
         new_forensic = _extract_forensic_snapshot(lin)
 
+        # Preserve irreversible boolean states from old snapshot when data
+        # source is temporarily unavailable (e.g. RPC timeout → insider_sell=None).
+        # Without this, the snapshot "flickers" False→True→False→True, causing
+        # duplicate DEPLOYER_EXITED flags on every rescan that recovers data.
+        _STICKY_BOOLEANS = ["deployer_exited"]
+        for _key in _STICKY_BOOLEANS:
+            if old_forensic.get(_key) and not new_forensic.get(_key):
+                new_forensic[_key] = True
+
         # Compute heuristic score (the real risk indicator) — not death_clock's
         # rug_probability_pct which is often 0 for tokens with insufficient data.
         from .ai_analyst import _heuristic_score
@@ -1110,15 +1122,32 @@ async def run_single_rescan(watch_id: int, user_id: int, cache, *, skip_ai: bool
                 detail_dict["image_uri"] = _image
             flag["detail"] = json.dumps(detail_dict, default=str)
 
-        # Deduplicate: skip flags of the same type created in the last hour,
+        # Deduplicate: skip flags of the same type created recently,
         # AND expand to logical groups so related flags don't repeat.
-        _dedup_window = 3600  # 1 hour
+        # Permanent/irreversible flags (deployer can't un-exit) use a 24h
+        # window; transient signals use 1h so genuine re-occurrences surface.
+        _DEDUP_WINDOW_DEFAULT = 3600       # 1 hour
+        _DEDUP_WINDOW_PERMANENT = 86400    # 24 hours
+        _PERMANENT_FLAGS = {
+            "DEPLOYER_EXITED", "CROSS_DEPLOYER_EXIT_BUNDLE_ACTIVE",
+            "CROSS_DEPLOYER_EXIT_CARTEL_ACTIVE", "CROSS_RUG_PATTERN",
+            "BUNDLE_WALLETS_ALL_EXITED", "CROSS_COORDINATED_EXTRACTION",
+            "CROSS_EXTRACTION_AND_EXIT", "INITIAL_ASSESSMENT",
+        }
+
+        # Query with the longer window — we'll filter per-flag below
         _recent_cursor = await db.execute(
-            "SELECT DISTINCT flag_type FROM sweep_flags "
-            "WHERE watch_id = ? AND created_at > ? AND flag_type NOT LIKE ?",
-            (watch_id, now - _dedup_window, "_%"),
+            "SELECT DISTINCT flag_type, MAX(created_at) FROM sweep_flags "
+            "WHERE watch_id = ? AND created_at > ? AND flag_type NOT LIKE ? "
+            "GROUP BY flag_type",
+            (watch_id, now - _DEDUP_WINDOW_PERMANENT, "_%"),
         )
-        _recent_types = {r[0] for r in await _recent_cursor.fetchall()}
+        _recent_rows = await _recent_cursor.fetchall()
+        _recent_types: set[str] = set()
+        for _ft, _ts in _recent_rows:
+            _window = _DEDUP_WINDOW_PERMANENT if _ft in _PERMANENT_FLAGS else _DEDUP_WINDOW_DEFAULT
+            if now - _ts < _window:
+                _recent_types.add(_ft)
 
         # Logical groups: if any member was recently emitted, suppress all members
         _DEDUP_GROUPS = [
@@ -1196,13 +1225,16 @@ async def run_single_rescan(watch_id: int, user_id: int, cache, *, skip_ai: bool
                 )
                 if critical_flags:
                     top = critical_flags[0]
-                    _token_name = detail_dict.get("token_name") or detail_dict.get("name") or mint[:12]
+                    _push_name = detail_dict.get("token_name") or detail_dict.get("name") or _token_name or mint[:12]
+                    _push_symbol = detail_dict.get("symbol") or _token_symbol or ""
+                    _push_label = f"{_push_name} ({_push_symbol})" if _push_symbol else _push_name
                     asyncio.create_task(
                         _push_fcm_to_watchers(
                             mint=mint,
-                            title=top["title"],
-                            body=f"{_token_name} — {top['flag_type'].replace('_', ' ')}",
+                            title=f"{_push_label} — {top['title']}",
+                            body=top['title'],
                             alert_type="sweep_flag",
+                            token_name=_push_label,
                         ),
                         name=f"sweep_push_{mint[:8]}",
                     )
@@ -1309,12 +1341,23 @@ async def _pulse_rescan_one(t: dict, cache) -> None:
                 try:
                     from .alert_service import _push_fcm_to_watchers
                     top_flag = result["flags"][0]
+                    # Extract token name from flag detail for notification
+                    _pf_name = t["mint"][:8]
+                    _pf_symbol = ""
+                    try:
+                        _pf_detail = json.loads(top_flag.get("detail", "{}")) if isinstance(top_flag.get("detail"), str) else (top_flag.get("detail") or {})
+                        _pf_name = _pf_detail.get("token_name") or _pf_detail.get("name") or _pf_name
+                        _pf_symbol = _pf_detail.get("symbol") or ""
+                    except Exception:
+                        pass
+                    _pf_label = f"{_pf_name} ({_pf_symbol})" if _pf_symbol else _pf_name
                     asyncio.create_task(
                         _push_fcm_to_watchers(
                             mint=t["mint"],
-                            title=top_flag["title"],
+                            title=f"{_pf_label} — {top_flag['title']}",
                             body=f"Pulse: {t['trigger']}",
                             alert_type="pulse_flag",
+                            token_name=_pf_label,
                         ),
                         name=f"pulse_push_{t['mint'][:8]}",
                     )
@@ -1323,12 +1366,27 @@ async def _pulse_rescan_one(t: dict, cache) -> None:
             elif abs(t.get("now_price", 0)) > 0:
                 try:
                     from .alert_service import _push_fcm_to_watchers
+                    # Lookup token name from latest snapshot
+                    _pa_name = t["mint"][:8]
+                    try:
+                        _pa_db = await cache._get_conn()
+                        _pa_cursor = await _pa_db.execute(
+                            "SELECT detail FROM sweep_flags WHERE mint = ? AND flag_type = '_SNAPSHOT' "
+                            "ORDER BY created_at DESC LIMIT 1", (t["mint"],),
+                        )
+                        _pa_row = await _pa_cursor.fetchone()
+                        if _pa_row:
+                            _pa_snap = json.loads(_pa_row[0])
+                            _pa_name = _pa_snap.get("token_name") or _pa_name
+                    except Exception:
+                        pass
                     asyncio.create_task(
                         _push_fcm_to_watchers(
                             mint=t["mint"],
-                            title=f"Pulse: {t['trigger']}",
+                            title=f"{_pa_name} — {t['trigger']}",
                             body=f"Price: ${t['now_price']:.6f}",
                             alert_type="pulse_alert",
+                            token_name=_pa_name,
                         ),
                         name=f"pulse_alert_{t['mint'][:8]}",
                     )
