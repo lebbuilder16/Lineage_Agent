@@ -44,7 +44,8 @@ class RpcEndpoint:
             self.helius_api_key = qs.group(1)
         # Helius & Shyft support DAS; detect by domain
         host = self.url.split("//")[-1].split("/")[0].split("?")[0].lower()
-        if any(p in host for p in ("helius", "shyft", "quiknode", "quicknode")):
+        # QuickNode requires DAS addon to be manually enabled — don't auto-detect
+        if any(p in host for p in ("helius", "shyft")):
             self.supports_das = True
 
 logger = logging.getLogger(__name__)
