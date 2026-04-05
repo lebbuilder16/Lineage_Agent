@@ -298,14 +298,29 @@ async def lifespan(application: FastAPI):
     _schedule_cartel_sweep()
     schedule_db_maintenance()
 
+    # Alert dispatch queue — decouples delivery from sweep/pulse loops
+    from .alert_service import schedule_alert_consumer  # noqa: PLC0415
+    schedule_alert_consumer()
+
     _schedule_watchlist_sweep()
     _schedule_market_pulse()
     _schedule_briefing_loop()
     _schedule_wallet_monitor()
 
-    # OpenClaw gateway cron sweep
+    # OpenClaw gateway cron sweep (briefings only — watchlist rescans handled by sweep loop)
     from .data_sources._clients import cache as _oc_cache  # noqa: PLC0415
     schedule_cron_sweep(_oc_cache)
+
+    # Clean up legacy watchlist crons (no longer used)
+    async def _cleanup_legacy_crons():
+        try:
+            db = await _oc_cache._get_conn()
+            await db.execute("DELETE FROM user_crons WHERE name LIKE 'lineage:watchlist:%'")
+            await db.commit()
+            logger.info("[startup] cleaned up legacy watchlist crons")
+        except Exception:
+            pass
+    asyncio.create_task(_cleanup_legacy_crons())
 
     # ── Pump.fun real-time listener ───────────────────────────────────────
     from .pump_fun_listener import schedule_pump_fun_listener, is_listener_active
@@ -2501,12 +2516,21 @@ async def auth_login(body: _LoginRequest, request: Request):
     except Exception as exc:
         logger.exception("auth_login failed: %s", exc)
         raise HTTPException(status_code=500, detail=f"User creation failed: {exc}") from exc
-    # Sync OpenClaw crons for this user (watch crons + briefing)
-    from .cron_manager import sync_all_user_crons  # noqa: PLC0415
-    asyncio.create_task(
-        sync_all_user_crons(_cache, user["id"], user.get("plan", "free")),
-        name=f"login_cron_sync_{user['id']}",
-    )
+    # Sync briefing cron for this user on login
+    from .cron_manager import ensure_briefing_cron  # noqa: PLC0415
+
+    async def _sync_briefing():
+        try:
+            _plan = user.get("plan", "free")
+            db = await _cache._get_conn()
+            cur = await db.execute("SELECT daily_briefing, briefing_hour FROM agent_prefs WHERE user_id = ?", (user["id"],))
+            row = await cur.fetchone()
+            if row and row[0]:
+                await ensure_briefing_cron(_cache, user["id"], row[1] or 8, _plan)
+        except Exception:
+            pass
+
+    asyncio.create_task(_sync_briefing(), name=f"login_cron_sync_{user['id']}")
 
     return {
         "id": user["id"],
@@ -2702,12 +2726,7 @@ async def auth_add_watch(body: _WatchRequest, request: Request):
                 logger.debug("[watch] initial scan failed for %s: %s", body.value[:12], exc)
         asyncio.create_task(_initial_scan(), name=f"initial_scan_{body.value[:8]}")
 
-    # Create OpenClaw cron for this watch (server-managed)
-    from .cron_manager import ensure_watch_cron  # noqa: PLC0415
-    asyncio.create_task(
-        ensure_watch_cron(_cache, user["id"], watch, plan=plan),
-        name=f"cron_create_{watch.get('id', '')}",
-    )
+    # Watchlist rescans are managed by _watchlist_sweep_loop (no per-watch crons needed)
 
     return watch
 
@@ -3898,8 +3917,8 @@ async def set_agent_prefs(request: Request, body: _AgentPrefsBody):
     )
     await db.commit()
 
-    # Update OpenClaw crons if briefing/sweep settings changed
-    from .cron_manager import ensure_briefing_cron, remove_briefing_cron, sync_all_user_crons  # noqa: PLC0415
+    # Update briefing cron if settings changed
+    from .cron_manager import ensure_briefing_cron, remove_briefing_cron  # noqa: PLC0415
 
     async def _update_crons():
         try:
@@ -3908,8 +3927,6 @@ async def set_agent_prefs(request: Request, body: _AgentPrefsBody):
                 await ensure_briefing_cron(_cache, user["id"], body.briefingHour, plan)
             else:
                 await remove_briefing_cron(_cache, user["id"])
-            # Re-sync watch crons with potentially new sweepInterval
-            await sync_all_user_crons(_cache, user["id"], plan)
         except Exception:
             logger.warning("[prefs] cron update failed for user=%s", user["id"], exc_info=True)
 
@@ -5181,22 +5198,9 @@ async def _watchlist_sweep_loop():
             )
             watches = await cursor.fetchall()
 
-            # Skip watches that have active OpenClaw crons (managed by cron_manager)
-            cron_cursor = await rdb.execute(
-                "SELECT name FROM user_crons WHERE enabled = 1 AND name LIKE 'lineage:watchlist:%'"
-            )
-            _cron_managed = set()
-            for (cn,) in await cron_cursor.fetchall():
-                parts = cn.split(":")
-                if len(parts) >= 3:
-                    try:
-                        _cron_managed.add(int(parts[2]))
-                    except ValueError:
-                        pass
-
-            # Filter: only sweep users whose last sweep was > sweep_interval ago
+            # All watches are managed by this sweep loop (no cron skip)
             now = time.time()
-            logger.info("[sweep] %d watches found, %d cron-managed", len(watches), len(_cron_managed))
+            logger.info("[sweep] %d watches found", len(watches))
             for _wi, (watch_id, user_id, _mint_val, user_sweep_interval, user_plan) in enumerate(watches):
                 # Check last sweep for this specific watch
                 cursor2 = await rdb.execute(
@@ -5205,66 +5209,61 @@ async def _watchlist_sweep_loop():
                 )
                 last_sweep_row = await cursor2.fetchone()
                 last_sweep = last_sweep_row[0] if last_sweep_row and last_sweep_row[0] else 0
-                _age = int(now - last_sweep) if last_sweep else 999999
                 if now - last_sweep < user_sweep_interval:
-                    if user_id == 17:  # debug: log skipped watches for test user
-                        logger.info("[sweep] SKIP watch=%d user=%d mint=%s (last=%ds ago, interval=%ds)", watch_id, user_id, _mint_val[:12], _age, user_sweep_interval)
                     continue  # too soon for this user's preference
-                logger.info("[sweep] rescanning watch=%d user=%d mint=%s (last=%ds ago)", watch_id, user_id, _mint_val[:12], _age)
                 if _wi > 0:
                     await asyncio.sleep(15)  # stagger rescans — 15s avoids RPC saturation
                 _heartbeat("sweep")  # keep watchdog alive between watches
+                _t0 = time.monotonic()
                 try:
                     result = await run_single_rescan(watch_id, user_id, _cache, plan=user_plan)
+                    from .metrics import record_rescan, record_sweep_flags  # noqa: PLC0415
+                    _dur = time.monotonic() - _t0
                     if not result:
+                        record_rescan("empty", _dur)
                         continue
+                    record_rescan("success", _dur)
+                    for _f in result.get("flags", []):
+                        record_sweep_flags(_f.get("severity", "info"))
 
-                    # Broadcast critical/warning flags as WebSocket + FCM alerts
+                    # Enqueue critical/warning flags for async delivery (non-blocking)
+                    from .alert_service import enqueue_alert  # noqa: PLC0415
                     for flag in result.get("flags", []):
                         if flag["severity"] in ("critical", "warning"):
+                            _flag_title = f"{'🔴' if flag['severity'] == 'critical' else '⚠️'} {flag['title']}"
+                            _fd = {}
                             try:
-                                from .alert_service import _broadcast_web_alert, _send_fcm_push
-                                _flag_title = f"{'🔴' if flag['severity'] == 'critical' else '⚠️'} {flag['title']}"
-                                # Extract token metadata from flag detail
-                                _fd = {}
-                                try:
-                                    _fd = json.loads(flag.get("detail", "{}")) if isinstance(flag.get("detail"), str) else (flag.get("detail") or {})
-                                except Exception:
-                                    pass
-                                await _broadcast_web_alert({
-                                    "type": "sweep_flag",
-                                    "alert_type": flag["flag_type"],
-                                    "title": _flag_title,
-                                    "message": flag["title"],
-                                    "body": flag["title"],
-                                    "mint": result["mint"],
-                                    "token_name": _fd.get("token_name") or _fd.get("name") or result["mint"][:8],
-                                    "image_uri": _fd.get("image_uri") or None,
-                                    "risk_score": result.get("new_score", 0),
-                                    "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                                    "id": f"sweep-{result['mint'][:8]}-{flag['flag_type']}-{int(time.time())}",
-                                    "read": False,
-                                }, user_id=user_id)
-                                # Direct FCM push to this user (even if not a mint watcher)
-                                _user_cursor = await rdb.execute(
+                                _fd = json.loads(flag.get("detail", "{}")) if isinstance(flag.get("detail"), str) else (flag.get("detail") or {})
+                            except Exception:
+                                pass
+                            # Look up FCM token for direct push
+                            _fcm = None
+                            try:
+                                _u_cur = await rdb.execute(
                                     "SELECT fcm_token FROM users WHERE id = ? AND fcm_token IS NOT NULL",
                                     (user_id,),
                                 )
-                                _user_row = await _user_cursor.fetchone()
-                                if _user_row and _user_row[0]:
-                                    asyncio.create_task(_send_fcm_push(
-                                        _user_row[0],
-                                        title=_flag_title,
-                                        body=flag["title"],
-                                        data={
-                                            "type": "sweep_flag",
-                                            "mint": result["mint"],
-                                            "flag_type": flag["flag_type"],
-                                            "urgency": "high" if flag["severity"] == "critical" else "normal",
-                                        },
-                                    ))
-                            except Exception as _bcast_exc:
-                                logger.warning("[sweep] flag broadcast failed for watch %d: %s", watch_id, _bcast_exc)
+                                _u_row = await _u_cur.fetchone()
+                                if _u_row and _u_row[0]:
+                                    _fcm = _u_row[0]
+                            except Exception:
+                                pass
+                            await enqueue_alert({
+                                "type": "sweep_flag",
+                                "alert_type": flag["flag_type"],
+                                "title": _flag_title,
+                                "message": flag["title"],
+                                "body": flag["title"],
+                                "mint": result["mint"],
+                                "token_name": _fd.get("token_name") or _fd.get("name") or result["mint"][:8],
+                                "image_uri": _fd.get("image_uri") or None,
+                                "risk_score": result.get("new_score", 0),
+                                "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                                "id": f"sweep-{result['mint'][:8]}-{flag['flag_type']}-{int(time.time())}",
+                                "read": False,
+                                "flag_type": flag["flag_type"],
+                                "urgency": "high" if flag["severity"] == "critical" else "normal",
+                            }, user_id=user_id, fcm_token=_fcm)
 
                     if result.get("escalated"):
                         # Auto-investigate if user enabled it
@@ -5277,7 +5276,11 @@ async def _watchlist_sweep_loop():
                             asyncio.create_task(
                                 _auto_investigate_token(result["mint"], user_id, _cache)
                             )
+                except asyncio.TimeoutError:
+                    record_rescan("timeout", time.monotonic() - _t0)
+                    logger.warning("[sweep] watch %d timed out", watch_id)
                 except Exception as exc:
+                    record_rescan("error", time.monotonic() - _t0)
                     logger.warning("[sweep] watch %d failed: %s", watch_id, exc)
         except Exception as exc:
             logger.exception("[sweep] loop error: %s", exc)

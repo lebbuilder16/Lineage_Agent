@@ -246,8 +246,12 @@ async def _send_fcm_push(fcm_token: str, title: str, body: str, data: dict) -> b
             },
         )
         if resp.status_code == 200:
+            from .metrics import record_alert_delivery  # noqa: PLC0415
+            record_alert_delivery("fcm", "success")
             return True
         logger.warning("[FCM] Push failed (%s): %s", resp.status_code, resp.text[:200])
+        from .metrics import record_alert_delivery  # noqa: PLC0415
+        record_alert_delivery("fcm", "fail")
         # Handle specific FCM error codes
         if resp.status_code in (400, 404):
             # 400 InvalidArgument / 404 NotFound → token is dead, clear it
@@ -596,6 +600,76 @@ def cancel_alert_sweep() -> None:
     if _sweep_task and not _sweep_task.done():
         _sweep_task.cancel()
         _sweep_task = None
+
+
+# ── Async alert dispatch queue ─────────────────────────────────────────
+# Decouples alert delivery from the sweep/pulse loops so slow FCM/WebSocket
+# calls don't block rescans.
+
+_alert_dispatch_queue: asyncio.Queue | None = None
+_alert_consumer_task: asyncio.Task | None = None
+
+
+def _get_alert_queue() -> asyncio.Queue:
+    global _alert_dispatch_queue
+    if _alert_dispatch_queue is None:
+        _alert_dispatch_queue = asyncio.Queue(maxsize=500)
+    return _alert_dispatch_queue
+
+
+async def enqueue_alert(payload: dict, user_id: int | None = None, fcm_token: str | None = None) -> None:
+    """Non-blocking: push alert to dispatch queue for async delivery."""
+    q = _get_alert_queue()
+    try:
+        q.put_nowait({"payload": payload, "user_id": user_id, "fcm_token": fcm_token})
+    except asyncio.QueueFull:
+        logger.warning("[alert-queue] full (500 items) — dropping alert")
+
+
+async def _alert_consumer_loop() -> None:
+    """Drain the alert queue and dispatch via WebSocket + FCM."""
+    q = _get_alert_queue()
+    while True:
+        try:
+            item = await q.get()
+            payload = item["payload"]
+            user_id = item.get("user_id")
+            fcm_token = item.get("fcm_token")
+
+            # WebSocket + OpenClaw + FCM (to watchers)
+            await _broadcast_web_alert(payload, user_id=user_id)
+
+            # Direct FCM push to specific user (if token provided)
+            if fcm_token:
+                title = payload.get("title", "Lineage Alert")
+                body = payload.get("body", "")
+                data = {
+                    k: str(v) for k, v in payload.items()
+                    if k in ("type", "mint", "flag_type", "urgency")
+                }
+                await _send_fcm_push(fcm_token, title=title, body=body, data=data)
+
+            q.task_done()
+        except asyncio.CancelledError:
+            break
+        except Exception:
+            logger.warning("[alert-queue] consumer error", exc_info=True)
+
+
+def schedule_alert_consumer() -> None:
+    """Launch the background alert consumer."""
+    global _alert_consumer_task
+    if _alert_consumer_task is None or _alert_consumer_task.done():
+        _alert_consumer_task = asyncio.create_task(_alert_consumer_loop())
+        logger.info("[alert-queue] consumer started")
+
+
+def cancel_alert_consumer() -> None:
+    """Cancel the background alert consumer."""
+    global _alert_consumer_task
+    if _alert_consumer_task and not _alert_consumer_task.done():
+        _alert_consumer_task.cancel()
+        _alert_consumer_task = None
 
 
 # ── Direct Telegram HTTP send (for channel routing) ───────────────────────

@@ -159,9 +159,14 @@ def get_img_client() -> httpx.AsyncClient:
 async def init_clients() -> None:
     """Eagerly create the singleton HTTP clients (called at startup)."""
     get_dex_client()
-    get_rpc_client()
+    rpc = get_rpc_client()
     get_jup_client()
     get_img_client()
+    # Probe RPC endpoints and pre-open circuit breakers for dead ones
+    try:
+        await rpc.health_check()
+    except Exception:
+        logger.warning("[startup] RPC health probe failed — will detect reactively")
 
 
 async def close_clients() -> None:

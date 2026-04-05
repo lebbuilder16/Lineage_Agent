@@ -20,7 +20,7 @@ from typing import Any, Optional
 import httpx
 
 from ._retry import async_http_post_json, MethodBlockedError
-from ..circuit_breaker import CircuitBreaker, CircuitOpenError, register
+from ..circuit_breaker import CircuitBreaker, CircuitOpenError, CircuitState, register
 
 
 # ---------------------------------------------------------------------------
@@ -250,6 +250,38 @@ class SolanaRpcClient:
             if ep._client and not ep._client.is_closed:
                 await ep._client.aclose()
                 ep._client = None
+
+    # ------------------------------------------------------------------
+    # Health probing
+    # ------------------------------------------------------------------
+
+    async def health_check(self) -> dict[str, bool]:
+        """Probe each endpoint with getSlot and return {url: healthy}."""
+        results: dict[str, bool] = {}
+        for ep in self._endpoints:
+            label = ep.url[:50]
+            try:
+                client = await self._get_client_for(ep)
+                resp = await client.post(
+                    ep.url,
+                    json={"jsonrpc": "2.0", "id": 0, "method": "getSlot"},
+                    timeout=5.0,
+                )
+                healthy = resp.status_code == 200 and "result" in resp.json()
+                results[label] = healthy
+                if not healthy:
+                    # Pre-open circuit breaker for dead endpoints
+                    ep.circuit_breaker._failure_count = ep.circuit_breaker.failure_threshold
+                    ep.circuit_breaker._transition(CircuitState.OPEN)
+                    logger.warning("[rpc-probe] %s UNHEALTHY — circuit pre-opened", label)
+                else:
+                    logger.info("[rpc-probe] %s OK", label)
+            except Exception as exc:
+                results[label] = False
+                ep.circuit_breaker._failure_count = ep.circuit_breaker.failure_threshold
+                ep.circuit_breaker._transition(CircuitState.OPEN)
+                logger.warning("[rpc-probe] %s FAILED (%s) — circuit pre-opened", label, exc)
+        return results
 
     # ------------------------------------------------------------------
     # Public API
