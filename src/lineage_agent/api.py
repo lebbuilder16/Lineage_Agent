@@ -5196,10 +5196,8 @@ async def _watchlist_sweep_loop():
 
             # Filter: only sweep users whose last sweep was > sweep_interval ago
             now = time.time()
-            logger.info("[sweep] %d watches found, %d cron-managed (skipped)", len(watches), len(_cron_managed))
+            logger.info("[sweep] %d watches found, %d cron-managed", len(watches), len(_cron_managed))
             for _wi, (watch_id, user_id, _mint_val, user_sweep_interval, user_plan) in enumerate(watches):
-                if watch_id in _cron_managed:
-                    continue  # managed by OpenClaw cron — skip
                 # Check last sweep for this specific watch
                 cursor2 = await rdb.execute(
                     "SELECT MAX(scanned_at) FROM watch_snapshots WHERE watch_id = ?",
