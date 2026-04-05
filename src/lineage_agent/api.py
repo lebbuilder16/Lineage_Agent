@@ -5196,6 +5196,7 @@ async def _watchlist_sweep_loop():
 
             # Filter: only sweep users whose last sweep was > sweep_interval ago
             now = time.time()
+            logger.info("[sweep] %d watches found, %d cron-managed (skipped)", len(watches), len(_cron_managed))
             for _wi, (watch_id, user_id, _mint_val, user_sweep_interval, user_plan) in enumerate(watches):
                 if watch_id in _cron_managed:
                     continue  # managed by OpenClaw cron — skip
@@ -5208,6 +5209,7 @@ async def _watchlist_sweep_loop():
                 last_sweep = last_sweep_row[0] if last_sweep_row and last_sweep_row[0] else 0
                 if now - last_sweep < user_sweep_interval:
                     continue  # too soon for this user's preference
+                logger.info("[sweep] rescanning watch=%d user=%d mint=%s (last=%ds ago)", watch_id, user_id, _mint_val[:12], int(now - last_sweep))
                 if _wi > 0:
                     await asyncio.sleep(15)  # stagger rescans — 15s avoids RPC saturation
                 _heartbeat("sweep")  # keep watchdog alive between watches
