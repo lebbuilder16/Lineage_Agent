@@ -33,6 +33,7 @@ import { shortAddr } from '../../src/lib/format';
 import { tokens } from '../../src/theme/tokens';
 
 import { VerdictHero } from '../../src/components/investigate/VerdictHero';
+import { AgentMemoryCard } from '../../src/components/investigate/AgentMemoryCard';
 import { ForensicScanSection } from '../../src/components/investigate/ForensicScanSection';
 import { MarketDataStrip } from '../../src/components/investigate/MarketDataStrip';
 import { AgentReasoningSection } from '../../src/components/investigate/AgentReasoningSection';
@@ -243,6 +244,7 @@ export default function InvestigateScreen() {
       {/* Timeline */}
       <ScrollView ref={scrollRef} style={styles.timeline} showsVerticalScrollIndicator={false} contentContainerStyle={styles.timelineContent}>
         {status === 'done' && verdict && <VerdictHero />}
+        {status === 'done' && verdict && <AgentMemoryCard />}
         {status === 'done' && verdict && <VerdictFeedback />}
         {status === 'done' && heuristicScore != null && !verdict && (<><HeuristicCard score={heuristicScore} /><UpgradePrompt feature="AI Analysis" requiredPlan="pro" /></>)}
         {isRunning && <VerdictSkeleton />}

@@ -18,6 +18,7 @@ When a match is found, the service:
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import re
@@ -245,14 +246,51 @@ async def _send_fcm_push(fcm_token: str, title: str, body: str, data: dict) -> b
             },
         )
         if resp.status_code == 200:
+            from .metrics import record_alert_delivery  # noqa: PLC0415
+            record_alert_delivery("fcm", "success")
             return True
-        logger.debug("[FCM] Push failed (%s): %s", resp.status_code, resp.text[:200])
+        logger.warning("[FCM] Push failed (%s): %s", resp.status_code, resp.text[:200])
+        from .metrics import record_alert_delivery  # noqa: PLC0415
+        record_alert_delivery("fcm", "fail")
+        # Handle specific FCM error codes
+        if resp.status_code in (400, 404):
+            # 400 InvalidArgument / 404 NotFound → token is dead, clear it
+            logger.info("[FCM] Clearing dead token %s... (HTTP %d)", fcm_token[:20], resp.status_code)
+            asyncio.create_task(_clear_dead_fcm_token(fcm_token))
+            return False
+        if resp.status_code == 429:
+            # Rate limited — don't enqueue immediately, let retry handle it later
+            logger.info("[FCM] Rate limited — will retry via pending queue")
+        # 401/403/5xx → transient, enqueue for retry
         asyncio.create_task(_enqueue_failed_push(fcm_token, title, body, data))
         return False
     except Exception as exc:
         logger.debug("[FCM] Push error: %s", exc)
         asyncio.create_task(_enqueue_failed_push(fcm_token, title, body, data))
         return False
+
+
+async def _clear_dead_fcm_token(fcm_token: str) -> None:
+    """Remove a dead/invalid FCM token from the users table."""
+    try:
+        from .data_sources._clients import cache as _cache
+        from .cache import SQLiteCache
+        if not isinstance(_cache, SQLiteCache):
+            return
+        db = await _cache._get_conn()
+        await db.execute(
+            "UPDATE users SET fcm_token = NULL WHERE fcm_token = ?",
+            (fcm_token,),
+        )
+        # Also purge any pending retries for this dead token
+        await db.execute(
+            "DELETE FROM pending_notifications WHERE fcm_token = ?",
+            (fcm_token,),
+        )
+        await db.commit()
+        logger.info("[FCM] Dead token cleared: %s...", fcm_token[:20])
+    except Exception as exc:
+        logger.warning("[FCM] Failed to clear dead token: %s", exc)
 
 
 async def _enqueue_failed_push(fcm_token: str, title: str, body: str, data: dict) -> None:
@@ -269,8 +307,8 @@ async def _enqueue_failed_push(fcm_token: str, title: str, body: str, data: dict
             (fcm_token, title, body, json.dumps(data, default=str), time.time()),
         )
         await db.commit()
-    except Exception:
-        pass  # never block on retry queue failure
+    except Exception as exc:
+        logger.warning("[FCM] enqueue retry failed: %s", exc)
 
 
 async def retry_pending_notifications() -> int:
@@ -564,6 +602,76 @@ def cancel_alert_sweep() -> None:
         _sweep_task = None
 
 
+# ── Async alert dispatch queue ─────────────────────────────────────────
+# Decouples alert delivery from the sweep/pulse loops so slow FCM/WebSocket
+# calls don't block rescans.
+
+_alert_dispatch_queue: asyncio.Queue | None = None
+_alert_consumer_task: asyncio.Task | None = None
+
+
+def _get_alert_queue() -> asyncio.Queue:
+    global _alert_dispatch_queue
+    if _alert_dispatch_queue is None:
+        _alert_dispatch_queue = asyncio.Queue(maxsize=500)
+    return _alert_dispatch_queue
+
+
+async def enqueue_alert(payload: dict, user_id: int | None = None, fcm_token: str | None = None) -> None:
+    """Non-blocking: push alert to dispatch queue for async delivery."""
+    q = _get_alert_queue()
+    try:
+        q.put_nowait({"payload": payload, "user_id": user_id, "fcm_token": fcm_token})
+    except asyncio.QueueFull:
+        logger.warning("[alert-queue] full (500 items) — dropping alert")
+
+
+async def _alert_consumer_loop() -> None:
+    """Drain the alert queue and dispatch via WebSocket + FCM."""
+    q = _get_alert_queue()
+    while True:
+        try:
+            item = await q.get()
+            payload = item["payload"]
+            user_id = item.get("user_id")
+            fcm_token = item.get("fcm_token")
+
+            # WebSocket + OpenClaw + FCM (to watchers)
+            await _broadcast_web_alert(payload, user_id=user_id)
+
+            # Direct FCM push to specific user (if token provided)
+            if fcm_token:
+                title = payload.get("title", "Lineage Alert")
+                body = payload.get("body", "")
+                data = {
+                    k: str(v) for k, v in payload.items()
+                    if k in ("type", "mint", "flag_type", "urgency")
+                }
+                await _send_fcm_push(fcm_token, title=title, body=body, data=data)
+
+            q.task_done()
+        except asyncio.CancelledError:
+            break
+        except Exception:
+            logger.warning("[alert-queue] consumer error", exc_info=True)
+
+
+def schedule_alert_consumer() -> None:
+    """Launch the background alert consumer."""
+    global _alert_consumer_task
+    if _alert_consumer_task is None or _alert_consumer_task.done():
+        _alert_consumer_task = asyncio.create_task(_alert_consumer_loop())
+        logger.info("[alert-queue] consumer started")
+
+
+def cancel_alert_consumer() -> None:
+    """Cancel the background alert consumer."""
+    global _alert_consumer_task
+    if _alert_consumer_task and not _alert_consumer_task.done():
+        _alert_consumer_task.cancel()
+        _alert_consumer_task = None
+
+
 # ── Direct Telegram HTTP send (for channel routing) ───────────────────────
 
 async def _send_telegram(bot_token: str, chat_id: str, text: str) -> None:
@@ -621,8 +729,28 @@ async def route_alert_to_channels(cache, alert: dict, user_id: int) -> dict:
                     failed.append("discord: no webhook_url")
 
             elif channel == "push":
-                # FCM push — if available
-                routed.append("push")
+                # FCM push via user's registered token
+                cursor2 = await db.execute(
+                    "SELECT fcm_token FROM users WHERE id = ?", (user_id,)
+                )
+                token_row = await cursor2.fetchone()
+                fcm_token = token_row[0] if token_row else ""
+                if fcm_token:
+                    success = await _send_fcm_push(
+                        fcm_token,
+                        title=alert.get("title", "Alert"),
+                        body=alert.get("body", ""),
+                        data={
+                            "type": alert.get("type", "alert"),
+                            "mint": alert.get("mint", ""),
+                        },
+                    )
+                    if success:
+                        routed.append("push")
+                    else:
+                        failed.append("push: FCM delivery failed")
+                else:
+                    failed.append("push: no FCM token registered")
         except Exception as exc:
             logger.warning("route_alert channel=%s failed: %s", channel, exc)
             failed.append(f"{channel}: {exc}")

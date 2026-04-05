@@ -26,6 +26,8 @@ export const FLAG_LABELS: Record<string, string> = {
   CUMULATIVE_PRICE_DECLINE: 'Price decline (cumul.)',
   CUMULATIVE_LIQ_DRAIN: 'Liquidity drained (cumul.)',
   CUMULATIVE_SOL_EXTRACTION: 'SOL extracted (cumul.)',
+  INITIAL_ASSESSMENT: 'Initial assessment',
+  DEPLOYER_NEW_TOKEN: 'Deployer launched token',
 };
 
 /** Critical flag types that use red styling */
@@ -36,7 +38,9 @@ const CRITICAL_FLAG_TYPES = new Set([
 ]);
 
 export function flagLabel(flagType: string): string {
-  return FLAG_LABELS[flagType] || flagType.replace(/_/g, ' ').toLowerCase();
+  if (FLAG_LABELS[flagType]) return FLAG_LABELS[flagType];
+  // Trinity-generated dynamic flags: title-case SCREAMING_SNAKE
+  return flagType.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 export function flagColor(flagType: string, severity: string): string {

@@ -443,6 +443,9 @@ class SQLiteCache:
         await db.execute(
             "CREATE INDEX IF NOT EXISTS idx_ie_stage ON intelligence_events(lifecycle_stage)"
         )
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_ie_recorded_at ON intelligence_events(recorded_at)"
+        )
 
         # operator_mappings: maps DNA fingerprints → deployer wallets
         await db.execute(
@@ -744,6 +747,24 @@ class SQLiteCache:
             "CREATE INDEX IF NOT EXISTS idx_sf_mint ON sweep_flags(mint, created_at DESC)"
         )
 
+        # ── Flag feedback (user ratings on sweep flags)
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS flag_feedback (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                flag_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                rating TEXT NOT NULL,
+                snooze_until REAL,
+                created_at REAL NOT NULL,
+                UNIQUE(flag_id, user_id)
+            )
+            """
+        )
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_ff_user ON flag_feedback(user_id, created_at DESC)"
+        )
+
         # ---------------------------------------------------------------
         # Phase 5 — agent preferences (agentic UX)
         # ---------------------------------------------------------------
@@ -849,12 +870,33 @@ class SQLiteCache:
                 created_at       REAL NOT NULL
             )
         """)
-        await db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_ep_mint ON investigation_episodes(mint)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_ep_mint ON investigation_episodes(mint)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_ep_deployer ON investigation_episodes(deployer)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_ep_operator ON investigation_episodes(operator_fp)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_ep_campaign ON investigation_episodes(campaign_id)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_ep_community ON investigation_episodes(community_id)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_ep_created ON investigation_episodes(created_at)")
+
+        # ── Migration: append-only episodes + outcome tracking ──────────
+        # Drop old UNIQUE constraint on mint (allows multiple episodes per token)
+        try:
+            await db.execute("DROP INDEX IF EXISTS idx_ep_mint_unique")
+        except Exception:
+            pass
+        # New columns for append-only versioning and outcome tracking
+        for col, defn in [
+            ("is_latest", "INTEGER NOT NULL DEFAULT 1"),
+            ("outcome", "TEXT"),
+            ("outcome_checked_at", "REAL"),
+            ("outcome_price_usd", "REAL"),
+            ("outcome_liq_usd", "REAL"),
+        ]:
+            try:
+                await db.execute(f"ALTER TABLE investigation_episodes ADD COLUMN {col} {defn}")
+            except Exception:
+                pass  # column already exists
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_ep_mint_latest ON investigation_episodes(mint, is_latest)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_ep_outcome ON investigation_episodes(outcome, is_latest, created_at)")
 
         # Layer 2: Semantic memory — cumulative entity profiles
         await db.execute("""
@@ -930,7 +972,25 @@ class SQLiteCache:
         """)
         await db.execute("CREATE INDEX IF NOT EXISTS idx_aa_entity ON anomaly_alerts(entity_type, entity_id, resolved)")
 
-        # Layer 6: Narrative clusters — cross-deployer thematic wave detection
+        # Layer 6b: Entity links — deployer ↔ operator ↔ community graph
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS entity_links (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                entity_a_type   TEXT NOT NULL,
+                entity_a_id     TEXT NOT NULL,
+                entity_b_type   TEXT NOT NULL,
+                entity_b_id     TEXT NOT NULL,
+                link_type       TEXT NOT NULL,
+                confidence      REAL NOT NULL DEFAULT 1.0,
+                mint            TEXT,
+                created_at      REAL NOT NULL,
+                UNIQUE(entity_a_type, entity_a_id, entity_b_type, entity_b_id, link_type)
+            )
+        """)
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_el_a ON entity_links(entity_a_type, entity_a_id)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_el_b ON entity_links(entity_b_type, entity_b_id)")
+
+        # Layer 7: Narrative clusters — cross-deployer thematic wave detection
         await db.execute("""
             CREATE TABLE IF NOT EXISTS narrative_clusters (
                 id              INTEGER PRIMARY KEY AUTOINCREMENT,

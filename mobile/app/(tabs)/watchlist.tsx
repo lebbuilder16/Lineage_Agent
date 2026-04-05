@@ -236,6 +236,17 @@ export default function WatchlistScreen() {
       onSuccess: () => {
         refetch();
         setAddOpen(false);
+        showToast('Watch added', 'success');
+      },
+      onError: (err: any) => {
+        setAddOpen(false);
+        const { handleTierError } = require('../../src/lib/tier-error');
+        setTimeout(() => {
+          if (!handleTierError(err, showToast)) {
+            const msg = err?.message || err?.detail || 'Failed to add watch';
+            showToast(String(msg), 'error');
+          }
+        }, 300);
       },
     });
   };

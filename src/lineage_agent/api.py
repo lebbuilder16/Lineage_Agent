@@ -298,14 +298,29 @@ async def lifespan(application: FastAPI):
     _schedule_cartel_sweep()
     schedule_db_maintenance()
 
+    # Alert dispatch queue — decouples delivery from sweep/pulse loops
+    from .alert_service import schedule_alert_consumer  # noqa: PLC0415
+    schedule_alert_consumer()
+
     _schedule_watchlist_sweep()
     _schedule_market_pulse()
     _schedule_briefing_loop()
     _schedule_wallet_monitor()
 
-    # OpenClaw gateway cron sweep
+    # OpenClaw gateway cron sweep (briefings only — watchlist rescans handled by sweep loop)
     from .data_sources._clients import cache as _oc_cache  # noqa: PLC0415
     schedule_cron_sweep(_oc_cache)
+
+    # Clean up legacy watchlist crons (no longer used)
+    async def _cleanup_legacy_crons():
+        try:
+            db = await _oc_cache._get_conn()
+            await db.execute("DELETE FROM user_crons WHERE name LIKE 'lineage:watchlist:%'")
+            await db.commit()
+            logger.info("[startup] cleaned up legacy watchlist crons")
+        except Exception:
+            pass
+    asyncio.create_task(_cleanup_legacy_crons())
 
     # ── Pump.fun real-time listener ───────────────────────────────────────
     from .pump_fun_listener import schedule_pump_fun_listener, is_listener_active
@@ -692,6 +707,90 @@ async def admin_sweep_status() -> dict:
     }
 
 
+@app.get("/admin/sweep-dashboard", tags=["system"])
+async def admin_sweep_dashboard() -> dict:
+    """Aggregated sweep health, flag quality, and RPC provider stats."""
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+    db = await _cache._get_conn()
+    now = time.time()
+    _24h = now - 86400
+
+    # Rescans in last 24h
+    cur = await db.execute(
+        "SELECT COUNT(*) FROM watch_snapshots WHERE scanned_at > ?", (_24h,)
+    )
+    rescans_24h = (await cur.fetchone())[0]
+
+    # Flags in last 24h by severity
+    cur = await db.execute(
+        "SELECT severity, COUNT(*) FROM sweep_flags "
+        "WHERE created_at > ? AND flag_type NOT LIKE ? GROUP BY severity",
+        (_24h, "_%"),
+    )
+    flags_24h = {row[0]: row[1] for row in await cur.fetchall()}
+
+    # Top flag types (last 24h)
+    cur = await db.execute(
+        "SELECT flag_type, COUNT(*) as cnt FROM sweep_flags "
+        "WHERE created_at > ? AND flag_type NOT LIKE ? "
+        "GROUP BY flag_type ORDER BY cnt DESC LIMIT 10",
+        (_24h, "_%"),
+    )
+    top_flags = [{"type": r[0], "count": r[1]} for r in await cur.fetchall()]
+
+    # Flag feedback stats
+    feedback = {"useful": 0, "not_useful": 0, "snoozed": 0}
+    try:
+        cur = await db.execute(
+            "SELECT rating, COUNT(*) FROM flag_feedback GROUP BY rating"
+        )
+        for row in await cur.fetchall():
+            feedback[row[0]] = row[1]
+    except Exception:
+        pass  # table may not exist yet
+
+    # RPC provider status
+    rpc_status = cb_statuses()
+
+    return {
+        "rescans_24h": rescans_24h,
+        "flags_24h": flags_24h,
+        "top_flag_types": top_flags,
+        "flag_feedback": feedback,
+        "rpc_providers": rpc_status,
+        "watched_tokens": (await (await db.execute("SELECT COUNT(*) FROM user_watches")).fetchone())[0],
+    }
+
+
+@app.get("/admin/cartel-forensics/{deployer}", tags=["system"])
+async def admin_cartel_forensics(deployer: str) -> dict:
+    """Trigger forensic proof signals for a deployer (no full sweep needed)."""
+    from .cartel_service import (
+        _signal_profit_convergence,
+        _signal_capital_recycling,
+        _signal_temporal_fingerprint,
+        _signal_compute_budget_fingerprint,
+    )
+    from .cartel_financial_service import signal_common_funder
+
+    results = {}
+    for name, fn, timeout in [
+        ("profit_convergence", _signal_profit_convergence, 30),
+        ("temporal_fingerprint", _signal_temporal_fingerprint, 30),
+        ("compute_budget_fp", _signal_compute_budget_fingerprint, 60),
+        ("common_funder", signal_common_funder, 120),
+        ("capital_recycling", _signal_capital_recycling, 30),
+    ]:
+        try:
+            count = await asyncio.wait_for(fn(deployer), timeout=timeout)
+            results[name] = {"edges": count, "status": "ok"}
+        except asyncio.TimeoutError:
+            results[name] = {"edges": 0, "status": "timeout"}
+        except Exception as exc:
+            results[name] = {"edges": 0, "status": f"error: {exc}"}
+    return {"deployer": deployer, "signals": results}
+
+
 @app.get("/admin/memory-stats", tags=["system"])
 async def admin_memory_stats() -> dict:
     """Return enrichment state of the agent memory system."""
@@ -715,7 +814,7 @@ async def admin_memory_stats() -> dict:
     newest_ep = row[1]
 
     cur = await db.execute(
-        "SELECT COUNT(*) FROM investigation_episodes WHERE model != 'heuristic'"
+        "SELECT COUNT(*) FROM investigation_episodes WHERE model NOT LIKE 'heuristic%' AND is_latest = 1"
     )
     ai_episodes = (await cur.fetchone())[0]
 
@@ -2472,12 +2571,21 @@ async def auth_login(body: _LoginRequest, request: Request):
     except Exception as exc:
         logger.exception("auth_login failed: %s", exc)
         raise HTTPException(status_code=500, detail=f"User creation failed: {exc}") from exc
-    # Sync OpenClaw crons for this user (watch crons + briefing)
-    from .cron_manager import sync_all_user_crons  # noqa: PLC0415
-    asyncio.create_task(
-        sync_all_user_crons(_cache, user["id"], user.get("plan", "free")),
-        name=f"login_cron_sync_{user['id']}",
-    )
+    # Sync briefing cron for this user on login
+    from .cron_manager import ensure_briefing_cron  # noqa: PLC0415
+
+    async def _sync_briefing():
+        try:
+            _plan = user.get("plan", "free")
+            db = await _cache._get_conn()
+            cur = await db.execute("SELECT daily_briefing, briefing_hour FROM agent_prefs WHERE user_id = ?", (user["id"],))
+            row = await cur.fetchone()
+            if row and row[0]:
+                await ensure_briefing_cron(_cache, user["id"], row[1] or 8, _plan)
+        except Exception:
+            pass
+
+    asyncio.create_task(_sync_briefing(), name=f"login_cron_sync_{user['id']}")
 
     return {
         "id": user["id"],
@@ -2600,6 +2708,17 @@ async def auth_register_fcm_token(body: _FcmTokenRequest, request: Request):
     return {"ok": True}
 
 
+@app.delete("/auth/fcm-token", tags=["auth"])
+async def auth_deregister_fcm_token(request: Request):
+    """Clear the user's FCM token (logout / uninstall). Prevents stale pushes."""
+    user = await _get_current_user(request)
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+    db = await _cache._get_conn()
+    await db.execute("UPDATE users SET fcm_token = NULL WHERE id = ?", (user["id"],))
+    await db.commit()
+    return {"ok": True}
+
+
 @app.get("/auth/watches", tags=["auth"])
 async def auth_watches(request: Request):
     """Return user's watches. Requires X-API-Key header."""
@@ -2662,12 +2781,7 @@ async def auth_add_watch(body: _WatchRequest, request: Request):
                 logger.debug("[watch] initial scan failed for %s: %s", body.value[:12], exc)
         asyncio.create_task(_initial_scan(), name=f"initial_scan_{body.value[:8]}")
 
-    # Create OpenClaw cron for this watch (server-managed)
-    from .cron_manager import ensure_watch_cron  # noqa: PLC0415
-    asyncio.create_task(
-        ensure_watch_cron(_cache, user["id"], watch, plan=plan),
-        name=f"cron_create_{watch.get('id', '')}",
-    )
+    # Watchlist rescans are managed by _watchlist_sweep_loop (no per-watch crons needed)
 
     return watch
 
@@ -3510,28 +3624,34 @@ async def get_top_tokens(
         from .data_sources._clients import event_query as _eq  # noqa: PLC0415
 
         # Rank by weighted event count: scans count 5x more than passive events
+        # Only consider events from the last 7 days so stale tokens rotate out.
         from .data_sources._clients import cache as _cache  # noqa: PLC0415
         db = await _cache._get_conn()
+        cutoff_ts = _time.time() - 7 * 86_400  # 7 days
         sql = """
             SELECT mint,
                    MAX(name) as name,
                    MAX(symbol) as symbol,
                    MAX(narrative) as narrative,
-                   MAX(mcap_usd) as mcap_usd,
+                   -- Use mcap from the most recently recorded event, not MAX
+                   (SELECT ie2.mcap_usd FROM intelligence_events ie2
+                    WHERE ie2.mint = ie.mint AND ie2.mcap_usd IS NOT NULL
+                    ORDER BY ie2.recorded_at DESC LIMIT 1) as mcap_usd,
                    MIN(created_at) as created_at,
                    SUM(CASE WHEN event_type = 'token_scanned' THEN 5 ELSE 1 END) as event_count
-            FROM intelligence_events
+            FROM intelligence_events ie
             WHERE mint IS NOT NULL AND mint != ''
+              AND recorded_at > ?
             GROUP BY mint
-            ORDER BY event_count DESC, MAX(mcap_usd) DESC, MAX(ROWID) DESC
+            ORDER BY event_count DESC, mcap_usd DESC NULLS LAST, MAX(ROWID) DESC
             LIMIT ?
         """
-        cursor = await db.execute(sql, (limit,))
+        cursor = await db.execute(sql, (cutoff_ts, limit))
         rows = await cursor.fetchall()
         col_names = [d[0] for d in cursor.description]
         results = [dict(zip(col_names, row)) for row in rows]
 
-        # Enrich with LIVE mcap + image from DexScreener (single batch call, <200ms)
+        # Enrich with LIVE mcap + image from DexScreener (batch call)
         # Pick the pair with the HIGHEST LIQUIDITY for each token — avoids
         # dead/fake pairs with inflated mcap but zero liquidity.
         live_mcap_map: dict[str, float] = {}
@@ -3540,28 +3660,39 @@ async def get_top_tokens(
         try:
             from .data_sources._clients import get_dex_client
             dex = get_dex_client()
-            mints_csv = ",".join(r["mint"] for r in results[:30])
-            pairs = await asyncio.wait_for(dex.get_token_pairs_with_fallback(mints_csv), timeout=8.0)
-            for pair in pairs:
-                ba = pair.get("baseToken", {}).get("address", "")
-                mc = pair.get("marketCap") or pair.get("fdv")
-                liq = (pair.get("liquidity") or {}).get("usd") or 0
-                if ba and mc and isinstance(mc, (int, float)):
-                    prev_liq = _best_liq.get(ba, -1)
-                    if liq > prev_liq:
-                        live_mcap_map[ba] = mc
-                        _best_liq[ba] = liq
-                # Extract image URI from DexScreener info
-                if ba and ba not in live_image_map:
-                    info = pair.get("info", {}) or {}
-                    img_url = info.get("imageUrl") or ""
-                    if not img_url:
-                        # Fallback: header image or token icon
-                        img_url = (info.get("header") or info.get("icon") or "")
-                    if img_url:
-                        live_image_map[ba] = img_url
-        except Exception:
-            pass  # best-effort — fall back to DB values
+            # Fetch pairs for each mint concurrently (DexScreener CSV in URL
+            # works but breaks Redis cache keying). Cap at 10 concurrent.
+            _sem = asyncio.Semaphore(10)
+            async def _fetch_one(mint: str) -> list[dict]:
+                async with _sem:
+                    try:
+                        return await asyncio.wait_for(
+                            dex.get_token_pairs_with_fallback(mint), timeout=6.0
+                        )
+                    except Exception:
+                        return []
+            mint_list = [r["mint"] for r in results[:30]]
+            pair_lists = await asyncio.gather(*[_fetch_one(m) for m in mint_list])
+            for pairs in pair_lists:
+                for pair in pairs:
+                    ba = pair.get("baseToken", {}).get("address", "")
+                    mc = pair.get("marketCap") or pair.get("fdv")
+                    liq = (pair.get("liquidity") or {}).get("usd") or 0
+                    if ba and mc and isinstance(mc, (int, float)):
+                        prev_liq = _best_liq.get(ba, -1)
+                        if liq > prev_liq:
+                            live_mcap_map[ba] = mc
+                            _best_liq[ba] = liq
+                    # Extract image URI from DexScreener info
+                    if ba and ba not in live_image_map:
+                        info = pair.get("info", {}) or {}
+                        img_url = info.get("imageUrl") or ""
+                        if not img_url:
+                            img_url = (info.get("header") or info.get("icon") or "")
+                        if img_url:
+                            live_image_map[ba] = img_url
+        except Exception as exc:
+            logger.warning("[top-tokens] DexScreener enrichment failed: %s", exc)
 
         tokens_list = []
         for r in results:
@@ -3841,8 +3972,8 @@ async def set_agent_prefs(request: Request, body: _AgentPrefsBody):
     )
     await db.commit()
 
-    # Update OpenClaw crons if briefing/sweep settings changed
-    from .cron_manager import ensure_briefing_cron, remove_briefing_cron, sync_all_user_crons  # noqa: PLC0415
+    # Update briefing cron if settings changed
+    from .cron_manager import ensure_briefing_cron, remove_briefing_cron  # noqa: PLC0415
 
     async def _update_crons():
         try:
@@ -3851,8 +3982,6 @@ async def set_agent_prefs(request: Request, body: _AgentPrefsBody):
                 await ensure_briefing_cron(_cache, user["id"], body.briefingHour, plan)
             else:
                 await remove_briefing_cron(_cache, user["id"])
-            # Re-sync watch crons with potentially new sweepInterval
-            await sync_all_user_crons(_cache, user["id"], plan)
         except Exception:
             logger.warning("[prefs] cron update failed for user=%s", user["id"], exc_info=True)
 
@@ -4155,7 +4284,9 @@ async def get_sweep_flags(
         balanced.sort(key=lambda f: f["createdAt"], reverse=True)
         flags = balanced[:limit]
 
-    return {"flags": flags}
+    # Signal to client whether more flags exist beyond current page
+    _has_more = len(flags) >= limit
+    return {"flags": flags, "has_more": _has_more}
 
 
 @app.post("/agent/flags/{flag_id}/read", tags=["agent"])
@@ -4164,6 +4295,40 @@ async def mark_flag_read(flag_id: int, request: Request):
     user = await _get_current_user(request)
     from .data_sources._clients import cache as _cache  # noqa: PLC0415
     db = await _cache._get_conn()
+    await db.execute(
+        "UPDATE sweep_flags SET read = 1 WHERE id = ? AND user_id = ?",
+        (flag_id, user["id"]),
+    )
+    await db.commit()
+    return {"ok": True}
+
+
+@app.post("/agent/flags/{flag_id}/feedback", tags=["agent"])
+async def submit_flag_feedback(flag_id: int, request: Request):
+    """Rate a sweep flag as useful/not_useful, or snooze its flag_type for N hours."""
+    user = await _get_current_user(request)
+    body = await request.json()
+    rating = body.get("rating", "")  # useful | not_useful | snoozed
+    snooze_hours = body.get("snooze_hours", 24)
+
+    if rating not in ("useful", "not_useful", "snoozed"):
+        raise HTTPException(status_code=400, detail="rating must be useful, not_useful, or snoozed")
+
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+    db = await _cache._get_conn()
+
+    snooze_until = None
+    if rating == "snoozed":
+        snooze_until = time.time() + snooze_hours * 3600
+
+    await db.execute(
+        """INSERT INTO flag_feedback (flag_id, user_id, rating, snooze_until, created_at)
+           VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT(flag_id, user_id) DO UPDATE SET rating=?, snooze_until=?, created_at=?""",
+        (flag_id, user["id"], rating, snooze_until, time.time(),
+         rating, snooze_until, time.time()),
+    )
+    # Also mark as read
     await db.execute(
         "UPDATE sweep_flags SET read = 1 WHERE id = ? AND user_id = ?",
         (flag_id, user["id"]),
@@ -4352,7 +4517,7 @@ async def get_agent_insights(request: Request):
         cursor = await db.execute(
             f"SELECT deployer, GROUP_CONCAT(mint) as mints, COUNT(*) as cnt "
             f"FROM investigation_episodes WHERE mint IN ({placeholders}) "
-            f"AND deployer IS NOT NULL AND deployer != '' "
+            f"AND deployer IS NOT NULL AND deployer != '' AND is_latest = 1 "
             f"GROUP BY deployer HAVING cnt > 1",
             tuple(mints),
         )
@@ -4393,7 +4558,7 @@ async def get_agent_insights(request: Request):
         cursor = await db.execute(
             f"SELECT community_id, GROUP_CONCAT(mint) as mints, COUNT(*) as cnt "
             f"FROM investigation_episodes WHERE mint IN ({placeholders}) "
-            f"AND community_id IS NOT NULL AND community_id != '' "
+            f"AND community_id IS NOT NULL AND community_id != '' AND is_latest = 1 "
             f"GROUP BY community_id HAVING cnt > 1",
             tuple(mints),
         )
@@ -4444,7 +4609,7 @@ async def submit_feedback(request: Request):
     )
     # Propagate rating back to the episode so build_memory_brief() can use it
     await db.execute(
-        "UPDATE investigation_episodes SET user_rating = ?, user_note = ? WHERE mint = ?",
+        "UPDATE investigation_episodes SET user_rating = ?, user_note = ? WHERE mint = ? AND is_latest = 1",
         (rating, body.get("note", ""), mint),
     )
     await db.commit()
@@ -4934,7 +5099,7 @@ async def list_memory_entities(request: Request):
         "SELECT DISTINCT ie.deployer, COUNT(*) as cnt "
         "FROM investigation_episodes ie "
         "INNER JOIN investigations inv ON ie.mint = inv.mint AND inv.user_id = ? "
-        "WHERE ie.deployer IS NOT NULL "
+        "WHERE ie.deployer IS NOT NULL AND ie.is_latest = 1 "
         "GROUP BY ie.deployer",
         (user["id"],),
     )
@@ -5099,9 +5264,15 @@ async def _watchlist_sweep_loop():
     _LOOP_INTERVAL = 900  # 15 min check cycle (was 30 min)
     first_run = True
     while True:
-        await asyncio.sleep(60 if first_run else _LOOP_INTERVAL)
+        # Sleep in short chunks so the watchdog sees heartbeats
+        _sleep_total = 60 if first_run else _LOOP_INTERVAL
+        _slept = 0
+        while _slept < _sleep_total:
+            _chunk = min(120, _sleep_total - _slept)
+            await asyncio.sleep(_chunk)
+            _heartbeat("sweep")
+            _slept += _chunk
         first_run = False
-        _heartbeat("sweep")
         try:
             # Use read pool for these SELECT queries (don't block the writer)
             rdb = await _cache._get_read_conn() if hasattr(_cache, '_get_read_conn') else await _cache._get_conn()
@@ -5112,28 +5283,14 @@ async def _watchlist_sweep_loop():
                 "FROM user_watches uw "
                 "LEFT JOIN agent_prefs ap ON uw.user_id = ap.user_id "
                 "LEFT JOIN users u ON uw.user_id = u.id "
-                "WHERE uw.sub_type = 'mint'"
+                "WHERE uw.sub_type IN ('mint', 'deployer')"
             )
             watches = await cursor.fetchall()
 
-            # Skip watches that have active OpenClaw crons (managed by cron_manager)
-            cron_cursor = await rdb.execute(
-                "SELECT name FROM user_crons WHERE enabled = 1 AND name LIKE 'lineage:watchlist:%'"
-            )
-            _cron_managed = set()
-            for (cn,) in await cron_cursor.fetchall():
-                parts = cn.split(":")
-                if len(parts) >= 3:
-                    try:
-                        _cron_managed.add(int(parts[2]))
-                    except ValueError:
-                        pass
-
-            # Filter: only sweep users whose last sweep was > sweep_interval ago
+            # All watches are managed by this sweep loop (no cron skip)
             now = time.time()
+            logger.info("[sweep] %d watches found", len(watches))
             for _wi, (watch_id, user_id, _mint_val, user_sweep_interval, user_plan) in enumerate(watches):
-                if watch_id in _cron_managed:
-                    continue  # managed by OpenClaw cron — skip
                 # Check last sweep for this specific watch
                 cursor2 = await rdb.execute(
                     "SELECT MAX(scanned_at) FROM watch_snapshots WHERE watch_id = ?",
@@ -5145,69 +5302,13 @@ async def _watchlist_sweep_loop():
                     continue  # too soon for this user's preference
                 if _wi > 0:
                     await asyncio.sleep(15)  # stagger rescans — 15s avoids RPC saturation
+                _heartbeat("sweep")  # keep watchdog alive between watches
                 try:
-                    result = await run_single_rescan(watch_id, user_id, _cache, plan=user_plan)
-                    if not result:
-                        continue
-
-                    # Broadcast critical/warning flags as WebSocket + FCM alerts
-                    for flag in result.get("flags", []):
-                        if flag["severity"] in ("critical", "warning"):
-                            try:
-                                from .alert_service import _broadcast_web_alert, _send_fcm_push
-                                _flag_title = f"{'🔴' if flag['severity'] == 'critical' else '⚠️'} {flag['title']}"
-                                # Extract token metadata from flag detail
-                                _fd = {}
-                                try:
-                                    _fd = json.loads(flag.get("detail", "{}")) if isinstance(flag.get("detail"), str) else (flag.get("detail") or {})
-                                except Exception:
-                                    pass
-                                await _broadcast_web_alert({
-                                    "type": "sweep_flag",
-                                    "alert_type": flag["flag_type"],
-                                    "title": _flag_title,
-                                    "message": flag["title"],
-                                    "body": flag["title"],
-                                    "mint": result["mint"],
-                                    "token_name": _fd.get("token_name") or _fd.get("name") or result["mint"][:8],
-                                    "image_uri": _fd.get("image_uri") or None,
-                                    "risk_score": result.get("new_score", 0),
-                                    "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                                    "id": f"sweep-{result['mint'][:8]}-{flag['flag_type']}-{int(time.time())}",
-                                    "read": False,
-                                }, user_id=user_id)
-                                # Direct FCM push to this user (even if not a mint watcher)
-                                _user_cursor = await db.execute(
-                                    "SELECT fcm_token FROM users WHERE id = ? AND fcm_token IS NOT NULL",
-                                    (user_id,),
-                                )
-                                _user_row = await _user_cursor.fetchone()
-                                if _user_row and _user_row[0]:
-                                    asyncio.create_task(_send_fcm_push(
-                                        _user_row[0],
-                                        title=_flag_title,
-                                        body=flag["title"],
-                                        data={
-                                            "type": "sweep_flag",
-                                            "mint": result["mint"],
-                                            "flag_type": flag["flag_type"],
-                                            "urgency": "high" if flag["severity"] == "critical" else "normal",
-                                        },
-                                    ))
-                            except Exception:
-                                pass
-
-                    if result.get("escalated"):
-                        # Auto-investigate if user enabled it
-                        cursor2 = await db.execute(
-                            "SELECT auto_investigate FROM agent_prefs WHERE user_id = ?",
-                            (user_id,),
-                        )
-                        pref = await cursor2.fetchone()
-                        if pref and pref[0]:
-                            asyncio.create_task(
-                                _auto_investigate_token(result["mint"], user_id, _cache)
-                            )
+                    from .task_queue import enqueue_task, task_rescan_watch  # noqa: PLC0415
+                    enqueued = await enqueue_task(task_rescan_watch, watch_id, user_id, user_plan)
+                    if not enqueued:
+                        # Redis unavailable — run inline (same behavior as before)
+                        await task_rescan_watch({}, watch_id, user_id, user_plan)
                 except Exception as exc:
                     logger.warning("[sweep] watch %d failed: %s", watch_id, exc)
         except Exception as exc:

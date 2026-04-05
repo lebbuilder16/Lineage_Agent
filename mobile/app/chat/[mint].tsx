@@ -16,6 +16,8 @@ import { useLocalSearchParams, router, Stack } from 'expo-router';
 import { ChevronLeft, Send, Bot } from 'lucide-react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { FeatureGate } from '../../src/components/ui/FeatureGate';
+import { useToast } from '../../src/components/ui/Toast';
+import { handleTierError } from '../../src/lib/tier-error';
 import { smartChatStream, isChatOpenClawMode } from '../../src/lib/openclaw-chat';
 import { useSubscriptionStore } from '../../src/store/subscription';
 import { useRemainingQuota } from '../../src/store/subscription';
@@ -50,6 +52,7 @@ export default function ChatScreen() {
   const saveTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const plan = useSubscriptionStore((s) => s.plan);
   const remaining = useRemainingQuota('ai_chat');
+  const { showToast, toast } = useToast();
 
   // Load persisted chat on mount
   useEffect(() => {
@@ -132,11 +135,15 @@ export default function ChatScreen() {
           setBusy(false);
           cancelRef.current = null;
         },
-        () => {
+        (streamErr?: Error) => {
+          const isTier = streamErr && handleTierError(streamErr, showToast);
+          const fallback = isTier
+            ? 'Chat limit reached — upgrade your plan to continue.'
+            : 'An error occurred. Please try again.';
           setMessages((prev) =>
             prev.map((m) =>
               m.id === assistantId
-                ? { ...m, content: m.content || 'An error occurred. Please try again.', streaming: false }
+                ? { ...m, content: m.content || fallback, streaming: false }
                 : m,
             ),
           );
@@ -269,6 +276,7 @@ export default function ChatScreen() {
             </View>
           </KeyboardAvoidingView>
         </FeatureGate>
+        {toast}
       </View>
     </View>
   );

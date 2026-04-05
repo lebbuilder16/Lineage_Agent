@@ -357,6 +357,211 @@ class PostgresBackend(DatabaseBackend):
                 )
             """)
 
+            # ── Missing tables (Phase 3 parity with SQLite) ──────────────
+
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS investigation_episodes (
+                    id BIGSERIAL PRIMARY KEY,
+                    mint TEXT NOT NULL,
+                    deployer TEXT,
+                    operator_fp TEXT,
+                    campaign_id TEXT,
+                    community_id TEXT,
+                    risk_score INTEGER NOT NULL DEFAULT 0,
+                    verdict_summary TEXT,
+                    key_findings TEXT,
+                    rug_pattern TEXT,
+                    model TEXT,
+                    turns_used INTEGER DEFAULT 0,
+                    tokens_used INTEGER DEFAULT 0,
+                    signals_json TEXT,
+                    user_id BIGINT,
+                    user_rating TEXT,
+                    user_note TEXT,
+                    created_at DOUBLE PRECISION NOT NULL,
+                    is_latest BOOLEAN DEFAULT TRUE,
+                    episode_number INTEGER DEFAULT 1,
+                    outcome TEXT,
+                    outcome_checked_at DOUBLE PRECISION
+                )
+            """)
+
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS entity_knowledge (
+                    id BIGSERIAL PRIMARY KEY,
+                    entity_type TEXT NOT NULL,
+                    entity_id TEXT NOT NULL,
+                    total_tokens INTEGER NOT NULL DEFAULT 0,
+                    total_rugs INTEGER NOT NULL DEFAULT 0,
+                    avg_risk_score DOUBLE PRECISION,
+                    patterns_json TEXT,
+                    first_seen DOUBLE PRECISION,
+                    last_seen DOUBLE PRECISION,
+                    summary TEXT,
+                    UNIQUE (entity_type, entity_id)
+                )
+            """)
+
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS calibration_rules (
+                    id BIGSERIAL PRIMARY KEY,
+                    rule_type TEXT NOT NULL,
+                    condition_json TEXT NOT NULL,
+                    adjustment DOUBLE PRECISION NOT NULL,
+                    sample_count INTEGER NOT NULL DEFAULT 1,
+                    confidence DOUBLE PRECISION NOT NULL DEFAULT 0.5,
+                    source TEXT DEFAULT 'outcome',
+                    created_at DOUBLE PRECISION NOT NULL
+                )
+            """)
+
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS campaign_timelines (
+                    id BIGSERIAL PRIMARY KEY,
+                    entity_type TEXT NOT NULL,
+                    entity_id TEXT NOT NULL,
+                    event_type TEXT NOT NULL,
+                    mint TEXT,
+                    event_at DOUBLE PRECISION NOT NULL,
+                    risk_score INTEGER,
+                    details_json TEXT,
+                    created_at DOUBLE PRECISION NOT NULL
+                )
+            """)
+
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS anomaly_alerts (
+                    id BIGSERIAL PRIMARY KEY,
+                    entity_type TEXT NOT NULL,
+                    entity_id TEXT NOT NULL,
+                    anomaly_type TEXT NOT NULL,
+                    severity TEXT NOT NULL DEFAULT 'medium',
+                    baseline_value DOUBLE PRECISION,
+                    observed_value DOUBLE PRECISION,
+                    deviation_pct DOUBLE PRECISION,
+                    details_json TEXT,
+                    created_at DOUBLE PRECISION NOT NULL,
+                    resolved BOOLEAN DEFAULT FALSE
+                )
+            """)
+
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS entity_links (
+                    id BIGSERIAL PRIMARY KEY,
+                    entity_a_type TEXT NOT NULL,
+                    entity_a_id TEXT NOT NULL,
+                    entity_b_type TEXT NOT NULL,
+                    entity_b_id TEXT NOT NULL,
+                    link_type TEXT NOT NULL,
+                    strength DOUBLE PRECISION DEFAULT 1.0,
+                    evidence_json TEXT,
+                    created_at DOUBLE PRECISION NOT NULL,
+                    UNIQUE (entity_a_type, entity_a_id, entity_b_type, entity_b_id, link_type)
+                )
+            """)
+
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS narrative_clusters (
+                    id BIGSERIAL PRIMARY KEY,
+                    narrative_key TEXT NOT NULL,
+                    deployer_count INTEGER NOT NULL,
+                    token_count INTEGER NOT NULL,
+                    deployers_json TEXT NOT NULL,
+                    mints_json TEXT NOT NULL DEFAULT '[]',
+                    confidence DOUBLE PRECISION DEFAULT 0.5,
+                    created_at DOUBLE PRECISION NOT NULL
+                )
+            """)
+
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS monitored_wallets (
+                    id BIGSERIAL PRIMARY KEY,
+                    user_id BIGINT NOT NULL,
+                    address TEXT NOT NULL,
+                    label TEXT,
+                    source TEXT NOT NULL DEFAULT 'external',
+                    enabled BOOLEAN DEFAULT TRUE,
+                    created_at DOUBLE PRECISION NOT NULL,
+                    UNIQUE (user_id, address)
+                )
+            """)
+
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS wallet_holdings (
+                    id BIGSERIAL PRIMARY KEY,
+                    user_id BIGINT NOT NULL,
+                    wallet_address TEXT NOT NULL,
+                    mint TEXT NOT NULL,
+                    token_name TEXT,
+                    token_symbol TEXT,
+                    image_uri TEXT,
+                    balance DOUBLE PRECISION DEFAULT 0,
+                    value_usd DOUBLE PRECISION DEFAULT 0,
+                    risk_score INTEGER,
+                    risk_level TEXT,
+                    updated_at DOUBLE PRECISION NOT NULL,
+                    UNIQUE (user_id, wallet_address, mint)
+                )
+            """)
+
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS wallet_risk_history (
+                    id BIGSERIAL PRIMARY KEY,
+                    user_id BIGINT NOT NULL,
+                    mint TEXT NOT NULL,
+                    risk_score INTEGER NOT NULL,
+                    scanned_at DOUBLE PRECISION NOT NULL
+                )
+            """)
+
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS wallet_monitor_log (
+                    id BIGSERIAL PRIMARY KEY,
+                    user_id BIGINT NOT NULL,
+                    holdings_count INTEGER NOT NULL DEFAULT 0,
+                    risky_count INTEGER NOT NULL DEFAULT 0,
+                    alerts_sent INTEGER NOT NULL DEFAULT 0,
+                    duration_ms DOUBLE PRECISION,
+                    created_at DOUBLE PRECISION NOT NULL
+                )
+            """)
+
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS pending_notifications (
+                    id BIGSERIAL PRIMARY KEY,
+                    fcm_token TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    body TEXT NOT NULL DEFAULT '',
+                    data_json TEXT NOT NULL DEFAULT '{}',
+                    attempts INTEGER NOT NULL DEFAULT 0,
+                    created_at DOUBLE PRECISION NOT NULL
+                )
+            """)
+
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS token_fingerprints (
+                    mint TEXT PRIMARY KEY,
+                    fingerprint TEXT NOT NULL,
+                    campaign_tags TEXT,
+                    desc_norm TEXT,
+                    upload_service TEXT,
+                    entropy DOUBLE PRECISION,
+                    computed_at DOUBLE PRECISION NOT NULL
+                )
+            """)
+
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS flag_feedback (
+                    id BIGSERIAL PRIMARY KEY,
+                    flag_id BIGINT NOT NULL,
+                    user_id BIGINT NOT NULL,
+                    rating TEXT NOT NULL,
+                    snooze_until DOUBLE PRECISION,
+                    created_at DOUBLE PRECISION NOT NULL,
+                    UNIQUE (flag_id, user_id)
+                )
+            """)
+
             # Key indexes
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_cache_expires ON cache (expires_at)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_ie_deployer ON intelligence_events (deployer)")
@@ -366,5 +571,11 @@ class PostgresBackend(DatabaseBackend):
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_users_apikey ON users (api_key)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_uw_user ON user_watches (user_id)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_uc_user ON user_crons (user_id, name)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_ep_mint ON investigation_episodes (mint)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_ep_deployer ON investigation_episodes (deployer)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_ek_entity ON entity_knowledge (entity_type, entity_id)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_ff_user ON flag_feedback (user_id, created_at DESC)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_mw_user ON monitored_wallets (user_id)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_wrh_user ON wallet_risk_history (user_id, mint)")
 
-            logger.info("[pg] schema initialized (20 tables)")
+            logger.info("[pg] schema initialized (34 tables)")

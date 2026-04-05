@@ -96,7 +96,7 @@ export default function ProfileScreen() {
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.profileName}>{displayName}</Text>
-                  <Text style={styles.profilePlan}>{plan === 'free' ? 'Free' : plan === 'pro' ? 'Pro' : plan === 'pro_plus' ? 'Pro+' : 'Whale'} Plan</Text>
+                  <Text style={styles.profilePlan}>{plan === 'free' ? 'Free' : plan === 'pro' ? 'Pro' : 'Elite'} Plan</Text>
                 </View>
                 <TouchableOpacity onPress={() => router.push('/paywall' as any)} style={styles.upgradePill}>
                   <Text style={styles.upgradeText}>Upgrade</Text>

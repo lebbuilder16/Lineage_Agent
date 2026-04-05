@@ -893,6 +893,8 @@ class CartelEdge(BaseModel):
     signal_type: Literal[
         "dna_match", "sol_transfer", "timing_sync", "phash_cluster", "cross_holding",
         "funding_link", "shared_lp", "sniper_ring", "factory_deploy", "factory_sniper",
+        "common_funder", "profit_convergence", "capital_recycling",
+        "temporal_fingerprint", "compute_budget_fp",
     ]
     signal_strength: float = Field(ge=0.0, le=1.0)
     evidence: dict = Field(default_factory=dict)
@@ -919,6 +921,9 @@ class CartelReport(BaseModel):
 
     mint: str
     deployer_community: Optional[CartelCommunity] = None
+    deployer_confidence: Literal["high", "medium", "low", "none"] = "none"
+    deployer_direct_signals: list[str] = Field(default_factory=list, description="Signal types directly linking this deployer to the cartel")
+    deployer_direct_edge_count: int = 0
 
 
 class FinancialGraphSummary(BaseModel):
@@ -1152,12 +1157,12 @@ class GlobalStats(BaseModel):
 
     tokens_scanned_24h: int = Field(0, description="Distinct token mints recorded")
     tokens_rugged_24h: int = Field(0, description="Tokens confirmed rugged")
-    rug_rate_24h_pct: float = Field(0.0, ge=0.0, le=100.0, description="rug / scanned × 100")
+    rug_rate_24h_pct: float = Field(0.0, ge=0.0, description="rug / scanned × 100")
     tokens_negative_outcomes_24h: int = Field(
         0, description="Tokens with any negative outcome (rug + suspected) in 24 h"
     )
     negative_outcome_rate_24h_pct: float = Field(
-        0.0, ge=0.0, le=100.0,
+        0.0, ge=0.0,
         description="negative outcomes / scanned × 100",
     )
     active_deployers_24h: int = Field(0, description="Distinct deployer wallets active")

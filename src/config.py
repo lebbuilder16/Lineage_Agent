@@ -72,6 +72,8 @@ SOLANA_RPC_ENDPOINT: str = os.getenv(
     "SOLANA_RPC_ENDPOINT",
     "https://api.mainnet-beta.solana.com",
 )
+# Comma-separated fallback RPC endpoints (tried in order when primary is down)
+SOLANA_RPC_FALLBACKS: str = os.getenv("SOLANA_RPC_FALLBACKS", "")
 
 # ---------------------------------------------------------------------------
 # DexScreener

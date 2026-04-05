@@ -74,7 +74,6 @@ def _extract_forensic_snapshot(lin: Any) -> dict:
         snapshot["liq_usd"] = getattr(qt, "liquidity_usd", None)
     if ins:
         snapshot["sell_pressure_1h"] = getattr(ins, "sell_pressure_1h", None)
-        snapshot["sell_pressure_24h_snap"] = getattr(ins, "sell_pressure_24h", None)
         snapshot["volume_spike_ratio"] = getattr(ins, "volume_spike_ratio", None)
         snapshot["price_change_h1"] = getattr(ins, "price_change_1h", None)
         snapshot["price_change_h24"] = getattr(ins, "price_change_24h", None)
@@ -158,16 +157,45 @@ def _generate_flags(old: dict, new: dict, mint: str, *, ref: Optional[dict] = No
               {"old": old_cw, "new": new_cw, "delta": delta_cw},
               delta=delta_cw, old=old_cw, new=new_cw)
 
-    # Risk escalation
+    # Risk escalation — only emit when no causal critical flag already explains
+    # WHY the risk changed.  If SOL extraction / deployer exit / insider dump
+    # already fired, the user can infer the escalation; showing both is noise.
+    _CAUSAL_CRITICAL_TYPES = {
+        "SOL_EXTRACTION_NEW", "SOL_EXTRACTION_INCREASED", "DEPLOYER_EXITED",
+        "INSIDER_DUMP_DETECTED", "DEPLOYER_NEW_RUG", "BUNDLE_WALLETS_ALL_EXITED",
+    }
+    _has_causal = bool({f["flag_type"] for f in flags} & _CAUSAL_CRITICAL_TYPES)
     risk_order = ["unknown", "insufficient_data", "low", "medium", "high", "critical"]
     old_ri = risk_order.index(old.get("risk_level", "unknown")) if old.get("risk_level") in risk_order else 0
     new_ri = risk_order.index(new.get("risk_level", "unknown")) if new.get("risk_level") in risk_order else 0
-    if new_ri > old_ri and new_ri >= 3:
+    if new_ri > old_ri and new_ri >= 3 and not _has_causal:
         old_r = old.get("risk_level", "unknown")
         new_r = new.get("risk_level", "unknown")
+        # Identify the likely cause of escalation from snapshot deltas
+        _reasons: list[str] = []
+        _new_sol = new.get("sol_extracted", 0) or 0
+        _old_sol = old.get("sol_extracted", 0) or 0
+        if _new_sol > _old_sol:
+            _reasons.append(f"SOL extracted: {_old_sol:.1f} → {_new_sol:.1f}")
+        _new_cw = new.get("cartel_wallets", 0) or 0
+        _old_cw = old.get("cartel_wallets", 0) or 0
+        if _new_cw > _old_cw:
+            _reasons.append(f"cartel wallets: {_old_cw} → {_new_cw}")
+        _new_bw = new.get("bundle_wallets", 0) or 0
+        _old_bw = old.get("bundle_wallets", 0) or 0
+        if _new_bw > _old_bw:
+            _reasons.append(f"bundle wallets: {_old_bw} → {_new_bw}")
+        _new_sp = new.get("sell_pressure_24h") or 0
+        _old_sp = old.get("sell_pressure_24h") or 0
+        if _new_sp > _old_sp + 0.1:
+            _reasons.append(f"sell pressure: {_old_sp*100:.0f}% → {_new_sp*100:.0f}%")
+        if new.get("rug_count", 0) > old.get("rug_count", 0):
+            _reasons.append(f"deployer rugs: {old.get('rug_count', 0)} → {new.get('rug_count', 0)}")
+        _reason_str = " · ".join(_reasons[:3]) if _reasons else ""
+        _reason_suffix = f" — {_reason_str}" if _reason_str else ""
         _flag("RISK_ESCALATION", "critical",
-              {"old": old_r, "new": new_r},
-              old=old_r, new=new_r)
+              {"old": old_r, "new": new_r, "reasons": _reasons},
+              old=old_r, new=new_r, reason_suffix=_reason_suffix)
 
     # New rug by deployer
     old_rc = old.get("rug_count", 0) or 0
@@ -258,7 +286,8 @@ def _generate_flags(old: dict, new: dict, mint: str, *, ref: Optional[dict] = No
 
     # ── Correlative intelligence: forensic × market cross-reference ──
     deltas = _compute_deltas(old, new)
-    correlated = _cross_reference(deltas, old, new)
+    _existing_types = {f["flag_type"] for f in flags}
+    correlated = _cross_reference(deltas, old, new, covered_types=_existing_types)
     for c in correlated:
         # _cross_reference returns pre-formatted flags with title+detail
         flags.append({
@@ -280,11 +309,18 @@ def _generate_flags(old: dict, new: dict, mint: str, *, ref: Optional[dict] = No
         old_liq = old.get("liq_usd") or 0
 
         def _crossed_tier(ref_val, old_val, new_val, tiers=(-30, -50, -70, -90)):
-            """Return the newly crossed tier, or None if no new tier was crossed."""
+            """Return the newly crossed tier, or None if no new tier was crossed.
+
+            When *old_val* is 0/None (first rescan after INITIAL_ASSESSMENT),
+            we don't know what tier was already crossed at the initial snapshot
+            — so we skip to avoid false-positive cumulative flags.
+            """
             if ref_val <= 0:
                 return None
+            if not old_val:
+                return None  # first rescan: no baseline to compare tiers
             new_pct = (new_val - ref_val) / ref_val * 100
-            old_pct = (old_val - ref_val) / ref_val * 100 if old_val else 0
+            old_pct = (old_val - ref_val) / ref_val * 100
             for t in tiers:
                 if new_pct <= t and old_pct > t:
                     return new_pct
@@ -309,11 +345,17 @@ def _generate_flags(old: dict, new: dict, mint: str, *, ref: Optional[dict] = No
                   {"ref_liq": ref_liq, "now_liq": new_liq, "pct": round(liq_tier, 1)},
                   pct=liq_tier)
 
-        # Forensic deterioration since reference — only if SOL extraction INCREASED since last scan
+        # Forensic deterioration since reference — only if SOL extraction INCREASED
+        # since last scan AND no SOL_EXTRACTION_NEW already covers first detection.
+        _sol_flag_exists = any(f["flag_type"] in ("SOL_EXTRACTION_NEW", "SOL_EXTRACTION_INCREASED") for f in flags)
         ref_sol = ref.get("sol_extracted") or 0
         old_sol_total = old.get("sol_extracted") or 0
         new_sol_total = new.get("sol_extracted") or 0
-        if new_sol_total > ref_sol + 20 and new_sol_total > old_sol_total:
+        # Proportional threshold: at least +20 SOL absolute OR +50% relative
+        _cumul_threshold = max(20, ref_sol * 0.5) if ref_sol > 0 else 20
+        if (new_sol_total > ref_sol + _cumul_threshold
+                and new_sol_total > old_sol_total
+                and not _sol_flag_exists):
             delta_sol = new_sol_total - ref_sol
             _flag("CUMULATIVE_SOL_EXTRACTION", "critical",
                   {"ref_sol": ref_sol, "now_sol": new_sol_total},
@@ -348,14 +390,38 @@ def _compute_deltas(old: dict, new: dict) -> dict:
         ov, nv = old.get(key), new.get(key)
         d[f"{key}_pct"] = round((nv - ov) / ov * 100, 1) if ov and nv and ov > 0 else None
 
-    d["sell_pressure_shift"] = (new.get("sell_pressure_1h") or 0) - (old.get("sell_pressure_1h") or 0)
+    # Only compute sell pressure shift when old snapshot had actual data;
+    # otherwise the "shift" is just discovering the current state for the first time.
+    if old.get("sell_pressure_1h") is not None:
+        d["sell_pressure_shift"] = (new.get("sell_pressure_1h") or 0) - (old.get("sell_pressure_1h") or 0)
+    else:
+        d["sell_pressure_shift"] = 0
     d["volume_spiking"] = (new.get("volume_spike_ratio") or 0) >= 5
     return d
 
 
-def _cross_reference(deltas: dict, old: dict, new: dict) -> list[dict]:
-    """Cross-reference forensic and market layers. Observational, not causal."""
+def _cross_reference(deltas: dict, old: dict, new: dict, *, covered_types: set[str] | None = None) -> list[dict]:
+    """Cross-reference forensic and market layers. Observational, not causal.
+
+    *covered_types*: flag types already emitted by phase-1 checks.  When a
+    forensic signal is already reported by a dedicated flag, we skip it here
+    to avoid showing the same information twice.
+    """
     results: list[dict] = []
+    _ct = covered_types or set()
+
+    # Map: forensic signal → flag types that already cover it
+    _COVERED_BY = {
+        "sol_delta": {"SOL_EXTRACTION_NEW", "SOL_EXTRACTION_INCREASED"},
+        "deployer_just_exited": {"DEPLOYER_EXITED"},
+        "insider_escalated": {"INSIDER_DUMP_DETECTED"},
+        "bundle_wallets_delta": {"BUNDLE_WALLETS_NEW", "BUNDLE_DETECTED"},
+        "cartel_wallets_delta": {"CARTEL_DETECTED", "CARTEL_EXPANDED"},
+        "bundle_exits_new": {"BUNDLE_WALLET_EXIT", "BUNDLE_WALLETS_ALL_EXITED"},
+    }
+
+    def _already_covered(signal_key: str) -> bool:
+        return bool(_ct & _COVERED_BY.get(signal_key, set()))
 
     forensic_changed = (
         deltas["sol_delta"] > 0
@@ -374,21 +440,21 @@ def _cross_reference(deltas: dict, old: dict, new: dict) -> list[dict]:
     if not forensic_changed and not market_stressed:
         return results
 
-    # Build factual observations per layer
+    # Build factual observations per layer — skip facts already covered
     forensic_facts = []
-    if deltas["sol_delta"] > 0:
+    if deltas["sol_delta"] > 0 and not _already_covered("sol_delta"):
         forensic_facts.append(f"+{deltas['sol_delta']:.1f} SOL extracted")
-    if deltas["deployer_just_exited"]:
+    if deltas["deployer_just_exited"] and not _already_covered("deployer_just_exited"):
         forensic_facts.append("deployer exited")
-    if deltas["insider_escalated"]:
+    if deltas["insider_escalated"] and not _already_covered("insider_escalated"):
         forensic_facts.append("insider dump detected")
-    if deltas["bundle_wallets_delta"] > 0:
+    if deltas["bundle_wallets_delta"] > 0 and not _already_covered("bundle_wallets_delta"):
         forensic_facts.append(f"+{deltas['bundle_wallets_delta']} bundle wallets")
-    if deltas["cartel_wallets_delta"] > 0:
+    if deltas["cartel_wallets_delta"] > 0 and not _already_covered("cartel_wallets_delta"):
         forensic_facts.append(f"+{deltas['cartel_wallets_delta']} cartel wallets")
     if deltas["rug_count_delta"] > 0:
         forensic_facts.append(f"+{deltas['rug_count_delta']} new rug(s)")
-    if deltas.get("bundle_exits_new", 0) > 0:
+    if deltas.get("bundle_exits_new", 0) > 0 and not _already_covered("bundle_exits_new"):
         forensic_facts.append(f"{deltas['bundle_exits_new']} bundle wallet(s) sold")
 
     market_facts = []
@@ -413,10 +479,10 @@ def _cross_reference(deltas: dict, old: dict, new: dict) -> list[dict]:
         "deltas": {k: v for k, v in deltas.items() if v is not None and v != 0 and v is not False},
     }
 
-    if forensic_changed and market_stressed:
+    if forensic_changed and market_stressed and forensic_facts:
         title = " · ".join(market_facts) + " | " + ", ".join(forensic_facts) if market_facts else ", ".join(forensic_facts)
         results.append({"type": "CORRELATED_FORENSIC_MARKET", "severity": "critical", "title": title, "detail": detail})
-    elif forensic_changed:
+    elif forensic_changed and forensic_facts:
         results.append({"type": "FORENSIC_ACTIVITY", "severity": "warning",
                         "title": ", ".join(forensic_facts) + (" · market: " + " · ".join(market_facts) if market_facts else " · market stable"),
                         "detail": detail})
@@ -433,6 +499,242 @@ def _cross_reference(deltas: dict, old: dict, new: dict) -> list[dict]:
                         "detail": detail})
 
     return results
+
+
+# ── Trinity AI flag generation ──────────────────────────────────────────────
+
+_TRINITY_FLAG_SYSTEM = """\
+You are a Solana token forensics analyst generating watchlist alerts for investors.
+You receive a delta between two forensic scans of a watched token.
+Output 0-5 flags as a JSON array. Each flag:
+  {"flag_type": "SCREAMING_SNAKE_CASE", "severity": "critical"|"warning"|"info", "title": "...", "detail": "..."}
+Rules:
+- flag_type: 2-4 words describing the signal (e.g. DEPLOYER_EXIT_WITH_DRAIN, CARTEL_NETWORK_GROWING)
+- title: 1 sentence, plain English, investor-readable, include key numbers ($, SOL, %)
+- detail: 1-2 sentences expanding context and implications for a non-technical investor
+- severity: critical = immediate danger/rug signal, warning = concerning change, info = notable but not urgent
+- Output [] (empty array) if nothing meaningful changed
+- Max 5 flags, prioritize by severity
+Respond with ONLY a JSON array. No markdown, no commentary, no explanation outside the JSON."""
+
+
+def _compute_compact_delta(old: dict, new: dict) -> str:
+    """Return a compact string of only changed fields between two forensic snapshots."""
+    lines = []
+    for key in sorted(set(old.keys()) | set(new.keys())):
+        if key.startswith("_"):
+            continue
+        ov = old.get(key)
+        nv = new.get(key)
+        # Skip unchanged values
+        if ov == nv:
+            continue
+        # Skip None→None
+        if ov is None and nv is None:
+            continue
+        # Format values
+        def _fmt(v):
+            if v is None:
+                return "unknown"
+            if isinstance(v, bool):
+                return str(v).lower()
+            if isinstance(v, float):
+                if abs(v) >= 1000:
+                    return f"{v:,.0f}"
+                return f"{v:.4f}" if abs(v) < 1 else f"{v:.1f}"
+            return str(v)
+        lines.append(f"{key}: {_fmt(ov)} → {_fmt(nv)}")
+    return "\n".join(lines) if lines else "(no changes)"
+
+
+def _parse_trinity_flags(text: str) -> list[dict] | None:
+    """Parse Trinity's raw text into validated flag dicts.
+
+    Returns list[dict] on success (may be empty), None on total parse failure.
+    """
+    if not text or not text.strip():
+        return None
+
+    # Strip markdown fences
+    cleaned = text.strip()
+    if cleaned.startswith("```"):
+        # Remove opening fence (with optional language tag)
+        first_nl = cleaned.index("\n") if "\n" in cleaned else len(cleaned)
+        cleaned = cleaned[first_nl + 1:]
+        if cleaned.rstrip().endswith("```"):
+            cleaned = cleaned.rstrip()[:-3].rstrip()
+
+    # Try to extract JSON array
+    import re as _re
+    # Find first [ ... last ]
+    start = cleaned.find("[")
+    end = cleaned.rfind("]")
+    if start == -1 or end == -1 or end <= start:
+        return None
+    json_str = cleaned[start:end + 1]
+
+    try:
+        arr = json.loads(json_str)
+    except json.JSONDecodeError:
+        try:
+            import json_repair  # noqa: PLC0415
+            arr = json_repair.loads(json_str)
+        except Exception:
+            return None
+
+    if not isinstance(arr, list):
+        return None
+
+    # Validate and normalize each flag
+    valid_severities = {"critical", "warning", "info"}
+    flags = []
+    for item in arr[:5]:  # cap at 5
+        if not isinstance(item, dict):
+            continue
+        ft = item.get("flag_type", "")
+        sev = item.get("severity", "")
+        title = item.get("title", "")
+        detail_text = item.get("detail", "")
+
+        if not ft or not title:
+            continue
+        # Normalize flag_type to SCREAMING_SNAKE
+        ft = ft.upper().replace(" ", "_")
+        ft = _re.sub(r"[^A-Z0-9_]", "", ft)
+        if len(ft) < 4:
+            continue
+        if sev not in valid_severities:
+            sev = "warning"
+
+        # Build detail dict matching existing flag format
+        detail_dict = {
+            "narrative": detail_text,
+            "source": "trinity",
+        }
+
+        flags.append({
+            "flag_type": ft,
+            "severity": sev,
+            "title": title,
+            "detail": json.dumps(detail_dict, default=str),
+        })
+
+    return flags
+
+
+async def _generate_flags_trinity(
+    old: dict, new: dict, mint: str,
+    *,
+    ref: Optional[dict] = None,
+    symbol: str = "",
+    old_score: int = 0,
+    new_score: int = 0,
+) -> list[dict] | None:
+    """Generate flags using Trinity AI. Returns flags on success, None on failure."""
+    try:
+        from .ai_analyst import _get_openrouter_client, _OPENROUTER_API_KEY  # noqa: PLC0415
+
+        client = _get_openrouter_client()
+        if not client:
+            return None
+
+        delta_str = _compute_compact_delta(old, new)
+
+        # Build compact current state
+        state_lines = [
+            f"Token: {symbol or '?'} ({mint[:12]})",
+            f"Risk score: {old_score} → {new_score}",
+            "",
+            f"Changes since last scan:",
+            delta_str,
+            "",
+            "Current state:",
+            f"- SOL extracted: {new.get('sol_extracted', 0):.1f} | Deployer exited: {new.get('deployer_exited', False)}",
+            f"- Bundle: {new.get('bundle_wallets', 0)} wallets ({new.get('bundle_holders', '?')} holding)",
+            f"- Cartel: {new.get('cartel_wallets', 0)} wallets | Risk: {new.get('risk_level', 'unknown')}",
+        ]
+        price = new.get("price_usd")
+        if price:
+            h1 = new.get("price_change_h1") or 0
+            h24 = new.get("price_change_h24") or 0
+            liq = new.get("liq_usd") or 0
+            state_lines.append(f"- Price: ${price:.6f} (1h: {h1:+.1f}%, 24h: {h24:+.1f}%) | Liq: ${liq:,.0f}")
+        sp = new.get("sell_pressure_1h")
+        if sp:
+            state_lines.append(f"- Sell pressure 1h: {sp * 100:.0f}%")
+
+        user_msg = "\n".join(state_lines)
+
+        _trinity_model = "trinity-large-thinking" if _OPENROUTER_API_KEY and _OPENROUTER_API_KEY.startswith("rcai-") else "arcee-ai/trinity-large-thinking"
+
+        response = await asyncio.wait_for(
+            client.chat.completions.create(
+                model=_trinity_model,
+                max_tokens=512,
+                temperature=0,
+                messages=[
+                    {"role": "system", "content": _TRINITY_FLAG_SYSTEM},
+                    {"role": "user", "content": user_msg},
+                ],
+            ),
+            timeout=10.0,
+        )
+
+        _msg = response.choices[0].message
+        text = _msg.content or ""
+        if not text:
+            text = getattr(_msg, "reasoning_content", None) or ""
+            if not text:
+                _psf = getattr(_msg, "provider_specific_fields", None) or {}
+                text = _psf.get("reasoning_content", "")
+
+        _usage = response.usage
+        logger.info(
+            "[sweep] Trinity flags for %s | tokens=%d/%d | raw_len=%d",
+            mint[:12],
+            _usage.prompt_tokens if _usage else 0,
+            _usage.completion_tokens if _usage else 0,
+            len(text),
+        )
+
+        flags = _parse_trinity_flags(text)
+        if flags is not None:
+            # Deduplicate Trinity flags within the batch: collapse flags whose
+            # types map to the same logical signal (e.g. SOL_DRAIN + EXTRACTION
+            # both describing the same SOL movement).
+            _TRINITY_DEDUP_KEYWORDS = {
+                "SOL": "sol_group",
+                "EXTRACT": "sol_group",
+                "DRAIN": "sol_group",
+                "DEPLOY": "deployer_group",
+                "CREATOR": "deployer_group",
+                "BUNDLE": "bundle_group",
+                "CARTEL": "cartel_group",
+                "INSIDER": "insider_group",
+                "DUMP": "insider_group",
+            }
+            seen_groups: set[str] = set()
+            deduped: list[dict] = []
+            for f in flags:
+                groups_hit = {g for kw, g in _TRINITY_DEDUP_KEYWORDS.items() if kw in f["flag_type"]}
+                if groups_hit and groups_hit & seen_groups:
+                    continue  # skip: same logical group already present
+                seen_groups |= groups_hit
+                deduped.append(f)
+            flags = deduped
+
+            logger.info("[sweep] Trinity generated %d flag(s) for %s", len(flags), mint[:12])
+            return flags
+
+        logger.warning("[sweep] Trinity flag parse failed for %s, falling back", mint[:12])
+        return None
+
+    except asyncio.TimeoutError:
+        logger.warning("[sweep] Trinity flag gen timed out for %s", mint[:12])
+        return None
+    except Exception as exc:
+        logger.warning("[sweep] Trinity flag gen failed for %s: %s", mint[:12], exc)
+        return None
 
 
 # ── Bundle wallet activity tracking ──────────────────────────────────────────
@@ -528,6 +830,90 @@ async def _check_bundle_wallet_balances(mint: str, lin: Any) -> dict | None:
     }
 
 
+# ── Deployer watch rescan ────────────────────────────────────────────────────
+
+async def _rescan_deployer_watch(
+    watch_id: int, user_id: int, deployer: str, cache,
+) -> dict | None:
+    """Check if a watched deployer launched new tokens since last check."""
+    try:
+        db = await cache._get_conn()
+        # Get last check timestamp
+        cursor = await db.execute(
+            "SELECT MAX(scanned_at) FROM watch_snapshots WHERE watch_id = ?",
+            (watch_id,),
+        )
+        row = await cursor.fetchone()
+        last_check = row[0] if row and row[0] else 0
+
+        # Query intelligence_events for new tokens by this deployer
+        from .data_sources._clients import event_query
+        new_tokens = await event_query(
+            where="deployer = ? AND recorded_at > ?",
+            params=(deployer, last_check),
+            columns="mint,name,symbol,mcap_usd,recorded_at",
+            limit=10,
+        )
+
+        # Store snapshot
+        now = time.time()
+        await db.execute(
+            "INSERT INTO watch_snapshots (watch_id, mint, risk_level, risk_score, scanned_at) "
+            "VALUES (?, ?, 'unknown', 0, ?)",
+            (watch_id, deployer, now),
+        )
+
+        if not new_tokens:
+            await db.commit()
+            return None
+
+        # Generate flags for each new token
+        flags = []
+        for token in new_tokens:
+            name = token.get("name", "Unknown")
+            symbol = token.get("symbol", "?")
+            mint_addr = token.get("mint", "")
+            flags.append({
+                "flag_type": "DEPLOYER_NEW_TOKEN",
+                "severity": "warning",
+                "title": f"Deployer launched new token: {name} ({symbol})",
+                "detail": json.dumps({
+                    "deployer": deployer,
+                    "mint": mint_addr,
+                    "name": name,
+                    "symbol": symbol,
+                    "mcap_usd": token.get("mcap_usd"),
+                }, default=str),
+            })
+
+        # Store flags
+        for flag in flags:
+            await db.execute(
+                "INSERT INTO sweep_flags "
+                "(watch_id, mint, user_id, flag_type, severity, title, detail, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (watch_id, deployer, user_id, flag["flag_type"], flag["severity"],
+                 flag["title"], flag["detail"], now),
+            )
+        await db.commit()
+
+        if flags:
+            logger.info("[sweep] deployer %s: %d new token(s) detected", deployer[:12], len(flags))
+
+        return {
+            "mint": deployer,
+            "old_risk": "unknown",
+            "new_risk": "unknown",
+            "new_score": 0,
+            "escalated": False,
+            "flags_count": len(flags),
+            "flags": flags,
+        }
+    except Exception as exc:
+        logger.warning("[sweep] deployer watch %d failed: %s", watch_id, exc)
+        return None
+
+
 # ── Main rescan function ─────────────────────────────────────────────────────
 
 async def run_single_rescan(watch_id: int, user_id: int, cache, *, skip_ai: bool = False, plan: str = "free") -> dict | None:
@@ -541,13 +927,22 @@ async def run_single_rescan(watch_id: int, user_id: int, cache, *, skip_ai: bool
     try:
         db = await cache._get_conn()
         cursor = await db.execute(
-            "SELECT value FROM user_watches WHERE id = ?", (watch_id,)
+            "SELECT value, sub_type FROM user_watches WHERE id = ?", (watch_id,)
         )
         row = await cursor.fetchone()
         if not row:
             return None
 
-        mint = row[0]
+        watch_value = row[0]
+        sub_type = row[1] if len(row) > 1 else "mint"
+
+        # Deployer watches: check for new tokens launched by this deployer
+        if sub_type == "deployer":
+            return await _rescan_deployer_watch(
+                watch_id, user_id, watch_value, cache,
+            )
+
+        mint = watch_value
 
         # Skip native SOL and other non-token addresses that can't be analyzed
         _SKIP_MINTS = {
@@ -593,10 +988,14 @@ async def run_single_rescan(watch_id: int, user_id: int, cache, *, skip_ai: bool
         # Free/Pro = heuristic only (skip AI), Elite = Trinity AI via write-through
         _skip_enrichment = skip_ai or (plan != "elite")
         from .lineage_detector import detect_lineage
-        lin = await asyncio.wait_for(
-            detect_lineage(mint, force_refresh=False, skip_forensic_enrichment=_skip_enrichment),
-            timeout=90.0,
-        )
+        try:
+            lin = await asyncio.wait_for(
+                detect_lineage(mint, force_refresh=False, skip_forensic_enrichment=_skip_enrichment),
+                timeout=90.0,
+            )
+        except asyncio.TimeoutError:
+            logger.warning("[sweep] detect_lineage timed out for %s (watch %d) — skipping", mint[:12], watch_id)
+            return None
 
         # Extract new forensic snapshot
         new_forensic = _extract_forensic_snapshot(lin)
@@ -646,14 +1045,58 @@ async def run_single_rescan(watch_id: int, user_id: int, cache, *, skip_ai: bool
             new_forensic["bundle_exits_new"] = bundle_activity["new_exits"]
             new_forensic["bundle_exit_wallets"] = bundle_activity["exit_wallets"]
 
-        # Generate intelligence flags (with reference for cumulative detection)
-        flags = _generate_flags(old_forensic, new_forensic, mint, ref=ref_forensic)
-        now = time.time()
-
-        # Enrich flag details with token name/symbol for mobile display
+        # Extract token metadata early (needed for Trinity prompt + flag enrichment)
         qt = getattr(lin, "query_token", None) or getattr(lin, "root", None)
         _token_name = getattr(qt, "name", "") or ""
         _token_symbol = getattr(qt, "symbol", "") or ""
+
+        # Generate intelligence flags (with reference for cumulative detection)
+        # On the FIRST scan (no previous snapshot), every signal looks "new" because
+        # old_forensic is empty — generating a flood of redundant flags that all
+        # describe the same initial state.  Instead, store the baseline quietly and
+        # emit a single consolidated "initial assessment" flag.
+        _is_first_scan = not prev_snap_row
+        if _is_first_scan:
+            flags = []
+            # Single summary flag so the user knows the baseline
+            from .flag_templates import render_flag
+            _summary_parts = []
+            if new_forensic.get("sol_extracted", 0) > 0:
+                _summary_parts.append(f"{new_forensic['sol_extracted']:.1f} SOL extracted")
+            if new_forensic.get("cartel_wallets", 0) > 0:
+                _summary_parts.append(f"{new_forensic['cartel_wallets']} cartel wallets")
+            if new_forensic.get("bundle_wallets", 0) > 0:
+                _summary_parts.append(f"{new_forensic['bundle_wallets']} bundle wallets")
+            if new_forensic.get("deployer_exited"):
+                _summary_parts.append("deployer exited")
+            _risk_label = new_forensic.get("risk_level", "unknown")
+            _sev = "critical" if _risk_label in ("critical", "high") else "warning" if _risk_label == "medium" else "info"
+            _title = f"Initial scan: {_risk_label} risk"
+            if _summary_parts:
+                _title += " — " + ", ".join(_summary_parts)
+            flags.append({
+                "flag_type": "INITIAL_ASSESSMENT",
+                "severity": _sev,
+                "title": _title,
+                "detail": json.dumps({"snapshot": new_forensic, "risk_score": new_score}, default=str),
+            })
+        else:
+            flags = None
+            # Elite users: Trinity AI generates contextual flags
+            if plan == "elite":
+                flags = await _generate_flags_trinity(
+                    old_forensic, new_forensic, mint,
+                    ref=ref_forensic,
+                    symbol=_token_symbol,
+                    old_score=old_score,
+                    new_score=new_score,
+                )
+            # Fallback: deterministic flags (Free/Pro, or Trinity failure)
+            if flags is None:
+                flags = _generate_flags(old_forensic, new_forensic, mint, ref=ref_forensic)
+        now = time.time()
+
+        # Enrich flag details with token name/symbol for mobile display
         for flag in flags:
             try:
                 raw = flag["detail"]
@@ -670,7 +1113,8 @@ async def run_single_rescan(watch_id: int, user_id: int, cache, *, skip_ai: bool
                 detail_dict["image_uri"] = _image
             flag["detail"] = json.dumps(detail_dict, default=str)
 
-        # Deduplicate: skip flags of the same type created in the last hour
+        # Deduplicate: skip flags of the same type created in the last hour,
+        # AND expand to logical groups so related flags don't repeat.
         _dedup_window = 3600  # 1 hour
         _recent_cursor = await db.execute(
             "SELECT DISTINCT flag_type FROM sweep_flags "
@@ -678,7 +1122,32 @@ async def run_single_rescan(watch_id: int, user_id: int, cache, *, skip_ai: bool
             (watch_id, now - _dedup_window, "_%"),
         )
         _recent_types = {r[0] for r in await _recent_cursor.fetchall()}
+
+        # Logical groups: if any member was recently emitted, suppress all members
+        _DEDUP_GROUPS = [
+            {"SOL_EXTRACTION_NEW", "SOL_EXTRACTION_INCREASED", "CUMULATIVE_SOL_EXTRACTION", "FORENSIC_ACTIVITY"},
+            {"DEPLOYER_EXITED", "CROSS_DEPLOYER_EXIT_BUNDLE_ACTIVE", "CROSS_DEPLOYER_EXIT_CARTEL_ACTIVE"},
+            {"BUNDLE_WALLET_EXIT", "BUNDLE_WALLETS_ALL_EXITED", "CROSS_EXTRACTION_AND_EXIT", "CROSS_COORDINATED_EXTRACTION"},
+        ]
+        for group in _DEDUP_GROUPS:
+            if _recent_types & group:
+                _recent_types |= group  # expand: block all members of the group
+
         flags = [f for f in flags if f["flag_type"] not in _recent_types]
+
+        # Snooze filter: skip flag_types that the user has snoozed
+        try:
+            _snooze_cursor = await db.execute(
+                "SELECT DISTINCT sf.flag_type FROM flag_feedback ff "
+                "JOIN sweep_flags sf ON ff.flag_id = sf.id "
+                "WHERE ff.user_id = ? AND ff.rating = 'snoozed' AND ff.snooze_until > ?",
+                (user_id, now),
+            )
+            _snoozed_types = {r[0] for r in await _snooze_cursor.fetchall()}
+            if _snoozed_types:
+                flags = [f for f in flags if f["flag_type"] not in _snoozed_types]
+        except Exception:
+            pass  # table may not exist yet on older DBs
 
         # Store flags + new forensic snapshot
         for _attempt in range(3):
@@ -723,7 +1192,11 @@ async def run_single_rescan(watch_id: int, user_id: int, cache, *, skip_ai: bool
             # ── Push notification to user for critical/warning flags ─────
             try:
                 from .alert_service import _push_fcm_to_watchers
-                critical_flags = [f for f in flags if f["severity"] in ("critical", "warning")]
+                _SEV_RANK = {"critical": 0, "warning": 1, "info": 2}
+                critical_flags = sorted(
+                    [f for f in flags if f["severity"] in ("critical", "warning")],
+                    key=lambda f: _SEV_RANK.get(f["severity"], 9),
+                )
                 if critical_flags:
                     top = critical_flags[0]
                     _token_name = detail_dict.get("token_name") or detail_dict.get("name") or mint[:12]
@@ -736,8 +1209,8 @@ async def run_single_rescan(watch_id: int, user_id: int, cache, *, skip_ai: bool
                         ),
                         name=f"sweep_push_{mint[:8]}",
                     )
-            except Exception:
-                pass  # best-effort, never block sweep
+            except Exception as _push_exc:
+                logger.warning("[sweep] push notification failed for %s: %s", mint[:12], _push_exc)
 
         # Record memory episode from sweep (enriches agent memory passively)
         try:
@@ -818,8 +1291,8 @@ async def run_single_rescan(watch_id: int, user_id: int, cache, *, skip_ai: bool
 
 # ── Market Pulse — lightweight price check between full sweeps ─────────────
 
-# Semaphore: only 1 pulse rescan at a time to avoid starving user investigations
-_PULSE_RESCAN_SEM = asyncio.Semaphore(1)
+# Semaphore: limit concurrent pulse rescans to avoid starving user investigations
+_PULSE_RESCAN_SEM = asyncio.Semaphore(3)
 
 
 async def _pulse_rescan_one(t: dict, cache) -> None:

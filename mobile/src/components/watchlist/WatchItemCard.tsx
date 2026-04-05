@@ -3,10 +3,12 @@ import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Image } from 'expo-image';
 import { GlassCard } from '../ui/GlassCard';
 import { RiskBadge } from '../ui/RiskBadge';
+import { MemoryBadge } from '../ui/MemoryBadge';
 import { tokens } from '../../theme/tokens';
 import { useHistoryStore } from '../../store/history';
 import { queryClient } from '../../lib/query-client';
 import { QK } from '../../lib/query';
+import { RiskSparkline } from './RiskSparkline';
 import type { Watch } from '../../types/api';
 import type { LineageResult } from '../../types/api';
 
@@ -17,6 +19,8 @@ export interface WatchItemCardProps {
   flagCount?: number;
   flagTypeList?: string[];
   tokenMetaOverride?: { name?: string; symbol?: string; image?: string };
+  memoryDepth?: 'deep' | 'partial' | 'first_encounter';
+  sparklineData?: number[];
 }
 
 const FLAG_LABELS: Record<string, string> = {
@@ -40,7 +44,7 @@ const FLAG_LABELS: Record<string, string> = {
   LIQUIDITY_DRAIN: 'Liquidity drain',
 };
 
-export function WatchItemCard({ item, onPress, onCopy, flagCount = 0, flagTypeList, tokenMetaOverride }: WatchItemCardProps) {
+export function WatchItemCard({ item, onPress, onCopy, flagCount = 0, flagTypeList, tokenMetaOverride, memoryDepth, sparklineData }: WatchItemCardProps) {
   // Try to get token name/symbol from: 1) override from flags, 2) react-query cache, 3) item label
   const cached = item.sub_type === 'mint'
     ? queryClient.getQueryData<LineageResult>(QK.lineage(item.value))
@@ -106,6 +110,7 @@ export function WatchItemCard({ item, onPress, onCopy, flagCount = 0, flagTypeLi
               {item.value.slice(0, 8)}…{item.value.slice(-6)}
             </Text>
             {riskLevel && <RiskBadge level={riskLevel} size="sm" />}
+            {memoryDepth && <MemoryBadge depth={memoryDepth} size="sm" />}
             {flagCount > 0 && flagTypeList && flagTypeList.length > 0 ? (
               <View style={styles.flagRow}>
                 {flagTypeList.slice(0, 2).map((ft, i) => (
@@ -130,6 +135,9 @@ export function WatchItemCard({ item, onPress, onCopy, flagCount = 0, flagTypeLi
             ) : null}
           </View>
         </View>
+        {sparklineData && sparklineData.length >= 2 && (
+          <RiskSparkline dataPoints={sparklineData} width={50} height={22} />
+        )}
       </TouchableOpacity>
     </GlassCard>
   );

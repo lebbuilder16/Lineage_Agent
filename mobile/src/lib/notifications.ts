@@ -33,6 +33,13 @@ export function setupNotificationResponseHandler(): Notifications.Subscription {
         useHistoryStore.getState().catchUp();
       }).catch((e) => console.warn('[notifications] catchUp after investigation_complete failed', e));
     }
+
+    if (data.type === 'sweep_flag' && data.mint) {
+      // Deep link to investigate screen for the flagged token
+      import('expo-router').then(({ router }) => {
+        router.push(`/investigate/${data.mint}`);
+      }).catch((e) => console.warn('[notifications] deep link to investigate failed', e));
+    }
   });
 }
 
@@ -83,7 +90,7 @@ export function scheduleLocalAlert(title: string, body: string) {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const _DEDUP_KEY = 'lineage-alert-dedup';
-const COOLDOWN_MS = 4 * 60 * 60 * 1000; // 4 hours per token+signal (was 1h → too aggressive)
+const COOLDOWN_MS = 1 * 60 * 60 * 1000; // 1 hour per token+signal
 let _notifiedAt: Record<string, number> = {};
 let _dedupLoaded = false;
 
@@ -188,9 +195,19 @@ function detectSignals(data: Awaited<ReturnType<typeof getLineage>>, name: strin
  * Fires a local notification for each new signal (deduped per hour).
  */
 export async function checkWatchedTokenAlerts(): Promise<void> {
-  const watches = useAuthStore.getState().watches;
+  const { watches, user } = useAuthStore.getState();
   const mintWatches = watches.filter((w) => w.sub_type === 'mint');
   if (mintWatches.length === 0) return;
+
+  // Skip local checks when backend FCM push is active — avoids duplicate alerts.
+  // The sweep loop already sends FCM pushes for critical/warning flags.
+  // If we have a device push token registered, backend handles notifications.
+  try {
+    const token = await Notifications.getDevicePushTokenAsync();
+    if (token?.data) return; // Backend FCM active — skip local checks
+  } catch {
+    // No push token → fall through to local checks as fallback
+  }
 
   const { status } = await Notifications.getPermissionsAsync();
   if (status !== 'granted') return;

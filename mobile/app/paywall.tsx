@@ -25,6 +25,8 @@ import {
 } from '../src/lib/revenuecat';
 import type { PurchasesPackage } from 'react-native-purchases';
 
+const isAndroid = Platform.OS === 'android';
+
 // ── Plan definitions ────────────────────────────────────────────────────────
 
 interface PlanDef {
@@ -550,7 +552,7 @@ const styles = StyleSheet.create({
   creditPack: {
     flex: 1,
     backgroundColor: tokens.bgGlass8,
-    borderRadius: tokens.radius.card,
+    borderRadius: tokens.radius.md,
     borderWidth: 1,
     borderColor: tokens.borderSubtle,
     padding: 12,

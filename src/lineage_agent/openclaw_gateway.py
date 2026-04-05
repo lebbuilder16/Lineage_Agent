@@ -391,6 +391,8 @@ async def _cron_sweep_loop(cache) -> None:
             )
             jobs = await cursor.fetchall()
             now = time.time()
+            if jobs and len(jobs) > 0:
+                logger.debug("[openclaw-gw] cron check: %d enabled jobs", len(jobs))
 
             for row in jobs:
                 cron_id, user_id, name, schedule_json, payload_json, delivery_json, last_run = row
@@ -457,25 +459,9 @@ async def _execute_cron_job(cache, user_id: int, name: str, payload_json: str, d
         payload = json.loads(payload_json)
         message = payload.get("message", "")
 
-        # Watchlist re-scan crons: name = "lineage:watchlist:{watchId}"
+        # Watchlist crons are now handled by _watchlist_sweep_loop in api.py.
+        # Skip any legacy watchlist cron entries (they'll be cleaned up at startup).
         if name.startswith("lineage:watchlist:"):
-            from .watchlist_monitor_service import run_single_rescan  # noqa: PLC0415
-            parts = name.split(":")
-            if len(parts) >= 3:
-                watch_suffix = parts[2]
-                db = await cache._get_conn()
-                # Read user plan to route AI correctly
-                _plan_cursor = await db.execute("SELECT plan FROM users WHERE id = ?", (user_id,))
-                _plan_row = await _plan_cursor.fetchone()
-                _user_plan = _plan_row[0] if _plan_row else "free"
-                cursor = await db.execute(
-                    "SELECT id FROM user_watches WHERE user_id = ? AND id = ?",
-                    (user_id, watch_suffix),
-                )
-                row = await cursor.fetchone()
-                if row:
-                    await run_single_rescan(row[0], user_id, cache, plan=_user_plan)
-                    logger.info("[openclaw-gw] watchlist rescan done: user=%s watch=%s", user_id, watch_suffix)
             return
 
         # Briefing crons: name = "lineage:briefing"

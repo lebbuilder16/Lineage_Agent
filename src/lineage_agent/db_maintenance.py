@@ -23,6 +23,8 @@ _VACUUM_INTERVAL = 24 * 3600       # 24 hours between VACUUM runs
 _SOL_FLOWS_TTL_DAYS = 90           # Purge sol_flows older than 90 days
 _EVENTS_TTL_DAYS = 180             # Purge intelligence_events older than 180 days
 _CACHE_EXPIRE_BATCH = 1000         # Max rows to delete per batch
+_SWEEP_FLAGS_TTL_DAYS = 90         # Purge sweep_flags older than 90 days
+_SNAPSHOTS_TTL_DAYS = 90           # Purge watch_snapshots older than 90 days
 
 _maintenance_task: Optional[asyncio.Task] = None
 
@@ -61,6 +63,32 @@ async def _cleanup_old_events(db) -> int:
     )
     await db.commit()
     return cursor.rowcount
+
+
+async def _cleanup_old_sweep_flags(db) -> int:
+    """Delete sweep_flags older than _SWEEP_FLAGS_TTL_DAYS (keep _REFERENCE rows)."""
+    cutoff = time.time() - (_SWEEP_FLAGS_TTL_DAYS * 86400)
+    cursor = await db.execute(
+        "DELETE FROM sweep_flags WHERE created_at < ? AND flag_type != '_REFERENCE'",
+        (cutoff,),
+    )
+    await db.commit()
+    return cursor.rowcount
+
+
+async def _cleanup_orphan_snapshots(db) -> int:
+    """Delete watch_snapshots for deleted watches + old snapshots beyond TTL."""
+    # Orphans: snapshots for watches that no longer exist
+    c1 = await db.execute(
+        "DELETE FROM watch_snapshots WHERE watch_id NOT IN (SELECT id FROM user_watches)"
+    )
+    # Old snapshots beyond retention
+    cutoff = time.time() - (_SNAPSHOTS_TTL_DAYS * 86400)
+    c2 = await db.execute(
+        "DELETE FROM watch_snapshots WHERE scanned_at < ?", (cutoff,)
+    )
+    await db.commit()
+    return c1.rowcount + c2.rowcount
 
 
 async def _wal_checkpoint(db) -> None:
@@ -125,9 +153,21 @@ async def _maintenance_loop() -> None:
             except Exception:
                 logger.debug("events cleanup skipped (table may not exist)")
 
+            flags_deleted = 0
+            try:
+                flags_deleted = await _cleanup_old_sweep_flags(db)
+            except Exception:
+                logger.debug("sweep_flags cleanup skipped (table may not exist)")
+
+            snapshots_deleted = 0
+            try:
+                snapshots_deleted = await _cleanup_orphan_snapshots(db)
+            except Exception:
+                logger.debug("watch_snapshots cleanup skipped (table may not exist)")
+
             logger.info(
-                "DB maintenance: cache=%d, sol_flows=%d, events=%d rows deleted",
-                cache_deleted, flows_deleted, events_deleted,
+                "DB maintenance: cache=%d, sol_flows=%d, events=%d, flags=%d, snapshots=%d rows deleted",
+                cache_deleted, flows_deleted, events_deleted, flags_deleted, snapshots_deleted,
             )
 
             # Retry failed FCM push notifications
@@ -147,6 +187,28 @@ async def _maintenance_loop() -> None:
                     logger.info("Memory cleanup: %s", mem_counts)
             except Exception:
                 logger.debug("memory cleanup skipped")
+
+            # Outcome tracking — check 48h post-mortem for investigated tokens
+            try:
+                from .memory_service import check_episode_outcomes
+                outcomes = await check_episode_outcomes()
+                if outcomes > 0:
+                    logger.info("Outcome check: %d episodes resolved", outcomes)
+            except Exception:
+                logger.debug("outcome check skipped")
+
+            # Calibration A/B effectiveness (requires outcome data)
+            try:
+                from .memory_service import measure_calibration_effectiveness
+                eff = await measure_calibration_effectiveness()
+                if eff.get("n_calibrated", 0) >= 5:
+                    logger.info(
+                        "Calibration A/B: calibrated=%.0f%% (%d) vs uncalibrated=%.0f%% (%d)",
+                        eff["calibrated_accuracy"] * 100, eff["n_calibrated"],
+                        eff["uncalibrated_accuracy"] * 100, eff["n_uncalibrated"],
+                    )
+            except Exception:
+                logger.debug("calibration A/B check skipped")
 
             # Narrative cluster detection (automated — runs every maintenance cycle)
             try:

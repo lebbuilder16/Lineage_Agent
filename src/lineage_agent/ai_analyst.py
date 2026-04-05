@@ -28,6 +28,9 @@ logger = logging.getLogger(__name__)
 _MODEL = os.getenv("ANTHROPIC_MODEL", "claude-haiku-4-5")
 _MODEL_SONNET = os.getenv("ANTHROPIC_MODEL_SONNET", "claude-sonnet-4-6")
 _MAX_TOKENS = int(os.getenv("AI_MAX_TOKENS", "800"))
+# Trinity-thinking uses reasoning tokens from the same budget —
+# needs a much higher ceiling so the actual JSON output isn't truncated.
+_MAX_TOKENS_TRINITY = int(os.getenv("AI_MAX_TOKENS_TRINITY", "4096"))
 _TIMEOUT = 55.0
 
 # Sweep model: Trinity via OpenRouter (4.5x cheaper than Haiku)
@@ -164,6 +167,11 @@ Reasoning rules:
 Reason from raw numbers first, validate against labels second.
 - If the token is explicitly marked as launchpad-only / pre-DEX, you MUST NOT describe it as a DEX liquidity rug unless direct DEX-pool evidence is provided.
 - For pre-DEX launchpad tokens, zero deployer balance or absent DEX pairs are NOT proof of a sell, LP drain, or rug by themselves.
+- If the data includes an Intelligence Brief with prior investigations of this deployer or operator, \
+you MUST reference that knowledge explicitly in your narrative and conviction_chain. State what you \
+remember (e.g. "This deployer has launched 12 tokens previously, 8 of which rugged") and how it \
+shapes your current assessment. Fill the memory_context field with a concise summary of what \
+intelligence you used and how it affected your risk_score.
 - If signals conflict, explicitly address the conflict in conviction_chain.
 - conviction_chain is mandatory — if data is sparse, state what the data cannot confirm and why.\
 """
@@ -232,6 +240,10 @@ _FORENSIC_TOOL = {
             "operator_hypothesis": {
                 "type": ["string", "null"],
                 "description": "3 sentences: (1) WHO via fingerprint; (2) WHAT playbook vs prior ops; (3) distinguishing factor from legit. Null if insufficient data. Written in plain English accessible to a non-technical investor.",
+            },
+            "memory_context": {
+                "type": ["string", "null"],
+                "description": "What you remember about this deployer/operator from the Intelligence Brief and how it influenced your verdict. Reference specific prior episodes, rug rates, or patterns. Null if first encounter or no Intelligence Brief provided.",
             },
         },
         "required": [
@@ -538,6 +550,7 @@ async def analyze_token(
 
     # ── Memory brief (episodic + entity knowledge) ─────────────────────────
     _memory_brief = ""
+    _memory_meta: dict = {"memory_depth": "first_encounter", "deployer_episode_count": 0}
     try:
         from .memory_service import build_memory_brief
         _deployer = _extract_deployer(lineage_result)
@@ -552,7 +565,7 @@ async def analyze_token(
                 _dc = getattr(_cr, "deployer_community", None)
                 if _dc:
                     _comm_id = getattr(_dc, "community_id", None)
-        _memory_brief = await build_memory_brief(
+        _memory_brief, _memory_meta = await build_memory_brief(
             mint, deployer=_deployer, operator_fp=_op_fp, community_id=_comm_id
         )
     except Exception:
@@ -586,7 +599,7 @@ async def analyze_token(
                 _trinity_model = "trinity-large-thinking" if _OPENROUTER_API_KEY.startswith("rcai-") else _SWEEP_MODEL
                 response = await or_client.chat.completions.create(
                     model=_trinity_model,
-                    max_tokens=_MAX_TOKENS,
+                    max_tokens=_MAX_TOKENS_TRINITY,
                     temperature=0,
                     messages=[
                         {"role": "system", "content": _trinity_system},
@@ -594,14 +607,29 @@ async def analyze_token(
                     ],
                 )
                 _call_model = _trinity_model
-                text_content = response.choices[0].message.content or ""
+                _msg = response.choices[0].message
+                text_content = _msg.content or ""
+                # Trinity-thinking may put everything in reasoning_content
+                # and leave content empty (especially on length truncation).
+                if not text_content:
+                    _rc = getattr(_msg, "reasoning_content", None) or ""
+                    if not _rc:
+                        # Also check provider_specific_fields
+                        _psf = getattr(_msg, "provider_specific_fields", None) or {}
+                        _rc = _psf.get("reasoning_content", "")
+                    if _rc:
+                        text_content = _rc
                 _usage = response.usage
+                _finish = response.choices[0].finish_reason or ""
                 logger.info(
-                    "[ai_analyst] %s | model=%s input_tokens=%d output_tokens=%d (Trinity/OpenRouter)",
+                    "[ai_analyst] %s | model=%s input_tokens=%d output_tokens=%d finish=%s (Trinity)",
                     mint[:12], _trinity_model,
                     _usage.prompt_tokens if _usage else 0,
                     _usage.completion_tokens if _usage else 0,
+                    _finish,
                 )
+                if _finish == "length" and not text_content.strip():
+                    logger.warning("[ai_analyst] Trinity response truncated with no content for %s", mint[:12])
                 # Parse JSON from text response
                 result = _parse_response(text_content, mint)
             except Exception as _trinity_exc:
@@ -693,21 +721,37 @@ async def analyze_token(
         result = _sanity_check(result, lineage_result, bundle_report, sol_flow_report)
 
         # ── P0-A2: apply calibration offset from learned rules ────────────────
+        cal_context: dict = {}
         try:
             from .memory_service import get_calibration_offset  # noqa: PLC0415
             cal_context = _build_calibration_context(result, lineage_result)
-            cal_offset = await get_calibration_offset(cal_context)
+            cal_offset, cal_matched = await get_calibration_offset(cal_context)
             if cal_offset != 0:
                 pre_cal = result["risk_score"]
                 result["risk_score"] = max(0, min(100, int(pre_cal + cal_offset)))
                 result["calibration_offset"] = cal_offset
                 result["pre_calibration_score"] = pre_cal
+                result["calibration_applied"] = True
+                result["calibration_rules_matched"] = cal_matched
                 logger.info(
                     "[ai_analyst] calibration: %+.0f applied (%d → %d) for %s",
                     cal_offset, pre_cal, result["risk_score"], mint[:12],
                 )
         except Exception as cal_exc:
             logger.debug("[ai_analyst] calibration skipped: %s", cal_exc)
+
+        # ── P0-A3: prediction band + memory depth ───────────────────────────
+        try:
+            from .memory_service import compute_prediction_band  # noqa: PLC0415
+            band = await compute_prediction_band(
+                deployer_bucket=cal_context.get("deployer_bucket", ""),
+                launch_platform=cal_context.get("launch_platform", ""),
+            )
+            if band["n"] >= 5:
+                result["prediction_band"] = band
+        except Exception:
+            pass
+        result["memory_depth"] = _memory_meta.get("memory_depth", "first_encounter")
 
         # ── P0-B: persist to cache (with stale-while-revalidate window) ──────
         if cache:

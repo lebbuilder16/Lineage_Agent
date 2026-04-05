@@ -10,6 +10,7 @@ import { RiskSparkline } from './RiskSparkline';
 import { RefVsNowPanel } from './RefVsNowPanel';
 import { FlagTimeline } from './FlagTimeline';
 import { flagLabel, flagColor } from '../../lib/flag-helpers';
+import { MemoryBadge } from '../ui/MemoryBadge';
 import { tokens } from '../../theme/tokens';
 import type { Watch, SweepFlag, WatchTimelineResult } from '../../types/api';
 
@@ -26,6 +27,7 @@ interface WatchCardProps {
   onViewDeployer?: (deployer: string) => void;
   onRemove: (id: string) => void;
   onPress: (watch: Watch) => void;
+  memoryDepth?: 'deep' | 'partial' | 'first_encounter';
 }
 
 function TokenAvatar({ uri, symbol, type }: { uri?: string; symbol?: string; type: string }) {
@@ -61,7 +63,7 @@ function RiskBadge({ score }: { score: number }) {
 
 export const WatchCard = memo(function WatchCard({
   item, flags, timeline, timelineLoading, tokenMeta, isExpanded, isUrgent,
-  onToggleExpand, onInvestigate, onViewDeployer, onRemove, onPress,
+  onToggleExpand, onInvestigate, onViewDeployer, onRemove, onPress, memoryDepth,
 }: WatchCardProps) {
   const unreadFlags = flags.filter((f) => !f.read);
   const criticalFlags = unreadFlags.filter((f) => f.severity === 'critical');
@@ -108,6 +110,7 @@ export const WatchCard = memo(function WatchCard({
         )}
 
         {riskScore > 0 && <RiskBadge score={riskScore} />}
+        {memoryDepth && <MemoryBadge depth={memoryDepth} size="sm" />}
 
         {/* Flag pill */}
         {unreadFlags.length > 0 && (

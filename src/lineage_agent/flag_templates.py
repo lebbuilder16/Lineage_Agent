@@ -98,12 +98,9 @@ TEMPLATES: dict[str, list[str]] = {
 
     # ── Risk Escalation ──────────────────────────────────────────────────
     "RISK_ESCALATION": [
-        "Risk jumped from {old} to {new} since last scan",
-        "Elevated since last check — was {old}, now rated {new}",
-        "Risk upgrade since last scan: {old} → {new}",
-        "Worse than last check — risk went from {old} to {new}",
-        "Risk level changed since last scan: {old} → {new}",
-        "Deteriorated: was {old} at last check, now {new}",
+        "Risk jumped from {old} to {new}{reason_suffix}",
+        "Elevated: was {old}, now {new}{reason_suffix}",
+        "Risk escalated: {old} → {new}{reason_suffix}",
     ],
 
     # ── Deployer New Rug ──────────────────────────────────────────────────
@@ -178,12 +175,12 @@ TEMPLATES: dict[str, list[str]] = {
 
     # ── Cumulative SOL Extraction ─────────────────────────────────────────
     "CUMULATIVE_SOL_EXTRACTION": [
-        "{delta:.0f} SOL siphoned since you started watching (was {ref:.0f}, now {now:.0f})",
-        "Ongoing extraction: {delta:.0f} SOL drained since watchlist add",
-        "Capital still flowing out — {delta:.0f} SOL extracted since you added it",
-        "{delta:.0f} more SOL extracted since you started watching · {now:.0f} total",
-        "Drain continues: +{delta:.0f} SOL since watchlist add ({ref:.0f} → {now:.0f})",
-        "Since you added it: {delta:.0f} SOL extracted ({now:.0f} total now)",
+        "{delta:.1f} SOL siphoned since you started watching (was {ref:.1f}, now {now:.1f})",
+        "Ongoing extraction: {delta:.1f} SOL drained since watchlist add",
+        "Capital still flowing out — {delta:.1f} SOL extracted since you added it",
+        "{delta:.1f} more SOL extracted since you started watching · {now:.1f} total",
+        "Drain continues: +{delta:.1f} SOL since watchlist add ({ref:.1f} → {now:.1f})",
+        "Since you added it: {delta:.1f} SOL extracted ({now:.1f} total now)",
     ],
 
     # ── Cross: Deployer Exit + Bundle Active ──────────────────────────────

@@ -731,6 +731,18 @@ export interface components {
             total_rugs: number;
             /** Estimated Extracted Usd */
             estimated_extracted_usd: number;
+            /**
+             * Total Sol Extracted
+             * @description Real SOL extracted from on-chain sol_flows
+             * @default 0
+             */
+            total_sol_extracted: number;
+            /**
+             * Narrative
+             * @description Human-readable cartel summary for the mobile app
+             * @default
+             */
+            narrative: string;
             /** Active Since */
             active_since?: string | null;
             /**
@@ -760,7 +772,7 @@ export interface components {
              * Signal Type
              * @enum {string}
              */
-            signal_type: "dna_match" | "sol_transfer" | "timing_sync" | "phash_cluster" | "cross_holding" | "funding_link" | "shared_lp" | "sniper_ring";
+            signal_type: "dna_match" | "sol_transfer" | "timing_sync" | "phash_cluster" | "cross_holding" | "funding_link" | "shared_lp" | "sniper_ring" | "common_funder" | "profit_convergence" | "capital_recycling" | "temporal_fingerprint" | "compute_budget_fp";
             /** Signal Strength */
             signal_strength: number;
             /** Evidence */
@@ -776,6 +788,17 @@ export interface components {
             /** Mint */
             mint: string;
             deployer_community?: components["schemas"]["CartelCommunity"] | null;
+            /**
+             * Deployer Confidence
+             * @description How strong is this specific deployer's link to the cartel (direct edges only)
+             * @default none
+             * @enum {string}
+             */
+            deployer_confidence: "high" | "medium" | "low" | "none";
+            /** Deployer Direct Signals */
+            deployer_direct_signals: string[];
+            /** Deployer Direct Edge Count */
+            deployer_direct_edge_count: number;
         };
         /** ChatMessage */
         ChatMessage: {

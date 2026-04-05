@@ -87,8 +87,12 @@ export default function TokenScreen() {
     } catch (err) {
       setWatching(false); submitting.current = false;
       const msg = err instanceof Error ? err.message : '';
-      if (msg.includes('409') || msg.includes('already')) setWatching(true);
-      else showToast('Failed to watch token');
+      if (msg.includes('409') || msg.includes('already')) { setWatching(true); return; }
+      // Tier-limit error → show message + navigate to paywall
+      const { handleTierError } = require('../../src/lib/tier-error');
+      if (!handleTierError(err, showToast)) {
+        showToast('Failed to watch token', 'error');
+      }
     }
   };
 

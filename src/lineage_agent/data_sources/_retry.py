@@ -17,6 +17,10 @@ import httpx
 logger = logging.getLogger(__name__)
 
 
+class MethodBlockedError(Exception):
+    """Raised when an RPC endpoint returns 403 (method blocked, not a transient failure)."""
+
+
 def _parse_retry_after(resp: httpx.Response, default: float) -> float:
     """Extract wait time from a ``Retry-After`` header, or use *default*.
 
@@ -100,7 +104,7 @@ async def async_http_post_json(
                 continue
             if resp.status_code == 403:
                 logger.warning("%s 403 for %s – endpoint may block this method", label, url)
-                return None
+                raise MethodBlockedError(f"{label} 403: method blocked by {url}")
             resp.raise_for_status()
             body = resp.json()
             if "error" in body:

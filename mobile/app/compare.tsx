@@ -15,6 +15,7 @@ import { GlassCard } from '../src/components/ui/GlassCard';
 import { GaugeRing } from '../src/components/ui/GaugeRing';
 import { HapticButton } from '../src/components/ui/HapticButton';
 import { SkeletonBlock } from '../src/components/ui/SkeletonLoader';
+import { FeatureGate } from '../src/components/ui/FeatureGate';
 import { useCompareTokens } from '../src/lib/query';
 import { tokens } from '../src/theme/tokens';
 
@@ -64,6 +65,7 @@ export default function CompareScreen() {
         </View>
 
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+          <FeatureGate feature="Compare Tokens" requiredPlan="pro">
           {/* Inputs */}
           <GlassCard>
             <Text style={styles.inputLabel}>Token A</Text>
@@ -187,6 +189,7 @@ export default function CompareScreen() {
               </View>
             </>
           )}
+          </FeatureGate>
         </ScrollView>
       </View>
     </View>

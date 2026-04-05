@@ -408,4 +408,10 @@ export interface AgentVerdict {
   key_findings: string[];
   conviction_chain: string;
   operator_hypothesis: string | null;
+  // Memory intelligence (Palier 4)
+  memory_depth?: 'deep' | 'partial' | 'first_encounter';
+  memory_context?: string | null;
+  prediction_band?: { low: number; high: number; n: number };
+  calibration_applied?: boolean;
+  calibration_offset?: number;
 }

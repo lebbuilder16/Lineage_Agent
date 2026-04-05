@@ -20,7 +20,7 @@ from ..circuit_breaker import CircuitBreaker, register
 from ..data_sources.birdeye import BirdeyeClient
 from ..data_sources.dexscreener import DexScreenerClient
 from ..data_sources.jupiter import JupiterClient
-from ..data_sources.solana_rpc import SolanaRpcClient
+from ..data_sources.solana_rpc import RpcEndpoint, SolanaRpcClient
 from config import (
     CACHE_BACKEND,
     CACHE_SQLITE_PATH,
@@ -30,6 +30,7 @@ from config import (
     DEXSCREENER_BASE_URL,
     REQUEST_TIMEOUT,
     SOLANA_RPC_ENDPOINT,
+    SOLANA_RPC_FALLBACKS,
 )
 
 logger = logging.getLogger(__name__)
@@ -102,13 +103,37 @@ def get_birdeye_client() -> BirdeyeClient:
     return _birdeye_client
 
 
+def _build_fallback_endpoints() -> list[RpcEndpoint]:
+    """Parse SOLANA_RPC_FALLBACKS into RpcEndpoint instances."""
+    raw = SOLANA_RPC_FALLBACKS.strip()
+    if not raw:
+        return []
+    endpoints: list[RpcEndpoint] = []
+    for i, url in enumerate(raw.split(","), start=1):
+        url = url.strip()
+        if not url:
+            continue
+        cb = register(
+            CircuitBreaker(
+                f"solana_rpc_fallback_{i}",
+                failure_threshold=CB_FAILURE_THRESHOLD,
+                recovery_timeout=CB_RECOVERY_TIMEOUT,
+            )
+        )
+        endpoints.append(RpcEndpoint(url=url, circuit_breaker=cb))
+        logger.info("RPC fallback #%d registered: %s (DAS=%s)", i, url[:40] + "…", endpoints[-1].supports_das)
+    return endpoints
+
+
 def get_rpc_client() -> SolanaRpcClient:
     global _rpc_client
     if _rpc_client is None:
+        fallbacks = _build_fallback_endpoints()
         _rpc_client = SolanaRpcClient(
             endpoint=SOLANA_RPC_ENDPOINT,
             timeout=REQUEST_TIMEOUT,
             circuit_breaker=cb_solana_rpc,
+            fallback_endpoints=fallbacks,
         )
     return _rpc_client
 
@@ -134,9 +159,14 @@ def get_img_client() -> httpx.AsyncClient:
 async def init_clients() -> None:
     """Eagerly create the singleton HTTP clients (called at startup)."""
     get_dex_client()
-    get_rpc_client()
+    rpc = get_rpc_client()
     get_jup_client()
     get_img_client()
+    # Probe RPC endpoints and pre-open circuit breakers for dead ones
+    try:
+        await rpc.health_check()
+    except Exception:
+        logger.warning("[startup] RPC health probe failed — will detect reactively")
 
 
 async def close_clients() -> None:
