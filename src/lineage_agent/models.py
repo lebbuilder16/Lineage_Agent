@@ -1157,12 +1157,12 @@ class GlobalStats(BaseModel):
 
     tokens_scanned_24h: int = Field(0, description="Distinct token mints recorded")
     tokens_rugged_24h: int = Field(0, description="Tokens confirmed rugged")
-    rug_rate_24h_pct: float = Field(0.0, ge=0.0, le=100.0, description="rug / scanned × 100")
+    rug_rate_24h_pct: float = Field(0.0, ge=0.0, description="rug / scanned × 100")
     tokens_negative_outcomes_24h: int = Field(
         0, description="Tokens with any negative outcome (rug + suspected) in 24 h"
     )
     negative_outcome_rate_24h_pct: float = Field(
-        0.0, ge=0.0, le=100.0,
+        0.0, ge=0.0,
         description="negative outcomes / scanned × 100",
     )
     active_deployers_24h: int = Field(0, description="Distinct deployer wallets active")
