@@ -49,7 +49,7 @@ from .utils import parse_datetime
 logger = logging.getLogger(__name__)
 
 _MIN_TOKENS_FOR_CARTEL_SCAN = 2
-_SWEEP_SEM = asyncio.Semaphore(8)  # bound concurrent RPC calls during sweep
+_SWEEP_SEM = asyncio.Semaphore(4)  # reduced from 8 to avoid Helius 429s
 _TIMING_SYNC_WINDOW_SECONDS = 1800   # 30 minutes
 _PHASH_HAMMING_THRESHOLD = 8         # out of 64 bits → ≥ 87.5% similarity
 _MIN_TRANSFER_SOL = 0.1              # minimum SOL transfer to count as signal

@@ -122,7 +122,7 @@ def _pump_bonding_curve_pda(mint: str) -> Optional[str]:
 
 # Retry configuration
 _MAX_RETRIES = 3
-_BACKOFF_BASE = 1.5  # seconds
+_BACKOFF_BASE = 2.0  # seconds (increased from 1.5 to reduce 429 cascades)
 
 # Addresses that are programs / burned authorities, NOT user wallets.
 # When extracting the deployer from a transaction's accountKeys we skip these

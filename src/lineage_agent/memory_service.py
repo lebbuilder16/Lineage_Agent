@@ -143,9 +143,112 @@ async def record_episode(
         if operator_fp:
             await _update_entity_knowledge(db, "operator", operator_fp)
 
+        # Record entity links (deployer ↔ operator ↔ community graph)
+        await _record_entity_links(db, deployer, operator_fp, community_id, mint)
+
         logger.debug("[memory] episode recorded: %s (score=%d)", mint[:12], risk_score)
     except Exception as exc:
         logger.debug("[memory] record_episode error: %s", exc)
+
+
+async def _record_entity_links(
+    db, deployer: Optional[str], operator_fp: Optional[str],
+    community_id: Optional[str], mint: str,
+) -> None:
+    """Record links between deployer, operator, and community in the entity graph."""
+    now = time.time()
+    links = []
+    if deployer and operator_fp:
+        links.append(("deployer", deployer, "operator", operator_fp, "operates_as"))
+    if deployer and community_id:
+        links.append(("deployer", deployer, "community", community_id, "member_of"))
+    if operator_fp and community_id:
+        links.append(("operator", operator_fp, "community", community_id, "linked_to"))
+    for a_type, a_id, b_type, b_id, link_type in links:
+        try:
+            await db.execute(
+                "INSERT OR IGNORE INTO entity_links "
+                "(entity_a_type, entity_a_id, entity_b_type, entity_b_id, link_type, mint, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (a_type, a_id, b_type, b_id, link_type, mint, now),
+            )
+        except Exception:
+            pass
+
+
+async def get_entity_graph(entity_type: str, entity_id: str) -> dict:
+    """Get the 2-hop entity graph for a deployer/operator/community.
+
+    Returns {nodes: [{type, id, profile}], edges: [{from, to, link_type}]}.
+    """
+    try:
+        from .data_sources._clients import cache as _cache
+        from .cache import SQLiteCache
+        if not isinstance(_cache, SQLiteCache):
+            return {"nodes": [], "edges": []}
+
+        db = await _cache._get_conn()
+
+        # Hop 1: direct links
+        cursor = await db.execute(
+            "SELECT entity_a_type, entity_a_id, entity_b_type, entity_b_id, link_type "
+            "FROM entity_links WHERE "
+            "(entity_a_type = ? AND entity_a_id = ?) OR (entity_b_type = ? AND entity_b_id = ?)",
+            (entity_type, entity_id, entity_type, entity_id),
+        )
+        hop1 = await cursor.fetchall()
+
+        nodes: dict[str, dict] = {f"{entity_type}:{entity_id}": {"type": entity_type, "id": entity_id}}
+        edges: list[dict] = []
+        hop1_ids: list[tuple[str, str]] = []
+
+        for a_type, a_id, b_type, b_id, link_type in hop1:
+            nodes[f"{a_type}:{a_id}"] = {"type": a_type, "id": a_id}
+            nodes[f"{b_type}:{b_id}"] = {"type": b_type, "id": b_id}
+            edges.append({"from": f"{a_type}:{a_id}", "to": f"{b_type}:{b_id}", "link_type": link_type})
+            # Collect hop1 neighbors for hop2
+            if a_type == entity_type and a_id == entity_id:
+                hop1_ids.append((b_type, b_id))
+            else:
+                hop1_ids.append((a_type, a_id))
+
+        # Hop 2: links from hop1 neighbors (limited)
+        for h_type, h_id in hop1_ids[:10]:
+            cursor = await db.execute(
+                "SELECT entity_a_type, entity_a_id, entity_b_type, entity_b_id, link_type "
+                "FROM entity_links WHERE "
+                "(entity_a_type = ? AND entity_a_id = ?) OR (entity_b_type = ? AND entity_b_id = ?) "
+                "LIMIT 5",
+                (h_type, h_id, h_type, h_id),
+            )
+            for a_type, a_id, b_type, b_id, link_type in await cursor.fetchall():
+                nodes[f"{a_type}:{a_id}"] = {"type": a_type, "id": a_id}
+                nodes[f"{b_type}:{b_id}"] = {"type": b_type, "id": b_id}
+                edge_key = f"{a_type}:{a_id}->{b_type}:{b_id}"
+                if not any(e.get("_key") == edge_key for e in edges):
+                    edges.append({"from": f"{a_type}:{a_id}", "to": f"{b_type}:{b_id}", "link_type": link_type, "_key": edge_key})
+
+        # Enrich nodes with entity_knowledge profiles
+        for key, node in nodes.items():
+            if node["type"] in ("deployer", "operator"):
+                cursor = await db.execute(
+                    "SELECT total_tokens, total_rugs, avg_risk_score "
+                    "FROM entity_knowledge WHERE entity_type = ? AND entity_id = ?",
+                    (node["type"], node["id"]),
+                )
+                row = await cursor.fetchone()
+                if row:
+                    node["total_tokens"] = row[0]
+                    node["total_rugs"] = row[1]
+                    node["avg_risk"] = row[2]
+
+        # Clean up internal _key from edges
+        for e in edges:
+            e.pop("_key", None)
+
+        return {"nodes": list(nodes.values()), "edges": edges}
+    except Exception:
+        return {"nodes": [], "edges": []}
 
 
 def _extract_signals(scan_data: dict) -> dict:
@@ -862,6 +965,34 @@ async def build_memory_brief(
                     f"### Cartel Network ({community_id[:12]}..)\n"
                     f"{len(cartel_rows)} linked deployers:\n" + "\n".join(lines)
                 )
+
+        # ── Entity graph — cross-entity links ────────────────────────
+        if deployer:
+            cursor = await db.execute(
+                "SELECT DISTINCT entity_b_type, entity_b_id, link_type "
+                "FROM entity_links WHERE entity_a_type = 'deployer' AND entity_a_id = ? "
+                "UNION SELECT DISTINCT entity_a_type, entity_a_id, link_type "
+                "FROM entity_links WHERE entity_b_type = 'deployer' AND entity_b_id = ? "
+                "LIMIT 10",
+                (deployer, deployer),
+            )
+            link_rows = await cursor.fetchall()
+            if link_rows:
+                operators = [(r[1], r[2]) for r in link_rows if r[0] == "operator"]
+                communities = [(r[1], r[2]) for r in link_rows if r[0] == "community"]
+                other_deployers = [(r[1], r[2]) for r in link_rows if r[0] == "deployer"]
+                graph_lines = []
+                if operators:
+                    graph_lines.append(f"  - Operates under {len(operators)} operator fingerprint(s)")
+                if communities:
+                    graph_lines.append(f"  - Member of {len(communities)} community ring(s)")
+                if other_deployers:
+                    graph_lines.append(f"  - Linked to {len(other_deployers)} other deployer(s)")
+                if graph_lines:
+                    total_linked = len(operators) + len(communities) + len(other_deployers)
+                    sections.append(
+                        f"### Entity Network ({total_linked} links)\n" + "\n".join(graph_lines)
+                    )
 
         # ── Narrative clusters ─────────────────────────────────────────
         if deployer:

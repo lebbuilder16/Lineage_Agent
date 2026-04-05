@@ -74,7 +74,7 @@ _MAX_PAGINATION_PAGES = 20
 # Concurrency throttle — max parallel RPC calls from the bundle tracker.
 # 8 stays within Helius Growth plan limits (50 req/s) while allowing
 # pre/post-sell analyses + Phase-1 TX decoding to complete faster.
-_RPC_CONCURRENCY = 8
+_RPC_CONCURRENCY = 4  # reduced from 8 to avoid Helius 429s
 # Max bundle-window TXs to decode in Phase 1.  The actual Jito bundle lands
 # in the first 2–4 slots; we decode the _MAX_BUNDLE_WALLETS*4 OLDEST TXs
 # in the window (true bundle buys) and skip later regular traders.

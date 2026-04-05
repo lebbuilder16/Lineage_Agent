@@ -954,7 +954,25 @@ class SQLiteCache:
         """)
         await db.execute("CREATE INDEX IF NOT EXISTS idx_aa_entity ON anomaly_alerts(entity_type, entity_id, resolved)")
 
-        # Layer 6: Narrative clusters — cross-deployer thematic wave detection
+        # Layer 6b: Entity links — deployer ↔ operator ↔ community graph
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS entity_links (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                entity_a_type   TEXT NOT NULL,
+                entity_a_id     TEXT NOT NULL,
+                entity_b_type   TEXT NOT NULL,
+                entity_b_id     TEXT NOT NULL,
+                link_type       TEXT NOT NULL,
+                confidence      REAL NOT NULL DEFAULT 1.0,
+                mint            TEXT,
+                created_at      REAL NOT NULL,
+                UNIQUE(entity_a_type, entity_a_id, entity_b_type, entity_b_id, link_type)
+            )
+        """)
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_el_a ON entity_links(entity_a_type, entity_a_id)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_el_b ON entity_links(entity_b_type, entity_b_id)")
+
+        # Layer 7: Narrative clusters — cross-deployer thematic wave detection
         await db.execute("""
             CREATE TABLE IF NOT EXISTS narrative_clusters (
                 id              INTEGER PRIMARY KEY AUTOINCREMENT,
