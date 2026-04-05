@@ -17,6 +17,7 @@ import { useAuthStore } from '../../store/auth';
 import { addWatch as apiAddWatch, deleteWatch as apiDeleteWatch } from '../../lib/api';
 import { GlassCard } from '../ui/GlassCard';
 import { RiskBadge } from '../ui/RiskBadge';
+import { MemoryBadge } from '../ui/MemoryBadge';
 import { GaugeRing } from '../ui/GaugeRing';
 import { HapticButton } from '../ui/HapticButton';
 import { tokens } from '../../theme/tokens';
@@ -157,6 +158,18 @@ export function VerdictHero() {
               </View>
             );
           })()}
+          {/* Prediction band — confidence interval */}
+          {verdict.prediction_band && verdict.prediction_band.n >= 5 && (
+            <View style={[styles.confBadge, { backgroundColor: `${tokens.secondary}12`, borderColor: `${tokens.secondary}30` }]}>
+              <Text style={[styles.confText, { color: tokens.secondary }]}>
+                RANGE {verdict.prediction_band.low}–{verdict.prediction_band.high} ({verdict.prediction_band.n} similar)
+              </Text>
+            </View>
+          )}
+          {/* Memory depth badge */}
+          {verdict.memory_depth && (
+            <MemoryBadge depth={verdict.memory_depth} size="md" />
+          )}
         </View>
         <Text style={styles.verdictSummary}>{verdict.verdict_summary}</Text>
 
@@ -171,6 +184,10 @@ export function VerdictHero() {
 
         {verdict.conviction_chain ? (
           <Text style={styles.convictionText}>{verdict.conviction_chain}</Text>
+        ) : null}
+
+        {verdict.memory_context ? (
+          <Text style={styles.memoryContextText}>{verdict.memory_context}</Text>
         ) : null}
 
         <View style={styles.verdictActions}>
@@ -255,7 +272,11 @@ const styles = StyleSheet.create({
   },
   convictionText: {
     fontFamily: 'Lexend-Regular', fontSize: tokens.font.small,
-    color: tokens.white60, fontStyle: 'italic', marginBottom: 16, lineHeight: 20,
+    color: tokens.white60, fontStyle: 'italic', marginBottom: 12, lineHeight: 20,
+  },
+  memoryContextText: {
+    fontFamily: 'Lexend-Regular', fontSize: tokens.font.small,
+    color: tokens.secondary, marginBottom: 16, lineHeight: 20,
   },
   verdictActions: {
     flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 16,

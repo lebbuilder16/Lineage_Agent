@@ -1586,13 +1586,21 @@ async def cleanup_memory_tables() -> dict[str, int]:
         now = time.time()
         counts: dict[str, int] = {}
 
-        # 1. Old episodes (keep entity_knowledge which is already decay-weighted)
+        # 1a. Old episodes (keep entity_knowledge which is already decay-weighted)
         cutoff_episodes = now - (_EPISODE_TTL_DAYS * 86400)
         cursor = await db.execute(
             "DELETE FROM investigation_episodes WHERE created_at < ?",
             (cutoff_episodes,),
         )
         counts["episodes"] = cursor.rowcount
+
+        # 1b. Non-latest episodes older than 30 days (append-only storage management)
+        cutoff_non_latest = now - (30 * 86400)
+        cursor = await db.execute(
+            "DELETE FROM investigation_episodes WHERE is_latest = 0 AND created_at < ?",
+            (cutoff_non_latest,),
+        )
+        counts["episodes_non_latest"] = cursor.rowcount
 
         # 2. Inactive calibration rules older than 30 days
         cutoff_rules = now - (_INACTIVE_RULE_TTL_DAYS * 86400)

@@ -56,6 +56,7 @@ htmlcov/
 .pytest_cache/
 coverage.xml
 *.cover
+tests/compare_results.json
 
 # Docker
 docker-compose.override.yml
