@@ -707,6 +707,61 @@ async def admin_sweep_status() -> dict:
     }
 
 
+@app.get("/admin/sweep-dashboard", tags=["system"])
+async def admin_sweep_dashboard() -> dict:
+    """Aggregated sweep health, flag quality, and RPC provider stats."""
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+    db = await _cache._get_conn()
+    now = time.time()
+    _24h = now - 86400
+
+    # Rescans in last 24h
+    cur = await db.execute(
+        "SELECT COUNT(*) FROM watch_snapshots WHERE scanned_at > ?", (_24h,)
+    )
+    rescans_24h = (await cur.fetchone())[0]
+
+    # Flags in last 24h by severity
+    cur = await db.execute(
+        "SELECT severity, COUNT(*) FROM sweep_flags "
+        "WHERE created_at > ? AND flag_type NOT LIKE ? GROUP BY severity",
+        (_24h, "_%"),
+    )
+    flags_24h = {row[0]: row[1] for row in await cur.fetchall()}
+
+    # Top flag types (last 24h)
+    cur = await db.execute(
+        "SELECT flag_type, COUNT(*) as cnt FROM sweep_flags "
+        "WHERE created_at > ? AND flag_type NOT LIKE ? "
+        "GROUP BY flag_type ORDER BY cnt DESC LIMIT 10",
+        (_24h, "_%"),
+    )
+    top_flags = [{"type": r[0], "count": r[1]} for r in await cur.fetchall()]
+
+    # Flag feedback stats
+    feedback = {"useful": 0, "not_useful": 0, "snoozed": 0}
+    try:
+        cur = await db.execute(
+            "SELECT rating, COUNT(*) FROM flag_feedback GROUP BY rating"
+        )
+        for row in await cur.fetchall():
+            feedback[row[0]] = row[1]
+    except Exception:
+        pass  # table may not exist yet
+
+    # RPC provider status
+    rpc_status = cb_statuses()
+
+    return {
+        "rescans_24h": rescans_24h,
+        "flags_24h": flags_24h,
+        "top_flag_types": top_flags,
+        "flag_feedback": feedback,
+        "rpc_providers": rpc_status,
+        "watched_tokens": (await (await db.execute("SELECT COUNT(*) FROM user_watches")).fetchone())[0],
+    }
+
+
 @app.get("/admin/cartel-forensics/{deployer}", tags=["system"])
 async def admin_cartel_forensics(deployer: str) -> dict:
     """Trigger forensic proof signals for a deployer (no full sweep needed)."""
@@ -4248,6 +4303,40 @@ async def mark_flag_read(flag_id: int, request: Request):
     return {"ok": True}
 
 
+@app.post("/agent/flags/{flag_id}/feedback", tags=["agent"])
+async def submit_flag_feedback(flag_id: int, request: Request):
+    """Rate a sweep flag as useful/not_useful, or snooze its flag_type for N hours."""
+    user = await _get_current_user(request)
+    body = await request.json()
+    rating = body.get("rating", "")  # useful | not_useful | snoozed
+    snooze_hours = body.get("snooze_hours", 24)
+
+    if rating not in ("useful", "not_useful", "snoozed"):
+        raise HTTPException(status_code=400, detail="rating must be useful, not_useful, or snoozed")
+
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+    db = await _cache._get_conn()
+
+    snooze_until = None
+    if rating == "snoozed":
+        snooze_until = time.time() + snooze_hours * 3600
+
+    await db.execute(
+        """INSERT INTO flag_feedback (flag_id, user_id, rating, snooze_until, created_at)
+           VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT(flag_id, user_id) DO UPDATE SET rating=?, snooze_until=?, created_at=?""",
+        (flag_id, user["id"], rating, snooze_until, time.time(),
+         rating, snooze_until, time.time()),
+    )
+    # Also mark as read
+    await db.execute(
+        "UPDATE sweep_flags SET read = 1 WHERE id = ? AND user_id = ?",
+        (flag_id, user["id"]),
+    )
+    await db.commit()
+    return {"ok": True}
+
+
 @app.get("/agent/watch-timeline/{mint}", tags=["agent"])
 async def get_watch_timeline(mint: str, request: Request):
     """Return full timeline for a watched token: reference, snapshots, flags, investigation."""
@@ -5214,73 +5303,13 @@ async def _watchlist_sweep_loop():
                 if _wi > 0:
                     await asyncio.sleep(15)  # stagger rescans — 15s avoids RPC saturation
                 _heartbeat("sweep")  # keep watchdog alive between watches
-                _t0 = time.monotonic()
                 try:
-                    result = await run_single_rescan(watch_id, user_id, _cache, plan=user_plan)
-                    from .metrics import record_rescan, record_sweep_flags  # noqa: PLC0415
-                    _dur = time.monotonic() - _t0
-                    if not result:
-                        record_rescan("empty", _dur)
-                        continue
-                    record_rescan("success", _dur)
-                    for _f in result.get("flags", []):
-                        record_sweep_flags(_f.get("severity", "info"))
-
-                    # Enqueue critical/warning flags for async delivery (non-blocking)
-                    from .alert_service import enqueue_alert  # noqa: PLC0415
-                    for flag in result.get("flags", []):
-                        if flag["severity"] in ("critical", "warning"):
-                            _flag_title = f"{'🔴' if flag['severity'] == 'critical' else '⚠️'} {flag['title']}"
-                            _fd = {}
-                            try:
-                                _fd = json.loads(flag.get("detail", "{}")) if isinstance(flag.get("detail"), str) else (flag.get("detail") or {})
-                            except Exception:
-                                pass
-                            # Look up FCM token for direct push
-                            _fcm = None
-                            try:
-                                _u_cur = await rdb.execute(
-                                    "SELECT fcm_token FROM users WHERE id = ? AND fcm_token IS NOT NULL",
-                                    (user_id,),
-                                )
-                                _u_row = await _u_cur.fetchone()
-                                if _u_row and _u_row[0]:
-                                    _fcm = _u_row[0]
-                            except Exception:
-                                pass
-                            await enqueue_alert({
-                                "type": "sweep_flag",
-                                "alert_type": flag["flag_type"],
-                                "title": _flag_title,
-                                "message": flag["title"],
-                                "body": flag["title"],
-                                "mint": result["mint"],
-                                "token_name": _fd.get("token_name") or _fd.get("name") or result["mint"][:8],
-                                "image_uri": _fd.get("image_uri") or None,
-                                "risk_score": result.get("new_score", 0),
-                                "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                                "id": f"sweep-{result['mint'][:8]}-{flag['flag_type']}-{int(time.time())}",
-                                "read": False,
-                                "flag_type": flag["flag_type"],
-                                "urgency": "high" if flag["severity"] == "critical" else "normal",
-                            }, user_id=user_id, fcm_token=_fcm)
-
-                    if result.get("escalated"):
-                        # Auto-investigate if user enabled it
-                        cursor2 = await rdb.execute(
-                            "SELECT auto_investigate FROM agent_prefs WHERE user_id = ?",
-                            (user_id,),
-                        )
-                        pref = await cursor2.fetchone()
-                        if pref and pref[0]:
-                            asyncio.create_task(
-                                _auto_investigate_token(result["mint"], user_id, _cache)
-                            )
-                except asyncio.TimeoutError:
-                    record_rescan("timeout", time.monotonic() - _t0)
-                    logger.warning("[sweep] watch %d timed out", watch_id)
+                    from .task_queue import enqueue_task, task_rescan_watch  # noqa: PLC0415
+                    enqueued = await enqueue_task(task_rescan_watch, watch_id, user_id, user_plan)
+                    if not enqueued:
+                        # Redis unavailable — run inline (same behavior as before)
+                        await task_rescan_watch({}, watch_id, user_id, user_plan)
                 except Exception as exc:
-                    record_rescan("error", time.monotonic() - _t0)
                     logger.warning("[sweep] watch %d failed: %s", watch_id, exc)
         except Exception as exc:
             logger.exception("[sweep] loop error: %s", exc)

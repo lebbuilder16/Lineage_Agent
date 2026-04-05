@@ -1135,6 +1135,20 @@ async def run_single_rescan(watch_id: int, user_id: int, cache, *, skip_ai: bool
 
         flags = [f for f in flags if f["flag_type"] not in _recent_types]
 
+        # Snooze filter: skip flag_types that the user has snoozed
+        try:
+            _snooze_cursor = await db.execute(
+                "SELECT DISTINCT sf.flag_type FROM flag_feedback ff "
+                "JOIN sweep_flags sf ON ff.flag_id = sf.id "
+                "WHERE ff.user_id = ? AND ff.rating = 'snoozed' AND ff.snooze_until > ?",
+                (user_id, now),
+            )
+            _snoozed_types = {r[0] for r in await _snooze_cursor.fetchall()}
+            if _snoozed_types:
+                flags = [f for f in flags if f["flag_type"] not in _snoozed_types]
+        except Exception:
+            pass  # table may not exist yet on older DBs
+
         # Store flags + new forensic snapshot
         for _attempt in range(3):
             try:

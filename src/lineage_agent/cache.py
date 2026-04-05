@@ -747,6 +747,24 @@ class SQLiteCache:
             "CREATE INDEX IF NOT EXISTS idx_sf_mint ON sweep_flags(mint, created_at DESC)"
         )
 
+        # ── Flag feedback (user ratings on sweep flags)
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS flag_feedback (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                flag_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                rating TEXT NOT NULL,
+                snooze_until REAL,
+                created_at REAL NOT NULL,
+                UNIQUE(flag_id, user_id)
+            )
+            """
+        )
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_ff_user ON flag_feedback(user_id, created_at DESC)"
+        )
+
         # ---------------------------------------------------------------
         # Phase 5 — agent preferences (agentic UX)
         # ---------------------------------------------------------------
