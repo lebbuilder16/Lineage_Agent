@@ -19,7 +19,7 @@ from typing import Any, Optional
 
 import httpx
 
-from ._retry import async_http_post_json
+from ._retry import async_http_post_json, MethodBlockedError
 from ..circuit_breaker import CircuitBreaker, CircuitOpenError, register
 
 
@@ -1032,6 +1032,15 @@ class SolanaRpcClient:
                         )
                         return None
                     continue
+                except MethodBlockedError:
+                    # 403 = method blocked by this provider, skip to next
+                    # without counting as a CB failure (undo the failure)
+                    async with ep.circuit_breaker._lock:
+                        if ep.circuit_breaker._failure_count > 0:
+                            ep.circuit_breaker._failure_count -= 1
+                    if is_last:
+                        return None
+                    continue
                 except Exception:
                     if is_last:
                         return None
@@ -1039,6 +1048,10 @@ class SolanaRpcClient:
             else:
                 try:
                     return await _do()
+                except MethodBlockedError:
+                    if is_last:
+                        return None
+                    continue
                 except Exception:
                     if is_last:
                         return None
