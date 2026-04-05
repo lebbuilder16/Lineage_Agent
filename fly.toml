@@ -22,6 +22,10 @@ primary_region = 'ams'
 
 [processes]
   app = "python -m uvicorn lineage_agent.api:app --host 0.0.0.0 --port 8080 --app-dir src --workers 1"
+  # worker = "python -m arq lineage_agent.task_queue.WorkerSettings"
+  # NOTE: Enable worker process after migrating from SQLite to Postgres.
+  # SQLite requires app + worker on the same machine (same /data mount).
+  # Until then, arq tasks run inline via asyncio.create_task fallback.
 
 [http_service]
   internal_port = 8080

@@ -5304,11 +5304,10 @@ async def _watchlist_sweep_loop():
                     await asyncio.sleep(15)  # stagger rescans — 15s avoids RPC saturation
                 _heartbeat("sweep")  # keep watchdog alive between watches
                 try:
-                    from .task_queue import enqueue_task, task_rescan_watch  # noqa: PLC0415
-                    enqueued = await enqueue_task(task_rescan_watch, watch_id, user_id, user_plan)
-                    if not enqueued:
-                        # Redis unavailable — run inline (same behavior as before)
-                        await task_rescan_watch({}, watch_id, user_id, user_plan)
+                    # Run rescan inline (arq worker process not yet deployed —
+                    # enable enqueue_task when worker runs as separate Fly process)
+                    from .task_queue import task_rescan_watch  # noqa: PLC0415
+                    await task_rescan_watch({}, watch_id, user_id, user_plan)
                 except Exception as exc:
                     logger.warning("[sweep] watch %d failed: %s", watch_id, exc)
         except Exception as exc:

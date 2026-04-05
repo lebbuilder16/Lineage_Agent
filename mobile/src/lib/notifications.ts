@@ -35,10 +35,24 @@ export function setupNotificationResponseHandler(): Notifications.Subscription {
     }
 
     if (data.type === 'sweep_flag' && data.mint) {
-      // Deep link to investigate screen for the flagged token
+      // Deep link to watchlist tab — the auto-expand logic in watchlist.tsx
+      // will expand the card for urgent mints automatically
       import('expo-router').then(({ router }) => {
-        router.push(`/investigate/${data.mint}`);
-      }).catch((e) => console.warn('[notifications] deep link to investigate failed', e));
+        router.replace('/(tabs)/watchlist');
+      }).catch((e) => console.warn('[notifications] deep link to watchlist failed', e));
+      // Refresh flags so the new flag appears immediately
+      import('../store/sweep-flags').then(({ useSweepFlagsStore }) => {
+        useSweepFlagsStore.getState().fetchFlags();
+      }).catch(() => {});
+    }
+
+    if (data.type === 'pulse_alert' && data.mint) {
+      import('expo-router').then(({ router }) => {
+        router.replace('/(tabs)/watchlist');
+      }).catch((e) => console.warn('[notifications] deep link to watchlist failed', e));
+      import('../store/sweep-flags').then(({ useSweepFlagsStore }) => {
+        useSweepFlagsStore.getState().fetchFlags();
+      }).catch(() => {});
     }
   });
 }

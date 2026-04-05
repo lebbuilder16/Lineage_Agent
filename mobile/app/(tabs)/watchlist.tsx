@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { router } from 'expo-router';
 import Animated, { FadeInDown, LinearTransition } from 'react-native-reanimated';
-import { Bookmark, Plus, Search, X } from 'lucide-react-native';
+import { Bookmark, Plus, Search, X, BarChart3 } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useIsFocused } from '@react-navigation/native';
 import { GlassCard } from '../../src/components/ui/GlassCard';
@@ -308,6 +308,15 @@ export default function WatchlistScreen() {
           rightAction={
             <View style={styles.headerActions}>
               <Text style={styles.count}>{effectiveWatches?.length ?? 0}</Text>
+              <TouchableOpacity
+                onPress={() => router.push('/sweep-dashboard' as any)}
+                hitSlop={tokens.hitSlop}
+                style={styles.headerBtn}
+                accessibilityRole="button"
+                accessibilityLabel="Sweep dashboard"
+              >
+                <BarChart3 size={18} color={tokens.textTertiary} />
+              </TouchableOpacity>
               <TouchableOpacity
                 onPress={() => setSearchOpen(!searchOpen)}
                 hitSlop={tokens.hitSlop}
