@@ -5204,6 +5204,7 @@ async def _watchlist_sweep_loop():
                     continue  # too soon for this user's preference
                 if _wi > 0:
                     await asyncio.sleep(15)  # stagger rescans — 15s avoids RPC saturation
+                _heartbeat("sweep")  # keep watchdog alive between watches
                 try:
                     result = await run_single_rescan(watch_id, user_id, _cache, plan=user_plan)
                     if not result:
