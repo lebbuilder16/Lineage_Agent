@@ -122,7 +122,19 @@ def _pump_bonding_curve_pda(mint: str) -> Optional[str]:
 
 # Retry configuration
 _MAX_RETRIES = 3
+_MAX_RETRIES_WITH_FALLBACK = 1  # fewer retries when fallback endpoints exist
 _BACKOFF_BASE = 2.0  # seconds (increased from 1.5 to reduce 429 cascades)
+
+# Global RPC concurrency limiter — caps total in-flight calls across ALL services
+_GLOBAL_RPC_SEM: asyncio.Semaphore | None = None
+
+
+def _get_global_sem() -> asyncio.Semaphore:
+    global _GLOBAL_RPC_SEM
+    if _GLOBAL_RPC_SEM is None:
+        from config import MAX_CONCURRENT_RPC
+        _GLOBAL_RPC_SEM = asyncio.Semaphore(MAX_CONCURRENT_RPC)
+    return _GLOBAL_RPC_SEM
 
 # Addresses that are programs / burned authorities, NOT user wallets.
 # When extracting the deployer from a transaction's accountKeys we skip these
@@ -965,6 +977,7 @@ class SolanaRpcClient:
 
         Tries each eligible endpoint in order. If an endpoint's circuit
         breaker is OPEN or the call fails, the next endpoint is attempted.
+        Uses a global semaphore to cap total in-flight RPC calls.
         """
         # TX-level cache for getTransaction (avoids redundant RPC calls)
         _cache_sig: str | None = None
@@ -976,8 +989,10 @@ class SolanaRpcClient:
 
         endpoints = self._eligible_endpoints(method)
         if not endpoints:
-            # No endpoint supports this method (DAS on non-DAS providers)
             return None
+
+        has_fallbacks = len(endpoints) > 1
+        retries = _MAX_RETRIES_WITH_FALLBACK if has_fallbacks else _MAX_RETRIES
 
         self._id_counter += 1
         payload = {
@@ -987,16 +1002,19 @@ class SolanaRpcClient:
             "params": params,
         }
 
+        sem = _get_global_sem()
+
         for i, ep in enumerate(endpoints):
             client = await self._get_client_for(ep)
             is_last = i == len(endpoints) - 1
 
             async def _do(c=client, e=ep) -> Any:
-                result = await async_http_post_json(
-                    c, e.url, json_payload=payload,
-                    max_retries=_MAX_RETRIES, backoff_base=_BACKOFF_BASE,
-                    label=f"Solana RPC ({method})",
-                )
+                async with sem:
+                    result = await async_http_post_json(
+                        c, e.url, json_payload=payload,
+                        max_retries=retries, backoff_base=_BACKOFF_BASE,
+                        label=f"Solana RPC ({method})",
+                    )
                 if result is None:
                     raise httpx.RequestError(f"Solana RPC {method}: all retries exhausted")
                 if _cache_sig and result:
@@ -1012,7 +1030,6 @@ class SolanaRpcClient:
                             "Solana RPC all endpoints OPEN – fast-failing %s", method
                         )
                         return None
-                    # Try next endpoint
                     continue
                 except Exception:
                     if is_last:
@@ -1063,17 +1080,18 @@ class SolanaRpcClient:
             is_last = i == len(endpoints) - 1
 
             async def _do(c=client, e=ep) -> list[Any]:
-                resp = await c.post(
-                    e.url,
-                    json=payloads,
-                    timeout=max(self._timeout, len(calls) * 0.5),
-                )
-                if resp.status_code == 429:
-                    wait = float(resp.headers.get("retry-after", "2"))
-                    await asyncio.sleep(min(wait, 5.0))
+                async with _get_global_sem():
                     resp = await c.post(
-                        e.url, json=payloads, timeout=self._timeout
+                        e.url,
+                        json=payloads,
+                        timeout=max(self._timeout, len(calls) * 0.5),
                     )
+                    if resp.status_code == 429:
+                        wait = float(resp.headers.get("retry-after", "2"))
+                        await asyncio.sleep(min(wait, 5.0))
+                        resp = await c.post(
+                            e.url, json=payloads, timeout=self._timeout
+                        )
                 resp.raise_for_status()
                 body = resp.json()
 
