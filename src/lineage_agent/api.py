@@ -744,7 +744,7 @@ async def admin_memory_stats() -> dict:
     newest_ep = row[1]
 
     cur = await db.execute(
-        "SELECT COUNT(*) FROM investigation_episodes WHERE model != 'heuristic'"
+        "SELECT COUNT(*) FROM investigation_episodes WHERE model NOT LIKE 'heuristic%' AND is_latest = 1"
     )
     ai_episodes = (await cur.fetchone())[0]
 
@@ -4411,7 +4411,7 @@ async def get_agent_insights(request: Request):
         cursor = await db.execute(
             f"SELECT deployer, GROUP_CONCAT(mint) as mints, COUNT(*) as cnt "
             f"FROM investigation_episodes WHERE mint IN ({placeholders}) "
-            f"AND deployer IS NOT NULL AND deployer != '' "
+            f"AND deployer IS NOT NULL AND deployer != '' AND is_latest = 1 "
             f"GROUP BY deployer HAVING cnt > 1",
             tuple(mints),
         )
@@ -4452,7 +4452,7 @@ async def get_agent_insights(request: Request):
         cursor = await db.execute(
             f"SELECT community_id, GROUP_CONCAT(mint) as mints, COUNT(*) as cnt "
             f"FROM investigation_episodes WHERE mint IN ({placeholders}) "
-            f"AND community_id IS NOT NULL AND community_id != '' "
+            f"AND community_id IS NOT NULL AND community_id != '' AND is_latest = 1 "
             f"GROUP BY community_id HAVING cnt > 1",
             tuple(mints),
         )
@@ -4503,7 +4503,7 @@ async def submit_feedback(request: Request):
     )
     # Propagate rating back to the episode so build_memory_brief() can use it
     await db.execute(
-        "UPDATE investigation_episodes SET user_rating = ?, user_note = ? WHERE mint = ?",
+        "UPDATE investigation_episodes SET user_rating = ?, user_note = ? WHERE mint = ? AND is_latest = 1",
         (rating, body.get("note", ""), mint),
     )
     await db.commit()
@@ -4993,7 +4993,7 @@ async def list_memory_entities(request: Request):
         "SELECT DISTINCT ie.deployer, COUNT(*) as cnt "
         "FROM investigation_episodes ie "
         "INNER JOIN investigations inv ON ie.mint = inv.mint AND inv.user_id = ? "
-        "WHERE ie.deployer IS NOT NULL "
+        "WHERE ie.deployer IS NOT NULL AND ie.is_latest = 1 "
         "GROUP BY ie.deployer",
         (user["id"],),
     )

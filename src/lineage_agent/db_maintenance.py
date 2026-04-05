@@ -188,6 +188,15 @@ async def _maintenance_loop() -> None:
             except Exception:
                 logger.debug("memory cleanup skipped")
 
+            # Outcome tracking — check 48h post-mortem for investigated tokens
+            try:
+                from .memory_service import check_episode_outcomes
+                outcomes = await check_episode_outcomes()
+                if outcomes > 0:
+                    logger.info("Outcome check: %d episodes resolved", outcomes)
+            except Exception:
+                logger.debug("outcome check skipped")
+
             # Narrative cluster detection (automated — runs every maintenance cycle)
             try:
                 from .memory_service import detect_narrative_clusters

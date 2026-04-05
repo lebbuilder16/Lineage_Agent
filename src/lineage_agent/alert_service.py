@@ -655,8 +655,28 @@ async def route_alert_to_channels(cache, alert: dict, user_id: int) -> dict:
                     failed.append("discord: no webhook_url")
 
             elif channel == "push":
-                # FCM push — if available
-                routed.append("push")
+                # FCM push via user's registered token
+                cursor2 = await db.execute(
+                    "SELECT fcm_token FROM users WHERE id = ?", (user_id,)
+                )
+                token_row = await cursor2.fetchone()
+                fcm_token = token_row[0] if token_row else ""
+                if fcm_token:
+                    success = await _send_fcm_push(
+                        fcm_token,
+                        title=alert.get("title", "Alert"),
+                        body=alert.get("body", ""),
+                        data={
+                            "type": alert.get("type", "alert"),
+                            "mint": alert.get("mint", ""),
+                        },
+                    )
+                    if success:
+                        routed.append("push")
+                    else:
+                        failed.append("push: FCM delivery failed")
+                else:
+                    failed.append("push: no FCM token registered")
         except Exception as exc:
             logger.warning("route_alert channel=%s failed: %s", channel, exc)
             failed.append(f"{channel}: {exc}")

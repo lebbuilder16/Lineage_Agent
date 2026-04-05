@@ -852,12 +852,33 @@ class SQLiteCache:
                 created_at       REAL NOT NULL
             )
         """)
-        await db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_ep_mint ON investigation_episodes(mint)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_ep_mint ON investigation_episodes(mint)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_ep_deployer ON investigation_episodes(deployer)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_ep_operator ON investigation_episodes(operator_fp)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_ep_campaign ON investigation_episodes(campaign_id)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_ep_community ON investigation_episodes(community_id)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_ep_created ON investigation_episodes(created_at)")
+
+        # ── Migration: append-only episodes + outcome tracking ──────────
+        # Drop old UNIQUE constraint on mint (allows multiple episodes per token)
+        try:
+            await db.execute("DROP INDEX IF EXISTS idx_ep_mint_unique")
+        except Exception:
+            pass
+        # New columns for append-only versioning and outcome tracking
+        for col, defn in [
+            ("is_latest", "INTEGER NOT NULL DEFAULT 1"),
+            ("outcome", "TEXT"),
+            ("outcome_checked_at", "REAL"),
+            ("outcome_price_usd", "REAL"),
+            ("outcome_liq_usd", "REAL"),
+        ]:
+            try:
+                await db.execute(f"ALTER TABLE investigation_episodes ADD COLUMN {col} {defn}")
+            except Exception:
+                pass  # column already exists
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_ep_mint_latest ON investigation_episodes(mint, is_latest)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_ep_outcome ON investigation_episodes(outcome, is_latest, created_at)")
 
         # Layer 2: Semantic memory — cumulative entity profiles
         await db.execute("""

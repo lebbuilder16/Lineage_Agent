@@ -24,6 +24,25 @@ _DECAY_HALF_LIFE_DAYS = 14.0
 _DECAY_LAMBDA = math.log(2) / _DECAY_HALF_LIFE_DAYS
 _DECAY_MIN_WEIGHT = 0.05  # floor so old episodes still contribute 5%
 
+# Model priority for append-only episodes: higher = more authoritative.
+# A sweep should never overwrite an AI verdict as "latest".
+_MODEL_PRIORITY_MAP = {
+    "heuristic_graduation": 0,
+    "heuristic_sweep": 1,
+    "heuristic": 2,
+    "heuristic_fallback": 3,
+    "rule_based_fallback": 4,
+}
+
+
+def _model_priority(model: str | None) -> int:
+    """Return priority rank for a model string. Higher = more authoritative."""
+    if not model:
+        return -1
+    if any(model.startswith(p) for p in ("claude-", "anthropic", "arcee-")):
+        return 10  # AI verdicts are always highest priority
+    return _MODEL_PRIORITY_MAP.get(model, 2)
+
 
 def _decay_weight(episode_ts: float, now: float) -> float:
     """Exponential decay weight based on episode age."""
@@ -43,8 +62,11 @@ async def record_episode(
 ) -> None:
     """Persist an investigation verdict as an episode in memory.
 
-    Called post-verdict from investigate_service.py.
-    Uses INSERT OR REPLACE so re-scanning a mint updates the episode.
+    Append-only: each scan appends a new row. The ``is_latest`` flag marks
+    the authoritative episode for each mint.  A lower-priority model
+    (e.g. heuristic_sweep) will NOT take over ``is_latest`` from a
+    higher-priority model (e.g. claude-*), preserving AI verdicts and
+    user ratings.
     """
     try:
         from .data_sources._clients import cache as _cache
@@ -66,25 +88,48 @@ async def record_episode(
         key_findings = json.dumps(verdict.get("key_findings", []))
         model = verdict.get("model", "")
 
+        # Determine if this episode should become the latest
+        new_priority = _model_priority(model)
+        should_be_latest = True
+        cursor = await db.execute(
+            "SELECT model FROM investigation_episodes WHERE mint = ? AND is_latest = 1",
+            (mint,),
+        )
+        existing = await cursor.fetchone()
+        if existing:
+            existing_priority = _model_priority(existing[0])
+            if new_priority < existing_priority:
+                should_be_latest = False
+
+        if should_be_latest:
+            # Demote all existing episodes for this mint
+            await db.execute(
+                "UPDATE investigation_episodes SET is_latest = 0 WHERE mint = ? AND is_latest = 1",
+                (mint,),
+            )
+
         await db.execute(
-            "INSERT OR REPLACE INTO investigation_episodes "
+            "INSERT INTO investigation_episodes "
             "(mint, deployer, operator_fp, campaign_id, community_id, "
             " risk_score, confidence, rug_pattern, verdict_summary, conviction_chain, "
-            " key_findings, signals_json, model, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " key_findings, signals_json, model, is_latest, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 mint, deployer, operator_fp, None, community_id,
                 risk_score, confidence, rug_pattern, summary, conviction,
-                key_findings, json.dumps(signals), model, time.time(),
+                key_findings, json.dumps(signals), model,
+                1 if should_be_latest else 0,
+                time.time(),
             ),
         )
         await db.commit()
 
-        # Also record in campaign_timelines
+        # Also record in campaign_timelines (fix 4.5: pass extracted_sol)
+        _sol_ext = (signals.get("sol_extracted", 0) or 0) + (signals.get("bundle_extracted_sol", 0) or 0)
         if deployer:
-            await _record_timeline_event(db, "deployer", deployer, "launch", mint, risk_score)
+            await _record_timeline_event(db, "deployer", deployer, "launch", mint, risk_score, extracted_sol=_sol_ext)
         if operator_fp:
-            await _record_timeline_event(db, "operator", operator_fp, "launch", mint, risk_score)
+            await _record_timeline_event(db, "operator", operator_fp, "launch", mint, risk_score, extracted_sol=_sol_ext)
 
         # Update entity_knowledge
         if deployer:
@@ -211,8 +256,9 @@ async def _update_entity_knowledge(db, entity_type: str, entity_id: str) -> None
 
         col = "deployer" if entity_type == "deployer" else "operator_fp"
         cursor = await db.execute(
-            f"SELECT risk_score, rug_pattern, signals_json, created_at "
-            f"FROM investigation_episodes WHERE {col} = ? ORDER BY created_at DESC LIMIT 100",
+            f"SELECT risk_score, rug_pattern, signals_json, created_at, mint, outcome "
+            f"FROM investigation_episodes WHERE {col} = ? AND is_latest = 1 "
+            f"ORDER BY created_at DESC LIMIT 100",
             (entity_id,),
         )
         rows = await cursor.fetchall()
@@ -229,30 +275,43 @@ async def _update_entity_knowledge(db, entity_type: str, entity_id: str) -> None
         risk_scores = [r[0] for r in rows]
         avg_score = sum(s * w for s, w in zip(risk_scores, weights)) / total_weight
 
-        patterns = [r[1] for r in rows if r[1]]
-        typical_pattern = max(set(patterns), key=patterns.count) if patterns else ""
+        # Fix 4.6: Decay-weighted typical pattern (instead of simple mode)
+        pattern_weights: dict[str, float] = {}
+        for r, w in zip(rows, weights):
+            p = r[1]
+            if p:
+                pattern_weights[p] = pattern_weights.get(p, 0) + w
+        typical_pattern = max(pattern_weights, key=pattern_weights.get) if pattern_weights else ""
 
-        # Weighted rug count (risk >= 70)
-        rug_count_weighted = sum(w for s, w in zip(risk_scores, weights) if s >= 70)
-        rug_count = round(rug_count_weighted)
+        # Fix 4.1: Rug count — use confirmed outcomes when available,
+        # fall back to risk >= 70 only when outcome is unknown/null.
+        # No decay: rug count is a factual tally.
+        rug_count = 0
+        for r in rows:
+            outcome = r[5]  # outcome column (added in Phase 3)
+            if outcome == "rugged":
+                rug_count += 1
+            elif outcome is None and r[0] >= 70:
+                rug_count += 1  # fallback when no outcome data
 
-        # Weighted extraction SOL + narrative preferences
+        # Fix 4.2: SOL extracted is a permanent historical fact — no decay.
         total_extracted = 0.0
         narratives: list[str] = []
-        for r, w in zip(rows, weights):
+        for r in rows:
             try:
                 sigs = json.loads(r[2]) if r[2] else {}
                 sol = (sigs.get("sol_extracted", 0) or 0) + (sigs.get("bundle_extracted_sol", 0) or 0)
-                total_extracted += sol * w
+                total_extracted += sol  # no decay — cumulative fact
                 platform = sigs.get("launch_platform", "")
                 if platform:
                     narratives.append(platform)
             except Exception:
                 pass
 
-        # Velocity: tokens in last 24h (not weighted — raw count matters)
-        recent_24h = sum(1 for r in rows if now - r[3] < 86400)
-        prev_24h = sum(1 for r in rows if 86400 < now - r[3] < 172800)
+        # Fix 4.4: Velocity — count DISTINCT mints, not raw episodes
+        # (avoids counting sweep rescans of same token as separate launches)
+        recent_24h = len({r[4] for r in rows if now - r[3] < 86400})      # r[4] = mint
+        prev_24h = len({r[4] for r in rows if 86400 < now - r[3] < 172800})
         acceleration = recent_24h - prev_24h
 
         first_seen = min(r[3] for r in rows)
@@ -273,6 +332,8 @@ async def _update_entity_knowledge(db, entity_type: str, entity_id: str) -> None
             "avg_risk_score": round(avg_score, 1),
             "launch_velocity": recent_24h,
             "acceleration": acceleration,
+            # Fix 4.3: computed rug_rate so _check_anomalies can reference it
+            "rug_rate": round(rug_count / total * 100, 1) if total > 0 else 0,
         }
 
         await db.execute(
@@ -348,7 +409,7 @@ async def _check_anomalies(
         # Velocity spike: 3x increase (baseline must be > 0)
         prior_vel = prior.get("launch_velocity", 0)
         new_vel = new.get("launch_velocity", 0)
-        if prior_vel > 0 and new_vel >= prior_vel * 3:
+        if prior_vel > 0 and new_vel >= prior_vel * 3 and new_vel >= 3:
             anomalies.append({
                 "anomaly_type": "velocity_spike",
                 "severity": "high" if new_vel >= prior_vel * 5 else "medium",
@@ -504,7 +565,7 @@ async def detect_narrative_clusters(
         cursor = await db.execute(
             "SELECT mint, deployer, risk_score, signals_json, verdict_summary, created_at "
             "FROM investigation_episodes WHERE created_at >= ? AND deployer IS NOT NULL "
-            "ORDER BY created_at DESC",
+            "AND is_latest = 1 ORDER BY created_at DESC",
             (window_start,),
         )
         rows = await cursor.fetchall()
@@ -635,7 +696,7 @@ async def build_memory_brief(
         # ── Episodic: past verdicts for this token ────────────────────────
         cursor = await db.execute(
             "SELECT risk_score, verdict_summary, user_rating, created_at "
-            "FROM investigation_episodes WHERE mint = ? ORDER BY created_at DESC LIMIT 1",
+            "FROM investigation_episodes WHERE mint = ? AND is_latest = 1 ORDER BY created_at DESC LIMIT 1",
             (mint,),
         )
         prev = await cursor.fetchone()
@@ -652,7 +713,7 @@ async def build_memory_brief(
         if deployer:
             cursor = await db.execute(
                 "SELECT mint, risk_score, verdict_summary, user_rating, model "
-                "FROM investigation_episodes WHERE deployer = ? AND mint != ? "
+                "FROM investigation_episodes WHERE deployer = ? AND mint != ? AND is_latest = 1 "
                 "ORDER BY created_at DESC LIMIT 3",
                 (deployer, mint),
             )
@@ -710,7 +771,7 @@ async def build_memory_brief(
         # ── Calibration rules ─────────────────────────────────────────────
         cursor = await db.execute(
             "SELECT rule_type, condition_json, adjustment, sample_count "
-            "FROM calibration_rules WHERE active = 1 AND sample_count >= 3 AND confidence >= 0.7 "
+            "FROM calibration_rules WHERE active = 1 AND sample_count >= 5 AND confidence >= 0.7 "
             "ORDER BY sample_count DESC LIMIT 3",
         )
         rules = await cursor.fetchall()
@@ -744,6 +805,28 @@ async def build_memory_brief(
                     lines.append(f"  - ⚠ [{al[1].upper()}] {al[2]} ({age_h:.0f}h ago)")
                 sections.append(f"### {label} Anomalies\n" + "\n".join(lines))
 
+        # ── Cartel network (fix 4.7: use community_id) ────────────────
+        if community_id:
+            cursor = await db.execute(
+                "SELECT entity_id, total_tokens, total_rugs, avg_risk_score "
+                "FROM entity_knowledge WHERE entity_type = 'deployer' "
+                "AND entity_id IN ("
+                "  SELECT DISTINCT deployer FROM investigation_episodes "
+                "  WHERE community_id = ? AND is_latest = 1 AND deployer IS NOT NULL"
+                ") LIMIT 5",
+                (community_id,),
+            )
+            cartel_rows = await cursor.fetchall()
+            if cartel_rows:
+                lines = []
+                for cr in cartel_rows:
+                    rug_r = round(cr[2] / cr[1] * 100) if cr[1] > 0 else 0
+                    lines.append(f"  - {cr[0][:12]}.. {cr[1]} tokens, {cr[2]} rugs ({rug_r}%), avg risk {cr[3]:.0f}")
+                sections.append(
+                    f"### Cartel Network ({community_id[:12]}..)\n"
+                    f"{len(cartel_rows)} linked deployers:\n" + "\n".join(lines)
+                )
+
         # ── Narrative clusters ─────────────────────────────────────────
         if deployer:
             cursor = await db.execute(
@@ -766,7 +849,7 @@ async def build_memory_brief(
         if deployer:
             cursor = await db.execute(
                 "SELECT user_rating, COUNT(*) FROM investigation_episodes "
-                "WHERE deployer = ? AND user_rating IS NOT NULL "
+                "WHERE deployer = ? AND user_rating IS NOT NULL AND is_latest = 1 "
                 "GROUP BY user_rating",
                 (deployer,),
             )
@@ -776,7 +859,13 @@ async def build_memory_brief(
                 sections.append(f"### Feedback: {', '.join(parts)}")
 
         if not sections:
-            return ""
+            return (
+                "## INTELLIGENCE MEMORY\n\n"
+                "### First Encounter\n"
+                "No prior investigations found for this token, deployer, or operator. "
+                "Exercise extra caution — unknown entities historically show higher rug "
+                "rates than entities with established track records in memory."
+            )
 
         brief = "## INTELLIGENCE MEMORY\n\n" + "\n\n".join(sections)
         logger.debug("[memory] brief built: %d chars for %s", len(brief), mint[:12])
@@ -818,7 +907,7 @@ async def recall_entity(entity_type: str, entity_id: str) -> dict:
             cursor = await db.execute(
                 f"SELECT mint, risk_score, confidence, rug_pattern, verdict_summary, "
                 f"user_rating, created_at FROM investigation_episodes "
-                f"WHERE {col} = ? ORDER BY created_at DESC LIMIT 10",
+                f"WHERE {col} = ? AND is_latest = 1 ORDER BY created_at DESC LIMIT 10",
                 (entity_id,),
             )
             episodes = await cursor.fetchall()
@@ -862,7 +951,7 @@ async def get_calibration_offset(context: dict) -> float:
         db = await _cache._get_conn()
         cursor = await db.execute(
             "SELECT condition_json, adjustment FROM calibration_rules "
-            "WHERE active = 1 AND sample_count >= 3 AND confidence >= 0.7 "
+            "WHERE active = 1 AND sample_count >= 5 AND confidence >= 0.7 "
             "AND rule_type = 'score_offset'",
         )
         rules = await cursor.fetchall()
@@ -924,10 +1013,10 @@ async def generate_calibration_rules() -> int:
         # Fetch all episodes that have user feedback
         cursor = await db.execute(
             "SELECT risk_score, rug_pattern, signals_json, user_rating "
-            "FROM investigation_episodes WHERE user_rating IS NOT NULL"
+            "FROM investigation_episodes WHERE user_rating IS NOT NULL AND is_latest = 1"
         )
         rated = await cursor.fetchall()
-        if len(rated) < 3:
+        if len(rated) < 5:
             return 0  # Not enough feedback to learn from
 
         rules_written = 0
@@ -941,7 +1030,7 @@ async def generate_calibration_rules() -> int:
             pattern_buckets.setdefault(pattern, []).append((risk_score, rating))
 
         for pattern, entries in pattern_buckets.items():
-            if len(entries) < 3:
+            if len(entries) < 5:
                 continue
             incorrect = [e for e in entries if e[1] == "incorrect"]
             accurate = [e for e in entries if e[1] == "accurate"]
@@ -988,7 +1077,7 @@ async def generate_calibration_rules() -> int:
             rate_buckets.setdefault(bucket, []).append((risk_score, rating))
 
         for bucket, entries in rate_buckets.items():
-            if len(entries) < 3:
+            if len(entries) < 5:
                 continue
             incorrect = [e for e in entries if e[1] == "incorrect"]
             accurate = [e for e in entries if e[1] == "accurate"]
@@ -1024,7 +1113,7 @@ async def generate_calibration_rules() -> int:
             platform_buckets.setdefault(platform, []).append((risk_score, rating))
 
         for platform, entries in platform_buckets.items():
-            if len(entries) < 3:
+            if len(entries) < 5:
                 continue
             incorrect = [e for e in entries if e[1] == "incorrect"]
             accurate = [e for e in entries if e[1] == "accurate"]
@@ -1064,6 +1153,128 @@ async def generate_calibration_rules() -> int:
 
     except Exception as exc:
         logger.debug("[memory] generate_calibration_rules error: %s", exc)
+        return 0
+
+
+# ── Outcome Tracking — 48h post-mortem ──────────────────────────────────────────
+
+_OUTCOME_DELAY_SECONDS = 48 * 3600  # check 48h after investigation
+_OUTCOME_BATCH_SIZE = 30            # match DexScreener batch limit
+_DEAD_LIQ_USD = 100                 # below this = rugged
+_SURVIVED_LIQ_USD = 500             # above this + price OK = survived
+_PRICE_CRASH_PCT = -95              # price drop threshold for rug
+
+
+async def check_episode_outcomes() -> int:
+    """Check post-mortem outcomes for episodes older than 48h with no outcome yet.
+
+    Batch-queries DexScreener for current price/liquidity and classifies:
+    - rugged: liquidity < $100 or price dropped > 95%
+    - survived: liquidity > $500 and price > 10% of scan-time
+    - unknown: insufficient data or ambiguous
+
+    Returns the number of outcomes resolved.
+    """
+    try:
+        from .data_sources._clients import cache as _cache, get_dex_client
+        from .cache import SQLiteCache
+        if not isinstance(_cache, SQLiteCache):
+            return 0
+
+        db = await _cache._get_conn()
+        now = time.time()
+        cutoff = now - _OUTCOME_DELAY_SECONDS
+
+        cursor = await db.execute(
+            "SELECT id, mint, risk_score, signals_json "
+            "FROM investigation_episodes "
+            "WHERE outcome IS NULL AND is_latest = 1 AND created_at < ? "
+            "ORDER BY created_at ASC LIMIT 100",
+            (cutoff,),
+        )
+        rows = await cursor.fetchall()
+        if not rows:
+            return 0
+
+        # Build mint → episode(s) lookup
+        mint_episodes: dict[str, list[tuple]] = {}
+        for row in rows:
+            mint_episodes.setdefault(row[1], []).append(row)
+
+        all_mints = list(mint_episodes.keys())
+        dex = get_dex_client()
+        price_data: dict[str, tuple[float, float]] = {}  # mint → (price, liq)
+
+        # Batch DexScreener calls
+        import asyncio
+        for i in range(0, len(all_mints), _OUTCOME_BATCH_SIZE):
+            batch = all_mints[i:i + _OUTCOME_BATCH_SIZE]
+            try:
+                pairs = await asyncio.wait_for(
+                    dex.get_token_pairs(",".join(batch)), timeout=15.0,
+                )
+                if pairs:
+                    for mint in batch:
+                        mint_pairs = [
+                            p for p in pairs
+                            if (p.get("baseToken", {}).get("address", "").lower() == mint.lower()
+                                or p.get("quoteToken", {}).get("address", "").lower() == mint.lower())
+                        ]
+                        if mint_pairs:
+                            meta = dex.pairs_to_metadata(mint, mint_pairs)
+                            if meta.price_usd and meta.price_usd > 0:
+                                price_data[mint] = (meta.price_usd, meta.liquidity_usd or 0)
+            except Exception as exc:
+                logger.debug("[outcome] batch error: %s", exc)
+
+        # Classify outcomes
+        resolved = 0
+        for mint, episodes in mint_episodes.items():
+            pd = price_data.get(mint)
+            for ep_id, _, risk_score, sigs_json in episodes:
+                outcome = "unknown"
+                out_price = 0.0
+                out_liq = 0.0
+
+                if pd:
+                    out_price, out_liq = pd
+                    # Get scan-time price for comparison
+                    scan_price = 0.0
+                    try:
+                        sigs = json.loads(sigs_json) if sigs_json else {}
+                        scan_price = sigs.get("liquidity_usd", 0) or 0
+                        # Also try price from query_token
+                        scan_price_usd = sigs.get("price_usd", 0) or 0
+                    except Exception:
+                        scan_price_usd = 0
+
+                    if out_liq < _DEAD_LIQ_USD:
+                        outcome = "rugged"
+                    elif scan_price_usd > 0 and out_price < scan_price_usd * 0.05:
+                        outcome = "rugged"  # price dropped > 95%
+                    elif out_liq > _SURVIVED_LIQ_USD:
+                        if scan_price_usd > 0 and out_price > scan_price_usd * 0.1:
+                            outcome = "survived"
+                        elif scan_price_usd == 0:
+                            outcome = "survived"  # no baseline but liquidity is healthy
+                else:
+                    outcome = "unknown"  # no DexScreener data
+
+                await db.execute(
+                    "UPDATE investigation_episodes SET outcome = ?, outcome_checked_at = ?, "
+                    "outcome_price_usd = ?, outcome_liq_usd = ? WHERE id = ?",
+                    (outcome, now, out_price, out_liq, ep_id),
+                )
+                resolved += 1
+
+        if resolved > 0:
+            await db.commit()
+            logger.info("[outcome] resolved %d/%d episodes (%d mints checked)",
+                        resolved, len(rows), len(price_data))
+        return resolved
+
+    except Exception as exc:
+        logger.debug("[outcome] check_episode_outcomes error: %s", exc)
         return 0
 
 
