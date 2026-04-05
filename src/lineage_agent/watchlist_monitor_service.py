@@ -669,14 +669,14 @@ async def _generate_flags_trinity(
         response = await asyncio.wait_for(
             client.chat.completions.create(
                 model=_trinity_model,
-                max_tokens=512,
+                max_tokens=2048,  # thinking model needs budget for reasoning + JSON output
                 temperature=0,
                 messages=[
                     {"role": "system", "content": _TRINITY_FLAG_SYSTEM},
                     {"role": "user", "content": user_msg},
                 ],
             ),
-            timeout=10.0,
+            timeout=20.0,  # thinking models need more time
         )
 
         _msg = response.choices[0].message
