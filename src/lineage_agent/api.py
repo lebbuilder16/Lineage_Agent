@@ -5158,9 +5158,15 @@ async def _watchlist_sweep_loop():
     _LOOP_INTERVAL = 900  # 15 min check cycle (was 30 min)
     first_run = True
     while True:
-        await asyncio.sleep(60 if first_run else _LOOP_INTERVAL)
+        # Sleep in short chunks so the watchdog sees heartbeats
+        _sleep_total = 60 if first_run else _LOOP_INTERVAL
+        _slept = 0
+        while _slept < _sleep_total:
+            _chunk = min(120, _sleep_total - _slept)
+            await asyncio.sleep(_chunk)
+            _heartbeat("sweep")
+            _slept += _chunk
         first_run = False
-        _heartbeat("sweep")
         try:
             # Use read pool for these SELECT queries (don't block the writer)
             rdb = await _cache._get_read_conn() if hasattr(_cache, '_get_read_conn') else await _cache._get_conn()
