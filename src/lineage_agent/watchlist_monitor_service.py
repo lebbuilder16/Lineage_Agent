@@ -171,9 +171,31 @@ def _generate_flags(old: dict, new: dict, mint: str, *, ref: Optional[dict] = No
     if new_ri > old_ri and new_ri >= 3 and not _has_causal:
         old_r = old.get("risk_level", "unknown")
         new_r = new.get("risk_level", "unknown")
+        # Identify the likely cause of escalation from snapshot deltas
+        _reasons: list[str] = []
+        _new_sol = new.get("sol_extracted", 0) or 0
+        _old_sol = old.get("sol_extracted", 0) or 0
+        if _new_sol > _old_sol:
+            _reasons.append(f"SOL extracted: {_old_sol:.1f} → {_new_sol:.1f}")
+        _new_cw = new.get("cartel_wallets", 0) or 0
+        _old_cw = old.get("cartel_wallets", 0) or 0
+        if _new_cw > _old_cw:
+            _reasons.append(f"cartel wallets: {_old_cw} → {_new_cw}")
+        _new_bw = new.get("bundle_wallets", 0) or 0
+        _old_bw = old.get("bundle_wallets", 0) or 0
+        if _new_bw > _old_bw:
+            _reasons.append(f"bundle wallets: {_old_bw} → {_new_bw}")
+        _new_sp = new.get("sell_pressure_24h") or 0
+        _old_sp = old.get("sell_pressure_24h") or 0
+        if _new_sp > _old_sp + 0.1:
+            _reasons.append(f"sell pressure: {_old_sp*100:.0f}% → {_new_sp*100:.0f}%")
+        if new.get("rug_count", 0) > old.get("rug_count", 0):
+            _reasons.append(f"deployer rugs: {old.get('rug_count', 0)} → {new.get('rug_count', 0)}")
+        _reason_str = " · ".join(_reasons[:3]) if _reasons else ""
+        _reason_suffix = f" — {_reason_str}" if _reason_str else ""
         _flag("RISK_ESCALATION", "critical",
-              {"old": old_r, "new": new_r},
-              old=old_r, new=new_r)
+              {"old": old_r, "new": new_r, "reasons": _reasons},
+              old=old_r, new=new_r, reason_suffix=_reason_suffix)
 
     # New rug by deployer
     old_rc = old.get("rug_count", 0) or 0

@@ -98,12 +98,9 @@ TEMPLATES: dict[str, list[str]] = {
 
     # ── Risk Escalation ──────────────────────────────────────────────────
     "RISK_ESCALATION": [
-        "Risk jumped from {old} to {new} since last scan",
-        "Elevated since last check — was {old}, now rated {new}",
-        "Risk upgrade since last scan: {old} → {new}",
-        "Worse than last check — risk went from {old} to {new}",
-        "Risk level changed since last scan: {old} → {new}",
-        "Deteriorated: was {old} at last check, now {new}",
+        "Risk jumped from {old} to {new}{reason_suffix}",
+        "Elevated: was {old}, now {new}{reason_suffix}",
+        "Risk escalated: {old} → {new}{reason_suffix}",
     ],
 
     # ── Deployer New Rug ──────────────────────────────────────────────────
