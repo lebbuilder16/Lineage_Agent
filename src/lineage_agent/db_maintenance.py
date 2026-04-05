@@ -197,6 +197,19 @@ async def _maintenance_loop() -> None:
             except Exception:
                 logger.debug("outcome check skipped")
 
+            # Calibration A/B effectiveness (requires outcome data)
+            try:
+                from .memory_service import measure_calibration_effectiveness
+                eff = await measure_calibration_effectiveness()
+                if eff.get("n_calibrated", 0) >= 5:
+                    logger.info(
+                        "Calibration A/B: calibrated=%.0f%% (%d) vs uncalibrated=%.0f%% (%d)",
+                        eff["calibrated_accuracy"] * 100, eff["n_calibrated"],
+                        eff["uncalibrated_accuracy"] * 100, eff["n_uncalibrated"],
+                    )
+            except Exception:
+                logger.debug("calibration A/B check skipped")
+
             # Narrative cluster detection (automated — runs every maintenance cycle)
             try:
                 from .memory_service import detect_narrative_clusters

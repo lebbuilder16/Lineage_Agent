@@ -167,6 +167,11 @@ Reasoning rules:
 Reason from raw numbers first, validate against labels second.
 - If the token is explicitly marked as launchpad-only / pre-DEX, you MUST NOT describe it as a DEX liquidity rug unless direct DEX-pool evidence is provided.
 - For pre-DEX launchpad tokens, zero deployer balance or absent DEX pairs are NOT proof of a sell, LP drain, or rug by themselves.
+- If the data includes an Intelligence Brief with prior investigations of this deployer or operator, \
+you MUST reference that knowledge explicitly in your narrative and conviction_chain. State what you \
+remember (e.g. "This deployer has launched 12 tokens previously, 8 of which rugged") and how it \
+shapes your current assessment. Fill the memory_context field with a concise summary of what \
+intelligence you used and how it affected your risk_score.
 - If signals conflict, explicitly address the conflict in conviction_chain.
 - conviction_chain is mandatory — if data is sparse, state what the data cannot confirm and why.\
 """
@@ -235,6 +240,10 @@ _FORENSIC_TOOL = {
             "operator_hypothesis": {
                 "type": ["string", "null"],
                 "description": "3 sentences: (1) WHO via fingerprint; (2) WHAT playbook vs prior ops; (3) distinguishing factor from legit. Null if insufficient data. Written in plain English accessible to a non-technical investor.",
+            },
+            "memory_context": {
+                "type": ["string", "null"],
+                "description": "What you remember about this deployer/operator from the Intelligence Brief and how it influenced your verdict. Reference specific prior episodes, rug rates, or patterns. Null if first encounter or no Intelligence Brief provided.",
             },
         },
         "required": [
@@ -541,6 +550,7 @@ async def analyze_token(
 
     # ── Memory brief (episodic + entity knowledge) ─────────────────────────
     _memory_brief = ""
+    _memory_meta: dict = {"memory_depth": "first_encounter", "deployer_episode_count": 0}
     try:
         from .memory_service import build_memory_brief
         _deployer = _extract_deployer(lineage_result)
@@ -555,7 +565,7 @@ async def analyze_token(
                 _dc = getattr(_cr, "deployer_community", None)
                 if _dc:
                     _comm_id = getattr(_dc, "community_id", None)
-        _memory_brief = await build_memory_brief(
+        _memory_brief, _memory_meta = await build_memory_brief(
             mint, deployer=_deployer, operator_fp=_op_fp, community_id=_comm_id
         )
     except Exception:
@@ -711,21 +721,37 @@ async def analyze_token(
         result = _sanity_check(result, lineage_result, bundle_report, sol_flow_report)
 
         # ── P0-A2: apply calibration offset from learned rules ────────────────
+        cal_context: dict = {}
         try:
             from .memory_service import get_calibration_offset  # noqa: PLC0415
             cal_context = _build_calibration_context(result, lineage_result)
-            cal_offset = await get_calibration_offset(cal_context)
+            cal_offset, cal_matched = await get_calibration_offset(cal_context)
             if cal_offset != 0:
                 pre_cal = result["risk_score"]
                 result["risk_score"] = max(0, min(100, int(pre_cal + cal_offset)))
                 result["calibration_offset"] = cal_offset
                 result["pre_calibration_score"] = pre_cal
+                result["calibration_applied"] = True
+                result["calibration_rules_matched"] = cal_matched
                 logger.info(
                     "[ai_analyst] calibration: %+.0f applied (%d → %d) for %s",
                     cal_offset, pre_cal, result["risk_score"], mint[:12],
                 )
         except Exception as cal_exc:
             logger.debug("[ai_analyst] calibration skipped: %s", cal_exc)
+
+        # ── P0-A3: prediction band + memory depth ───────────────────────────
+        try:
+            from .memory_service import compute_prediction_band  # noqa: PLC0415
+            band = await compute_prediction_band(
+                deployer_bucket=cal_context.get("deployer_bucket", ""),
+                launch_platform=cal_context.get("launch_platform", ""),
+            )
+            if band["n"] >= 5:
+                result["prediction_band"] = band
+        except Exception:
+            pass
+        result["memory_depth"] = _memory_meta.get("memory_depth", "first_encounter")
 
         # ── P0-B: persist to cache (with stale-while-revalidate window) ──────
         if cache:
