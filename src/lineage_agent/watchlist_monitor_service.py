@@ -631,7 +631,7 @@ async def _generate_flags_trinity(
 ) -> list[dict] | None:
     """Generate flags using Trinity AI. Returns flags on success, None on failure."""
     try:
-        from .ai_analyst import _get_openrouter_client, _OPENROUTER_API_KEY  # noqa: PLC0415
+        from .ai_analyst import _get_openrouter_client, _SWEEP_MODEL  # noqa: PLC0415
 
         client = _get_openrouter_client()
         if not client:
@@ -664,19 +664,17 @@ async def _generate_flags_trinity(
 
         user_msg = "\n".join(state_lines)
 
-        _trinity_model = "trinity-large-thinking" if _OPENROUTER_API_KEY and _OPENROUTER_API_KEY.startswith("rcai-") else "arcee-ai/trinity-large-thinking"
-
         response = await asyncio.wait_for(
             client.chat.completions.create(
-                model=_trinity_model,
-                max_tokens=2048,  # thinking model needs budget for reasoning + JSON output
+                model=_SWEEP_MODEL,
+                max_tokens=512,
                 temperature=0,
                 messages=[
                     {"role": "system", "content": _TRINITY_FLAG_SYSTEM},
                     {"role": "user", "content": user_msg},
                 ],
             ),
-            timeout=20.0,  # thinking models need more time
+            timeout=15.0,
         )
 
         _msg = response.choices[0].message
