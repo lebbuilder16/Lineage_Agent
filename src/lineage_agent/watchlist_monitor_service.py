@@ -26,35 +26,35 @@ def _extract_forensic_snapshot(lin: Any) -> dict:
     snapshot: dict[str, Any] = {}
 
     sf = getattr(lin, "sol_flow", None)
-    if sf:
-        snapshot["sol_extracted"] = getattr(sf, "total_extracted_sol", 0) or 0
-        snapshot["sol_hops"] = getattr(sf, "hop_count", 0) or 0
+    snapshot["sol_extracted"] = (getattr(sf, "total_extracted_sol", 0) or 0) if sf else 0
+    snapshot["sol_hops"] = (getattr(sf, "hop_count", 0) or 0) if sf else 0
 
     br = getattr(lin, "bundle_report", None)
+    snapshot["bundle_verdict"] = getattr(br, "overall_verdict", None) if br else None
+    snapshot["bundle_sol"] = (getattr(br, "total_sol_extracted_confirmed", 0) or 0) if br else 0
     if br:
-        snapshot["bundle_verdict"] = getattr(br, "overall_verdict", None)
-        snapshot["bundle_sol"] = getattr(br, "total_sol_extracted_confirmed", 0) or 0
         fw = getattr(br, "factory_sniper_wallets", None)
         snapshot["bundle_wallets"] = len(fw) if fw else 0
+    else:
+        snapshot["bundle_wallets"] = 0
 
     ins = getattr(lin, "insider_sell", None)
+    # Always include deployer_exited — even when insider_sell is None.
+    # Missing field causes false-positive DEPLOYER_EXITED flags on next rescan.
+    snapshot["deployer_exited"] = getattr(ins, "deployer_exited", False) if ins else False
     if ins:
         snapshot["insider_verdict"] = getattr(ins, "verdict", None)
-        snapshot["deployer_exited"] = getattr(ins, "deployer_exited", False)
         snapshot["sell_pressure_24h"] = getattr(ins, "sell_pressure_24h", None)
 
     cr = getattr(lin, "cartel_report", None)
+    snapshot["cartel_wallets"] = 0
     if cr:
         dc = getattr(cr, "deployer_community", None)
         if dc:
             wallets = getattr(dc, "wallets", None)
             snapshot["cartel_wallets"] = len(wallets) if wallets else 0
-            dc_comm = getattr(cr, "deployer_community", None) if cr else None
-            if dc_comm:
-                snapshot["cartel_narrative"] = getattr(dc_comm, "narrative", "") or ""
-                snapshot["cartel_sol_extracted"] = getattr(dc_comm, "total_sol_extracted", 0) or 0
-        else:
-            snapshot["cartel_wallets"] = 0
+            snapshot["cartel_narrative"] = getattr(dc, "narrative", "") or ""
+            snapshot["cartel_sol_extracted"] = getattr(dc, "total_sol_extracted", 0) or 0
 
     dc = getattr(lin, "death_clock", None)
     if dc:
@@ -62,9 +62,8 @@ def _extract_forensic_snapshot(lin: Any) -> dict:
         snapshot["rug_probability"] = getattr(dc, "rug_probability_pct", None)
 
     dp = getattr(lin, "deployer_profile", None)
-    if dp:
-        snapshot["rug_count"] = getattr(dp, "confirmed_rug_count", 0) or 0
-        snapshot["rug_rate"] = getattr(dp, "rug_rate_pct", 0) or 0
+    snapshot["rug_count"] = (getattr(dp, "confirmed_rug_count", 0) or 0) if dp else 0
+    snapshot["rug_rate"] = (getattr(dp, "rug_rate_pct", 0) or 0) if dp else 0
 
     # Market metrics (from LineageResult — zero extra API calls)
     qt = getattr(lin, "query_token", None) or getattr(lin, "root", None)
