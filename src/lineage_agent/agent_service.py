@@ -705,6 +705,7 @@ async def run_agent(
 
     # ── Build memory brief (cross-investigation intelligence) ────────
     memory_brief = ""
+    memory_meta: dict = {"memory_depth": "first_encounter", "deployer_episode_count": 0}
     try:
         from .memory_service import build_memory_brief
         _deployer = scan_summary.get("token", {}).get("deployer") if scan_summary else None
@@ -716,7 +717,7 @@ async def run_agent(
             _op_fp = _op.get("fingerprint") if isinstance(_op, dict) else None
             _cr = _risk.get("cartel") or {}
             _community = _cr.get("community_id") if isinstance(_cr, dict) else None
-        memory_brief = await build_memory_brief(mint, _deployer, _op_fp, _community)
+        memory_brief, memory_meta = await build_memory_brief(mint, _deployer, _op_fp, _community)
         if memory_brief:
             logger.info("[agent] memory brief: %d chars for %s", len(memory_brief), mint[:12])
     except Exception:
@@ -1066,6 +1067,9 @@ async def run_agent(
                 )
         except Exception as cal_exc:
             logger.debug("[agent] calibration skipped: %s", cal_exc)
+
+        # Inject memory depth into verdict for mobile display
+        verdict["memory_depth"] = memory_meta.get("memory_depth", "first_encounter")
 
         await _cache_verdict(cache, mint, verdict)
 
