@@ -1041,10 +1041,17 @@ class SolanaRpcClient:
                     _tx_cache_put(_cache_sig, result)
                 return result
 
+            _provider = ep.circuit_breaker.name
+
             if circuit_protect:
                 try:
-                    return await ep.circuit_breaker.call(_do)
+                    result = await ep.circuit_breaker.call(_do)
+                    from ..metrics import record_rpc_call  # noqa: PLC0415
+                    record_rpc_call(_provider, "success")
+                    return result
                 except CircuitOpenError:
+                    from ..metrics import record_rpc_call  # noqa: PLC0415
+                    record_rpc_call(_provider, "rejected")
                     if is_last:
                         logger.warning(
                             "Solana RPC all endpoints OPEN – fast-failing %s", method
@@ -1052,8 +1059,8 @@ class SolanaRpcClient:
                         return None
                     continue
                 except MethodBlockedError:
-                    # 403 = method blocked by this provider, skip to next
-                    # without counting as a CB failure (undo the failure)
+                    from ..metrics import record_rpc_call  # noqa: PLC0415
+                    record_rpc_call(_provider, "blocked")
                     async with ep.circuit_breaker._lock:
                         if ep.circuit_breaker._failure_count > 0:
                             ep.circuit_breaker._failure_count -= 1
@@ -1061,12 +1068,17 @@ class SolanaRpcClient:
                         return None
                     continue
                 except Exception:
+                    from ..metrics import record_rpc_call  # noqa: PLC0415
+                    record_rpc_call(_provider, "error")
                     if is_last:
                         return None
                     continue
             else:
                 try:
-                    return await _do()
+                    result = await _do()
+                    from ..metrics import record_rpc_call  # noqa: PLC0415
+                    record_rpc_call(_provider, "success")
+                    return result
                 except MethodBlockedError:
                     if is_last:
                         return None
