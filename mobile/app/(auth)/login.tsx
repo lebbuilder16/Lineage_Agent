@@ -144,23 +144,17 @@ export default function LoginScreen() {
   // ── External wallet auth (state machine) ──────────────────────────────────
   const { state: walletState, connect: connectWallet, cancel: cancelWallet } = useExternalWalletAuth();
 
-  // ── Force-clear Privy session on EVERY mount ──────────────────────────────
+  // ── If user is already authenticated on mount, skip login entirely ──────
+  const hasAutoSynced = useRef(false);
   useEffect(() => {
-    const clearSession = async () => {
-      try {
-        await privyLogout();
-      } catch {
-        // Privy throws if not logged in — that's fine
-      }
-      await new Promise((r) => setTimeout(r, 1500));
-    };
-    if (privyReady) {
-      clearSession();
+    if (privyReady && privyUser && !hasAutoSynced.current) {
+      hasAutoSynced.current = true;
+      console.log('[login] User already authenticated on mount — auto-syncing');
+      handlePrivyLoginSuccess(privyUser);
     }
-    return () => {};
-  }, [privyReady, privyLogout]);
+  }, [privyReady, privyUser]);
 
-  // When privyUser appears while we're waiting, auto-sync
+  // When privyUser appears while we're waiting (after "Already logged in"), auto-sync
   useEffect(() => {
     if (privyUser && waitingForUserRef.current) {
       waitingForUserRef.current = false;
@@ -183,33 +177,25 @@ export default function LoginScreen() {
       return;
     }
 
-    // ALWAYS force logout before sending code — never trust cached state
-    try {
-      await privyLogout();
-    } catch {
-      // Not logged in — that's the desired state
+    // If already logged in, just use the existing session
+    if (privyUserRef.current) {
+      console.log('[login] Already authenticated — using existing session');
+      await handlePrivyLoginSuccess(privyUserRef.current);
+      return;
     }
-    // Critical: wait for Privy SDK to fully process the logout
-    await new Promise((r) => setTimeout(r, 1500));
 
-    // Attempt to send code with up to 3 retries
-    for (let attempt = 0; attempt < 3; attempt++) {
-      try {
-        await sendCode({ email: trimmed });
-        setOtpSent(true);
-        return;
-      } catch (err: any) {
-        const msg = err?.message ?? '';
-        if (msg.includes('Already logged in') && attempt < 2) {
-          // Force another logout cycle and wait longer
-          try { await privyLogout(); } catch {}
-          await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
-          continue;
-        }
-        console.error('[login] sendCode error:', err);
-        Alert.alert('Error', msg || 'Could not send verification code.');
+    try {
+      await sendCode({ email: trimmed });
+      setOtpSent(true);
+    } catch (err: any) {
+      const msg = err?.message ?? '';
+      if (msg.includes('Already logged in') || msg.includes('useLinkWithEmail')) {
+        console.log('[login] sendCode: Already logged in — waiting for session');
+        waitingForUserRef.current = true;
         return;
       }
+      console.error('[login] sendCode error:', err);
+      Alert.alert('Error', msg || 'Could not send verification code.');
     }
   }, [email, sendCode, privyLogout]);
 
