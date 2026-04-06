@@ -1236,19 +1236,40 @@ async def run_single_rescan(watch_id: int, user_id: int, cache, *, skip_ai: bool
                 )
                 if critical_flags:
                     top = critical_flags[0]
-                    _push_name = detail_dict.get("token_name") or detail_dict.get("name") or _token_name or mint[:12]
-                    _push_symbol = detail_dict.get("symbol") or _token_symbol or ""
+                    # Parse token name from the top flag's detail (not stale loop var)
+                    try:
+                        _top_detail = json.loads(top["detail"]) if isinstance(top["detail"], str) else top.get("detail", {})
+                    except Exception:
+                        _top_detail = {}
+                    _push_name = (
+                        (_top_detail.get("token_name") if isinstance(_top_detail, dict) else None)
+                        or _token_name
+                        or mint[:12]
+                    )
+                    _push_symbol = (
+                        (_top_detail.get("symbol") if isinstance(_top_detail, dict) else None)
+                        or _token_symbol
+                        or ""
+                    )
                     _push_label = f"{_push_name} ({_push_symbol})" if _push_symbol else _push_name
+                    _push_title = f"🔔 {_push_label}"
+                    _push_body = top["title"]
+                    logger.info(
+                        "[sweep] sending push for %s: title=%r body=%r",
+                        mint[:12], _push_title, _push_body,
+                    )
                     asyncio.create_task(
                         _push_fcm_to_watchers(
                             mint=mint,
-                            title=f"{_push_label} — {top['title']}",
-                            body=top['title'],
+                            title=_push_title,
+                            body=_push_body,
                             alert_type="sweep_flag",
                             token_name=_push_label,
                         ),
                         name=f"sweep_push_{mint[:8]}",
                     )
+                else:
+                    logger.debug("[sweep] %s: flags exist but none critical/warning — no push", mint[:12])
             except Exception as _push_exc:
                 logger.warning("[sweep] push notification failed for %s: %s", mint[:12], _push_exc)
 
@@ -1365,8 +1386,8 @@ async def _pulse_rescan_one(t: dict, cache) -> None:
                     asyncio.create_task(
                         _push_fcm_to_watchers(
                             mint=t["mint"],
-                            title=f"{_pf_label} — {top_flag['title']}",
-                            body=f"Pulse: {t['trigger']}",
+                            title=f"🔔 {_pf_label}",
+                            body=top_flag["title"],
                             alert_type="pulse_flag",
                             token_name=_pf_label,
                         ),
@@ -1391,11 +1412,17 @@ async def _pulse_rescan_one(t: dict, cache) -> None:
                             _pa_name = _pa_snap.get("token_name") or _pa_name
                     except Exception:
                         pass
+                    _pa_symbol = ""
+                    try:
+                        _pa_symbol = _pa_snap.get("token_symbol") or "" if _pa_row else ""
+                    except Exception:
+                        pass
+                    _pa_label = f"{_pa_name} ({_pa_symbol})" if _pa_symbol else _pa_name
                     asyncio.create_task(
                         _push_fcm_to_watchers(
                             mint=t["mint"],
-                            title=f"{_pa_name} — {t['trigger']}",
-                            body=f"Price: ${t['now_price']:.6f}",
+                            title=f"🔔 {_pa_label}",
+                            body=f"{t['trigger']} — Price: ${t['now_price']:.6f}",
                             alert_type="pulse_alert",
                             token_name=_pa_name,
                         ),
