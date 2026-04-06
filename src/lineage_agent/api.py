@@ -41,6 +41,8 @@ from config import (
     API_HOST,
     API_PORT,
     CACHE_BACKEND,
+    CORS_ORIGINS,
+    PRIVY_APP_SECRET,
     RATE_LIMIT_LINEAGE,
     RATE_LIMIT_SEARCH,
     SENTRY_DSN,
@@ -385,7 +387,7 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 # CORS (so the Next.js frontend can call from localhost:3000 and Vercel)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=cfg.CORS_ORIGINS or ["*"],
+    allow_origins=CORS_ORIGINS or ["*"],
     allow_credentials=False,
     allow_methods=["GET", "POST", "DELETE"],
     allow_headers=["Content-Type", "Accept", "X-API-Key"],
@@ -2580,7 +2582,7 @@ async def auth_login(body: _LoginRequest, request: Request):
         from .auth_service import verify_privy_token  # noqa: PLC0415
         if not await verify_privy_token(privy_token, body.privy_id):
             raise HTTPException(status_code=401, detail="Invalid Privy token")
-    elif cfg.PRIVY_APP_SECRET:
+    elif PRIVY_APP_SECRET:
         # If PRIVY_APP_SECRET is configured, require token verification
         raise HTTPException(status_code=401, detail="Authorization header required")
     # else: no PRIVY_APP_SECRET configured = dev mode, allow without token
