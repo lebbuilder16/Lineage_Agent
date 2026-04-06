@@ -7,6 +7,7 @@ import { tokens } from '../../theme/tokens';
 import { GlassCard } from './GlassCard';
 import { HapticButton } from './HapticButton';
 import { useSolBalance } from '../../hooks/useSolBalance';
+import { useUsdcBalance } from '../../hooks/useUsdcBalance';
 
 interface Props {
   address?: string | null;
@@ -16,6 +17,7 @@ interface Props {
 
 export function WalletCard({ address, onSend, onReceive }: Props) {
   const { balance, isLoading } = useSolBalance(address);
+  const { balance: usdcBalance, isLoading: usdcLoading } = useUsdcBalance(address);
   const [copied, setCopied] = useState(false);
   const copyTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
@@ -43,10 +45,11 @@ export function WalletCard({ address, onSend, onReceive }: Props) {
 
   const truncated = `${address.slice(0, 6)}...${address.slice(-4)}`;
   const displayBal = isLoading ? '—' : balance != null ? balance.toFixed(4) : '—';
+  const displayUsdc = usdcLoading ? '—' : usdcBalance != null ? usdcBalance.toFixed(2) : '0.00';
 
   return (
     <GlassCard style={styles.card}>
-      {/* Balance */}
+      {/* SOL Balance */}
       <View style={styles.balanceRow}>
         <View style={styles.balIcon}>
           <Wallet size={18} color={tokens.secondary} />
@@ -54,6 +57,17 @@ export function WalletCard({ address, onSend, onReceive }: Props) {
         <View style={styles.balBody}>
           <Text style={styles.balLabel}>SOL Balance</Text>
           <Text style={styles.balValue}>{displayBal} <Text style={styles.balUnit}>SOL</Text></Text>
+        </View>
+      </View>
+
+      {/* USDC Balance */}
+      <View style={styles.balanceRow}>
+        <View style={[styles.balIcon, { backgroundColor: `${tokens.success}12`, borderColor: `${tokens.success}25` }]}>
+          <Text style={{ fontFamily: 'Lexend-Bold', fontSize: 13, color: tokens.success }}>$</Text>
+        </View>
+        <View style={styles.balBody}>
+          <Text style={styles.balLabel}>USDC Balance</Text>
+          <Text style={styles.balValue}>{displayUsdc} <Text style={styles.balUnit}>USDC</Text></Text>
         </View>
       </View>
 

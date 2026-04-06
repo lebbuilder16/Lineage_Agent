@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   Platform,
   ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router, Stack } from 'expo-router';
@@ -17,15 +18,33 @@ import { HapticButton } from '../src/components/ui/HapticButton';
 import { useToast } from '../src/components/ui/Toast';
 import { tokens } from '../src/theme/tokens';
 import { useSubscriptionStore } from '../src/store/subscription';
+import { useAuthStore } from '../src/store/auth';
+import { useUsdcBalance } from '../src/hooks/useUsdcBalance';
+import { verifyUsdcSubscription } from '../src/lib/api';
 import {
   getOfferings,
   purchasePackage,
   restorePurchases,
   isReady as isRCReady,
 } from '../src/lib/revenuecat';
+import { useEmbeddedSolanaWallet } from '@privy-io/expo';
+import {
+  Connection, PublicKey, Transaction, TransactionInstruction,
+} from '@solana/web3.js';
+import {
+  createTransferCheckedInstruction,
+  getAssociatedTokenAddress,
+  createAssociatedTokenAccountInstruction,
+} from '@solana/spl-token';
 import type { PurchasesPackage } from 'react-native-purchases';
 
 const isAndroid = Platform.OS === 'android';
+const USDC_MINT = new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
+const USDC_DECIMALS = 6;
+const TREASURY_WALLET = new PublicKey(
+  process.env.EXPO_PUBLIC_USDC_TREASURY ?? 'JBj3qU8sVzoVNaU6v4LBXKRaD226AMb4buszJuEFrbm',
+);
+const RPC_URL = process.env.EXPO_PUBLIC_SOLANA_RPC_URL ?? 'https://api.mainnet-beta.solana.com';
 
 // ── Plan definitions ────────────────────────────────────────────────────────
 
@@ -98,6 +117,11 @@ export default function PaywallScreen() {
   const [rcPackages, setRcPackages] = useState<PurchasesPackage[]>([]);
   const { showToast, toast } = useToast();
   const setPlan = useSubscriptionStore((s) => s.setPlan);
+  const apiKey = useAuthStore((s) => s.apiKey);
+  const user = useAuthStore((s) => s.user);
+  const walletAddress = user?.wallet_address;
+  const { balance: usdcBalance } = useUsdcBalance(walletAddress);
+  const embeddedWallet = useEmbeddedSolanaWallet();
 
   // Fetch RevenueCat offerings on mount
   useEffect(() => {
@@ -109,6 +133,85 @@ export default function PaywallScreen() {
       }
     }).catch(() => {});
   }, []);
+
+  const handleUsdcPurchase = async (planKey: string) => {
+    const plan = PLANS.find((p) => p.key === planKey);
+    if (!plan || !apiKey || !walletAddress) return;
+
+    const amount = yearly ? plan.yearlyUsdc : plan.monthlyUsdc;
+    if (usdcBalance == null || usdcBalance < amount) {
+      showToast(`Insufficient USDC — need $${amount.toFixed(2)}, have $${(usdcBalance ?? 0).toFixed(2)}`);
+      return;
+    }
+
+    const provider = embeddedWallet?.getProvider?.();
+    if (!provider) {
+      showToast('Wallet not ready — try again');
+      return;
+    }
+
+    Alert.alert(
+      `Subscribe to ${plan.name}`,
+      `Pay ${amount.toFixed(2)} USDC from your wallet?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Pay',
+          onPress: async () => {
+            setLoading(true);
+            try {
+              const conn = new Connection(RPC_URL, 'confirmed');
+              const payer = new PublicKey(walletAddress);
+              const payerAta = await getAssociatedTokenAddress(USDC_MINT, payer);
+              const treasuryAta = await getAssociatedTokenAddress(USDC_MINT, TREASURY_WALLET);
+
+              const ixs: TransactionInstruction[] = [];
+              // Create treasury ATA if it doesn't exist
+              const treasuryAccount = await conn.getAccountInfo(treasuryAta);
+              if (!treasuryAccount) {
+                ixs.push(
+                  createAssociatedTokenAccountInstruction(payer, treasuryAta, TREASURY_WALLET, USDC_MINT),
+                );
+              }
+              // Transfer USDC
+              const lamportAmount = BigInt(Math.round(amount * 10 ** USDC_DECIMALS));
+              ixs.push(
+                createTransferCheckedInstruction(payerAta, USDC_MINT, treasuryAta, payer, lamportAmount, USDC_DECIMALS),
+              );
+
+              const tx = new Transaction().add(...ixs);
+              tx.feePayer = payer;
+              tx.recentBlockhash = (await conn.getLatestBlockhash()).blockhash;
+
+              const { signature } = await provider.request({
+                method: 'signAndSendTransaction',
+                params: { transaction: tx },
+              });
+
+              showToast('Verifying payment...');
+              // Wait for confirmation
+              await conn.confirmTransaction(signature, 'confirmed');
+
+              // Verify on backend
+              const result = await verifyUsdcSubscription(apiKey, planKey, signature);
+              if (result.upgraded) {
+                setPlan(result.plan as any);
+                showToast(`Welcome to ${result.plan.charAt(0).toUpperCase() + result.plan.slice(1)}!`);
+                router.back();
+              }
+            } catch (err: any) {
+              const msg = err?.message ?? 'Payment failed';
+              if (!msg.includes('User rejected')) {
+                showToast(msg);
+              }
+            } finally {
+              setLoading(false);
+            }
+          },
+        },
+      ],
+    );
+  };
 
   const handlePurchase = async (planKey: string) => {
     // Try to find matching RC package
@@ -258,27 +361,28 @@ export default function PaywallScreen() {
                 )}
               </HapticButton>
 
-              {/* CTA: Pay with USDC (Android only) */}
-              {isAndroid && (
-                <View style={styles.usdcRow}>
-                  <HapticButton
-                    variant="ghost"
-                    fullWidth
-                    onPress={() => showToast('USDC payments coming soon')}
-                  >
-                    <Text style={styles.usdcBtnText}>Pay with USDC</Text>
-                    <Text style={styles.usdcPrice}>
-                      ${yearly
-                        ? plan.yearlyUsdc.toFixed(2)
-                        : plan.monthlyUsdc.toFixed(2)}
-                      {yearly ? '/yr' : '/mo'}
+              {/* CTA: Pay with USDC */}
+              <View style={styles.usdcRow}>
+                <HapticButton
+                  variant="ghost"
+                  fullWidth
+                  onPress={() => handleUsdcPurchase(plan.key)}
+                  disabled={loading}
+                >
+                  <Text style={styles.usdcBtnText}>Pay with USDC</Text>
+                  <Text style={styles.usdcPrice}>
+                    ${yearly
+                      ? plan.yearlyUsdc.toFixed(2)
+                      : plan.monthlyUsdc.toFixed(2)}
+                    {yearly ? '/yr' : '/mo'}
+                  </Text>
+                  {usdcBalance != null && usdcBalance > 0 && (
+                    <Text style={styles.usdcBalanceHint}>
+                      Balance: ${usdcBalance.toFixed(2)}
                     </Text>
-                    <View style={styles.discountBadge}>
-                      <Text style={styles.discountBadgeText}>-10%</Text>
-                    </View>
-                  </HapticButton>
-                </View>
-              )}
+                  )}
+                </HapticButton>
+              </View>
             </GlassCard>
           </Animated.View>
         ))}
@@ -488,6 +592,11 @@ const styles = StyleSheet.create({
     fontFamily: 'Lexend-Regular',
     fontSize: tokens.font.small,
     color: tokens.white60,
+  },
+  usdcBalanceHint: {
+    fontFamily: 'Lexend-Regular',
+    fontSize: 10,
+    color: tokens.success,
   },
   discountBadge: {
     backgroundColor: tokens.success,

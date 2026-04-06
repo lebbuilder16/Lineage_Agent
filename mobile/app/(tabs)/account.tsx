@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import {
-  View, Text, StyleSheet, ScrollView, Alert, Pressable, Image, Modal,
+  View, Text, StyleSheet, ScrollView, Alert, Pressable, Image, Modal, ActivityIndicator,
 } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -9,7 +9,7 @@ import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import {
-  User, Crown, ChevronRight, LogOut, Key, Bell, RefreshCw, Shield, Scan, Eye, Award,
+  User, Crown, ChevronRight, LogOut, Key, Bell, RefreshCw, Shield, Scan, Eye, Award, Camera,
 } from 'lucide-react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { GlassCard } from '../../src/components/ui/GlassCard';
@@ -115,13 +115,21 @@ export default function AccountScreen() {
       mediaTypes: ['images'],
       allowsEditing: true,
       aspect: [1, 1],
-      quality: 0.7,
+      quality: 0.3,
       base64: true,
     });
-    if (result.canceled || !result.assets?.[0]?.base64) return;
+    if (result.canceled || !result.assets?.[0]) return;
     setAvatarUploading(true);
     try {
-      const dataUri = `data:image/jpeg;base64,${result.assets[0].base64}`;
+      // Resize to small thumbnail to keep base64 under DB limit
+      const { manipulateAsync, SaveFormat } = await import('expo-image-manipulator');
+      const manipulated = await manipulateAsync(
+        result.assets[0].uri,
+        [{ resize: { width: 96, height: 96 } }],
+        { compress: 0.5, format: SaveFormat.JPEG, base64: true },
+      );
+      if (!manipulated.base64) throw new Error('No base64');
+      const dataUri = `data:image/jpeg;base64,${manipulated.base64}`;
       const updated = await updateProfile(apiKey, { avatar_url: dataUri });
       setUser(updated);
     } catch { /* best-effort */ }
@@ -194,7 +202,7 @@ export default function AccountScreen() {
           {/* ── Section 1: Profile Hero ──────────────────────────────────────── */}
           <Animated.View entering={FadeInDown.duration(400)}>
             <GlassCard style={styles.profileCard}>
-              <Pressable onPress={handlePickAvatar} disabled={avatarUploading}>
+              <Pressable onPress={handlePickAvatar} disabled={avatarUploading} style={styles.avatarWrapper}>
                 {user?.avatar_url ? (
                   <Image source={{ uri: user.avatar_url }} style={styles.avatarImg} />
                 ) : (
@@ -202,7 +210,19 @@ export default function AccountScreen() {
                     <Text style={[styles.avatarText, { color: bg1 }]}>{displayName[0]?.toUpperCase() ?? 'A'}</Text>
                   </View>
                 )}
+                {avatarUploading ? (
+                  <View style={[styles.cameraBadge, { backgroundColor: tokens.white20 }]}>
+                    <ActivityIndicator size={12} color={tokens.white} />
+                  </View>
+                ) : (
+                  <View style={styles.cameraBadge}>
+                    <Camera size={12} color={tokens.white} strokeWidth={2.5} />
+                  </View>
+                )}
               </Pressable>
+              {!user?.avatar_url && !avatarUploading && (
+                <Text style={styles.avatarHint}>Tap to add a photo</Text>
+              )}
 
               <Pressable onPress={() => setEditVisible(true)} style={styles.nameRow}>
                 <Text style={styles.profileName}>{displayName}</Text>
@@ -424,8 +444,16 @@ const styles = StyleSheet.create({
     width: 80, height: 80, borderRadius: 40,
     borderWidth: 2, alignItems: 'center', justifyContent: 'center', marginBottom: 12,
   },
-  avatarImg: { width: 80, height: 80, borderRadius: 40, marginBottom: 12 },
+  avatarImg: { width: 80, height: 80, borderRadius: 40 },
   avatarText: { fontFamily: 'Lexend-Bold', fontSize: 28 },
+  avatarWrapper: { position: 'relative' as const, marginBottom: 4 },
+  avatarHint: { fontFamily: 'Lexend-Regular', fontSize: 11, color: tokens.white40, marginBottom: 8 },
+  cameraBadge: {
+    position: 'absolute' as const, bottom: 0, right: 0,
+    width: 26, height: 26, borderRadius: 13,
+    backgroundColor: tokens.secondary, alignItems: 'center' as const, justifyContent: 'center' as const,
+    borderWidth: 2, borderColor: tokens.bg1,
+  },
   nameRow: { alignItems: 'center', gap: 2 },
   profileName: { fontFamily: 'Lexend-Bold', fontSize: tokens.font.sectionHeader, color: tokens.white100 },
   profileHandle: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.small, color: tokens.textTertiary },

@@ -126,6 +126,59 @@ _MAX_RETRIES = 3
 _MAX_RETRIES_WITH_FALLBACK = 1  # fewer retries when fallback endpoints exist
 _BACKOFF_BASE = 2.0  # seconds (increased from 1.5 to reduce 429 cascades)
 
+# Global concurrency + rate limiter — prevents 429 cascades.
+# Helius free (beta) ≈ 10 req/s; we target 8 req/s total with 5 max concurrent.
+_rpc_semaphore: asyncio.Semaphore | None = None
+_RPC_MAX_CONCURRENT = 5
+
+def _get_rpc_semaphore() -> asyncio.Semaphore:
+    global _rpc_semaphore
+    if _rpc_semaphore is None:
+        _rpc_semaphore = asyncio.Semaphore(_RPC_MAX_CONCURRENT)
+    return _rpc_semaphore
+
+
+class _TokenBucket:
+    """Simple async token-bucket rate limiter."""
+    __slots__ = ("_rate", "_max_tokens", "_tokens", "_last", "_lock")
+
+    def __init__(self, rate: float, burst: int = 1) -> None:
+        self._rate = rate           # tokens per second
+        self._max_tokens = burst
+        self._tokens = float(burst)
+        self._last = 0.0
+        self._lock: asyncio.Lock | None = None
+
+    async def acquire(self) -> None:
+        import time as _time
+        if self._lock is None:
+            self._lock = asyncio.Lock()
+        async with self._lock:
+            now = _time.monotonic()
+            if self._last:
+                self._tokens = min(
+                    self._max_tokens,
+                    self._tokens + (now - self._last) * self._rate,
+                )
+            self._last = now
+            if self._tokens < 1.0:
+                wait = (1.0 - self._tokens) / self._rate
+                await asyncio.sleep(wait)
+                self._tokens = 0.0
+                self._last = _time.monotonic()
+            else:
+                self._tokens -= 1.0
+
+
+_rpc_rate_limiter: _TokenBucket | None = None
+_RPC_RATE_PER_SEC = 8  # target 8 req/s (Helius beta free ≈ 10)
+
+def _get_rate_limiter() -> _TokenBucket:
+    global _rpc_rate_limiter
+    if _rpc_rate_limiter is None:
+        _rpc_rate_limiter = _TokenBucket(rate=_RPC_RATE_PER_SEC, burst=_RPC_RATE_PER_SEC)
+    return _rpc_rate_limiter
+
 
 # Addresses that are programs / burned authorities, NOT user wallets.
 # When extracting the deployer from a transaction's accountKeys we skip these
@@ -1025,6 +1078,25 @@ class SolanaRpcClient:
             "params": params,
         }
 
+        await _get_rate_limiter().acquire()
+        sem = _get_rpc_semaphore()
+        await sem.acquire()
+        try:
+            return await self._call_inner(
+                method, payload, endpoints, retries, circuit_protect, _cache_sig,
+            )
+        finally:
+            sem.release()
+
+    async def _call_inner(
+        self,
+        method: str,
+        payload: dict,
+        endpoints: list[RpcEndpoint],
+        retries: int,
+        circuit_protect: bool,
+        _cache_sig: str | None,
+    ) -> Any:
         for i, ep in enumerate(endpoints):
             client = await self._get_client_for(ep)
             is_last = i == len(endpoints) - 1

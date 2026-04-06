@@ -169,8 +169,9 @@ async def _purge_legacy_forensic_cache_namespaces() -> None:
 
 
 async def _cartel_sweep_loop() -> None:
-    """Run cartel edge building: immediately on startup, then hourly."""
+    """Run cartel edge building: delayed 60s after startup, then hourly."""
     logger.info("Cartel sweep background task started (interval=3600s)")
+    await asyncio.sleep(60)  # stagger startup to avoid RPC rate-limit burst
     while True:
         try:
             await run_cartel_sweep()
@@ -2624,6 +2625,115 @@ async def auth_admin_upgrade(request: Request):
     if not ok:
         raise HTTPException(status_code=400, detail=f"Invalid plan: {plan!r} for user_id={row[0]}")
     return {"email": email, "plan": plan, "upgraded": True}
+
+
+@app.post("/auth/subscribe/usdc", tags=["auth"])
+async def auth_subscribe_usdc(request: Request):
+    """Verify an on-chain USDC transfer and upgrade the user's plan.
+
+    Body: {"plan": "pro"|"elite", "tx_signature": "..."}
+    The backend verifies that the transaction transferred the correct USDC
+    amount to the treasury wallet before upgrading.
+    """
+    import os
+    user = await _get_current_user(request)
+    body = await request.json()
+    plan = body.get("plan")
+    tx_sig = body.get("tx_signature")
+    if not plan or not tx_sig:
+        raise HTTPException(status_code=422, detail="plan and tx_signature required")
+
+    TREASURY = os.environ.get("USDC_TREASURY_WALLET", "")
+    if not TREASURY:
+        raise HTTPException(status_code=503, detail="USDC payments not configured")
+
+    from .helio_service import PLAN_PRICES_USDC, USDC_MINT  # noqa: PLC0415
+    expected_amount = PLAN_PRICES_USDC.get(plan)
+    if not expected_amount:
+        raise HTTPException(status_code=422, detail=f"Invalid plan: {plan}")
+
+    # Verify the transaction on-chain
+    from .data_sources._clients import get_rpc_client  # noqa: PLC0415
+    rpc = get_rpc_client()
+    try:
+        tx = await rpc._call(
+            "getTransaction",
+            [tx_sig, {"encoding": "jsonParsed", "maxSupportedTransactionVersion": 0}],
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"RPC error: {exc}") from exc
+
+    if not tx or not isinstance(tx, dict):
+        raise HTTPException(status_code=404, detail="Transaction not found — wait a few seconds and retry")
+
+    # Check tx was successful
+    meta = tx.get("meta", {})
+    if meta.get("err"):
+        raise HTTPException(status_code=400, detail="Transaction failed on-chain")
+
+    # Find the USDC transfer to treasury in the parsed instructions
+    verified = False
+    for ix in (meta.get("innerInstructions") or []):
+        for inner in (ix.get("instructions") or []):
+            parsed = inner.get("parsed", {})
+            if parsed.get("type") == "transferChecked":
+                info = parsed.get("info", {})
+                if (
+                    info.get("mint") == USDC_MINT
+                    and info.get("authority") == user.get("wallet_address")
+                ):
+                    # USDC has 6 decimals
+                    amount = info.get("tokenAmount", {}).get("uiAmount", 0)
+                    if amount >= expected_amount * 0.99:  # 1% tolerance
+                        verified = True
+                        break
+    # Also check top-level instructions
+    if not verified:
+        for ix in tx.get("transaction", {}).get("message", {}).get("instructions", []):
+            parsed = ix.get("parsed", {})
+            if parsed.get("type") in ("transfer", "transferChecked"):
+                info = parsed.get("info", {})
+                mint = info.get("mint", "")
+                authority = info.get("authority", "") or info.get("source", "")
+                if mint == USDC_MINT or not mint:
+                    amount = info.get("tokenAmount", {}).get("uiAmount", 0) if "tokenAmount" in info else info.get("amount", 0)
+                    if isinstance(amount, str):
+                        try:
+                            amount = float(amount) / 1e6
+                        except ValueError:
+                            continue
+                    if amount >= expected_amount * 0.99:
+                        verified = True
+                        break
+
+    if not verified:
+        raise HTTPException(status_code=400, detail="USDC transfer not verified — wrong amount or recipient")
+
+    # Check tx signature not already used
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+    db = await _cache._get_conn()
+    cursor = await db.execute("SELECT 1 FROM subscriptions WHERE tx_signature = ?", (tx_sig,))
+    if await cursor.fetchone():
+        raise HTTPException(status_code=409, detail="Transaction already used")
+
+    # Upgrade
+    from .auth_service import upgrade_user_plan  # noqa: PLC0415
+    ok = await upgrade_user_plan(_cache, user["id"], plan)
+    if not ok:
+        raise HTTPException(status_code=500, detail="Upgrade failed")
+
+    # Store subscription record
+    import time as _time
+    await db.execute(
+        "INSERT OR REPLACE INTO subscriptions "
+        "(user_id, plan, payment_method, tx_signature, is_active, updated_at) "
+        "VALUES (?, ?, 'usdc_direct', ?, 1, ?)",
+        (user["id"], plan, tx_sig, _time.time()),
+    )
+    await db.commit()
+
+    logger.info("USDC subscribe: user_id=%s plan=%s tx=%s", user["id"], plan, tx_sig[:20])
+    return {"plan": plan, "upgraded": True}
 
 
 @app.get("/auth/me", tags=["auth"])

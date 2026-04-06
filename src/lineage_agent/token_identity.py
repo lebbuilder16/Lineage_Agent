@@ -88,9 +88,16 @@ async def resolve_token_identity(
     query_meta = dex.pairs_to_metadata(mint, pairs)
 
     # Step 2: Concurrent enrichment (deployer + DAS + Jupiter price)
+    # Wrap each in wait_for to prevent a slow RPC queue from blocking identity.
+    async def _deployer_with_timeout():
+        return await asyncio.wait_for(_get_deployer_cached(rpc, mint), timeout=30.0)
+
+    async def _asset_with_timeout():
+        return await asyncio.wait_for(_get_asset_cached(rpc, mint), timeout=15.0)
+
     _deployer_result, _q_asset_result, _jup_price_result = await asyncio.gather(
-        _get_deployer_cached(rpc, mint),
-        _get_asset_cached(rpc, mint),
+        _deployer_with_timeout(),
+        _asset_with_timeout(),
         jup.get_price(mint),
         return_exceptions=True,
     )
