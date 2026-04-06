@@ -505,19 +505,19 @@ def _cross_reference(deltas: dict, old: dict, new: dict, *, covered_types: set[s
 
 # ── Trinity AI flag generation ──────────────────────────────────────────────
 
-_TRINITY_FLAG_SYSTEM = """\
-You are a Solana token forensics analyst generating watchlist alerts for investors.
-You receive a delta between two forensic scans of a watched token.
-Output 0-5 flags as a JSON array. Each flag:
-  {"flag_type": "SCREAMING_SNAKE_CASE", "severity": "critical"|"warning"|"info", "title": "...", "detail": "..."}
+_TRINITY_ENRICH_SYSTEM = """\
+You are a Solana token forensics analyst writing watchlist alerts for crypto investors.
+You receive pre-detected flags with their raw data. Your job is to REWRITE the title
+and detail fields to be clear, actionable, and investor-readable.
+
 Rules:
-- flag_type: 2-4 words describing the signal (e.g. DEPLOYER_EXIT_WITH_DRAIN, CARTEL_NETWORK_GROWING)
-- title: 1 sentence, plain English, investor-readable, include key numbers ($, SOL, %)
-- detail: 1-2 sentences expanding context and implications for a non-technical investor
-- severity: critical = immediate danger/rug signal, warning = concerning change, info = notable but not urgent
-- Output [] (empty array) if nothing meaningful changed
-- Max 5 flags, prioritize by severity
-Respond with ONLY a JSON array. No markdown, no commentary, no explanation outside the JSON."""
+- You receive a JSON array of flags. Each has: flag_type, severity, title, detail (raw data).
+- Return the SAME array with the SAME flag_type and severity — only rewrite title and detail.
+- title: 1 punchy sentence, plain English, include key numbers ($, SOL, %).
+- detail: 1-2 sentences explaining implications for a non-technical investor.
+- Do NOT add, remove, or reorder flags. Do NOT change flag_type or severity.
+- If you cannot improve a flag, return it unchanged.
+Respond with ONLY a JSON array. No markdown, no commentary."""
 
 
 def _compute_compact_delta(old: dict, new: dict) -> str:
@@ -624,48 +624,69 @@ def _parse_trinity_flags(text: str) -> list[dict] | None:
     return flags
 
 
-async def _generate_flags_trinity(
+async def _enrich_flags_trinity(
+    flags: list[dict],
     old: dict, new: dict, mint: str,
     *,
-    ref: Optional[dict] = None,
     symbol: str = "",
     old_score: int = 0,
     new_score: int = 0,
-) -> list[dict] | None:
-    """Generate flags using Trinity AI. Returns flags on success, None on failure."""
+) -> list[dict]:
+    """Enrich deterministic flags with investor-readable titles/details via Gemini.
+
+    Returns enriched flags on success, original flags unchanged on failure.
+    The flag_type and severity are NEVER modified — only title and detail.
+    """
+    if not flags:
+        return flags
+
     try:
         from .ai_analyst import _get_openrouter_client, _SWEEP_MODEL  # noqa: PLC0415
 
         client = _get_openrouter_client()
         if not client:
-            return None
+            return flags
 
         delta_str = _compute_compact_delta(old, new)
 
-        # Build compact current state
+        # Build context: flags to enrich + current state
+        flags_for_ai = []
+        for f in flags:
+            # Parse detail back to dict for Gemini context
+            raw = f.get("detail", "{}")
+            try:
+                detail_dict = json.loads(raw) if isinstance(raw, str) else raw
+            except Exception:
+                detail_dict = {"raw": raw}
+            flags_for_ai.append({
+                "flag_type": f["flag_type"],
+                "severity": f["severity"],
+                "title": f["title"],
+                "detail": detail_dict,
+            })
+
         state_lines = [
             f"Token: {symbol or '?'} ({mint[:12]})",
             f"Risk score: {old_score} → {new_score}",
-            "",
-            f"Changes since last scan:",
-            delta_str,
-            "",
-            "Current state:",
-            f"- SOL extracted: {new.get('sol_extracted', 0):.1f} | Deployer exited: {new.get('deployer_exited', False)}",
-            f"- Bundle: {new.get('bundle_wallets', 0)} wallets ({new.get('bundle_holders', '?')} holding)",
-            f"- Cartel: {new.get('cartel_wallets', 0)} wallets | Risk: {new.get('risk_level', 'unknown')}",
+            f"Changes: {delta_str}",
+            f"SOL extracted: {new.get('sol_extracted', 0):.1f} | Deployer exited: {new.get('deployer_exited', False)}",
+            f"Bundle: {new.get('bundle_wallets', 0)} wallets ({new.get('bundle_holders', '?')} holding)",
+            f"Cartel: {new.get('cartel_wallets', 0)} wallets | Risk: {new.get('risk_level', 'unknown')}",
         ]
         price = new.get("price_usd")
         if price:
             h1 = new.get("price_change_h1") or 0
             h24 = new.get("price_change_h24") or 0
             liq = new.get("liq_usd") or 0
-            state_lines.append(f"- Price: ${price:.6f} (1h: {h1:+.1f}%, 24h: {h24:+.1f}%) | Liq: ${liq:,.0f}")
+            state_lines.append(f"Price: ${price:.6f} (1h: {h1:+.1f}%, 24h: {h24:+.1f}%) | Liq: ${liq:,.0f}")
         sp = new.get("sell_pressure_1h")
         if sp:
-            state_lines.append(f"- Sell pressure 1h: {sp * 100:.0f}%")
+            state_lines.append(f"Sell pressure 1h: {sp * 100:.0f}%")
 
-        user_msg = "\n".join(state_lines)
+        user_msg = (
+            "Context:\n" + "\n".join(state_lines) + "\n\n"
+            "Flags to enrich:\n" + json.dumps(flags_for_ai, indent=2, default=str)
+        )
 
         response = await asyncio.wait_for(
             client.chat.completions.create(
@@ -673,7 +694,7 @@ async def _generate_flags_trinity(
                 max_tokens=512,
                 temperature=0,
                 messages=[
-                    {"role": "system", "content": _TRINITY_FLAG_SYSTEM},
+                    {"role": "system", "content": _TRINITY_ENRICH_SYSTEM},
                     {"role": "user", "content": user_msg},
                 ],
             ),
@@ -690,51 +711,43 @@ async def _generate_flags_trinity(
 
         _usage = response.usage
         logger.info(
-            "[sweep] Trinity flags for %s | tokens=%d/%d | raw_len=%d",
+            "[sweep] Trinity enrich for %s | tokens=%d/%d | raw_len=%d",
             mint[:12],
             _usage.prompt_tokens if _usage else 0,
             _usage.completion_tokens if _usage else 0,
             len(text),
         )
 
-        flags = _parse_trinity_flags(text)
-        if flags is not None:
-            # Deduplicate Trinity flags within the batch: collapse flags whose
-            # types map to the same logical signal (e.g. SOL_DRAIN + EXTRACTION
-            # both describing the same SOL movement).
-            _TRINITY_DEDUP_KEYWORDS = {
-                "SOL": "sol_group",
-                "EXTRACT": "sol_group",
-                "DRAIN": "sol_group",
-                "DEPLOY": "deployer_group",
-                "CREATOR": "deployer_group",
-                "BUNDLE": "bundle_group",
-                "CARTEL": "cartel_group",
-                "INSIDER": "insider_group",
-                "DUMP": "insider_group",
-            }
-            seen_groups: set[str] = set()
-            deduped: list[dict] = []
-            for f in flags:
-                groups_hit = {g for kw, g in _TRINITY_DEDUP_KEYWORDS.items() if kw in f["flag_type"]}
-                if groups_hit and groups_hit & seen_groups:
-                    continue  # skip: same logical group already present
-                seen_groups |= groups_hit
-                deduped.append(f)
-            flags = deduped
-
-            logger.info("[sweep] Trinity generated %d flag(s) for %s", len(flags), mint[:12])
+        enriched = _parse_trinity_flags(text)
+        if enriched is None or len(enriched) != len(flags):
+            logger.warning(
+                "[sweep] Trinity enrich mismatch for %s: expected %d flags, got %s — using originals",
+                mint[:12], len(flags), len(enriched) if enriched else "None",
+            )
             return flags
 
-        logger.warning("[sweep] Trinity flag parse failed for %s, falling back", mint[:12])
-        return None
+        # Merge: keep original flag_type + severity, take enriched title + detail
+        result = []
+        for orig, enr in zip(flags, enriched):
+            merged = dict(orig)  # preserve flag_type, severity, original detail
+            # Only accept enriched title/detail if flag_type matches
+            enr_type = enr.get("flag_type", "")
+            if enr_type == orig["flag_type"]:
+                if enr.get("title"):
+                    merged["title"] = enr["title"]
+                if enr.get("detail"):
+                    merged["detail"] = enr["detail"] if isinstance(enr["detail"], str) else json.dumps(enr["detail"], default=str)
+            result.append(merged)
+
+        logger.info("[sweep] Trinity enriched %d flag(s) for %s", len(result), mint[:12])
+        return result
 
     except asyncio.TimeoutError:
-        logger.warning("[sweep] Trinity flag gen timed out for %s", mint[:12])
-        return None
+        logger.warning("[sweep] Trinity enrich timed out for %s — using originals", mint[:12])
+        return flags
     except Exception as exc:
-        logger.warning("[sweep] Trinity flag gen failed for %s: %s", mint[:12], exc)
-        return None
+        logger.warning("[sweep] Trinity enrich failed for %s: %s — using originals", mint[:12], exc)
+        return flags
 
 
 # ── Bundle wallet activity tracking ──────────────────────────────────────────
@@ -1090,19 +1103,17 @@ async def run_single_rescan(watch_id: int, user_id: int, cache, *, skip_ai: bool
                 "detail": json.dumps({"snapshot": new_forensic, "risk_score": new_score}, default=str),
             })
         else:
-            flags = None
-            # Elite users: Trinity AI generates contextual flags
-            if plan == "elite":
-                flags = await _generate_flags_trinity(
-                    old_forensic, new_forensic, mint,
-                    ref=ref_forensic,
+            # Always run deterministic flags first — source of truth
+            flags = _generate_flags(old_forensic, new_forensic, mint, ref=ref_forensic)
+
+            # Elite users: Gemini enriches title/detail (flag_type stays canonical)
+            if plan == "elite" and flags:
+                flags = await _enrich_flags_trinity(
+                    flags, old_forensic, new_forensic, mint,
                     symbol=_token_symbol,
                     old_score=old_score,
                     new_score=new_score,
                 )
-            # Fallback: deterministic flags (Free/Pro, or Trinity failure)
-            if flags is None:
-                flags = _generate_flags(old_forensic, new_forensic, mint, ref=ref_forensic)
         now = time.time()
 
         # Enrich flag details with token name/symbol for mobile display
