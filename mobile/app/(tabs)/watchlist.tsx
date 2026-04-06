@@ -211,6 +211,24 @@ export default function WatchlistScreen() {
     });
   }, [urgentMints, flags]);
 
+  // Pre-compute flags by mint for O(1) lookup in renderItem
+  const flagsByMint = useMemo(() => {
+    const map = new Map<string, typeof flags>();
+    for (const f of flags) {
+      if (!f.mint) continue;
+      const arr = map.get(f.mint) ?? [];
+      arr.push(f);
+      map.set(f.mint, arr);
+    }
+    return map;
+  }, [flags]);
+
+  // Stable extraData reference for FlatList
+  const extraDataMemo = useMemo(
+    () => ({ expandedIds, timelineData, timelineLoading, flags, tokenMeta }),
+    [expandedIds, timelineData, timelineLoading, flags, tokenMeta],
+  );
+
   const handleToggleExpand = useCallback((id: string) => {
     setExpandedIds((prev) => {
       const next = new Set(prev);
@@ -431,7 +449,7 @@ export default function WatchlistScreen() {
             ref={flatListRef}
             data={effectiveWatches}
             keyExtractor={(item) => item.id}
-            extraData={{ expandedIds, timelineData, timelineLoading, flags, tokenMeta }}
+            extraData={extraDataMemo}
             contentContainerStyle={[styles.listContent, { paddingBottom: Math.max(insets.bottom + 100, 120) }]}
             showsVerticalScrollIndicator={false}
             removeClippedSubviews
@@ -442,7 +460,7 @@ export default function WatchlistScreen() {
               <RefreshControl refreshing={isLoading} onRefresh={handleRefresh} tintColor={tokens.secondary} />
             }
             renderItem={({ item, index }) => {
-              const mintFlags = flags.filter((f) => f.mint === item.value);
+              const mintFlags = flagsByMint.get(item.value) ?? [];
               const isExpanded = expandedIds.has(item.id);
               const isUrgent = urgentMints.includes(item.value);
               const timeline = timelineData[item.value];

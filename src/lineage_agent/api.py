@@ -2646,7 +2646,8 @@ async def auth_admin_upgrade(request: Request):
     try:
         ok = await upgrade_user_plan(_cache, row[0], plan)
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Upgrade failed: {exc}") from exc
+        logger.exception("admin upgrade failed: %s", exc)
+        raise HTTPException(status_code=500, detail="Upgrade failed") from exc
     if not ok:
         raise HTTPException(status_code=400, detail=f"Invalid plan: {plan!r} for user_id={row[0]}")
     return {"email": email, "plan": plan, "upgraded": True}
@@ -2686,7 +2687,8 @@ async def auth_subscribe_usdc(request: Request):
             [tx_sig, {"encoding": "jsonParsed", "maxSupportedTransactionVersion": 0}],
         )
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"RPC error: {exc}") from exc
+        logger.warning("subscribe/usdc RPC error: %s", exc)
+        raise HTTPException(status_code=502, detail="RPC error — try again") from exc
 
     if not tx or not isinstance(tx, dict):
         raise HTTPException(status_code=404, detail="Transaction not found — wait a few seconds and retry")
@@ -2698,38 +2700,47 @@ async def auth_subscribe_usdc(request: Request):
 
     # Find the USDC transfer to treasury in the parsed instructions
     verified = False
+
+    def _check_transfer(info: dict, require_mint: bool = True) -> bool:
+        """Verify a token transfer matches expected criteria."""
+        mint = info.get("mint", "")
+        if require_mint and mint != USDC_MINT:
+            return False
+        # Verify destination is the treasury wallet
+        destination = info.get("destination", "") or info.get("account", "")
+        if destination != TREASURY:
+            return False
+        # Verify amount
+        if "tokenAmount" in info:
+            amount = info["tokenAmount"].get("uiAmount", 0)
+        else:
+            raw = info.get("amount", 0)
+            if isinstance(raw, str):
+                try:
+                    amount = float(raw) / 1e6
+                except ValueError:
+                    return False
+            else:
+                amount = raw
+        return amount >= expected_amount * 0.99  # 1% tolerance
+
     for ix in (meta.get("innerInstructions") or []):
         for inner in (ix.get("instructions") or []):
             parsed = inner.get("parsed", {})
             if parsed.get("type") == "transferChecked":
-                info = parsed.get("info", {})
-                if (
-                    info.get("mint") == USDC_MINT
-                    and info.get("authority") == user.get("wallet_address")
-                ):
-                    # USDC has 6 decimals
-                    amount = info.get("tokenAmount", {}).get("uiAmount", 0)
-                    if amount >= expected_amount * 0.99:  # 1% tolerance
-                        verified = True
-                        break
+                if _check_transfer(parsed.get("info", {})):
+                    verified = True
+                    break
+        if verified:
+            break
     # Also check top-level instructions
     if not verified:
         for ix in tx.get("transaction", {}).get("message", {}).get("instructions", []):
             parsed = ix.get("parsed", {})
             if parsed.get("type") in ("transfer", "transferChecked"):
-                info = parsed.get("info", {})
-                mint = info.get("mint", "")
-                authority = info.get("authority", "") or info.get("source", "")
-                if mint == USDC_MINT or not mint:
-                    amount = info.get("tokenAmount", {}).get("uiAmount", 0) if "tokenAmount" in info else info.get("amount", 0)
-                    if isinstance(amount, str):
-                        try:
-                            amount = float(amount) / 1e6
-                        except ValueError:
-                            continue
-                    if amount >= expected_amount * 0.99:
-                        verified = True
-                        break
+                if _check_transfer(parsed.get("info", {})):
+                    verified = True
+                    break
 
     if not verified:
         raise HTTPException(status_code=400, detail="USDC transfer not verified — wrong amount or recipient")
@@ -3288,22 +3299,76 @@ async def purchase_credits(request: Request):
     if not tx_sig:
         raise HTTPException(status_code=400, detail="tx_signature required")
 
+    # Replay protection: check tx_signature not already used
+    db = await _cache._get_conn()
+    cursor = await db.execute(
+        "SELECT 1 FROM subscriptions WHERE tx_signature = ?", (tx_sig,)
+    )
+    if await cursor.fetchone():
+        raise HTTPException(status_code=409, detail="Transaction already used")
+
     # Verify on-chain transaction via Solana RPC
+    import os
+    TREASURY = os.environ.get("USDC_TREASURY_WALLET", "")
+    if not TREASURY:
+        raise HTTPException(status_code=503, detail="USDC payments not configured")
+
+    from .helio_service import USDC_MINT  # noqa: PLC0415
     from .data_sources._clients import get_rpc_client  # noqa: PLC0415
+    expected_usd = pack["price_usd"]
+
     try:
         rpc = get_rpc_client()
         tx_data = await rpc._call("getTransaction", [tx_sig, {"encoding": "jsonParsed", "maxSupportedTransactionVersion": 0}])
-        if not tx_data:
+        if not tx_data or not isinstance(tx_data, dict):
             raise HTTPException(status_code=400, detail="Transaction not found on-chain")
-        # Basic validation: transaction must be confirmed and successful
-        meta = tx_data.get("meta", {}) if isinstance(tx_data, dict) else {}
+        meta = tx_data.get("meta", {})
         if meta.get("err") is not None:
             raise HTTPException(status_code=400, detail="Transaction failed on-chain")
+
+        # Verify USDC transfer to treasury with correct amount
+        verified = False
+        all_ixs = []
+        for ix_group in (meta.get("innerInstructions") or []):
+            all_ixs.extend(ix_group.get("instructions", []))
+        all_ixs.extend(tx_data.get("transaction", {}).get("message", {}).get("instructions", []))
+
+        for ix in all_ixs:
+            parsed = ix.get("parsed", {})
+            if parsed.get("type") not in ("transfer", "transferChecked"):
+                continue
+            info = parsed.get("info", {})
+            mint = info.get("mint", "")
+            if mint and mint != USDC_MINT:
+                continue
+            destination = info.get("destination", "") or info.get("account", "")
+            if destination != TREASURY:
+                continue
+            if "tokenAmount" in info:
+                amount = info["tokenAmount"].get("uiAmount", 0)
+            else:
+                raw = info.get("amount", 0)
+                amount = float(raw) / 1e6 if isinstance(raw, str) else raw
+            if amount >= expected_usd * 0.99:
+                verified = True
+                break
+
+        if not verified:
+            raise HTTPException(status_code=400, detail="USDC transfer not verified — wrong amount or recipient")
     except HTTPException:
         raise
     except Exception as exc:
         logger.warning("credits/purchase tx verification failed: %s", exc)
         raise HTTPException(status_code=400, detail="Could not verify transaction") from exc
+
+    # Record tx to prevent replay
+    import time as _time
+    await db.execute(
+        "INSERT OR IGNORE INTO subscriptions (user_id, plan, payment_method, tx_signature, is_active, updated_at) "
+        "VALUES (?, 'credits', 'usdc', ?, 0, ?)",
+        (user["id"], tx_sig, _time.time()),
+    )
+    await db.commit()
 
     new_balance = await add_scan_credits(_cache, user["id"], pack["credits"])
     logger.info("credits/purchase: user=%s pack=%s +%d → %d (tx=%s)",

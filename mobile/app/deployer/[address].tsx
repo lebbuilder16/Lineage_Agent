@@ -27,7 +27,8 @@ export default function DeployerScreen() {
   const { data, isLoading, error, refetch } = useDeployer(address ?? '');
   const apiKey = useAuthStore((s) => s.apiKey);
   const addWatchFn = useAuthStore((s) => s.addWatch);
-  const [watching, setWatching] = useState(false);
+  const watches = useAuthStore((s) => s.watches);
+  const watching = watches.some((w) => w.sub_type === 'deployer' && w.value === address);
 
   const rugRate = (data?.rug_rate_pct ?? 0) / 100;
 
@@ -38,7 +39,6 @@ export default function DeployerScreen() {
     try {
       const w = await addWatch(apiKey, 'deployer', address);
       addWatchFn(w);
-      setWatching(true);
     } catch (err) {
       console.error('[handleWatchDeployer]', err);
     } finally {

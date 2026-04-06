@@ -70,8 +70,7 @@ export default function RadarScreen() {
 
   const apiKey = useAuthStore((s) => s.apiKey);
   const user = useAuthStore((s) => s.user);
-  const wsConnectedStore = useAlertsStore((s) => s.wsConnected);
-  const wsStatus = wsConnectedStore ? 'connected' : 'offline';
+  const wsStatus = wsConnected ? 'connected' : 'offline';
   const insets = useSafeAreaInsets();
 
   const briefing = useBriefingStore((s) => s.latest);

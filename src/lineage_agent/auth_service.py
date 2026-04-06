@@ -26,11 +26,15 @@ async def verify_privy_token(token: str, expected_privy_id: str) -> bool:
 
     Returns True if verification succeeds and subject matches.
     """
-    from config import PRIVY_APP_ID
+    from config import PRIVY_APP_ID, PRIVY_APP_SECRET
 
     if not PRIVY_APP_ID:
+        if PRIVY_APP_SECRET:
+            # Production mode (secret set) but missing APP_ID — reject
+            logger.error("PRIVY_APP_SECRET is set but PRIVY_APP_ID is missing — rejecting")
+            return False
         logger.warning("PRIVY_APP_ID not configured — skipping token verification")
-        return True  # Fail open when Privy is not configured (dev mode)
+        return True  # Fail open only when neither is configured (dev mode)
 
     try:
         import jwt
