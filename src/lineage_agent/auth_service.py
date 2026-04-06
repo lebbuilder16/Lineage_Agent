@@ -1,16 +1,69 @@
 """
 auth_service.py — Phase 1 authentication helpers.
 
-Provides API key generation, user upsert and verification.
-No JWT dependency: the API key itself is the bearer token (simpler, stateless).
+Provides API key generation, user upsert, verification,
+and Privy JWT token verification via JWKS.
 """
 from __future__ import annotations
 
 import logging
 import secrets
 import time
+from typing import Optional
 
 logger = logging.getLogger(__name__)
+
+# ── Privy JWT verification ──────────────────────────────────────────────────
+
+_jwks_client: Optional["jwt.PyJWKClient"] = None
+
+
+async def verify_privy_token(token: str, expected_privy_id: str) -> bool:
+    """Verify a Privy access token JWT and check the subject matches.
+
+    Uses Privy's JWKS endpoint to fetch signing keys. Keys are cached
+    by PyJWKClient for the lifetime of the process.
+
+    Returns True if verification succeeds and subject matches.
+    """
+    from config import PRIVY_APP_ID
+
+    if not PRIVY_APP_ID:
+        logger.warning("PRIVY_APP_ID not configured — skipping token verification")
+        return True  # Fail open when Privy is not configured (dev mode)
+
+    try:
+        import jwt
+        from jwt import PyJWKClient
+
+        global _jwks_client
+        if _jwks_client is None:
+            _jwks_client = PyJWKClient(
+                f"https://auth.privy.io/api/v1/apps/{PRIVY_APP_ID}/jwks.json",
+                cache_keys=True,
+                lifespan=3600,
+            )
+
+        signing_key = _jwks_client.get_signing_key_from_jwt(token)
+        payload = jwt.decode(
+            token,
+            signing_key.key,
+            algorithms=["ES256"],
+            issuer="privy.io",
+            audience=PRIVY_APP_ID,
+        )
+        # The 'sub' claim contains the Privy user ID
+        sub = payload.get("sub", "")
+        if sub != expected_privy_id:
+            logger.warning(
+                "Privy token subject mismatch: expected=%s got=%s",
+                expected_privy_id[:20], sub[:20],
+            )
+            return False
+        return True
+    except Exception as exc:
+        logger.warning("Privy token verification failed: %s", exc)
+        return False
 
 _KEY_PREFIX = "lin_"
 _KEY_BYTES = 24  # 48 hex chars → token = "lin_<48 hex>" = 52 chars total

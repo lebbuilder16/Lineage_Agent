@@ -8,6 +8,11 @@ const BASE_URL = (
   process.env.EXPO_PUBLIC_API_URL ?? 'https://lineage-agent.fly.dev'
 ).replace(/\/$/, '');
 
+// Security: enforce HTTPS-only API calls
+if (!__DEV__ && !BASE_URL.startsWith('https://')) {
+  throw new Error('API URL must use HTTPS in production');
+}
+
 // ─── Typed API error (RFC 9457 Problem Details shape) ────────────────────────
 
 export class ApiError extends Error {

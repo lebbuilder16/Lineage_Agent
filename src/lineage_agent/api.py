@@ -2573,6 +2573,18 @@ async def auth_login(body: _LoginRequest, request: Request):
     """
     if not body.privy_id or len(body.privy_id) < 5 or len(body.privy_id) > 200:
         raise HTTPException(status_code=422, detail="privy_id is required")
+
+    # Verify Privy access token if provided
+    privy_token = request.headers.get("Authorization", "").replace("Bearer ", "").strip()
+    if privy_token:
+        from .auth_service import verify_privy_token  # noqa: PLC0415
+        if not await verify_privy_token(privy_token, body.privy_id):
+            raise HTTPException(status_code=401, detail="Invalid Privy token")
+    elif cfg.PRIVY_APP_SECRET:
+        # If PRIVY_APP_SECRET is configured, require token verification
+        raise HTTPException(status_code=401, detail="Authorization header required")
+    # else: no PRIVY_APP_SECRET configured = dev mode, allow without token
+
     from .data_sources._clients import cache as _cache  # noqa: PLC0415
     try:
         user = await create_or_get_user(

@@ -114,7 +114,7 @@ export async function getHealth(): Promise<HealthStatus> {
 // auth (schema returns `unknown` for auth endpoints -- cast manually)
 export async function authLogin(
   privyId: string,
-  opts?: { wallet_address?: string; email?: string },
+  opts?: { wallet_address?: string; email?: string; privy_token?: string },
 ): Promise<{ api_key: string; wallet_address?: string; email?: string; plan?: string }> {
   const BASE = (process.env.EXPO_PUBLIC_API_URL ?? 'https://lineage-agent.fly.dev').replace(/\/$/, '');
   const body = {
@@ -123,9 +123,13 @@ export async function authLogin(
     email: opts?.email ?? null,
   };
   console.log('[api] authLogin →', BASE);
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (opts?.privy_token) {
+    headers['Authorization'] = `Bearer ${opts.privy_token}`;
+  }
   const res = await fetch(`${BASE}/auth/login`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: JSON.stringify(body),
   });
   const json = await res.json().catch(() => null);
