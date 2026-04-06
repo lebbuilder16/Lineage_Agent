@@ -181,7 +181,11 @@ async def update_user_profile(cache, user_id: int, updates: dict) -> dict | None
             raise ValueError("display_name must be at least 1 character")
         allowed["display_name"] = dname
     if "avatar_url" in updates and updates["avatar_url"] is not None:
-        aurl = str(updates["avatar_url"])[:50000]  # base64 data URI for 96x96 JPEG ≈ 3-8KB
+        aurl = str(updates["avatar_url"])
+        if len(aurl) > 10000:
+            raise ValueError("avatar_url too large (max 10KB)")
+        if aurl and not aurl.startswith(("https://", "data:image/")):
+            raise ValueError("avatar_url must start with https:// or data:image/")
         allowed["avatar_url"] = aurl
 
     if not allowed:

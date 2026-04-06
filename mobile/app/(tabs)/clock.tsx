@@ -59,7 +59,8 @@ export default function DeathClockScreen() {
   const { data, isLoading, error } = useLineage(submitted, !!submitted);
 
   const handleSubmit = () => {
-    if (mint.trim().length >= 32) setSubmitted(mint.trim());
+    const trimmed = mint.trim();
+    if (/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(trimmed)) setSubmitted(trimmed);
   };
 
   const riskLevel = deriveRiskLevel(data);

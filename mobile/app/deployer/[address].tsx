@@ -31,21 +31,25 @@ export default function DeployerScreen() {
 
   const rugRate = (data?.rug_rate_pct ?? 0) / 100;
 
+  const submitting = React.useRef(false);
   const handleWatchDeployer = async () => {
-    if (!apiKey || !address) return;
+    if (!apiKey || !address || watching || submitting.current) return;
+    submitting.current = true;
     try {
       const w = await addWatch(apiKey, 'deployer', address);
       addWatchFn(w);
       setWatching(true);
     } catch (err) {
       console.error('[handleWatchDeployer]', err);
+    } finally {
+      submitting.current = false;
     }
   };
 
   return (
     <View style={styles.container}>
       <Stack.Screen options={{ headerShown: false }} />
-      <View style={styles.safe}>
+      <View style={[styles.safe, { paddingTop: Math.max(insets.top, 16) }]}>
         <View style={styles.navbar}>
           <TouchableOpacity
             onPress={() => router.back()}

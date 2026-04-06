@@ -122,14 +122,14 @@ export async function authLogin(
     wallet_address: opts?.wallet_address ?? null,
     email: opts?.email ?? null,
   };
-  console.log('[api] authLogin →', BASE, JSON.stringify(body));
+  console.log('[api] authLogin →', BASE);
   const res = await fetch(`${BASE}/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
   const json = await res.json().catch(() => null);
-  console.log('[api] authLogin ←', res.status, JSON.stringify(json));
+  console.log('[api] authLogin ←', res.status);
   if (!res.ok) {
     throw new Error(json?.detail ?? `HTTP ${res.status}`);
   }

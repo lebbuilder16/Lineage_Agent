@@ -24,8 +24,8 @@ RC_PRODUCT_TO_PLAN: dict[str, str] = {
 async def verify_webhook_auth(auth_header: str | None) -> bool:
     """Verify RevenueCat webhook authorization header."""
     if not REVENUECAT_WEBHOOK_SECRET:
-        logger.warning("REVENUECAT_WEBHOOK_SECRET not set — accepting all webhooks")
-        return True
+        logger.warning("REVENUECAT_WEBHOOK_SECRET not set — rejecting all webhooks")
+        return False
     return auth_header == f"Bearer {REVENUECAT_WEBHOOK_SECRET}"
 
 

@@ -18,6 +18,7 @@ import { GlassCard } from '../../src/components/ui/GlassCard';
 import { SkeletonBlock } from '../../src/components/ui/SkeletonLoader';
 import { ScreenHeader } from '../../src/components/ui/ScreenHeader';
 import { useToast } from '../../src/components/ui/Toast';
+import { handleTierError } from '../../src/lib/tier-error';
 import { useWatches, useDeleteWatch, useAddWatch } from '../../src/lib/query';
 import { getWatchTimeline } from '../../src/lib/api';
 import { useAuthStore } from '../../src/store/auth';
@@ -240,7 +241,7 @@ export default function WatchlistScreen() {
       },
       onError: (err: any) => {
         setAddOpen(false);
-        const { handleTierError } = require('../../src/lib/tier-error');
+        // handleTierError imported at top level
         setTimeout(() => {
           if (!handleTierError(err, showToast)) {
             const msg = err?.message || err?.detail || 'Failed to add watch';
@@ -428,7 +429,7 @@ export default function WatchlistScreen() {
             ref={flatListRef}
             data={effectiveWatches}
             keyExtractor={(item) => item.id}
-            extraData={[expandedIds, timelineData, timelineLoading, flags, tokenMeta]}
+            extraData={{ expandedIds, timelineData, timelineLoading, flags, tokenMeta }}
             contentContainerStyle={[styles.listContent, { paddingBottom: Math.max(insets.bottom + 100, 120) }]}
             showsVerticalScrollIndicator={false}
             removeClippedSubviews

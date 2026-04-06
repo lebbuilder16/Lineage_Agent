@@ -144,7 +144,7 @@ export default function PaywallScreen() {
       return;
     }
 
-    const provider = embeddedWallet?.getProvider?.();
+    const provider = await embeddedWallet?.getProvider?.();
     if (!provider) {
       showToast('Wallet not ready — try again');
       return;

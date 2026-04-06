@@ -88,6 +88,7 @@ export default function SolTraceScreen() {
           <FlashList
             data={flows}
             keyExtractor={(_, i) => String(i)}
+            estimatedItemSize={80}
             contentContainerStyle={styles.listContent}
             showsVerticalScrollIndicator={false}
             refreshControl={

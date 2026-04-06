@@ -119,7 +119,7 @@ export default function CompareScreen() {
               <GlassCard style={styles.verdictCard}>
                 <Text style={styles.verdictLabel}>VERDICT</Text>
                 <Text style={[styles.verdict, { color: verdictColor }]}>
-                  {data.verdict?.replace('_', ' ') ?? '—'}
+                  {data.verdict?.replace(/_/g, ' ') ?? '—'}
                 </Text>
                 {(data.verdict_reasons?.length ?? 0) > 0 && (
                   <View style={styles.reasons}>

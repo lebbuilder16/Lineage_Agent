@@ -132,7 +132,10 @@ export default function AccountScreen() {
       const dataUri = `data:image/jpeg;base64,${manipulated.base64}`;
       const updated = await updateProfile(apiKey, { avatar_url: dataUri });
       setUser(updated);
-    } catch { /* best-effort */ }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Upload failed';
+      Alert.alert('Avatar upload failed', msg);
+    }
     setAvatarUploading(false);
   };
 

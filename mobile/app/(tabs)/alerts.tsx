@@ -71,7 +71,7 @@ function AlertsScreenInner() {
   const markAllRead = useAlertsStore((s) => s.markAllRead);
   const deleteAlert = useAlertsStore((s) => s.deleteAlert);
   const wsConnected = useAlertsStore((s) => s.wsConnected);
-  const unreadCount = useAlertsStore((s) => s.alerts.filter((a) => !a.read).length);
+  const unreadCount = useAlertsStore((s) => s.unreadCount());
   const [activeFilter, setActiveFilter] = useState<QuickFilter>('all');
   const [expandedEnrichments, setExpandedEnrichments] = useState<Set<string>>(new Set());
   const insets = useSafeAreaInsets();
@@ -113,7 +113,8 @@ function AlertsScreenInner() {
         })
         .catch(() => {});
     }
-  }, [alerts]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [alerts.length]);
 
   // Poll graduations via REST (doesn't depend on WebSocket)
   const { data: graduations } = useGraduations(20);

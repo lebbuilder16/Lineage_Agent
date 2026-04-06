@@ -385,10 +385,7 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 # CORS (so the Next.js frontend can call from localhost:3000 and Vercel)
 app.add_middleware(
     CORSMiddleware,
-    # Public API — no credentials involved, wildcard is safe and avoids
-    # maintaining a regex that breaks every time a new Vercel preview URL is
-    # generated or a custom domain is added.
-    allow_origins=["*"],
+    allow_origins=cfg.CORS_ORIGINS or ["*"],
     allow_credentials=False,
     allow_methods=["GET", "POST", "DELETE"],
     allow_headers=["Content-Type", "Accept", "X-API-Key"],
@@ -639,9 +636,18 @@ async def get_config() -> dict:
     }
 
 
+async def _require_admin(request: Request):
+    """Verify the caller is an admin user (plan == 'admin')."""
+    user = await _get_current_user(request)
+    if user.get("plan") != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return user
+
+
 @app.get("/admin/health", tags=["system"])
-async def admin_health() -> dict:
+async def admin_health(request: Request) -> dict:
     """Detailed health check including circuit breakers and cache stats."""
+    await _require_admin(request)
     from .data_sources._clients import cache
 
     uptime_s = round(time.monotonic() - _start_time, 1)
@@ -665,8 +671,9 @@ async def admin_health() -> dict:
 
 
 @app.get("/admin/sweep-status", tags=["system"])
-async def admin_sweep_status() -> dict:
+async def admin_sweep_status(request: Request) -> dict:
     """Sweep monitor status — intelligence_events counts and rug detection stats."""
+    await _require_admin(request)
     from .data_sources._clients import cache as _cache
     from .cache import SQLiteCache
 
@@ -709,8 +716,9 @@ async def admin_sweep_status() -> dict:
 
 
 @app.get("/admin/sweep-dashboard", tags=["system"])
-async def admin_sweep_dashboard() -> dict:
+async def admin_sweep_dashboard(request: Request) -> dict:
     """Aggregated sweep health, flag quality, and RPC provider stats."""
+    await _require_admin(request)
     from .data_sources._clients import cache as _cache  # noqa: PLC0415
     db = await _cache._get_conn()
     now = time.time()
@@ -764,8 +772,9 @@ async def admin_sweep_dashboard() -> dict:
 
 
 @app.get("/admin/cartel-forensics/{deployer}", tags=["system"])
-async def admin_cartel_forensics(deployer: str) -> dict:
+async def admin_cartel_forensics(deployer: str, request: Request) -> dict:
     """Trigger forensic proof signals for a deployer (no full sweep needed)."""
+    await _require_admin(request)
     from .cartel_service import (
         _signal_profit_convergence,
         _signal_capital_recycling,
@@ -793,8 +802,9 @@ async def admin_cartel_forensics(deployer: str) -> dict:
 
 
 @app.get("/admin/memory-stats", tags=["system"])
-async def admin_memory_stats() -> dict:
+async def admin_memory_stats(request: Request) -> dict:
     """Return enrichment state of the agent memory system."""
+    await _require_admin(request)
     from .data_sources._clients import cache as _cache
     from .cache import SQLiteCache
 
@@ -2380,6 +2390,7 @@ async def forensic_chat(
         messages = [
             {"role": msg.role, "content": msg.content}
             for msg in body.history[-8:]  # keep last 8 turns for context window
+            if msg.role in ("user", "assistant")
         ]
         messages.append({"role": "user", "content": body.message})
 
@@ -2553,13 +2564,14 @@ async def _enforce_daily_limit(user: dict, counter_key: str, limit_attr: str) ->
 
 
 @app.post("/auth/login", tags=["auth"])
+@limiter.limit("10/minute")
 async def auth_login(body: _LoginRequest, request: Request):
     """
     Upsert a user identified by their Privy ID.
     Returns the user record including the API key.
     Call this from the frontend after Privy.authenticate().
     """
-    if not body.privy_id or len(body.privy_id) < 5:
+    if not body.privy_id or len(body.privy_id) < 5 or len(body.privy_id) > 200:
         raise HTTPException(status_code=422, detail="privy_id is required")
     from .data_sources._clients import cache as _cache  # noqa: PLC0415
     try:
@@ -2571,7 +2583,7 @@ async def auth_login(body: _LoginRequest, request: Request):
         )
     except Exception as exc:
         logger.exception("auth_login failed: %s", exc)
-        raise HTTPException(status_code=500, detail=f"User creation failed: {exc}") from exc
+        raise HTTPException(status_code=500, detail="User creation failed") from exc
     # Sync briefing cron for this user on login
     from .cron_manager import ensure_briefing_cron  # noqa: PLC0415
 
@@ -2601,9 +2613,10 @@ async def auth_login(body: _LoginRequest, request: Request):
 @app.post("/auth/admin/upgrade", tags=["auth"])
 async def auth_admin_upgrade(request: Request):
     """Upgrade a user's plan. Requires admin secret in X-Admin-Secret header."""
-    import os
+    import os, hmac as _hmac
     admin_secret = os.environ.get("ADMIN_SECRET", "")
-    if not admin_secret or request.headers.get("X-Admin-Secret") != admin_secret:
+    provided = request.headers.get("X-Admin-Secret", "")
+    if not admin_secret or not _hmac.compare_digest(provided, admin_secret):
         raise HTTPException(status_code=403, detail="Forbidden")
     body = await request.json()
     email = body.get("email")
@@ -2791,6 +2804,7 @@ async def auth_update_profile(request: Request):
 
 
 @app.post("/auth/regenerate-key", tags=["auth"])
+@limiter.limit("5/minute")
 async def auth_regenerate_key(request: Request):
     """Regenerate the user's API key, invalidating the old one."""
     user = await _get_current_user(request)
@@ -3262,8 +3276,23 @@ async def purchase_credits(request: Request):
     if not tx_sig:
         raise HTTPException(status_code=400, detail="tx_signature required")
 
-    # TODO: verify on-chain transaction via Helio webhook or RPC
-    # For now, trust the client — will be replaced with Helio webhook verification
+    # Verify on-chain transaction via Solana RPC
+    from .data_sources._clients import get_rpc_client  # noqa: PLC0415
+    try:
+        rpc = get_rpc_client()
+        tx_data = await rpc._call("getTransaction", [tx_sig, {"encoding": "jsonParsed", "maxSupportedTransactionVersion": 0}])
+        if not tx_data:
+            raise HTTPException(status_code=400, detail="Transaction not found on-chain")
+        # Basic validation: transaction must be confirmed and successful
+        meta = tx_data.get("meta", {}) if isinstance(tx_data, dict) else {}
+        if meta.get("err") is not None:
+            raise HTTPException(status_code=400, detail="Transaction failed on-chain")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.warning("credits/purchase tx verification failed: %s", exc)
+        raise HTTPException(status_code=400, detail="Could not verify transaction") from exc
+
     new_balance = await add_scan_credits(_cache, user["id"], pack["credits"])
     logger.info("credits/purchase: user=%s pack=%s +%d → %d (tx=%s)",
                 user["id"], pack_key, pack["credits"], new_balance, tx_sig[:20])
@@ -5409,29 +5438,28 @@ async def _watchlist_sweep_loop():
             cursor = await rdb.execute(
                 "SELECT uw.id, uw.user_id, uw.value, "
                 "COALESCE(ap.sweep_interval, 2700) as sweep_interval, "
-                "COALESCE(u.plan, 'free') as plan "
+                "COALESCE(u.plan, 'free') as plan, "
+                "MAX(ws.scanned_at) as last_scanned "
                 "FROM user_watches uw "
                 "LEFT JOIN agent_prefs ap ON uw.user_id = ap.user_id "
                 "LEFT JOIN users u ON uw.user_id = u.id "
-                "WHERE uw.sub_type IN ('mint', 'deployer')"
+                "LEFT JOIN watch_snapshots ws ON uw.id = ws.watch_id "
+                "WHERE uw.sub_type IN ('mint', 'deployer') "
+                "GROUP BY uw.id"
             )
             watches = await cursor.fetchall()
 
             # All watches are managed by this sweep loop (no cron skip)
             now = time.time()
             logger.info("[sweep] %d watches found", len(watches))
-            for _wi, (watch_id, user_id, _mint_val, user_sweep_interval, user_plan) in enumerate(watches):
-                # Check last sweep for this specific watch
-                cursor2 = await rdb.execute(
-                    "SELECT MAX(scanned_at) FROM watch_snapshots WHERE watch_id = ?",
-                    (watch_id,),
-                )
-                last_sweep_row = await cursor2.fetchone()
-                last_sweep = last_sweep_row[0] if last_sweep_row and last_sweep_row[0] else 0
+            _rescan_count = 0
+            for _wi, (watch_id, user_id, _mint_val, user_sweep_interval, user_plan, last_sweep) in enumerate(watches):
+                last_sweep = last_sweep or 0
                 if now - last_sweep < user_sweep_interval:
                     continue  # too soon for this user's preference
-                if _wi > 0:
-                    await asyncio.sleep(15)  # stagger rescans — 15s avoids RPC saturation
+                if _rescan_count > 0:
+                    await asyncio.sleep(5)  # stagger rescans — 5s between each
+                _rescan_count += 1
                 _heartbeat("sweep")  # keep watchdog alive between watches
                 try:
                     # Run rescan inline (arq worker process not yet deployed —
@@ -5598,6 +5626,7 @@ async def _market_pulse_loop():
             triggered = await run_market_pulse(_cache)
             if triggered:
                 # Broadcast pulse-triggered alerts via WebSocket
+                db = await _cache._get_conn()
                 for t in triggered:
                     try:
                         from .alert_service import _broadcast_web_alert, _send_fcm_push

@@ -193,7 +193,16 @@ LOG_FORMAT: str = os.getenv("LOG_FORMAT", "text")  # "text" or "json"
 # Auth — Privy + JWT
 # ---------------------------------------------------------------------------
 PRIVY_APP_ID: str = os.getenv("PRIVY_APP_ID", "")
-JWT_SECRET: str = os.getenv("JWT_SECRET", "change-me-in-production-use-fly-secrets")
+PRIVY_APP_SECRET: str = os.getenv("PRIVY_APP_SECRET", "")
+JWT_SECRET: str = os.getenv("JWT_SECRET", "")
+if not JWT_SECRET:
+    import warnings
+    warnings.warn(
+        "JWT_SECRET is not set — using random secret (tokens will not survive restarts)",
+        stacklevel=1,
+    )
+    import secrets as _sec
+    JWT_SECRET = _sec.token_hex(32)
 
 # ---------------------------------------------------------------------------
 # Anthropic LLM

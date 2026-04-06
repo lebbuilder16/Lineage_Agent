@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, ActivityIndicator } from 'react-native';
+import React, { useEffect, useState, useCallback } from 'react';
+import { View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Stack } from 'expo-router';
+import { Stack, router } from 'expo-router';
+import { ChevronLeft, RefreshCw } from 'lucide-react-native';
 import { tokens } from '../src/theme/tokens';
 import { GlassCard } from '../src/components/ui/GlassCard';
 import { useAuthStore } from '../src/store/auth';
@@ -43,18 +44,27 @@ function ProviderCard({ name, data }: { name: string; data: { state: string; tot
 export default function SweepDashboardScreen() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const apiKey = useAuthStore((s) => s.apiKey);
 
-  useEffect(() => {
+  const loadData = useCallback(async () => {
     if (!apiKey) return;
-    fetch(`${BASE_URL}/admin/sweep-dashboard`, {
-      headers: { 'X-API-Key': apiKey },
-    })
-      .then((r) => r.json())
-      .then(setData)
-      .catch(() => {})
-      .finally(() => setLoading(false));
+    setLoading(true);
+    setError(null);
+    try {
+      const r = await fetch(`${BASE_URL}/admin/sweep-dashboard`, {
+        headers: { 'X-API-Key': apiKey },
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      setData(await r.json());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load');
+    } finally {
+      setLoading(false);
+    }
   }, [apiKey]);
+
+  useEffect(() => { loadData(); }, [loadData]);
 
   const totalFlags = data ? Object.values(data.flags_24h).reduce((a, b) => a + b, 0) : 0;
   const totalFeedback = data ? data.flag_feedback.useful + data.flag_feedback.not_useful + data.flag_feedback.snoozed : 0;
@@ -62,12 +72,27 @@ export default function SweepDashboardScreen() {
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       <Stack.Screen options={{ headerShown: false }} />
+      <View style={styles.navbar}>
+        <TouchableOpacity onPress={() => router.back()} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+          <ChevronLeft size={24} color={tokens.white100} />
+        </TouchableOpacity>
+        <Text style={styles.navTitle}>SWEEP DASHBOARD</Text>
+        <TouchableOpacity onPress={loadData} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+          <RefreshCw size={20} color={tokens.textSecondary} />
+        </TouchableOpacity>
+      </View>
       <ScrollView contentContainerStyle={styles.scroll}>
-        <Text style={styles.title}>Sweep Dashboard</Text>
         <Text style={styles.subtitle}>Last 24 hours</Text>
 
         {loading ? (
           <ActivityIndicator color={tokens.secondary} style={{ marginTop: 40 }} />
+        ) : error ? (
+          <View style={{ alignItems: 'center', marginTop: 40, gap: 12 }}>
+            <Text style={{ color: tokens.risk.critical, fontSize: 14 }}>{error}</Text>
+            <TouchableOpacity onPress={loadData} style={{ paddingHorizontal: 16, paddingVertical: 8, backgroundColor: tokens.glass10, borderRadius: 8 }}>
+              <Text style={{ color: tokens.secondary }}>Retry</Text>
+            </TouchableOpacity>
+          </View>
         ) : data ? (
           <>
             {/* Overview */}
@@ -125,8 +150,9 @@ export default function SweepDashboardScreen() {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: tokens.bgMain },
+  navbar: { flexDirection: 'row' as const, alignItems: 'center' as const, justifyContent: 'space-between' as const, paddingHorizontal: 16, paddingVertical: 12 },
+  navTitle: { fontFamily: 'Lexend-Bold', fontSize: 14, color: tokens.white100, letterSpacing: 1.2 },
   scroll: { padding: 20, paddingBottom: 40 },
-  title: { fontFamily: 'Lexend-Bold', fontSize: 24, color: tokens.white100, marginBottom: 4 },
   subtitle: { fontFamily: 'Lexend-Regular', fontSize: 14, color: tokens.textTertiary, marginBottom: 20 },
   card: { marginBottom: 16 },
   sectionTitle: { fontFamily: 'Lexend-Medium', fontSize: 10, color: tokens.textTertiary, letterSpacing: 1.2, marginBottom: 12 },

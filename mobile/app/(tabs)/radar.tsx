@@ -43,18 +43,6 @@ const ALERT_ICONS: Record<AlertItem['type'], React.ReactNode> = {
   wallet_risk: <AlertTriangle size={14} color={tokens.risk.high} />,
 };
 
-function EmptyFeed() {
-  return (
-    <Animated.View entering={FadeIn.duration(600)} style={styles.emptyContainer}>
-      <SonarSweep />
-      <Text style={styles.emptyTitle}>Listening to the blockchain...</Text>
-      <Text style={styles.emptySubtitle}>
-        Live alerts will appear here as threats are detected on-chain.
-      </Text>
-    </Animated.View>
-  );
-}
-
 // ─── Main Screen ─────────────────────────────────────────────────────────────
 
 export default function RadarScreen() {
@@ -82,7 +70,8 @@ export default function RadarScreen() {
 
   const apiKey = useAuthStore((s) => s.apiKey);
   const user = useAuthStore((s) => s.user);
-  const [wsStatus, setWsStatus] = useState<'connected' | 'reconnecting' | 'offline'>('offline');
+  const wsConnectedStore = useAlertsStore((s) => s.wsConnected);
+  const wsStatus = wsConnectedStore ? 'connected' : 'offline';
   const insets = useSafeAreaInsets();
 
   const briefing = useBriefingStore((s) => s.latest);
@@ -91,10 +80,7 @@ export default function RadarScreen() {
   const briefingUnread = useBriefingStore((s) => s.unread);
   const markBriefingRead = useBriefingStore((s) => s.markRead);
 
-  useEffect(() => {
-    const unsubBriefing = startBriefingListener(apiKey ?? undefined);
-    return () => { unsubBriefing(); };
-  }, [apiKey]);
+  // Briefing listener managed in _layout.tsx — no duplicate here
 
   const refreshing = statsLoading || topLoading;
   const onRefresh = () => { refetchStats(); refetchTopTokens(); };
