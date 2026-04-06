@@ -24,6 +24,7 @@ interface SweepFlagsState {
   getByMint: (mint: string) => SweepFlag[];
   getUnreadCount: () => number;
   getCriticalCount: () => number;
+  reset: () => void;
 }
 
 /** Sync app badge count with unread flags */
@@ -208,6 +209,8 @@ export const useSweepFlagsStore = create<SweepFlagsState>()(
 
       getCriticalCount: () =>
         get().flags.filter((f) => !f.read && f.severity === 'critical').length,
+
+      reset: () => set({ flags: [], urgentMints: [], lastFetch: null, lastSyncTs: null, hasMore: false, loading: false }),
     }),
     {
       name: 'lineage_sweep_flags',
