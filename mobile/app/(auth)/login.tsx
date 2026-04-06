@@ -140,6 +140,22 @@ export default function LoginScreen() {
     return () => {};
   }, [privyReady, privyLogout]);
 
+  // Keep a ref to latest privyUser for use in async callbacks
+  const privyUserRef = useRef(privyUser);
+  privyUserRef.current = privyUser;
+
+  // Track if we're waiting for Privy to resolve a user after "Already logged in"
+  const waitingForUserRef = useRef(false);
+
+  // When privyUser appears while we're waiting, auto-sync
+  useEffect(() => {
+    if (privyUser && waitingForUserRef.current) {
+      waitingForUserRef.current = false;
+      console.log('[login] privyUser appeared while waiting — auto-syncing');
+      handlePrivyLoginSuccess(privyUser);
+    }
+  }, [privyUser]);
+
   // ── Email OTP state ─────────────────────────────────────────────────────
   const [email, setEmail] = useState('');
   const [otpCode, setOtpCode] = useState('');
@@ -191,25 +207,29 @@ export default function LoginScreen() {
       return;
     }
 
-    // Retry loop: if Privy says "Already logged in", force logout and retry
-    for (let attempt = 0; attempt < 3; attempt++) {
-      try {
-        await loginWithCode({ code: trimmed, email: email.trim() });
-        return; // success — onLoginSuccess callback handles navigation
-      } catch (err: any) {
-        const msg = err?.message ?? '';
-        if (msg.includes('Already logged in') && attempt < 2) {
-          console.log(`[login] Already logged in on attempt ${attempt + 1}, forcing logout...`);
-          try { await privyLogout(); } catch {}
-          await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
-          continue;
+    try {
+      await loginWithCode({ code: trimmed, email: email.trim() });
+      // success — onLoginSuccess callback handles navigation
+    } catch (err: any) {
+      const msg = err?.message ?? '';
+      if (msg.includes('Already logged in') || msg.includes('useLinkWithEmail')) {
+        // The user IS already authenticated by Privy.
+        // Use the ref to get the latest value (closure may be stale).
+        console.log('[login] Already logged in — checking for existing session');
+        const currentUser = privyUserRef.current;
+        if (currentUser) {
+          await handlePrivyLoginSuccess(currentUser);
+          return;
         }
-        console.error('[login] loginWithCode error:', err);
-        Alert.alert('Error', msg || 'Invalid verification code.');
+        // User object not yet hydrated — set flag so the useEffect handles it
+        console.log('[login] Waiting for privyUser to appear...');
+        waitingForUserRef.current = true;
         return;
       }
+      console.error('[login] loginWithCode error:', err);
+      Alert.alert('Error', msg || 'Invalid verification code.');
     }
-  }, [otpCode, email, loginWithCode, privyLogout]);
+  }, [otpCode, email, loginWithCode, privyUser]);
 
   // ── Skip ──────────────────────────────────────────────────────────────────
 
