@@ -719,9 +719,12 @@ async def run_agent(
             _community = _cr.get("community_id") if isinstance(_cr, dict) else None
         memory_brief, memory_meta = await build_memory_brief(mint, _deployer, _op_fp, _community)
         if memory_brief:
-            logger.info("[agent] memory brief: %d chars for %s", len(memory_brief), mint[:12])
-    except Exception:
-        pass
+            logger.info("[agent] memory injected for %s: depth=%s, episodes=%d, brief=%d chars",
+                        mint[:12], memory_meta.get("memory_depth"), memory_meta.get("deployer_episode_count", 0), len(memory_brief))
+        else:
+            logger.info("[agent] no memory for %s (first_encounter)", mint[:12])
+    except Exception as _mem_exc:
+        logger.warning("[agent] memory build failed for %s: %s", mint[:12], _mem_exc)
 
     # ── Build system prompt + conversation ───────────────────────────
     system_prompt = _build_agent_system_prompt(hscore, scan_summary=scan_summary)

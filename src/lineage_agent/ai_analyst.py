@@ -564,8 +564,15 @@ async def analyze_token(
         _memory_brief, _memory_meta = await build_memory_brief(
             mint, deployer=_deployer, operator_fp=_op_fp, community_id=_comm_id
         )
-    except Exception:
-        pass  # memory unavailable — continue without
+        if _memory_brief:
+            logger.info(
+                "[ai_analyst] memory injected for %s: depth=%s, deployer_episodes=%d, brief=%d chars",
+                mint[:12], _memory_meta.get("memory_depth"), _memory_meta.get("deployer_episode_count", 0), len(_memory_brief),
+            )
+        else:
+            logger.info("[ai_analyst] no memory for %s (first_encounter)", mint[:12])
+    except Exception as _mem_exc:
+        logger.warning("[ai_analyst] memory build failed for %s: %s", mint[:12], _mem_exc)
 
     prompt = _build_prompt(mint, lineage_result, bundle_report, sol_flow_report,
                            deployer_history, behavioral_signals, heuristic_score=_hscore,
