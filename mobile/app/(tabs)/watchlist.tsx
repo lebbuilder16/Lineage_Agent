@@ -111,22 +111,24 @@ export default function WatchlistScreen() {
       setTokenMeta((prev) => ({ ...prev, ...meta }));
     }
 
-    // 3. Fetch missing from /token-meta endpoint (DAS + DexScreener, lightweight)
+    // 3. Batch fetch missing from /token-meta/batch endpoint
     if (missing.length > 0) {
       const BASE = (process.env.EXPO_PUBLIC_API_URL ?? 'https://lineage-agent.fly.dev').replace(/\/$/, '');
-      for (const mint of missing) {
-        fetch(`${BASE}/token-meta/${mint}`)
-          .then((r) => r.ok ? r.json() : null)
-          .then((data: any) => {
-            if (data && (data.name || data.symbol || data.image_uri)) {
-              setTokenMeta((prev) => ({
-                ...prev,
-                [mint]: { name: data.name, symbol: data.symbol, image: data.image_uri },
-              }));
+      fetch(`${BASE}/token-meta/batch?mints=${missing.join(',')}`)
+        .then((r) => r.ok ? r.json() : [])
+        .then((results: any[]) => {
+          if (!results?.length) return;
+          const batch: Record<string, { name?: string; symbol?: string; image?: string }> = {};
+          for (const data of results) {
+            if (data?.mint && (data.name || data.symbol || data.image_uri)) {
+              batch[data.mint] = { name: data.name, symbol: data.symbol, image: data.image_uri };
             }
-          })
-          .catch(() => {});
-      }
+          }
+          if (Object.keys(batch).length > 0) {
+            setTokenMeta((prev) => ({ ...prev, ...batch }));
+          }
+        })
+        .catch(() => {});
     }
   }, [apiKey, effectiveWatches, flags]);
 

@@ -3727,6 +3727,59 @@ async def get_token_meta(mint: str, request: Request):
     return result
 
 
+@app.get("/token-meta/batch", tags=["lineage"], summary="Batch token metadata for multiple mints")
+@limiter.limit("20/minute")
+async def get_token_meta_batch(
+    request: Request,
+    mints: str = Query(..., description="Comma-separated mint addresses (max 20)"),
+):
+    """Return name, symbol, image_uri for multiple tokens in a single call.
+
+    Much more efficient than calling /token-meta/{mint} individually.
+    """
+    mint_list = [m.strip() for m in mints.split(",") if m.strip() and _BASE58_RE.match(m.strip())][:20]
+    if not mint_list:
+        return []
+
+    # Resolve all mints concurrently
+    async def _resolve_one(mint: str) -> dict:
+        result = {"mint": mint, "name": "", "symbol": "", "image_uri": ""}
+        # DexScreener first
+        try:
+            from .data_sources._clients import get_dex_client
+            dex = get_dex_client()
+            pairs = await asyncio.wait_for(dex.get_token_pairs(mint), timeout=5.0)
+            if pairs:
+                meta = dex.pairs_to_metadata(mint, pairs)
+                if meta.name:
+                    result["name"] = meta.name
+                    result["symbol"] = meta.symbol or ""
+                    result["image_uri"] = meta.image_uri or ""
+                    return result
+        except Exception:
+            pass
+        # Fallback: intelligence_events cache
+        try:
+            from .data_sources._clients import cache as _cache
+            from .cache import SQLiteCache
+            if isinstance(_cache, SQLiteCache):
+                db = await _cache._get_conn()
+                cursor = await db.execute(
+                    "SELECT name, symbol FROM intelligence_events WHERE mint = ? AND name != '' LIMIT 1",
+                    (mint,),
+                )
+                row = await cursor.fetchone()
+                if row and row[0]:
+                    result["name"] = row[0]
+                    result["symbol"] = row[1] or ""
+        except Exception:
+            pass
+        return result
+
+    results = await asyncio.gather(*[_resolve_one(m) for m in mint_list], return_exceptions=True)
+    return [r for r in results if isinstance(r, dict)]
+
+
 @app.get("/graduations", tags=["intelligence"], summary="Recent Pump.fun tokens that graduated to DEX")
 @limiter.limit("60/minute")
 async def get_graduations(

@@ -193,19 +193,16 @@ async def update_user_profile(cache, user_id: int, updates: dict) -> dict | None
 
     try:
         db = await cache._get_conn()
-        # Username uniqueness check
-        if "username" in allowed:
-            cursor = await db.execute(
-                "SELECT id FROM users WHERE LOWER(username) = LOWER(?) AND id != ?",
-                (allowed["username"], user_id),
-            )
-            if await cursor.fetchone():
-                raise ValueError("username already taken")
 
         sets = ", ".join(f"{k} = ?" for k in allowed)
         vals = list(allowed.values()) + [user_id]
-        await db.execute(f"UPDATE users SET {sets} WHERE id = ?", vals)
-        await db.commit()
+        try:
+            await db.execute(f"UPDATE users SET {sets} WHERE id = ?", vals)
+            await db.commit()
+        except Exception as e:
+            if "UNIQUE constraint failed" in str(e) or "unique" in str(e).lower():
+                raise ValueError("username already taken") from e
+            raise
 
         cursor = await db.execute(
             "SELECT id, privy_id, email, wallet_address, plan, api_key, created_at, "

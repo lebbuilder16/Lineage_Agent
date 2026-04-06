@@ -76,43 +76,44 @@ function AlertsScreenInner() {
   const [expandedEnrichments, setExpandedEnrichments] = useState<Set<string>>(new Set());
   const insets = useSafeAreaInsets();
 
-  // Enrich alerts missing token_name/image_uri from DexScreener search
+  // Enrich alerts missing token_name/image_uri via batch endpoint
   const enrichedRef = React.useRef<Set<string>>(new Set());
   React.useEffect(() => {
-    // Detect alerts that need enrichment: no image, or name looks like a truncated address
     const needsEnrich = (a: AlertItem) => {
       if (!a.mint || enrichedRef.current.has(a.id)) return false;
       if (!a.image_uri) return true;
-      // Name is just a truncated address (no real token name)
       const name = a.token_name || a.title || '';
       if (name.length <= 12 && /^[1-9A-HJ-NP-Za-km-z]+$/.test(name)) return true;
       return false;
     };
     const missing = alerts.filter(needsEnrich).slice(0, 8);
     if (!missing.length) return;
+    // Mark all as enriched immediately to prevent re-trigger
+    for (const a of missing) enrichedRef.current.add(a.id);
+    // Batch fetch metadata for all missing mints in one call
+    const mints = [...new Set(missing.map((a) => a.mint!))];
     const BASE = (process.env.EXPO_PUBLIC_API_URL ?? 'https://lineage-agent.fly.dev').replace(/\/$/, '');
-    for (const a of missing) {
-      enrichedRef.current.add(a.id);
-      fetch(`${BASE}/search?q=${a.mint}&limit=1`)
-        .then((r) => r.ok ? r.json() : [])
-        .then((results: any[]) => {
-          if (results.length > 0 && (results[0].name || results[0].image_uri)) {
-            const store = useAlertsStore.getState();
-            const updated = store.alerts.map((al) =>
-              al.id === a.id
-                ? {
-                    ...al,
-                    token_name: results[0].name || al.token_name,
-                    image_uri: results[0].image_uri || al.image_uri,
-                    title: (al.title && al.title.length <= 12) ? results[0].name || al.title : al.title,
-                  }
-                : al,
-            );
-            useAlertsStore.setState({ alerts: updated });
-          }
-        })
-        .catch(() => {});
-    }
+    fetch(`${BASE}/token-meta/batch?mints=${mints.join(',')}`)
+      .then((r) => r.ok ? r.json() : [])
+      .then((results: any[]) => {
+        if (!results?.length) return;
+        const metaMap: Record<string, any> = {};
+        for (const r of results) { if (r?.mint && r.name) metaMap[r.mint] = r; }
+        if (!Object.keys(metaMap).length) return;
+        const store = useAlertsStore.getState();
+        const updated = store.alerts.map((al) => {
+          const meta = al.mint ? metaMap[al.mint] : null;
+          if (!meta) return al;
+          return {
+            ...al,
+            token_name: meta.name || al.token_name,
+            image_uri: meta.image_uri || al.image_uri,
+            title: (al.title && al.title.length <= 12) ? meta.name || al.title : al.title,
+          };
+        });
+        useAlertsStore.setState({ alerts: updated });
+      })
+      .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [alerts.length]);
 
