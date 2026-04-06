@@ -66,8 +66,8 @@ function FlagRow({ flag, isLast }: { flag: SweepFlag; isLast: boolean }) {
             <Text style={[styles.title, { color }]} numberOfLines={1}>
               {flagLabel(flag.flagType)}
             </Text>
-            {((flag.detail as any)?.narrative || (flag.title && flag.title !== flagLabel(flag.flagType))) && (
-              <Text style={styles.detail} numberOfLines={2}>
+            {((flag.detail as any)?.narrative || flag.title) && (
+              <Text style={styles.detail} numberOfLines={3}>
                 {(flag.detail as any)?.narrative || flag.title}
               </Text>
             )}
