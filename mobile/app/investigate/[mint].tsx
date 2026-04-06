@@ -8,6 +8,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Linking,
+  AppState,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router, Stack } from 'expo-router';
@@ -174,6 +175,35 @@ export default function InvestigateScreen() {
     })();
     return () => { cancelled = true; cancelRef.current?.(); if (retryTimerRef.current) clearTimeout(retryTimerRef.current); };
   }, [mint]);
+
+  // ── Resume on foreground return ──────────────────────────────────────────
+  // When the app goes to background, the OS kills the XHR/SSE connection.
+  // On return, if a scan was running, try to load the cached result (backend
+  // may have finished), otherwise silently relaunch the stream.
+  const appStateRef = useRef(AppState.currentState);
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (nextState) => {
+      if (appStateRef.current.match(/inactive|background/) && nextState === 'active') {
+        const s = useInvestigateStore.getState();
+        if (s.status === 'error' && s.mint) {
+          // Backend may have finished while we were in background — check cache
+          s.loadCached(s.mint).then((loaded) => {
+            if (!loaded) {
+              // No cached result — silently relaunch the stream
+              cancelRef.current?.();
+              useInvestigateStore.setState({ status: 'scanning', error: null });
+              cancelRef.current = investigateStream(
+                s.mint!, apiKey ?? '',
+                { onEvent: handleEvent, onDone: handleDone, onError: handleError },
+              );
+            }
+          });
+        }
+      }
+      appStateRef.current = nextState;
+    });
+    return () => sub.remove();
+  }, [apiKey, handleEvent, handleDone, handleError]);
 
   const handleAbort = () => { cancelRef.current?.(); useInvestigateStore.getState().cancel(); };
   const handleRetry = () => {
