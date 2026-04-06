@@ -109,16 +109,37 @@ const WALLET_BRANDS: WalletBrand[] = [
 export default function LoginScreen() {
   const insets = useSafeAreaInsets();
 
+  // ── Privy hooks (wallet creation handled by WalletAutoCreate in _layout.tsx) ──
+  const { user: privyUser, logout: privyLogout, isReady: privyReady } = usePrivy();
+
+  // Keep a ref to latest privyUser for use in async callbacks
+  const privyUserRef = useRef(privyUser);
+  privyUserRef.current = privyUser;
+
+  // Track if we're waiting for Privy to resolve a user after "Already logged in"
+  const waitingForUserRef = useRef(false);
+
   // ── Email OTP login ───────────────────────────────────────────────────────
   const { sendCode, loginWithCode, state: emailState } = useLoginWithEmail({
     onLoginSuccess: (user) => { handlePrivyLoginSuccess(user); },
     onError: (err) => {
-      Alert.alert('Login failed', err?.message ?? 'Something went wrong.');
+      const msg = err?.message ?? '';
+      if (msg.includes('Already logged in') || msg.includes('useLinkWithEmail')) {
+        // User IS already authenticated — use existing session
+        console.log('[login] onError: Already logged in — using existing session');
+        const currentUser = privyUserRef.current;
+        if (currentUser) {
+          handlePrivyLoginSuccess(currentUser);
+        } else {
+          // User object not yet hydrated — set flag so the useEffect handles it
+          console.log('[login] Waiting for privyUser to appear...');
+          waitingForUserRef.current = true;
+        }
+        return;
+      }
+      Alert.alert('Login failed', msg || 'Something went wrong.');
     },
   });
-
-  // ── Privy hooks (wallet creation handled by WalletAutoCreate in _layout.tsx) ──
-  const { user: privyUser, logout: privyLogout, isReady: privyReady } = usePrivy();
 
   // ── External wallet auth (state machine) ──────────────────────────────────
   const { state: walletState, connect: connectWallet, cancel: cancelWallet } = useExternalWalletAuth();
@@ -131,7 +152,6 @@ export default function LoginScreen() {
       } catch {
         // Privy throws if not logged in — that's fine
       }
-      // Wait for Privy SDK to fully settle (createOnLogin:'off' = faster)
       await new Promise((r) => setTimeout(r, 1500));
     };
     if (privyReady) {
@@ -139,13 +159,6 @@ export default function LoginScreen() {
     }
     return () => {};
   }, [privyReady, privyLogout]);
-
-  // Keep a ref to latest privyUser for use in async callbacks
-  const privyUserRef = useRef(privyUser);
-  privyUserRef.current = privyUser;
-
-  // Track if we're waiting for Privy to resolve a user after "Already logged in"
-  const waitingForUserRef = useRef(false);
 
   // When privyUser appears while we're waiting, auto-sync
   useEffect(() => {
