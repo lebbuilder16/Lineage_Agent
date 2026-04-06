@@ -190,13 +190,26 @@ export default function LoginScreen() {
       Alert.alert('Invalid code', 'Please enter the verification code from your email.');
       return;
     }
-    try {
-      await loginWithCode({ code: trimmed, email: email.trim() });
-    } catch (err: any) {
-      console.error('[login] loginWithCode error:', err);
-      Alert.alert('Error', err?.message ?? 'Invalid verification code.');
+
+    // Retry loop: if Privy says "Already logged in", force logout and retry
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        await loginWithCode({ code: trimmed, email: email.trim() });
+        return; // success — onLoginSuccess callback handles navigation
+      } catch (err: any) {
+        const msg = err?.message ?? '';
+        if (msg.includes('Already logged in') && attempt < 2) {
+          console.log(`[login] Already logged in on attempt ${attempt + 1}, forcing logout...`);
+          try { await privyLogout(); } catch {}
+          await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+          continue;
+        }
+        console.error('[login] loginWithCode error:', err);
+        Alert.alert('Error', msg || 'Invalid verification code.');
+        return;
+      }
     }
-  }, [otpCode, email, loginWithCode]);
+  }, [otpCode, email, loginWithCode, privyLogout]);
 
   // ── Skip ──────────────────────────────────────────────────────────────────
 
