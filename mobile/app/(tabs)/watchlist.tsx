@@ -17,6 +17,7 @@ import { useIsFocused } from '@react-navigation/native';
 import { GlassCard } from '../../src/components/ui/GlassCard';
 import { SkeletonBlock } from '../../src/components/ui/SkeletonLoader';
 import { ScreenHeader } from '../../src/components/ui/ScreenHeader';
+import { DisclaimerFooter } from '../../src/components/ui/DisclaimerFooter';
 import { useToast } from '../../src/components/ui/Toast';
 import { handleTierError } from '../../src/lib/tier-error';
 import { useWatches, useDeleteWatch, useAddWatch } from '../../src/lib/query';
@@ -456,6 +457,7 @@ export default function WatchlistScreen() {
             windowSize={7}
             maxToRenderPerBatch={8}
             initialNumToRender={6}
+            ListFooterComponent={<DisclaimerFooter />}
             refreshControl={
               <RefreshControl refreshing={isLoading} onRefresh={handleRefresh} tintColor={tokens.secondary} />
             }

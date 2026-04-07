@@ -44,6 +44,7 @@ import { FullReportSection } from '../../src/components/token-detail/FullReportS
 import { SweepAlertsBanner } from '../../src/components/token-detail/SweepAlertsBanner';
 import { LivePulseCard } from '../../src/components/token-detail/LivePulseCard';
 import { OperatorDamageCard } from '../../src/components/token-detail/OperatorDamageCard';
+import { DisclaimerFooter } from '../../src/components/ui/DisclaimerFooter';
 
 // ─── Main Screen ─────────────────────────────────────────────────────────────
 
@@ -251,6 +252,7 @@ export default function TokenScreen() {
             )}
           </Animated.View>
         )}
+        <DisclaimerFooter />
       </ScrollView>
       {toast}
     </View>

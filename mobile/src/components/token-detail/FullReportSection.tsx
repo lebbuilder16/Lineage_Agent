@@ -54,7 +54,7 @@ export function FullReportSection({
 }: FullReportSectionProps) {
   return (
     <Animated.View entering={FadeIn.duration(250)} style={styles.detailsSection}>
-      {/* Death Clock teaser */}
+      {/* Risk Timeline teaser */}
       {(data.death_clock || data.insider_sell) && (() => {
         const dc = data.death_clock;
         const effectiveLabel = (() => {
@@ -64,7 +64,7 @@ export function FullReportSection({
           return displayRiskLevel.toUpperCase().replace('_', ' ');
         })();
         return (
-          <TouchableOpacity onPress={onClockPress} activeOpacity={0.75} accessibilityRole="button" accessibilityLabel="View Death Clock details">
+          <TouchableOpacity onPress={onClockPress} activeOpacity={0.75} accessibilityRole="button" accessibilityLabel="View Risk Timeline details">
             <GlassCard style={[styles.teaserCard, { borderColor: `${riskColor}30`, borderWidth: 1 }]}>
               <View style={styles.teaserRow}>
                 <View style={[styles.teaserIconWrap, { backgroundColor: `${riskColor}15` }]}>
@@ -72,14 +72,14 @@ export function FullReportSection({
                 </View>
                 <View style={styles.teaserInfo}>
                   <View style={styles.teaserTitleRow}>
-                    <Text style={styles.teaserLabel}>DEATH CLOCK</Text>
+                    <Text style={styles.teaserLabel}>RISK TIMELINE</Text>
                     <View style={[styles.teaserBadge, { backgroundColor: `${riskColor}18`, borderColor: `${riskColor}35` }]}>
                       <Text style={[styles.teaserBadgeText, { color: riskColor }]}>{effectiveLabel}</Text>
                     </View>
                   </View>
                   {riskSummary && <Text style={styles.teaserSub} numberOfLines={1}>{riskSummary}</Text>}
                   {dc?.rug_probability_pct != null && (
-                    <Text style={styles.teaserProb}>Rug probability: <Text style={{ color: riskColor, fontFamily: 'Lexend-Bold' }}>{dc.rug_probability_pct.toFixed(0)}%</Text></Text>
+                    <Text style={styles.teaserProb}>Lifecycle risk: <Text style={{ color: riskColor, fontFamily: 'Lexend-Bold' }}>{dc.rug_probability_pct.toFixed(0)}%</Text></Text>
                   )}
                 </View>
                 <ChevronRight size={16} color={tokens.textTertiary} />

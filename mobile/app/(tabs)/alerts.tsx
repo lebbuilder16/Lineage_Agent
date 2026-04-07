@@ -11,6 +11,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { GlassCard } from '../../src/components/ui/GlassCard';
 import { HapticButton } from '../../src/components/ui/HapticButton';
 import { ScreenHeader } from '../../src/components/ui/ScreenHeader';
+import { DisclaimerFooter } from '../../src/components/ui/DisclaimerFooter';
 import { AlertCard } from '../../src/components/alerts';
 import { AlertFilterChips } from '../../src/components/alerts';
 import { useAlertsStore } from '../../src/store/alerts';
@@ -249,6 +250,7 @@ function AlertsScreenInner() {
             keyExtractor={(item) => item.id}
             contentContainerStyle={[styles.listContent, { paddingBottom: Math.max(insets.bottom + 100, 120) }]}
             showsVerticalScrollIndicator={false}
+            ListFooterComponent={<DisclaimerFooter />}
             renderItem={({ item, index }) => {
               const mintCount = item.mint ? (mintCounts.get(item.mint) ?? 0) : 0;
               const isFirstOfGroup = item.mint && mintCount > 1 &&

@@ -16,6 +16,7 @@ import { DeathClockCard } from '../../src/components/ui/DeathClockCard';
 import { HapticButton } from '../../src/components/ui/HapticButton';
 import { SkeletonBlock } from '../../src/components/ui/SkeletonLoader';
 import { ScreenHeader } from '../../src/components/ui/ScreenHeader';
+import { DisclaimerFooter } from '../../src/components/ui/DisclaimerFooter';
 import { useToast } from '../../src/components/ui/Toast';
 import { useLineage } from '../../src/lib/query';
 import { useAuthStore } from '../../src/store/auth';
@@ -93,8 +94,8 @@ export default function DeathClockScreen() {
           <ScreenHeader
             icon={<Skull size={26} color={tokens.accent} strokeWidth={2.5} />}
             glowColor={tokens.accent}
-            title="Death Clock"
-            subtitle="Predict rug probability & timeline"
+            title="Risk Timeline"
+            subtitle="Lifecycle risk signals & timeline"
             paddingBottom={12}
             style={{ paddingHorizontal: 0 }}
           />
@@ -132,7 +133,7 @@ export default function DeathClockScreen() {
             onPress={handleSubmit}
             style={styles.cta}
             accessibilityRole="button"
-            accessibilityLabel="Predict rug probability"
+            accessibilityLabel="Analyze risk signals"
           >
             <Text style={styles.ctaText}>PREDICT</Text>
           </HapticButton>
@@ -178,7 +179,7 @@ export default function DeathClockScreen() {
                 <FactoryBanner operatorSamples={data.death_clock.operator_sample_count ?? 0} />
               )}
 
-              {/* Full Death Clock analysis */}
+              {/* Full Risk Timeline analysis */}
               {(data?.death_clock || data?.insider_sell) && (
                 <DeathClockCard
                   dc={data.death_clock ?? null}
@@ -204,6 +205,7 @@ export default function DeathClockScreen() {
               </TouchableOpacity>
             </>
           )}
+          <DisclaimerFooter />
         </ScrollView>
       </View>
       {toast}

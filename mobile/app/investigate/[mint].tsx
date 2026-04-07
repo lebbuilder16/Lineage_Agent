@@ -41,6 +41,7 @@ import { MarketDataStrip } from '../../src/components/investigate/MarketDataStri
 import { AgentReasoningSection } from '../../src/components/investigate/AgentReasoningSection';
 import { ChatPanel } from '../../src/components/investigate/ChatPanel';
 import { VerdictFeedback } from '../../src/components/investigate/VerdictFeedback';
+import { DisclaimerFooter } from '../../src/components/ui/DisclaimerFooter';
 import { VerdictSkeleton, HeuristicCard, ElapsedTimer } from '../../src/components/investigate/InvestigateHelpers';
 
 // ─── Main screen ─────────────────────────────────────────────────────────────
@@ -314,6 +315,7 @@ export default function InvestigateScreen() {
             </GlassCard>
           </Animated.View>
         )}
+        <DisclaimerFooter />
       </ScrollView>
 
       {status === 'done' && chatAvailable && mint && (

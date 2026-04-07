@@ -615,6 +615,153 @@ async def health() -> dict:
     }
 
 
+# ─── Legal pages (Apple App Store Connect requirement) ──────────────────────
+# These endpoints expose Privacy Policy and Terms of Service at public URLs.
+# Apple requires a publicly accessible Privacy Policy URL during submission.
+# Content mirrors mobile/app/legal/{privacy,terms}.tsx — keep in sync if edited.
+
+_PRIVACY_HTML = """<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Lineage Agent — Privacy Policy</title>
+<style>
+body{font-family:-apple-system,BlinkMacSystemFont,system-ui,sans-serif;max-width:720px;margin:40px auto;padding:0 20px;color:#1a1a1a;line-height:1.6}
+h1{font-size:28px;margin-bottom:8px}
+h2{font-size:18px;margin-top:32px;color:#2a2a2a}
+.updated{color:#888;font-size:13px;margin-bottom:24px}
+strong{color:#1a1a1a}
+ul{padding-left:24px}
+a{color:#5b5fc7}
+</style>
+</head>
+<body>
+<h1>Privacy Policy</h1>
+<p class="updated">Last updated: March 27, 2026</p>
+
+<h2>1. Information We Collect</h2>
+<p>Lineage Agent collects minimal data to provide its service:</p>
+<p><strong>Account Information:</strong> Email address (via Privy authentication), username, display name, and profile photo.</p>
+<p><strong>Wallet Information:</strong> Your Solana wallet address (public key only). Private keys are managed securely by Privy and are never stored on our servers in plaintext.</p>
+<p><strong>Usage Data:</strong> Token scan history, watchlist, investigation records, and alert preferences. This data is stored to provide personalized analysis.</p>
+<p><strong>Device Information:</strong> Push notification tokens (FCM/APNs) for delivering alerts. We do not collect device IDs, advertising identifiers, or location data.</p>
+
+<h2>2. How We Use Your Information</h2>
+<ul>
+<li>Provide on-chain token risk analysis</li>
+<li>Deliver real-time alerts and daily briefings</li>
+<li>Maintain your watchlist and investigation history</li>
+<li>Authenticate your account securely via Privy</li>
+<li>Send push notifications you have opted into</li>
+</ul>
+
+<h2>3. Data Storage &amp; Security</h2>
+<p>Sensitive data (API keys, authentication tokens) is stored using encrypted secure storage (Expo SecureStore). Your Solana wallet private keys are managed by Privy, a SOC 2 Type II certified provider, and are never exposed to our application code.</p>
+<p>Server-side data is stored on Fly.io infrastructure with encrypted connections (TLS).</p>
+
+<h2>4. Third-Party Services</h2>
+<ul>
+<li><strong>Privy</strong> &mdash; Authentication and embedded wallet management (SOC 2 Type II)</li>
+<li><strong>Firebase Cloud Messaging</strong> &mdash; Push notifications</li>
+<li><strong>Expo</strong> &mdash; App updates and build infrastructure</li>
+</ul>
+<p>We do not use any analytics, advertising, or tracking SDKs. We do not share your data with third parties for marketing purposes.</p>
+
+<h2>5. Data Retention &amp; Deletion</h2>
+<p>You can delete your account at any time from the Account screen. This permanently removes all your data from our servers, including your profile, watchlist, investigation history, and alert preferences.</p>
+<p>Signing out clears all locally cached data from your device.</p>
+
+<h2>6. Your Rights</h2>
+<ul>
+<li>Access your personal data</li>
+<li>Request deletion of your account and data</li>
+<li>Opt out of push notifications at any time</li>
+<li>Export your data upon request</li>
+</ul>
+
+<h2>7. Children's Privacy</h2>
+<p>Lineage Agent is not intended for users under 17 years of age. We do not knowingly collect data from minors.</p>
+
+<h2>8. Contact</h2>
+<p>For privacy questions or data requests, contact us at <a href="mailto:privacy@lineage-agent.fly.dev">privacy@lineage-agent.fly.dev</a>.</p>
+</body>
+</html>"""
+
+_TERMS_HTML = """<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Lineage Agent — Terms of Service</title>
+<style>
+body{font-family:-apple-system,BlinkMacSystemFont,system-ui,sans-serif;max-width:720px;margin:40px auto;padding:0 20px;color:#1a1a1a;line-height:1.6}
+h1{font-size:28px;margin-bottom:8px}
+h2{font-size:18px;margin-top:32px;color:#2a2a2a}
+.updated{color:#888;font-size:13px;margin-bottom:24px}
+strong{color:#1a1a1a}
+ul{padding-left:24px}
+a{color:#5b5fc7}
+</style>
+</head>
+<body>
+<h1>Terms of Service</h1>
+<p class="updated">Last updated: March 27, 2026</p>
+
+<h2>1. Acceptance of Terms</h2>
+<p>By using Lineage Agent, you agree to these Terms of Service. If you do not agree, please do not use the application.</p>
+
+<h2>2. Not Financial Advice</h2>
+<p><strong>Lineage Agent provides on-chain intelligence for informational purposes only.</strong> Token risk scores, rug pull analysis, deployer forensics, and all other data presented in this application do not constitute financial advice, investment recommendations, or trading signals.</p>
+<p>You are solely responsible for your own investment decisions. We make no guarantees about the accuracy, completeness, or reliability of any analysis. Past performance of risk detection does not guarantee future results.</p>
+<p>Always do your own research (DYOR) before making any financial decisions.</p>
+
+<h2>3. Wallet &amp; Transaction Risks</h2>
+<p><strong>Cryptocurrency transactions are irreversible.</strong> When using the Send feature, you are solely responsible for verifying recipient addresses. We cannot recover funds sent to incorrect addresses.</p>
+<p>Your wallet private keys are managed by Privy's secure infrastructure. We do not have access to your private keys and cannot execute transactions on your behalf without your explicit authorization.</p>
+
+<h2>4. Service Limitations</h2>
+<ul>
+<li>Risk analysis is based on on-chain data and heuristics, not guaranteed detection</li>
+<li>The service may experience downtime for maintenance</li>
+<li>Alert delivery depends on network connectivity and device settings</li>
+<li>Analysis results may be delayed during periods of high blockchain activity</li>
+</ul>
+
+<h2>5. Limitation of Liability</h2>
+<p>To the maximum extent permitted by law, Lineage Agent and its creators shall not be liable for any losses, damages, or claims arising from:</p>
+<ul>
+<li>Reliance on risk analysis results</li>
+<li>Failed or incorrect token analysis</li>
+<li>Missed alerts or delayed notifications</li>
+<li>Unauthorized access to your account</li>
+<li>Cryptocurrency transaction errors</li>
+</ul>
+
+<h2>6. Account Termination</h2>
+<p>You may delete your account at any time from the Account screen. We reserve the right to suspend or terminate accounts that violate these terms or engage in abusive behavior.</p>
+
+<h2>7. Changes to Terms</h2>
+<p>We may update these terms from time to time. Continued use of the application after changes constitutes acceptance of the updated terms.</p>
+
+<h2>8. Contact</h2>
+<p>For questions about these terms, contact us at <a href="mailto:legal@lineage-agent.fly.dev">legal@lineage-agent.fly.dev</a>.</p>
+</body>
+</html>"""
+
+
+@app.get("/privacy", tags=["legal"], response_class=HTMLResponse, include_in_schema=False)
+async def get_privacy_policy() -> HTMLResponse:
+    """Public Privacy Policy URL — required by Apple App Store Connect."""
+    return HTMLResponse(content=_PRIVACY_HTML)
+
+
+@app.get("/terms", tags=["legal"], response_class=HTMLResponse, include_in_schema=False)
+async def get_terms_of_service() -> HTMLResponse:
+    """Public Terms of Service URL — referenced from Privacy Policy."""
+    return HTMLResponse(content=_TERMS_HTML)
+
+
 @app.get("/config", tags=["system"])
 async def get_config() -> dict:
     """Return scoring weights and app configuration.

@@ -139,7 +139,7 @@ export function AlertPrefsSheet({ visible, onClose }: AlertPrefsSheetProps) {
               <Text style={styles.ruleChannels}>WhatsApp + Push</Text>
             </Text>
             <Text style={styles.ruleRow}>
-              <Text style={styles.ruleType}>Death Clock / Insider / Bundle </Text>
+              <Text style={styles.ruleType}>Risk Timeline / Insider / Bundle </Text>
               <Text style={styles.ruleArrow}>→ </Text>
               <Text style={styles.ruleChannels}>Telegram + Push</Text>
             </Text>
