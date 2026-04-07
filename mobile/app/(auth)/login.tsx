@@ -446,10 +446,10 @@ export default function LoginScreen() {
             </View>
           </Animated.View>
 
-          {/* Skip */}
+          {/* Guest mode — limited features, no data persistence */}
           <Animated.View entering={FadeInDown.delay(750).duration(400)} style={styles.skipSection}>
             <Pressable onPress={handleSkip} hitSlop={8}>
-              <Text style={styles.skipText}>Continue without account</Text>
+              <Text style={styles.skipText}>Browse as guest (no watchlist or alerts)</Text>
             </Pressable>
           </Animated.View>
         </ScrollView>
