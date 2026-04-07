@@ -230,8 +230,22 @@ async def _send_fcm_push(fcm_token: str, title: str, body: str, data: dict) -> b
             "android": {
                 "priority": "high",
                 "notification": {
-                    "channel_id": "critical" if data.get("urgency") == "high" else "default",
+                    # Explicitly set title/body so Android always uses our values
+                    # (some Android versions ignore top-level notification fields
+                    # when android.notification is present)
+                    "title": title,
+                    "body": body,
+                    # Use the channel the mobile app actually creates ("alerts")
+                    "channel_id": "alerts",
                     "color": "#00FF9D",
+                },
+            },
+            "apns": {
+                "payload": {
+                    "aps": {
+                        "alert": {"title": title, "body": body},
+                        "sound": "default",
+                    },
                 },
             },
         }
