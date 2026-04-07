@@ -18,6 +18,16 @@ module.exports = {
       config: {
         usesNonExemptEncryption: false,
       },
+      infoPlist: {
+        // Permission strings (required by iOS or app crashes at runtime)
+        NSPhotoLibraryUsageDescription:
+          'Lineage Agent uses your photo library to set your profile picture.',
+        NSCameraUsageDescription:
+          'Lineage Agent can use your camera to take a profile picture.',
+        // Encryption export compliance — exempt under EAR 740.17(b)(1)
+        // (encryption used only for authentication / standard HTTPS)
+        ITSAppUsesNonExemptEncryption: false,
+      },
     },
     android: {
       adaptiveIcon: {
@@ -56,6 +66,37 @@ module.exports = {
       ],
       'expo-secure-store',
       'expo-web-browser',
+      [
+        // Privacy Manifest (PrivacyInfo.xcprivacy) — required by Apple since May 2024.
+        // Declares "required reason API" usage for AsyncStorage, expo-secure-store,
+        // expo-file-system, and Privy SDK. None of these track the user.
+        'expo-build-properties',
+        {
+          ios: {
+            privacyManifests: {
+              NSPrivacyAccessedAPITypes: [
+                {
+                  NSPrivacyAccessedAPIType: 'NSPrivacyAccessedAPICategoryUserDefaults',
+                  NSPrivacyAccessedAPITypeReasons: ['CA92.1'],
+                },
+                {
+                  NSPrivacyAccessedAPIType: 'NSPrivacyAccessedAPICategoryFileTimestamp',
+                  NSPrivacyAccessedAPITypeReasons: ['C617.1'],
+                },
+                {
+                  NSPrivacyAccessedAPIType: 'NSPrivacyAccessedAPICategorySystemBootTime',
+                  NSPrivacyAccessedAPITypeReasons: ['35F9.1'],
+                },
+                {
+                  NSPrivacyAccessedAPIType: 'NSPrivacyAccessedAPICategoryDiskSpace',
+                  NSPrivacyAccessedAPITypeReasons: ['E174.1'],
+                },
+              ],
+              NSPrivacyTracking: false,
+            },
+          },
+        },
+      ],
     ],
     experiments: {
       typedRoutes: true,

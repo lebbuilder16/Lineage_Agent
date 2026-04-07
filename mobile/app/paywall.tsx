@@ -361,28 +361,30 @@ export default function PaywallScreen() {
                 )}
               </HapticButton>
 
-              {/* CTA: Pay with USDC */}
-              <View style={styles.usdcRow}>
-                <HapticButton
-                  variant="ghost"
-                  fullWidth
-                  onPress={() => handleUsdcPurchase(plan.key)}
-                  disabled={loading}
-                >
-                  <Text style={styles.usdcBtnText}>Pay with USDC</Text>
-                  <Text style={styles.usdcPrice}>
-                    ${yearly
-                      ? plan.yearlyUsdc.toFixed(2)
-                      : plan.monthlyUsdc.toFixed(2)}
-                    {yearly ? '/yr' : '/mo'}
-                  </Text>
-                  {usdcBalance != null && usdcBalance > 0 && (
-                    <Text style={styles.usdcBalanceHint}>
-                      Balance: ${usdcBalance.toFixed(2)}
+              {/* CTA: Pay with USDC — hidden on iOS to comply with Apple Guideline 3.1.1 */}
+              {isAndroid && (
+                <View style={styles.usdcRow}>
+                  <HapticButton
+                    variant="ghost"
+                    fullWidth
+                    onPress={() => handleUsdcPurchase(plan.key)}
+                    disabled={loading}
+                  >
+                    <Text style={styles.usdcBtnText}>Pay with USDC</Text>
+                    <Text style={styles.usdcPrice}>
+                      ${yearly
+                        ? plan.yearlyUsdc.toFixed(2)
+                        : plan.monthlyUsdc.toFixed(2)}
+                      {yearly ? '/yr' : '/mo'}
                     </Text>
-                  )}
-                </HapticButton>
-              </View>
+                    {usdcBalance != null && usdcBalance > 0 && (
+                      <Text style={styles.usdcBalanceHint}>
+                        Balance: ${usdcBalance.toFixed(2)}
+                      </Text>
+                    )}
+                  </HapticButton>
+                </View>
+              )}
             </GlassCard>
           </Animated.View>
         ))}

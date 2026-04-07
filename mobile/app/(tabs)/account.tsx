@@ -9,7 +9,7 @@ import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import {
-  User, Crown, ChevronRight, LogOut, Key, Bell, RefreshCw, Shield, Scan, Eye, Award, Camera,
+  User, Crown, ChevronRight, LogOut, Key, Bell, RefreshCw, Shield, Scan, Eye, Award, Camera, Trash2,
 } from 'lucide-react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { GlassCard } from '../../src/components/ui/GlassCard';
@@ -107,6 +107,49 @@ export default function AccountScreen() {
     await purgeUserData();
     setApiKey(null);
     router.replace('/(auth)/welcome');
+  };
+
+  const handleDeleteAccount = () => {
+    // Two-step confirmation per Apple Guideline 5.1.1(v) — make destructive action obvious
+    Alert.alert(
+      'Delete Account?',
+      'This permanently deletes your account, watchlist, alerts, investigations, and all related data. This action cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Continue',
+          style: 'destructive',
+          onPress: () => {
+            Alert.alert(
+              'Final confirmation',
+              'Are you absolutely sure? Your account and all data will be erased forever.',
+              [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                  text: 'Delete forever',
+                  style: 'destructive',
+                  onPress: async () => {
+                    if (!apiKey) return;
+                    try {
+                      const { deleteAccount } = await import('../../src/lib/api');
+                      await deleteAccount(apiKey);
+                      // Reuse the existing logout cleanup pipeline
+                      const { purgeUserData } = await import('../../src/lib/purge-user-data');
+                      await purgeUserData();
+                      setApiKey(null);
+                      router.replace('/(auth)/welcome');
+                    } catch (err) {
+                      const msg = err instanceof Error ? err.message : 'Could not delete account';
+                      Alert.alert('Delete failed', msg);
+                    }
+                  },
+                },
+              ],
+            );
+          },
+        },
+      ],
+    );
   };
 
   const handlePickAvatar = async () => {
@@ -343,6 +386,18 @@ export default function AccountScreen() {
             </HapticButton>
           </Animated.View>
 
+          {/* Danger Zone — Delete Account (Apple Guideline 5.1.1(v)) */}
+          <Animated.View entering={FadeInDown.delay(350).duration(400)} style={styles.dangerZone}>
+            <Text style={styles.dangerZoneLabel}>DANGER ZONE</Text>
+            <Pressable style={styles.deleteAccountBtn} onPress={handleDeleteAccount}>
+              <Trash2 size={15} color={tokens.risk.critical} />
+              <Text style={styles.deleteAccountText}>Delete Account</Text>
+            </Pressable>
+            <Text style={styles.dangerZoneHint}>
+              Permanently erases your account, watchlist, alerts and history. Cannot be undone.
+            </Text>
+          </Animated.View>
+
           <Text style={styles.appVersion}>Lineage Agent v1.0.0</Text>
 
         </ScrollView>
@@ -508,6 +563,44 @@ const styles = StyleSheet.create({
   appVersion: {
     fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny,
     color: tokens.white20, textAlign: 'center', marginTop: 8,
+  },
+
+  // Danger Zone
+  dangerZone: {
+    marginTop: 24,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: `${tokens.risk.critical}20`,
+    gap: 8,
+  },
+  dangerZoneLabel: {
+    fontFamily: 'Lexend-SemiBold',
+    fontSize: 10,
+    color: tokens.risk.critical,
+    letterSpacing: 1.4,
+  },
+  deleteAccountBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    borderRadius: tokens.radius.sm,
+    borderWidth: 1,
+    borderColor: `${tokens.risk.critical}40`,
+    backgroundColor: `${tokens.risk.critical}10`,
+  },
+  deleteAccountText: {
+    fontFamily: 'Lexend-SemiBold',
+    fontSize: tokens.font.small,
+    color: tokens.risk.critical,
+  },
+  dangerZoneHint: {
+    fontFamily: 'Lexend-Regular',
+    fontSize: 10,
+    color: tokens.white40,
+    textAlign: 'center',
+    lineHeight: 14,
   },
 
   // Confirmation Modal

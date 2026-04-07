@@ -250,6 +250,22 @@ export async function verifyUsdcSubscription(
   return res.json() as Promise<{ plan: string; upgraded: boolean }>;
 }
 
+/**
+ * Permanently delete the user account and all associated data.
+ * Required by Apple App Store Guideline 5.1.1(v).
+ */
+export async function deleteAccount(apiKey: string): Promise<void> {
+  const BASE = (process.env.EXPO_PUBLIC_API_URL ?? 'https://lineage-agent.fly.dev').replace(/\/$/, '');
+  const res = await fetch(`${BASE}/auth/me`, {
+    method: 'DELETE',
+    headers: { 'X-API-Key': apiKey },
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: `Delete failed (HTTP ${res.status})` }));
+    throw new Error(err.detail ?? `Delete failed (HTTP ${res.status})`);
+  }
+}
+
 export async function regenerateApiKey(apiKey: string): Promise<string> {
   const BASE = (process.env.EXPO_PUBLIC_API_URL ?? 'https://lineage-agent.fly.dev').replace(/\/$/, '');
   const res = await fetch(`${BASE}/auth/regenerate-key`, {

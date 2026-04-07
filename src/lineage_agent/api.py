@@ -2867,6 +2867,55 @@ async def auth_deregister_fcm_token(request: Request):
     return {"ok": True}
 
 
+@app.delete("/auth/me", tags=["auth"])
+async def auth_delete_account(request: Request):
+    """Permanently delete the user account and all associated data.
+
+    Required by Apple App Store Guideline 5.1.1(v) (since June 2022): apps that
+    allow account creation must allow in-app account deletion. This endpoint
+    purges every user-scoped table in dependency order before removing the
+    user row itself. Irreversible.
+    """
+    user = await _get_current_user(request)
+    uid = user["id"]
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+    db = await _cache._get_conn()
+
+    # Purge all user-scoped tables. Order matters for tables that reference
+    # other user-scoped tables (e.g. flag_feedback → sweep_flags).
+    _USER_TABLES = [
+        "wallet_risk_history",
+        "wallet_monitor_log",
+        "wallet_holdings",
+        "monitored_wallets",
+        "investigation_feedback",
+        "investigations",
+        "agent_prefs",
+        "flag_feedback",
+        "sweep_flags",
+        "briefings",
+        "alert_prefs",
+        "user_webhooks",
+        "usage_counters",
+        "subscriptions",
+        "user_watches",
+        "user_crons",
+    ]
+    for table in _USER_TABLES:
+        try:
+            await db.execute(f"DELETE FROM {table} WHERE user_id = ?", (uid,))
+        except Exception as exc:
+            # Table may not exist on older DBs — log and continue
+            logger.warning("[delete_account] %s purge failed for uid=%s: %s", table, uid, exc)
+
+    # Finally, remove the user row itself
+    await db.execute("DELETE FROM users WHERE id = ?", (uid,))
+    await db.commit()
+
+    logger.info("[delete_account] user_id=%s purged successfully", uid)
+    return {"deleted": True}
+
+
 @app.get("/auth/watches", tags=["auth"])
 async def auth_watches(request: Request):
     """Return user's watches. Requires X-API-Key header."""
