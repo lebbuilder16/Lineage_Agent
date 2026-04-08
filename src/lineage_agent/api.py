@@ -350,6 +350,27 @@ async def lifespan(application: FastAPI):
     else:
         logger.info("WALLET_LABELS_CSV_URL not set — using static labels only")
 
+    # ── Optional twitter/ automation module ───────────────────────────────
+    # Self-contained and gated on twitter_module_enabled(): missing config
+    # simply logs a warning and leaves the module dormant (no crash).
+    try:
+        from config import twitter_module_enabled  # noqa: PLC0415
+        if twitter_module_enabled():
+            from twitter.agent import init_db as _twitter_init_db  # noqa: PLC0415
+            from twitter.scheduler import scheduler as _twitter_scheduler  # noqa: PLC0415
+            await _twitter_init_db()
+            if not _twitter_scheduler.running:
+                _twitter_scheduler.start()
+            logger.info("Twitter automation module: ENABLED (scheduler started)")
+        else:
+            logger.warning(
+                "Twitter automation module: DISABLED — set TWITTER_API_KEY, "
+                "TWITTER_API_SECRET, TWITTER_ACCESS_TOKEN, TWITTER_ACCESS_TOKEN_SECRET, "
+                "TELEGRAM_TOKEN, TELEGRAM_CHAT_ID, TELEGRAM_WEBHOOK_SECRET to enable"
+            )
+    except Exception as _tw_exc:
+        logger.warning("Twitter module failed to start: %s", _tw_exc)
+
     yield
 
     # -----------------------------------------------------------------------
@@ -370,6 +391,15 @@ async def lifespan(application: FastAPI):
     _cancel_wallet_monitor()
     _cancel_wallet_label_refresh()
     cancel_cron_sweep()
+
+    # Stop twitter scheduler if it was started
+    try:
+        from twitter.scheduler import scheduler as _twitter_scheduler  # noqa: PLC0415
+        if _twitter_scheduler.running:
+            _twitter_scheduler.shutdown(wait=False)
+    except Exception:
+        pass
+
     await close_clients()
 
 
@@ -418,6 +448,19 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
 
 
 app.add_middleware(RequestIdMiddleware)
+
+
+# ── Optional twitter/ router (Telegram webhook + bot commands) ──────────────
+# Included only when the module is configured, so an unconfigured deployment
+# does not expose /twitter/telegram-webhook at all.
+try:
+    from config import twitter_module_enabled as _tw_enabled  # noqa: PLC0415
+    if _tw_enabled():
+        from twitter.routes import router as _twitter_router  # noqa: PLC0415
+        app.include_router(_twitter_router)
+        logger.info("Twitter router mounted at /twitter")
+except Exception as _tw_router_exc:
+    logger.warning("Twitter router not mounted: %s", _tw_router_exc)
 
 
 def _analysis_deployer_from_lineage(lineage_res: Optional[LineageResult]) -> str:

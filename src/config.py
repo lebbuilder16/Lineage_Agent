@@ -66,6 +66,44 @@ TELEGRAM_WEBHOOK_URL: str = os.getenv("TELEGRAM_WEBHOOK_URL", "")
 TELEGRAM_WEBHOOK_SECRET: str = os.getenv("TELEGRAM_WEBHOOK_SECRET", "")
 
 # ---------------------------------------------------------------------------
+# Twitter automation module (twitter/)
+# ---------------------------------------------------------------------------
+# These are consumed by the optional `twitter/` package (agent, scheduler,
+# routes). The module is self-contained and auto-disables at startup when
+# any of the required values below are missing.
+TWITTER_API_KEY: str = os.getenv("TWITTER_API_KEY", "")
+TWITTER_API_SECRET: str = os.getenv("TWITTER_API_SECRET", "")
+TWITTER_ACCESS_TOKEN: str = os.getenv("TWITTER_ACCESS_TOKEN", "")
+TWITTER_ACCESS_TOKEN_SECRET: str = os.getenv("TWITTER_ACCESS_TOKEN_SECRET", "")
+
+# Telegram human-in-the-loop bot for draft approvals (separate from the
+# existing TELEGRAM_BOT_TOKEN used by the core alerting system). Falls back to
+# TELEGRAM_BOT_TOKEN so a single bot can serve both purposes if the operator
+# prefers.
+TELEGRAM_TOKEN: str = os.getenv("TELEGRAM_TOKEN", "") or TELEGRAM_BOT_TOKEN
+TELEGRAM_CHAT_ID: str = os.getenv("TELEGRAM_CHAT_ID", "")
+
+# Birdeye — optional token discovery source (DexScreener trending is primary)
+BIRDEYE_API_KEY: str = os.getenv("BIRDEYE_API_KEY", "")
+
+
+def twitter_module_enabled() -> bool:
+    """Return True when every secret required by the twitter/ module is set.
+
+    The module is optional and must degrade silently when not configured,
+    so `api.py` can skip router inclusion and scheduler start.
+    """
+    return bool(
+        TWITTER_API_KEY
+        and TWITTER_API_SECRET
+        and TWITTER_ACCESS_TOKEN
+        and TWITTER_ACCESS_TOKEN_SECRET
+        and TELEGRAM_TOKEN
+        and TELEGRAM_CHAT_ID
+        and TELEGRAM_WEBHOOK_SECRET
+    )
+
+# ---------------------------------------------------------------------------
 # Solana RPC
 # ---------------------------------------------------------------------------
 SOLANA_RPC_ENDPOINT: str = os.getenv(

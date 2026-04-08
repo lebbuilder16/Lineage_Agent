@@ -18,6 +18,9 @@ primary_region = 'ams'
   LOG_FORMAT = "json"
   CACHE_BACKEND = "sqlite"
   CACHE_SQLITE_PATH = "/data/cache.db"
+  # Twitter automation module DB — on the same persistent volume as cache
+  # so KOL list, draft queue, and engagement log survive redeploys.
+  TWITTER_DB_PATH = "/data/twitter_agent.db"
   UVICORN_WORKERS = "1"
 
 [processes]

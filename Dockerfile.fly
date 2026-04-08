@@ -17,9 +17,12 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY src/ ./src/
 COPY skills/ ./skills/
+COPY twitter/ ./twitter/
 
 ENV PYTHONUNBUFFERED=1
-ENV PYTHONPATH=/app/src
+# /app/src for lineage_agent + top-level `config` module,
+# /app so the optional `twitter` package is importable as `twitter.*`.
+ENV PYTHONPATH=/app/src:/app
 
 # Run as non-root user for security
 RUN useradd --create-home --shell /bin/bash appuser && \
