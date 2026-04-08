@@ -1563,3 +1563,82 @@ async def run_market_pulse(cache) -> list[dict]:
     except Exception as exc:
         logger.warning("[pulse] market pulse failed: %s", exc)
         return []
+
+
+# ── Immediate rescan trigger (used by Helius webhook + ad-hoc callers) ───────
+
+# In-flight dedup: prevents a storm of events on the same mint from launching
+# parallel duplicate rescans. Each mint is locked while a rescan is running;
+# concurrent callers on the same mint short-circuit with a "skipped" result.
+_RESCAN_INFLIGHT: set[str] = set()
+_RESCAN_INFLIGHT_LOCK = asyncio.Lock()
+
+
+async def trigger_immediate_rescan(
+    mint: str,
+    reason: str,
+    cache,
+    *,
+    skip_ai: bool = True,
+) -> dict:
+    """Rescan every user_watch pointing at *mint* right now.
+
+    Used by the Helius webhook handler and any other component that needs to
+    bypass the 45-minute sweep cadence. Returns a summary dict:
+
+        {"mint": ..., "watches": N, "results": [...], "skipped": bool}
+
+    Concurrent calls for the same mint are deduplicated — the second caller
+    returns ``{"skipped": True}`` immediately without re-running the pipeline.
+
+    *skip_ai* defaults to True because event-driven rescans should be cheap
+    and fast; upgrade to False only for deliberate Elite paths.
+    """
+    if not mint:
+        return {"mint": "", "watches": 0, "results": [], "skipped": True}
+
+    async with _RESCAN_INFLIGHT_LOCK:
+        if mint in _RESCAN_INFLIGHT:
+            logger.info("[webhook] %s rescan already inflight — skipping (%s)", mint[:12], reason)
+            return {"mint": mint, "watches": 0, "results": [], "skipped": True}
+        _RESCAN_INFLIGHT.add(mint)
+
+    try:
+        db = await cache._get_conn()
+        cursor = await db.execute(
+            "SELECT id, user_id FROM user_watches WHERE sub_type = 'mint' AND value = ?",
+            (mint,),
+        )
+        rows = await cursor.fetchall()
+        if not rows:
+            logger.debug("[webhook] %s has no active watches — skip", mint[:12])
+            return {"mint": mint, "watches": 0, "results": [], "skipped": False}
+
+        logger.info(
+            "[webhook] immediate rescan for %s (%d watches) — reason=%s",
+            mint[:12], len(rows), reason,
+        )
+
+        results: list[dict] = []
+        for watch_id, user_id in rows:
+            try:
+                res = await run_single_rescan(
+                    int(watch_id), int(user_id), cache, skip_ai=skip_ai,
+                )
+                if res:
+                    results.append(res)
+            except Exception as exc:
+                logger.warning(
+                    "[webhook] rescan failed for watch=%s user=%s mint=%s: %s",
+                    watch_id, user_id, mint[:12], exc,
+                )
+        return {
+            "mint": mint,
+            "watches": len(rows),
+            "results": results,
+            "skipped": False,
+            "reason": reason,
+        }
+    finally:
+        async with _RESCAN_INFLIGHT_LOCK:
+            _RESCAN_INFLIGHT.discard(mint)

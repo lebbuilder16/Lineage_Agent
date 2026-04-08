@@ -4771,6 +4771,38 @@ async def get_investigation_history(
     return results
 
 
+@app.post("/agent/webhook/helius", tags=["agent"])
+async def helius_webhook_endpoint(request: Request):
+    """Receive Helius Enhanced webhook events and trigger immediate rescans.
+
+    Public endpoint — auth is HMAC-SHA256 over the raw body (not X-API-Key).
+    The shared secret lives in ``HELIUS_WEBHOOK_SECRET``; when empty the
+    route returns 503 and the existing poll-based sweep remains the only
+    watchlist monitor.
+
+    Returns a fast 2xx ack — the actual rescans run as background tasks with
+    per-mint deduplication in ``trigger_immediate_rescan``.
+    """
+    from .webhook_helius import handle_helius_webhook, HeliusWebhookError
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+
+    body = await request.body()
+    # Helius sets the value configured in authHeader on the "Authorization"
+    # request header. Accept both cases for resilience with proxies.
+    signature = (
+        request.headers.get("authorization")
+        or request.headers.get("Authorization")
+        or ""
+    )
+    try:
+        return await handle_helius_webhook(body, signature, _cache)
+    except HeliusWebhookError as exc:
+        return JSONResponse(
+            status_code=exc.status,
+            content={"error": exc.detail},
+        )
+
+
 @app.get("/agent/flags", tags=["agent"])
 async def get_sweep_flags(
     request: Request,

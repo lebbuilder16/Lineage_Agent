@@ -390,3 +390,114 @@ async def test_market_pulse_no_trigger_when_stable():
     assert len(triggered) == 0
 
     await db.close()
+
+
+# ---------------------------------------------------------------------------
+# trigger_immediate_rescan tests (used by Helius webhook + ad-hoc callers)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_trigger_immediate_rescan_runs_for_each_watch():
+    """A single mint tracked by 2 users → rescan must fire for each watch."""
+    cache, db = await _make_cache()
+
+    # Add a second user and a second watch on the SAME mint
+    await db.execute(
+        "INSERT INTO users (privy_id, api_key, created_at) VALUES (?, ?, ?)",
+        ("privy_2", "lin_def", time.time()),
+    )
+    await db.execute(
+        "INSERT INTO user_watches (user_id, sub_type, value, created_at) VALUES (?, ?, ?, ?)",
+        (2, "mint", "So11111111111111111111111111111111", time.time()),
+    )
+    await db.commit()
+
+    lin = _make_lineage("medium", 45.0, heuristic_score=40)
+    with (
+        patch("lineage_agent.lineage_detector.detect_lineage", new_callable=AsyncMock, return_value=lin),
+        patch("lineage_agent.ai_analyst._heuristic_score", return_value=40),
+    ):
+        from lineage_agent.watchlist_monitor_service import trigger_immediate_rescan
+        summary = await trigger_immediate_rescan(
+            "So11111111111111111111111111111111",
+            reason="test",
+            cache=cache,
+        )
+
+    assert summary["skipped"] is False
+    assert summary["watches"] == 2
+    assert len(summary["results"]) == 2
+
+    await db.close()
+
+
+@pytest.mark.asyncio
+async def test_trigger_immediate_rescan_unknown_mint_noop():
+    cache, db = await _make_cache()
+
+    from lineage_agent.watchlist_monitor_service import trigger_immediate_rescan
+    summary = await trigger_immediate_rescan(
+        "UnknownMint111111111111111111",
+        reason="test",
+        cache=cache,
+    )
+
+    assert summary["skipped"] is False
+    assert summary["watches"] == 0
+    assert summary["results"] == []
+
+    await db.close()
+
+
+@pytest.mark.asyncio
+async def test_trigger_immediate_rescan_empty_mint():
+    cache, db = await _make_cache()
+
+    from lineage_agent.watchlist_monitor_service import trigger_immediate_rescan
+    summary = await trigger_immediate_rescan("", reason="test", cache=cache)
+    assert summary == {"mint": "", "watches": 0, "results": [], "skipped": True}
+
+    await db.close()
+
+
+@pytest.mark.asyncio
+async def test_trigger_immediate_rescan_deduplicates_concurrent_calls():
+    """Two concurrent calls on the same mint — the second must short-circuit."""
+    cache, db = await _make_cache()
+
+    # Block run_single_rescan long enough for the second call to see the lock
+    import asyncio as _asyncio
+    gate = _asyncio.Event()
+
+    async def _slow_rescan(*args, **kwargs):
+        await gate.wait()
+        return {"mint": "So11111111111111111111111111111111", "flags": []}
+
+    with patch(
+        "lineage_agent.watchlist_monitor_service.run_single_rescan",
+        new=AsyncMock(side_effect=_slow_rescan),
+    ):
+        from lineage_agent.watchlist_monitor_service import trigger_immediate_rescan
+        mint = "So11111111111111111111111111111111"
+
+        task_a = _asyncio.create_task(
+            trigger_immediate_rescan(mint, reason="a", cache=cache),
+        )
+        # Give task_a a chance to acquire the inflight lock
+        await _asyncio.sleep(0)
+        task_b = _asyncio.create_task(
+            trigger_immediate_rescan(mint, reason="b", cache=cache),
+        )
+        await _asyncio.sleep(0)
+        # Unblock and wait
+        gate.set()
+        result_a, result_b = await _asyncio.gather(task_a, task_b)
+
+    # One must run, the other must be skipped
+    skipped_count = int(result_a["skipped"]) + int(result_b["skipped"])
+    assert skipped_count == 1, (
+        f"expected exactly one skip from concurrent dedupe, got {skipped_count}: "
+        f"a={result_a} b={result_b}"
+    )
+
+    await db.close()

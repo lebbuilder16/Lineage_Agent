@@ -114,6 +114,21 @@ SOLANA_RPC_ENDPOINT: str = os.getenv(
 SOLANA_RPC_FALLBACKS: str = os.getenv("SOLANA_RPC_FALLBACKS", "")
 
 # ---------------------------------------------------------------------------
+# Helius Enhanced Webhooks (push-based watchlist monitoring)
+# ---------------------------------------------------------------------------
+# When HELIUS_WEBHOOK_SECRET is empty the POST /agent/webhook/helius endpoint
+# is disabled (returns 503) and the sweep poll loop remains the sole monitor.
+# Rotate the secret via `fly secrets set HELIUS_WEBHOOK_SECRET=...` and update
+# the webhook auth header in Helius dashboard/API accordingly.
+HELIUS_WEBHOOK_SECRET: str = os.getenv("HELIUS_WEBHOOK_SECRET", "")
+# Public HTTPS URL that Helius should POST events to. Used by the registration
+# script only — the API server does not need it to handle incoming events.
+HELIUS_WEBHOOK_URL: str = os.getenv("HELIUS_WEBHOOK_URL", "")
+# Webhook ID returned by Helius after creation, persisted here so updates can
+# target the existing hook instead of creating duplicates.
+HELIUS_WEBHOOK_ID: str = os.getenv("HELIUS_WEBHOOK_ID", "")
+
+# ---------------------------------------------------------------------------
 # DexScreener
 # ---------------------------------------------------------------------------
 DEXSCREENER_BASE_URL: str = os.getenv(

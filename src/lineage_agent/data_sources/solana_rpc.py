@@ -1028,6 +1028,113 @@ class SolanaRpcClient:
             return []
 
     # ------------------------------------------------------------------
+    # Helius webhook management (Enhanced webhooks)
+    # https://www.helius.dev/docs/webhooks
+    # ------------------------------------------------------------------
+    _WEBHOOKS_BASE = "https://api.helius.xyz/v0/webhooks"
+
+    async def create_helius_webhook(
+        self,
+        *,
+        webhook_url: str,
+        account_addresses: list[str],
+        transaction_types: list[str] | None = None,
+        webhook_type: str = "enhanced",
+        auth_header: str = "",
+    ) -> dict:
+        """Register a new Helius webhook.
+
+        Returns the full webhook record (including ``webhookID``) on success.
+        Raises ``RuntimeError`` on any non-2xx response so the caller can
+        surface a clear error (missing API key, invalid address, etc.).
+        """
+        api_key = self.helius_api_key
+        if not api_key:
+            raise RuntimeError("Helius API key missing — cannot create webhook")
+
+        payload: dict = {
+            "webhookURL": webhook_url,
+            "transactionTypes": transaction_types or ["ANY"],
+            "accountAddresses": list(dict.fromkeys(account_addresses)),
+            "webhookType": webhook_type,
+        }
+        if auth_header:
+            payload["authHeader"] = auth_header
+
+        client = await self._get_client_for(self._endpoints[0])
+        resp = await client.post(
+            self._WEBHOOKS_BASE,
+            params={"api-key": api_key},
+            json=payload,
+            timeout=15.0,
+        )
+        if resp.status_code // 100 != 2:
+            raise RuntimeError(
+                f"Helius create_webhook failed: {resp.status_code} {resp.text[:200]}"
+            )
+        data = resp.json()
+        return data if isinstance(data, dict) else {}
+
+    async def update_helius_webhook(
+        self,
+        webhook_id: str,
+        *,
+        account_addresses: list[str] | None = None,
+        transaction_types: list[str] | None = None,
+        webhook_url: str | None = None,
+        auth_header: str | None = None,
+    ) -> dict:
+        """Patch an existing Helius webhook. Only provided fields are updated."""
+        api_key = self.helius_api_key
+        if not api_key:
+            raise RuntimeError("Helius API key missing — cannot update webhook")
+        if not webhook_id:
+            raise ValueError("webhook_id is required")
+
+        payload: dict = {}
+        if account_addresses is not None:
+            payload["accountAddresses"] = list(dict.fromkeys(account_addresses))
+        if transaction_types is not None:
+            payload["transactionTypes"] = transaction_types
+        if webhook_url is not None:
+            payload["webhookURL"] = webhook_url
+        if auth_header is not None:
+            payload["authHeader"] = auth_header
+
+        client = await self._get_client_for(self._endpoints[0])
+        resp = await client.put(
+            f"{self._WEBHOOKS_BASE}/{webhook_id}",
+            params={"api-key": api_key},
+            json=payload,
+            timeout=15.0,
+        )
+        if resp.status_code // 100 != 2:
+            raise RuntimeError(
+                f"Helius update_webhook failed: {resp.status_code} {resp.text[:200]}"
+            )
+        data = resp.json()
+        return data if isinstance(data, dict) else {}
+
+    async def get_helius_webhook(self, webhook_id: str) -> dict:
+        """Fetch a single webhook by ID. Returns {} if not found."""
+        api_key = self.helius_api_key
+        if not api_key or not webhook_id:
+            return {}
+        client = await self._get_client_for(self._endpoints[0])
+        try:
+            resp = await client.get(
+                f"{self._WEBHOOKS_BASE}/{webhook_id}",
+                params={"api-key": api_key},
+                timeout=10.0,
+            )
+        except Exception:
+            return {}
+        if resp.status_code == 200:
+            data = resp.json()
+            return data if isinstance(data, dict) else {}
+        return {}
+
+    # ------------------------------------------------------------------
     # DAS methods — only work on endpoints that support DAS
     # ------------------------------------------------------------------
     _DAS_METHODS = frozenset({"getAsset", "getAssetsByOwner", "searchAssets"})

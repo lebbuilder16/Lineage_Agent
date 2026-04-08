@@ -827,6 +827,79 @@ async def test_stream_analyze_invalid_mint_returns_400(client):
 
 
 # ------------------------------------------------------------------
+# Helius webhook endpoint
+# ------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_helius_webhook_disabled_without_secret(client):
+    """With HELIUS_WEBHOOK_SECRET unset (default in tests), route returns 503."""
+    resp = await client.post(
+        "/agent/webhook/helius",
+        content=b"[]",
+        headers={"Authorization": "irrelevant"},
+    )
+    assert resp.status_code == 503
+    assert "disabled" in resp.json()["error"].lower()
+
+
+@pytest.mark.anyio
+async def test_helius_webhook_valid_signature_dispatches(client):
+    """Happy path: valid HMAC → 200 and background rescan dispatched."""
+    import hmac
+    import hashlib
+    import json as _json
+    import asyncio as _asyncio
+
+    secret = "test-api-secret"
+    events = [{
+        "type": "SWAP",
+        "source": "RAYDIUM",
+        "signature": "abc",
+        "tokenTransfers": [{
+            "fromUserAccount": "A", "toUserAccount": "B",
+            "mint": _WS_MINT, "tokenAmount": 1.0,
+        }],
+        "nativeTransfers": [],
+    }]
+    body = _json.dumps(events).encode()
+    sig = hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
+
+    mock_rescan = AsyncMock(return_value={"skipped": False})
+    with (
+        patch("lineage_agent.webhook_helius._config.HELIUS_WEBHOOK_SECRET", secret),
+        patch(
+            "lineage_agent.watchlist_monitor_service.trigger_immediate_rescan",
+            mock_rescan,
+        ),
+    ):
+        resp = await client.post(
+            "/agent/webhook/helius",
+            content=body,
+            headers={"Authorization": sig},
+        )
+
+    assert resp.status_code == 200, resp.text
+    payload = resp.json()
+    assert payload["status"] == "ok"
+    assert payload["mints"] == 1
+
+    await _asyncio.sleep(0)  # let the background task execute
+    assert mock_rescan.await_count == 1
+
+
+@pytest.mark.anyio
+async def test_helius_webhook_bad_signature_rejected(client):
+    secret = "test-api-secret"
+    with patch("lineage_agent.webhook_helius._config.HELIUS_WEBHOOK_SECRET", secret):
+        resp = await client.post(
+            "/agent/webhook/helius",
+            content=b"[]",
+            headers={"Authorization": "deadbeef"},
+        )
+    assert resp.status_code == 401
+
+
+# ------------------------------------------------------------------
 # Internal helper: _schedule_cartel_sweep / _cancel_cartel_sweep
 # ------------------------------------------------------------------
 

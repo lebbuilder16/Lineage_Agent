@@ -565,6 +565,27 @@ async def _execute_tool(name: str, args: dict, *, cache: Any) -> dict:
 # ── Agent system prompt ──────────────────────────────────────────────────────
 
 
+# Compact Helius data-model reference injected into the agent prompt.
+# Sourced from docs/helius/{das,enhanced-transactions}.md — kept terse on
+# purpose so it costs <250 tokens in every investigation.
+_HELIUS_DATA_REFERENCE = """\
+## Helius Data Reference (how the underlying data is sourced)
+
+- Transaction data comes from Helius Enhanced Transactions: fields `type` \
+(SWAP, TRANSFER, BURN, NFT_SALE…), `source` (JUPITER, RAYDIUM, PUMP_FUN, \
+MAGIC_EDEN…), `tokenTransfers[]` and `nativeTransfers[]` are already \
+decoded with proper decimals.
+- DAS `creators[]` metadata is Metaplex creators — **not the deployer \
+wallet** for pump.fun tokens. The real deployer is the feePayer of the \
+mint creation transaction. Trust the `deployer` field in scan_summary; \
+do not second-guess it from raw creators arrays.
+- SOL amounts in `nativeTransfers` are in lamports (1 SOL = 1e9 lamports).
+- When evidence references Jito bundles, they appear as multiple tx in \
+the same slot from the same signer cluster — scan_token already flags \
+this as `bundle_report`.
+"""
+
+
 def _build_agent_system_prompt(heuristic: int, *, scan_summary: dict | None = None) -> str:
     """Build the system prompt for the agent, reusing scoring guide from ai_analyst."""
     # Extract the scoring guide portion from _SYSTEM_PROMPT
@@ -610,6 +631,7 @@ Do NOT call scan_token or any individual tools — all data is already provided.
 Only call a tool if you need data about a DIFFERENT mint address (cross-reference).
 
 {scoring_section}
+{_HELIUS_DATA_REFERENCE}
 {_FEW_SHOT_EXAMPLES}
 
 CRITICAL RULES:
@@ -641,6 +663,7 @@ Your investigation loop:
 4. When you have enough evidence, deliver your verdict via forensic_report tool.
 
 {scoring_section}
+{_HELIUS_DATA_REFERENCE}
 {_FEW_SHOT_EXAMPLES}
 
 CRITICAL RULES:
