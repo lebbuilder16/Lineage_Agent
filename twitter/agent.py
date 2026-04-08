@@ -3,6 +3,7 @@ Lineage Agent — Twitter automation core
 Human-in-the-loop via Telegram Bot
 """
 
+import asyncio
 import os
 import re
 import logging
@@ -73,6 +74,7 @@ async def init_db():
             );
             CREATE TABLE IF NOT EXISTS kol_accounts (
                 handle TEXT PRIMARY KEY,
+                user_id TEXT,
                 added_at TEXT DEFAULT CURRENT_TIMESTAMP
             );
             CREATE TABLE IF NOT EXISTS kol_state (
@@ -94,7 +96,41 @@ async def init_db():
                 date TEXT PRIMARY KEY,
                 count INTEGER DEFAULT 0
             );
+            CREATE TABLE IF NOT EXISTS bot_meta (
+                key TEXT PRIMARY KEY,
+                value TEXT,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+            );
         """)
+        # Idempotent migration for existing DBs that pre-date the user_id column.
+        # SQLite ALTER fails with "duplicate column name" if it already exists —
+        # swallow that specific case so the bootstrap stays repeatable.
+        try:
+            await db.execute("ALTER TABLE kol_accounts ADD COLUMN user_id TEXT")
+        except aiosqlite.OperationalError as exc:
+            if "duplicate column name" not in str(exc).lower():
+                raise
+        await db.commit()
+
+
+# ============================================================
+# BOT META (key/value store for cursors, last-run timestamps, etc.)
+# ============================================================
+
+async def get_meta(key: str) -> str | None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute("SELECT value FROM bot_meta WHERE key = ?", (key,)) as cur:
+            row = await cur.fetchone()
+            return row[0] if row else None
+
+
+async def set_meta(key: str, value: str) -> None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT INTO bot_meta (key, value, updated_at) VALUES (?, ?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+            (key, value, datetime.now(timezone.utc).isoformat()),
+        )
         await db.commit()
 
 # ============================================================
@@ -169,6 +205,45 @@ async def get_kol_last_seen(handle: str) -> str | None:
         async with db.execute("SELECT last_tweet_id FROM kol_state WHERE handle = ?", (handle,)) as cur:
             row = await cur.fetchone()
             return row[0] if row else None
+
+
+async def resolve_kol_user_id(handle: str) -> str | None:
+    """Resolve a KOL handle to its Twitter numeric user_id, caching the result.
+
+    Twitter user IDs are immutable, so we only ever hit `users/by/username` once
+    per KOL — every subsequent monitor cycle reads the cached id from SQLite.
+    On the X Free tier, that single optimisation saves ~240 API calls/day for
+    a 5-KOL list.
+    """
+    handle = handle.lstrip("@").lower()
+
+    # Cache hit
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT user_id FROM kol_accounts WHERE handle = ?", (handle,)
+        ) as cur:
+            row = await cur.fetchone()
+            if row and row[0]:
+                return row[0]
+
+    # Cache miss → one-shot resolution from Twitter
+    try:
+        client = _get_twitter_client()
+        user = await asyncio.to_thread(client.get_user, username=handle)
+        if not user.data:
+            return None
+        user_id = str(user.data.id)
+    except Exception as exc:
+        logger.warning(f"resolve_kol_user_id @{handle}: {exc}")
+        return None
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE kol_accounts SET user_id = ? WHERE handle = ?",
+            (user_id, handle),
+        )
+        await db.commit()
+    return user_id
 
 # ============================================================
 # TOKEN SOURCING — what tokens get scanned
@@ -391,10 +466,14 @@ async def post_tweet(text: str, reply_to: str | None = None) -> bool:
     import tweepy  # noqa: PLC0415
     try:
         client = _get_twitter_client()
+        # tweepy is sync (built on `requests`); offload to a worker thread so
+        # the FastAPI event loop is never blocked while X round-trips.
         if reply_to:
-            client.create_tweet(text=text, in_reply_to_tweet_id=reply_to)
+            await asyncio.to_thread(
+                client.create_tweet, text=text, in_reply_to_tweet_id=reply_to
+            )
         else:
-            client.create_tweet(text=text)
+            await asyncio.to_thread(client.create_tweet, text=text)
         logger.info(f"Tweet posted: {text[:50]}...")
         return True
     except tweepy.TooManyRequests:

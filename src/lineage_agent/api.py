@@ -358,9 +358,13 @@ async def lifespan(application: FastAPI):
         if twitter_module_enabled():
             from twitter.agent import init_db as _twitter_init_db  # noqa: PLC0415
             from twitter.scheduler import scheduler as _twitter_scheduler  # noqa: PLC0415
+            from twitter.scheduler import add_jitter as _twitter_add_jitter  # noqa: PLC0415
             await _twitter_init_db()
             if not _twitter_scheduler.running:
                 _twitter_scheduler.start()
+                # Spread first executions across 10–90s so all jobs don't burst
+                # X's 15-minute quota window simultaneously at startup.
+                _twitter_add_jitter()
             logger.info("Twitter automation module: ENABLED (scheduler started)")
         else:
             logger.warning(

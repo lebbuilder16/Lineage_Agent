@@ -2,14 +2,21 @@
 Lineage Agent — Scheduled jobs
 
 3 jobs:
-  1. scan_new_tokens   — every 2h: fetch new tokens from Birdeye + KOL tweets, scan them, tweet high-risk
-  2. monitor_kol       — every 30min: reply to KOL tweets
+  1. scan_new_tokens   — every 2h: fetch new tokens from DexScreener + KOL tweets, scan them, tweet high-risk
+  2. monitor_kol       — every 2h:  reply to KOL tweets
   3. engage_mentions   — every 20min: reply to mentions (with daily cap + follower filter)
+
+All `tweepy` calls are wrapped in `asyncio.to_thread` because tweepy is built
+on the synchronous `requests` library — running it inline would block the
+FastAPI event loop for the duration of every X round-trip.
 """
 
+import asyncio
 import os
+import random
 import uuid
 import logging
+from datetime import datetime, timedelta
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from twitter.agent import (
     _get_twitter_client,
@@ -17,7 +24,9 @@ from twitter.agent import (
     fetch_trending_memes_dexscreener, extract_solana_addresses,
     is_token_already_scanned, mark_token_scanned,
     # KOL
-    list_kols, get_kol_last_seen, save_kol_state,
+    list_kols, get_kol_last_seen, save_kol_state, resolve_kol_user_id,
+    # Persistent meta (cursors, last-run, …)
+    get_meta, set_meta,
     # Engagement
     should_engage, log_reply,
     # Generation
@@ -31,12 +40,16 @@ from twitter.agent import (
 # endpoint defined in src/lineage_agent/api.py.
 LINEAGE_API_BASE = os.getenv("LINEAGE_API_BASE", "http://localhost:8000")
 
+# Dust filter — skip tokens below these thresholds before triggering the
+# expensive forensic pipeline. Tunable via env without redeploying the code.
+MIN_LIQUIDITY_USD = float(os.getenv("TWITTER_MIN_LIQUIDITY_USD", "100000"))
+MIN_MARKET_CAP_USD = float(os.getenv("TWITTER_MIN_MARKET_CAP_USD", "800000"))
+
+# Persistent cursor key for the engage_mentions cursor (stored in bot_meta).
+META_LAST_MENTION_ID = "last_mention_id"
+
 logger = logging.getLogger("lineage.scheduler")
 scheduler = AsyncIOScheduler()
-
-# Store last seen mention ID across polls (persisted in memory, acceptable here
-# because missing a mention just means we catch it next restart)
-last_mention_id: str | None = None
 
 
 # ============================================================
@@ -60,14 +73,18 @@ async def scan_new_tokens():
                 tokens_to_scan.append(t)
 
         # Source B: Token addresses from KOL tweets
+        # Uses the cached numeric user_id (set on first /addkol or first
+        # successful resolve) to avoid the per-cycle `users/by/username` call.
         kols = await list_kols()
+        client = _get_twitter_client()
         for handle in kols:
             try:
-                user = _get_twitter_client().get_user(username=handle)
-                if not user.data:
+                user_id = await resolve_kol_user_id(handle)
+                if not user_id:
                     continue
-                tweets = _get_twitter_client().get_users_tweets(
-                    id=user.data.id, max_results=5, exclude=["retweets"]
+                tweets = await asyncio.to_thread(
+                    client.get_users_tweets,
+                    id=user_id, max_results=5, exclude=["retweets"],
                 )
                 if not tweets.data:
                     continue
@@ -128,6 +145,34 @@ async def run_lineage_scan(address: str, symbol: str) -> dict | None:
     import httpx  # noqa: PLC0415
     try:
         async with httpx.AsyncClient(timeout=90) as client:
+            # ── Dust pre-filter ───────────────────────────────────────────
+            # /token-meta is a cheap DAS+DexScreener lookup (~500ms, no AI
+            # cost). Skipping dust here saves an estimated 70% of Anthropic
+            # spend versus running the full /analyze pipeline on every token.
+            try:
+                meta_resp = await client.get(
+                    f"{LINEAGE_API_BASE}/token-meta/{address}", timeout=15,
+                )
+                if meta_resp.status_code == 200:
+                    meta = meta_resp.json() or {}
+                    liq = float(meta.get("liquidity_usd") or 0)
+                    mcap = float(meta.get("market_cap_usd") or 0)
+                    if liq < MIN_LIQUIDITY_USD or mcap < MIN_MARKET_CAP_USD:
+                        logger.info(
+                            "[twitter] skip %s — dust (liq=$%.0f<%.0f, mcap=$%.0f<%.0f)",
+                            address[:8], liq, MIN_LIQUIDITY_USD, mcap, MIN_MARKET_CAP_USD,
+                        )
+                        return None
+            except Exception as exc:
+                # Pre-check failure should never block the scan; fall through
+                # to full analysis and let the main pipeline decide.
+                logger.warning(
+                    "[twitter] token-meta pre-check failed for %s: %s — "
+                    "falling through to full /analyze",
+                    address[:8], exc,
+                )
+
+            # ── Full forensic analysis ─────────────────────────────────────
             resp = await client.get(f"{LINEAGE_API_BASE}/analyze/{address}")
             if resp.status_code != 200:
                 logger.warning(
@@ -183,20 +228,28 @@ async def run_lineage_scan(address: str, symbol: str) -> dict | None:
 # JOB 2 — KOL monitoring (dynamic list)
 # ============================================================
 
-@scheduler.scheduled_job("interval", minutes=30, misfire_grace_time=300)
+@scheduler.scheduled_job("interval", hours=2, misfire_grace_time=600)
 async def monitor_kol_tweets():
+    """Poll KOL timelines every 2h.
+
+    The X Free tier caps users/tweets at ~75 calls / 15 min, so we keep this
+    job intentionally infrequent. Coupled with cached user_ids (resolve_kol_user_id),
+    each cycle costs exactly 1 API call per KOL.
+    """
     kols = await list_kols()  # Dynamic — from DB, managed via /addkol /removekol
     if not kols:
         return
 
+    client = _get_twitter_client()
     for handle in kols:
         try:
-            user = twitter_client.get_user(username=handle)
-            if not user.data:
+            user_id = await resolve_kol_user_id(handle)
+            if not user_id:
                 continue
 
-            tweets = twitter_client.get_users_tweets(
-                id=user.data.id, max_results=5, exclude=["retweets", "replies"]
+            tweets = await asyncio.to_thread(
+                client.get_users_tweets,
+                id=user_id, max_results=5, exclude=["retweets", "replies"],
             )
             if not tweets.data:
                 continue
@@ -229,42 +282,57 @@ async def monitor_kol_tweets():
 
 @scheduler.scheduled_job("interval", minutes=20, misfire_grace_time=300)
 async def engage_mentions():
-    """
-    Poll mentions of @LineageAgent.
-    Conditions to reply:
-      - Author has >= 50 followers
-      - Haven't replied to this tweet already
-      - Daily reply count < 20
-      - Claude doesn't return SKIP (troll/irrelevant)
-    
-    All replies go through Telegram approval (human-in-the-loop).
-    """
-    global last_mention_id
+    """Poll mentions of @LineageMemes and queue Telegram-approved replies.
 
+    Reply conditions (all must hold):
+      - We have not already replied to this tweet (engagement_log)
+      - Daily reply count below MAX_REPLIES_PER_DAY (engagement_daily)
+      - Author has >= MIN_FOLLOWER_COUNT followers
+      - Claude doesn't return SKIP (troll/irrelevant)
+
+    All replies go through Telegram approval (human-in-the-loop).
+
+    The cursor (`since_id`) is persisted in the `bot_meta` table so a redeploy
+    no longer re-scans the last batch of mentions and wastes ~10 API calls.
+    """
     try:
-        # Get our own user ID
         client = _get_twitter_client()
-        me = client.get_me()
+        me = await asyncio.to_thread(client.get_me)
         if not me.data:
             return
 
         kwargs = {"id": me.data.id, "max_results": 10, "tweet_fields": ["author_id", "conversation_id"]}
+        last_mention_id = await get_meta(META_LAST_MENTION_ID)
         if last_mention_id:
             kwargs["since_id"] = last_mention_id
 
-        mentions = client.get_users_mentions(**kwargs)
+        mentions = await asyncio.to_thread(
+            lambda: client.get_users_mentions(**kwargs)
+        )
         if not mentions.data:
             return
 
-        # Update last seen
-        last_mention_id = str(mentions.data[0].id)
+        # Persist new cursor immediately so a crash mid-loop doesn't replay.
+        await set_meta(META_LAST_MENTION_ID, str(mentions.data[0].id))
 
         for mention in mentions.data:
             tweet_id = str(mention.id)
 
-            # Get author info for follower check
+            # ── Cheap DB checks BEFORE the expensive get_user API call ──
+            # Saves 1 X API call per already-processed or quota-exceeded mention.
+            from twitter.agent import has_already_replied, get_today_reply_count, MAX_REPLIES_PER_DAY
+            if await has_already_replied(tweet_id):
+                continue
+            if await get_today_reply_count() >= MAX_REPLIES_PER_DAY:
+                logger.info("[twitter] daily reply quota reached, skipping remaining mentions")
+                break
+
+            # Now we can afford the API call to fetch follower count.
             try:
-                author = client.get_user(id=mention.author_id, user_fields=["public_metrics"])
+                author = await asyncio.to_thread(
+                    client.get_user,
+                    id=mention.author_id, user_fields=["public_metrics"],
+                )
                 if not author.data:
                     continue
                 followers = author.data.public_metrics.get("followers_count", 0)
@@ -291,3 +359,23 @@ async def engage_mentions():
 
     except Exception as e:
         logger.error(f"engage_mentions failed: {e}")
+
+
+# ============================================================
+# JITTER — spread first execution of all jobs to avoid X burst quota
+# ============================================================
+
+def add_jitter(min_offset: int = 10, max_offset: int = 90) -> None:
+    """Stagger every job's first run by a random offset.
+
+    APScheduler defaults make all jobs fire at the same instant when the
+    scheduler starts — that's a synchronised burst that can blow through
+    Twitter's 15-minute window in one second. We move each job's
+    `next_run_time` forward by 10–90 seconds so the first executions are
+    spread out.
+    """
+    now = datetime.now()
+    for job in scheduler.get_jobs():
+        offset = random.randint(min_offset, max_offset)
+        job.modify(next_run_time=now + timedelta(seconds=offset))
+        logger.info(f"[twitter] jittered job '{job.id}' to +{offset}s")
