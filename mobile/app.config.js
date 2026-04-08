@@ -131,9 +131,11 @@ module.exports = {
       },
     },
     owner: 'leb16',
-    runtimeVersion: {
-      policy: 'appVersion',
-    },
+    // Bare workflow — EAS Update rejects policies here. Must match the
+    // value baked into android/app/src/main/res/values/strings.xml
+    // (expo_runtime_version) and iOS Expo.plist. Bump on every native
+    // rebuild that breaks JS compatibility.
+    runtimeVersion: '1.0.0',
     updates: {
       url: 'https://u.expo.dev/0da4672c-0d43-4dc7-ab4c-11c1deb99387',
     },
