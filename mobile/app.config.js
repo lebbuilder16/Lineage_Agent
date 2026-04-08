@@ -40,6 +40,27 @@ module.exports = {
       queries: {
         schemes: ['phantom', 'solflare', 'backpack'],
       },
+      // Google Play compliance — explicit allowlist of runtime permissions.
+      // POST_NOTIFICATIONS is required on Android 13+ (API 33) for FCM to
+      // actually display push notifications.
+      permissions: [
+        'android.permission.INTERNET',
+        'android.permission.VIBRATE',
+        'android.permission.POST_NOTIFICATIONS',
+      ],
+      // Strip permissions injected by transitive libraries that we do not
+      // use. SYSTEM_ALERT_WINDOW is a sensitive "draw over other apps"
+      // permission that triggers manual Play review. READ/WRITE_EXTERNAL_STORAGE
+      // are obsolete on API 33+ (expo-image-picker uses the scoped Photo
+      // Picker). RECORD_AUDIO is injected by react-native-webview's
+      // getUserMedia bridge — we never request microphone access, so blocking
+      // it avoids a sensitive-permission flag during Play review.
+      blockedPermissions: [
+        'android.permission.SYSTEM_ALERT_WINDOW',
+        'android.permission.READ_EXTERNAL_STORAGE',
+        'android.permission.WRITE_EXTERNAL_STORAGE',
+        'android.permission.RECORD_AUDIO',
+      ],
     },
     web: {
       bundler: 'metro',

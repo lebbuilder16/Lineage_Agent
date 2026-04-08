@@ -398,6 +398,17 @@ export default function AccountScreen() {
             </Text>
           </Animated.View>
 
+          {/* Legal links — required by Google Play / App Store for in-app access */}
+          <Animated.View entering={FadeInDown.delay(400).duration(400)} style={styles.legalRow}>
+            <Pressable onPress={() => router.push('/legal/privacy' as any)}>
+              <Text style={styles.legalLink}>Privacy Policy</Text>
+            </Pressable>
+            <Text style={styles.legalDot}>·</Text>
+            <Pressable onPress={() => router.push('/legal/terms' as any)}>
+              <Text style={styles.legalLink}>Terms of Service</Text>
+            </Pressable>
+          </Animated.View>
+
           <Text style={styles.appVersion}>Lineage Agent v1.0.0</Text>
 
         </ScrollView>
@@ -562,7 +573,27 @@ const styles = StyleSheet.create({
   logoutText: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.body, color: tokens.accent },
   appVersion: {
     fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny,
-    color: tokens.white20, textAlign: 'center', marginTop: 8,
+    color: tokens.white20, textAlign: 'center', marginTop: 4,
+  },
+
+  // Legal links
+  legalRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: 16,
+  },
+  legalLink: {
+    fontFamily: 'Lexend-Regular',
+    fontSize: tokens.font.tiny,
+    color: tokens.textTertiary,
+    textDecorationLine: 'underline',
+  },
+  legalDot: {
+    fontFamily: 'Lexend-Regular',
+    fontSize: tokens.font.tiny,
+    color: tokens.white20,
   },
 
   // Danger Zone

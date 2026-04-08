@@ -63,23 +63,60 @@ export default function PrivacyPolicyScreen() {
           Signing out clears all locally cached data from your device.
         </Text>
 
-        <Text style={s.h2}>6. Your Rights</Text>
+        <Text style={s.h2}>6. Legal Basis for Processing (GDPR)</Text>
         <Text style={s.body}>
-          You have the right to:{'\n'}
-          {'\u2022'} Access your personal data{'\n'}
-          {'\u2022'} Request deletion of your account and data{'\n'}
-          {'\u2022'} Opt out of push notifications at any time{'\n'}
-          {'\u2022'} Export your data upon request
+          For users in the European Economic Area (EEA), United Kingdom, and Switzerland, we process your personal data under the following legal bases (Article 6 GDPR):{'\n\n'}
+          {'\u2022'} <Text style={s.bold}>Contract (Art. 6(1)(b))</Text> — Processing necessary to provide the service you signed up for (authentication, watchlist, scan history).{'\n'}
+          {'\u2022'} <Text style={s.bold}>Legitimate interest (Art. 6(1)(f))</Text> — Security, fraud prevention, and maintaining service integrity.{'\n'}
+          {'\u2022'} <Text style={s.bold}>Consent (Art. 6(1)(a))</Text> — Push notifications and optional features, which you can withdraw at any time in your device settings or the Account screen.
         </Text>
 
-        <Text style={s.h2}>7. Children's Privacy</Text>
+        <Text style={s.h2}>7. Your Rights (GDPR / UK GDPR)</Text>
         <Text style={s.body}>
-          Lineage Agent is not intended for users under 17 years of age. We do not knowingly collect data from minors.
+          If you are located in the EEA, UK, or Switzerland, you have the following rights under the GDPR:{'\n\n'}
+          {'\u2022'} <Text style={s.bold}>Right of access</Text> — Request a copy of the personal data we hold about you.{'\n'}
+          {'\u2022'} <Text style={s.bold}>Right to rectification</Text> — Correct inaccurate or incomplete data.{'\n'}
+          {'\u2022'} <Text style={s.bold}>Right to erasure</Text> — Delete your account and all associated data (available in-app on the Account screen, or by email request).{'\n'}
+          {'\u2022'} <Text style={s.bold}>Right to data portability</Text> — Receive your data in a structured, machine-readable format.{'\n'}
+          {'\u2022'} <Text style={s.bold}>Right to restrict processing</Text> — Limit how we use your data while a dispute is resolved.{'\n'}
+          {'\u2022'} <Text style={s.bold}>Right to object</Text> — Object to processing based on legitimate interests.{'\n'}
+          {'\u2022'} <Text style={s.bold}>Right to withdraw consent</Text> — Withdraw any consent you previously gave (e.g., push notifications) without affecting the lawfulness of prior processing.{'\n'}
+          {'\u2022'} <Text style={s.bold}>Right to lodge a complaint</Text> — File a complaint with your local supervisory authority if you believe our processing violates the GDPR.{'\n\n'}
+          To exercise any of these rights, contact us at privacy@lineage-agent.fly.dev. We will respond within 30 days.
         </Text>
 
-        <Text style={s.h2}>8. Contact</Text>
+        <Text style={s.h2}>8. Data Retention Periods</Text>
         <Text style={s.body}>
-          For privacy questions or data requests, contact us at privacy@lineage-agent.fly.dev
+          We retain your data only for as long as necessary to provide the service:{'\n\n'}
+          {'\u2022'} <Text style={s.bold}>Account data</Text> (email, wallet address, profile): retained while your account is active.{'\n'}
+          {'\u2022'} <Text style={s.bold}>Scan history & watchlist</Text>: retained while your account is active.{'\n'}
+          {'\u2022'} <Text style={s.bold}>Push notification tokens</Text>: retained while notifications are enabled.{'\n'}
+          {'\u2022'} <Text style={s.bold}>Server logs</Text>: retained for up to 30 days for security and abuse monitoring.{'\n\n'}
+          When you delete your account, all personal data is erased from our production systems within 7 days. Backups containing residual data are rotated out within 30 days.
+        </Text>
+
+        <Text style={s.h2}>9. International Data Transfers</Text>
+        <Text style={s.body}>
+          Our servers are hosted on Fly.io infrastructure, which may process data in regions outside the EEA (including the United States). Where such transfers occur, we rely on the European Commission's Standard Contractual Clauses (SCCs) and equivalent safeguards to ensure your data receives an adequate level of protection.{'\n\n'}
+          Privy (authentication) processes data in accordance with its own SOC 2 Type II controls and privacy policy.
+        </Text>
+
+        <Text style={s.h2}>10. Children's Privacy</Text>
+        <Text style={s.body}>
+          Lineage Agent is not intended for users under 17 years of age. We do not knowingly collect data from minors. If you believe a minor has provided us with personal data, contact us and we will delete it.
+        </Text>
+
+        <Text style={s.h2}>11. Changes to This Policy</Text>
+        <Text style={s.body}>
+          We may update this Privacy Policy from time to time. We will notify you of material changes via the app or email. Continued use of the service after changes take effect constitutes acceptance of the updated policy.
+        </Text>
+
+        <Text style={s.h2}>12. Contact</Text>
+        <Text style={s.body}>
+          <Text style={s.bold}>Data controller:</Text> Lineage Agent{'\n'}
+          <Text style={s.bold}>Privacy inquiries:</Text> privacy@lineage-agent.fly.dev{'\n'}
+          <Text style={s.bold}>Account & data deletion requests:</Text> privacy@lineage-agent.fly.dev{'\n\n'}
+          For users in the EEA, you also have the right to lodge a complaint with your national data protection authority.
         </Text>
       </ScrollView>
     </View>
