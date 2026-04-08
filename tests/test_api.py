@@ -844,9 +844,12 @@ async def test_helius_webhook_disabled_without_secret(client):
 
 @pytest.mark.anyio
 async def test_helius_webhook_valid_signature_dispatches(client):
-    """Happy path: valid HMAC → 200 and background rescan dispatched."""
-    import hmac
-    import hashlib
+    """Happy path: shared-secret Authorization header → 200 and rescan dispatched.
+
+    Helius Enhanced Webhooks send the configured ``authHeader`` value
+    verbatim in the Authorization header, so verification is a bearer
+    token match — not an HMAC over the body.
+    """
     import json as _json
     import asyncio as _asyncio
 
@@ -862,7 +865,6 @@ async def test_helius_webhook_valid_signature_dispatches(client):
         "nativeTransfers": [],
     }]
     body = _json.dumps(events).encode()
-    sig = hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
 
     mock_rescan = AsyncMock(return_value={"skipped": False})
     with (
@@ -875,7 +877,7 @@ async def test_helius_webhook_valid_signature_dispatches(client):
         resp = await client.post(
             "/agent/webhook/helius",
             content=body,
-            headers={"Authorization": sig},
+            headers={"Authorization": secret},
         )
 
     assert resp.status_code == 200, resp.text

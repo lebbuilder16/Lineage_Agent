@@ -1,13 +1,12 @@
 """Tests for the Helius Enhanced webhook handler.
 
-Covers signature verification, mint extraction, dispatch to
+Covers signature verification (shared-secret bearer model — Helius sends
+the ``authHeader`` value verbatim), mint extraction, dispatch to
 ``trigger_immediate_rescan`` (mocked), and edge cases around malformed or
 empty payloads.
 """
 from __future__ import annotations
 
-import hashlib
-import hmac
 import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -25,8 +24,14 @@ from lineage_agent.webhook_helius import (
 SECRET = "test-secret-abcdef"
 
 
-def _sign(body: bytes, secret: str = SECRET) -> str:
-    return hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
+def _sign(body: bytes, secret: str = SECRET) -> str:  # noqa: ARG001 - body ignored
+    """Return the Authorization header value Helius would send.
+
+    With the shared-secret bearer model, Helius sends the configured
+    ``authHeader`` verbatim regardless of the body. Kept as a helper so
+    individual tests stay short and intent-revealing.
+    """
+    return secret
 
 
 def _event(mint: str, tx_type: str = "SWAP") -> dict:
@@ -50,31 +55,36 @@ def _event(mint: str, tx_type: str = "SWAP") -> dict:
 # verify_signature
 # ---------------------------------------------------------------------------
 
-def test_verify_signature_accepts_raw_hex():
-    body = b'[{"a":1}]'
-    sig = _sign(body)
-    assert verify_signature(body, sig, SECRET) is True
+def test_verify_signature_accepts_raw_secret():
+    """Helius sends the configured authHeader verbatim — plain secret matches."""
+    assert verify_signature(b'[{"a":1}]', SECRET, SECRET) is True
+
+
+def test_verify_signature_accepts_bearer_prefix():
+    """Robust against proxies that prepend 'Bearer '."""
+    assert verify_signature(b'[{"a":1}]', f"Bearer {SECRET}", SECRET) is True
 
 
 def test_verify_signature_accepts_sha256_prefix():
-    body = b'[{"a":1}]'
-    sig = "sha256=" + _sign(body)
-    assert verify_signature(body, sig, SECRET) is True
+    """Robust against legacy configs that prepend 'sha256='."""
+    assert verify_signature(b'[{"a":1}]', f"sha256={SECRET}", SECRET) is True
 
 
-def test_verify_signature_rejects_wrong_secret():
-    body = b'[{"a":1}]'
-    sig = _sign(body, secret="other-secret")
-    assert verify_signature(body, sig, SECRET) is False
+def test_verify_signature_rejects_wrong_token():
+    assert verify_signature(b'[{"a":1}]', "other-secret", SECRET) is False
 
 
 def test_verify_signature_empty_secret_fails_closed():
-    body = b'[]'
-    assert verify_signature(body, _sign(body), "") is False
+    assert verify_signature(b'[]', SECRET, "") is False
 
 
 def test_verify_signature_empty_token_fails_closed():
     assert verify_signature(b'[]', "", SECRET) is False
+
+
+def test_verify_signature_ignores_body():
+    """Body is never part of the check — only the bearer token matches."""
+    assert verify_signature(b'any-body-whatsoever', SECRET, SECRET) is True
 
 
 # ---------------------------------------------------------------------------

@@ -11,7 +11,6 @@ poll-based sweep loop as the sole monitor.
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import hmac
 import json
 import logging
@@ -32,24 +31,29 @@ class HeliusWebhookError(Exception):
 
 
 def verify_signature(body: bytes, provided: str, secret: str) -> bool:
-    """Constant-time HMAC-SHA256 comparison.
+    """Verify the webhook Authorization header against the shared secret.
 
-    *provided* is the raw value of the webhook auth header. Helius lets the
-    caller set arbitrary strings, so we accept either ``sha256=<hex>`` or
-    plain ``<hex>``. Empty secret always fails closed.
+    Helius Enhanced Webhooks send the ``authHeader`` value we registered
+    verbatim in the Authorization request header — it is a shared bearer
+    token, **not** an HMAC over the body. Verification is therefore a
+    constant-time equality check against the configured secret.
+
+    The ``body`` argument is kept for API compatibility with earlier
+    call sites but is intentionally unused. Accepts optional ``Bearer ``
+    or ``sha256=`` prefixes for robustness behind proxies. Empty secret
+    or empty token always fails closed.
     """
+    del body  # unused — Helius does not HMAC the body
     if not secret or not provided:
         return False
     token = provided.strip()
-    if token.lower().startswith("sha256="):
-        token = token.split("=", 1)[1].strip()
-    expected = hmac.new(
-        secret.encode("utf-8"),
-        body,
-        hashlib.sha256,
-    ).hexdigest()
+    low = token.lower()
+    if low.startswith("bearer "):
+        token = token[7:].strip()
+    elif low.startswith("sha256="):
+        token = token[7:].strip()
     try:
-        return hmac.compare_digest(expected, token)
+        return hmac.compare_digest(token, secret)
     except Exception:
         return False
 
