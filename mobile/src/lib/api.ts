@@ -232,24 +232,6 @@ export async function getGraduations(limit = 20): Promise<Graduation[]> {
   return res.json() as Promise<Graduation[]>;
 }
 
-export async function verifyUsdcSubscription(
-  apiKey: string,
-  plan: string,
-  txSignature: string,
-): Promise<{ plan: string; upgraded: boolean }> {
-  const BASE = (process.env.EXPO_PUBLIC_API_URL ?? 'https://lineage-agent.fly.dev').replace(/\/$/, '');
-  const res = await fetch(`${BASE}/auth/subscribe/usdc`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
-    body: JSON.stringify({ plan, tx_signature: txSignature }),
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: 'Verification failed' }));
-    throw new Error(err.detail ?? 'Verification failed');
-  }
-  return res.json() as Promise<{ plan: string; upgraded: boolean }>;
-}
-
 /**
  * Permanently delete the user account and all associated data.
  * Required by Apple App Store Guideline 5.1.1(v).
