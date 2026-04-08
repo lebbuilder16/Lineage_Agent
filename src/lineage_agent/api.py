@@ -672,19 +672,53 @@ a{color:#5b5fc7}
 <p>You can delete your account at any time from the Account screen. This permanently removes all your data from our servers, including your profile, watchlist, investigation history, and alert preferences.</p>
 <p>Signing out clears all locally cached data from your device.</p>
 
-<h2>6. Your Rights</h2>
+<h2>6. Legal Basis for Processing (GDPR)</h2>
+<p>For users in the European Economic Area (EEA), United Kingdom, and Switzerland, we process your personal data under the following legal bases (Article 6 GDPR):</p>
 <ul>
-<li>Access your personal data</li>
-<li>Request deletion of your account and data</li>
-<li>Opt out of push notifications at any time</li>
-<li>Export your data upon request</li>
+<li><strong>Contract (Art. 6(1)(b))</strong> &mdash; Processing necessary to provide the service you signed up for (authentication, watchlist, scan history).</li>
+<li><strong>Legitimate interest (Art. 6(1)(f))</strong> &mdash; Security, fraud prevention, and maintaining service integrity.</li>
+<li><strong>Consent (Art. 6(1)(a))</strong> &mdash; Push notifications and optional features, which you can withdraw at any time in your device settings or the Account screen.</li>
 </ul>
 
-<h2>7. Children's Privacy</h2>
-<p>Lineage Agent is not intended for users under 17 years of age. We do not knowingly collect data from minors.</p>
+<h2>7. Your Rights (GDPR / UK GDPR)</h2>
+<p>If you are located in the EEA, UK, or Switzerland, you have the following rights under the GDPR:</p>
+<ul>
+<li><strong>Right of access</strong> &mdash; Request a copy of the personal data we hold about you.</li>
+<li><strong>Right to rectification</strong> &mdash; Correct inaccurate or incomplete data.</li>
+<li><strong>Right to erasure</strong> &mdash; Delete your account and all associated data (available in-app on the Account screen, or by email request).</li>
+<li><strong>Right to data portability</strong> &mdash; Receive your data in a structured, machine-readable format.</li>
+<li><strong>Right to restrict processing</strong> &mdash; Limit how we use your data while a dispute is resolved.</li>
+<li><strong>Right to object</strong> &mdash; Object to processing based on legitimate interests.</li>
+<li><strong>Right to withdraw consent</strong> &mdash; Withdraw any consent you previously gave (e.g., push notifications) without affecting the lawfulness of prior processing.</li>
+<li><strong>Right to lodge a complaint</strong> &mdash; File a complaint with your local supervisory authority if you believe our processing violates the GDPR.</li>
+</ul>
+<p>To exercise any of these rights, contact us at <a href="mailto:privacy@lineage-agent.fly.dev">privacy@lineage-agent.fly.dev</a>. We will respond within 30 days.</p>
 
-<h2>8. Contact</h2>
-<p>For privacy questions or data requests, contact us at <a href="mailto:privacy@lineage-agent.fly.dev">privacy@lineage-agent.fly.dev</a>.</p>
+<h2>8. Data Retention Periods</h2>
+<p>We retain your data only for as long as necessary to provide the service:</p>
+<ul>
+<li><strong>Account data</strong> (email, wallet address, profile): retained while your account is active.</li>
+<li><strong>Scan history &amp; watchlist</strong>: retained while your account is active.</li>
+<li><strong>Push notification tokens</strong>: retained while notifications are enabled.</li>
+<li><strong>Server logs</strong>: retained for up to 30 days for security and abuse monitoring.</li>
+</ul>
+<p>When you delete your account, all personal data is erased from our production systems within 7 days. Backups containing residual data are rotated out within 30 days.</p>
+
+<h2>9. International Data Transfers</h2>
+<p>Our servers are hosted on Fly.io infrastructure, which may process data in regions outside the EEA (including the United States). Where such transfers occur, we rely on the European Commission's Standard Contractual Clauses (SCCs) and equivalent safeguards to ensure your data receives an adequate level of protection.</p>
+<p>Privy (authentication) processes data in accordance with its own SOC 2 Type II controls and privacy policy.</p>
+
+<h2>10. Children's Privacy</h2>
+<p>Lineage Agent is not intended for users under 17 years of age. We do not knowingly collect data from minors. If you believe a minor has provided us with personal data, contact us and we will delete it.</p>
+
+<h2>11. Changes to This Policy</h2>
+<p>We may update this Privacy Policy from time to time. We will notify you of material changes via the app or email. Continued use of the service after changes take effect constitutes acceptance of the updated policy.</p>
+
+<h2>12. Contact</h2>
+<p><strong>Data controller:</strong> Lineage Agent<br>
+<strong>Privacy inquiries:</strong> <a href="mailto:privacy@lineage-agent.fly.dev">privacy@lineage-agent.fly.dev</a><br>
+<strong>Account &amp; data deletion requests:</strong> <a href="mailto:privacy@lineage-agent.fly.dev">privacy@lineage-agent.fly.dev</a></p>
+<p>For users in the EEA, you also have the right to lodge a complaint with your national data protection authority.</p>
 </body>
 </html>"""
 
@@ -2801,6 +2835,19 @@ async def auth_admin_upgrade(request: Request):
     return {"email": email, "plan": plan, "upgraded": True}
 
 
+def _crypto_payments_enabled() -> bool:
+    """Whether direct on-chain USDC subscription/credit endpoints are live.
+
+    Defaults to False. Google Play and the App Store require digital content
+    purchases to flow through Google Play Billing / StoreKit respectively, so
+    these endpoints must remain disabled for any build that ships to a mobile
+    app store. They can be re-enabled for web or direct-distribution channels
+    by setting ALLOW_CRYPTO_PAYMENTS=true in the environment.
+    """
+    import os
+    return os.environ.get("ALLOW_CRYPTO_PAYMENTS", "").lower() in ("true", "1", "yes")
+
+
 @app.post("/auth/subscribe/usdc", tags=["auth"])
 async def auth_subscribe_usdc(request: Request):
     """Verify an on-chain USDC transfer and upgrade the user's plan.
@@ -2808,7 +2855,14 @@ async def auth_subscribe_usdc(request: Request):
     Body: {"plan": "pro"|"elite", "tx_signature": "..."}
     The backend verifies that the transaction transferred the correct USDC
     amount to the treasury wallet before upgrading.
+
+    Disabled by default — see _crypto_payments_enabled().
     """
+    if not _crypto_payments_enabled():
+        raise HTTPException(
+            status_code=410,
+            detail="USDC subscriptions are not available. Use Google Play Billing or the App Store.",
+        )
     import os
     user = await _get_current_user(request)
     body = await request.json()
@@ -3481,7 +3535,16 @@ async def purchase_credits(request: Request):
     """Add scan credits after payment verification.
 
     Body: {"pack": "single"|"five_pack"|"fifteen_pack", "tx_signature": "..."}
+
+    Disabled by default — see _crypto_payments_enabled(). Credit packs paid
+    on-chain bypass Google Play Billing / StoreKit and are not allowed in
+    store-distributed builds.
     """
+    if not _crypto_payments_enabled():
+        raise HTTPException(
+            status_code=410,
+            detail="On-chain credit purchases are not available. Use Google Play Billing or the App Store.",
+        )
     user = await _get_current_user(request)
     body = await request.json()
     pack_key = body.get("pack", "")
