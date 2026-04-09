@@ -58,6 +58,10 @@ coverage.xml
 *.cover
 tests/compare_results.json
 
+# Playwright / E2E test artifacts
+frontend/test-results/
+frontend/playwright-report/
+
 # Docker
 docker-compose.override.yml
 

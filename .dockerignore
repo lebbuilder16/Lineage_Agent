@@ -39,3 +39,11 @@ data/
 docs/
 *.md
 *.log
+
+# Test / CI artifacts
+tests/
+scripts/
+design/
+public/
+frontend/test-results/
+frontend/playwright-report/
