@@ -83,11 +83,55 @@ export interface InvestigateErrorEvent {
   recoverable?: boolean;
 }
 
+export interface ForensicSnapshotEvent {
+  sol_flow?: {
+    total_extracted_sol: number | null;
+    total_extracted_usd: number | null;
+    hop_count: number;
+    known_cex_detected: boolean | null;
+  };
+  bundle_report?: {
+    overall_verdict: string | null;
+    bundle_count: number | null;
+    total_extracted_sol: number | null;
+    total_extracted_usd: number | null;
+    coordinated_sell_detected: boolean | null;
+    evidence_chain: string[] | null;
+  };
+  deployer_profile?: {
+    address: string | null;
+    total_tokens_launched: number | null;
+    confirmed_rug_count: number | null;
+    rug_rate_pct: number | null;
+  };
+  cartel_report?: {
+    deployer_community: {
+      community_id: string | null;
+      wallets: string[] | null;
+      total_rugs: number | null;
+      estimated_extracted_usd: number | null;
+    };
+  };
+  death_clock?: {
+    risk_level: string | null;
+    rug_probability_pct: number | null;
+    median_rug_hours: number | null;
+    elapsed_hours: number | null;
+  };
+  insider_sell?: {
+    deployer_exited: boolean | null;
+    sell_pressure_1h: number | null;
+    verdict: string | null;
+    flags: string[] | null;
+  };
+}
+
 export type InvestigateEvent =
   | { type: 'phase'; data: PhaseEvent }
   | { type: 'step'; data: StepEvent }
   | { type: 'identity_ready'; data: IdentityReadyEvent }
   | { type: 'heuristic_complete'; data: HeuristicCompleteEvent }
+  | { type: 'forensic_snapshot'; data: ForensicSnapshotEvent }
   | { type: 'thinking'; data: ThinkingEvent }
   | { type: 'tool_call'; data: ToolCallEvent }
   | { type: 'tool_result'; data: ToolResultEvent }
@@ -119,6 +163,9 @@ function parseEvent(eventType: string, data: string): InvestigateEvent | null {
 
       case 'identity_ready':
         return { type: 'identity_ready', data: parsed as unknown as IdentityReadyEvent };
+
+      case 'forensic_snapshot':
+        return { type: 'forensic_snapshot', data: parsed as unknown as ForensicSnapshotEvent };
 
       case 'heuristic_complete':
         return { type: 'heuristic_complete', data: parsed as unknown as HeuristicCompleteEvent };

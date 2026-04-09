@@ -54,7 +54,7 @@ export function FullReportSection({
 }: FullReportSectionProps) {
   return (
     <Animated.View entering={FadeIn.duration(250)} style={styles.detailsSection}>
-      {/* Death Clock teaser */}
+      {/* Risk Timeline teaser */}
       {(data.death_clock || data.insider_sell) && (() => {
         const dc = data.death_clock;
         const effectiveLabel = (() => {
@@ -64,7 +64,7 @@ export function FullReportSection({
           return displayRiskLevel.toUpperCase().replace('_', ' ');
         })();
         return (
-          <TouchableOpacity onPress={onClockPress} activeOpacity={0.75} accessibilityRole="button" accessibilityLabel="View Death Clock details">
+          <TouchableOpacity onPress={onClockPress} activeOpacity={0.75} accessibilityRole="button" accessibilityLabel="View Risk Timeline details">
             <GlassCard style={[styles.teaserCard, { borderColor: `${riskColor}30`, borderWidth: 1 }]}>
               <View style={styles.teaserRow}>
                 <View style={[styles.teaserIconWrap, { backgroundColor: `${riskColor}15` }]}>
@@ -72,14 +72,14 @@ export function FullReportSection({
                 </View>
                 <View style={styles.teaserInfo}>
                   <View style={styles.teaserTitleRow}>
-                    <Text style={styles.teaserLabel}>DEATH CLOCK</Text>
+                    <Text style={styles.teaserLabel}>RISK TIMELINE</Text>
                     <View style={[styles.teaserBadge, { backgroundColor: `${riskColor}18`, borderColor: `${riskColor}35` }]}>
                       <Text style={[styles.teaserBadgeText, { color: riskColor }]}>{effectiveLabel}</Text>
                     </View>
                   </View>
                   {riskSummary && <Text style={styles.teaserSub} numberOfLines={1}>{riskSummary}</Text>}
                   {dc?.rug_probability_pct != null && (
-                    <Text style={styles.teaserProb}>Rug probability: <Text style={{ color: riskColor, fontFamily: 'Lexend-Bold' }}>{dc.rug_probability_pct.toFixed(0)}%</Text></Text>
+                    <Text style={styles.teaserProb}>Lifecycle risk: <Text style={{ color: riskColor, fontFamily: 'Lexend-Bold' }}>{dc.rug_probability_pct.toFixed(0)}%</Text></Text>
                   )}
                 </View>
                 <ChevronRight size={16} color={tokens.textTertiary} />
@@ -199,23 +199,32 @@ export function FullReportSection({
         </TouchableOpacity>
       )}
 
-      {/* Cartel */}
-      {data.cartel_report?.deployer_community?.community_id && (
-        <TouchableOpacity onPress={() => router.push(`/cartel/${data.query_token?.deployer || data.root?.deployer || data.cartel_report?.deployer_community?.community_id}` as any)} activeOpacity={0.75} accessibilityRole="button" accessibilityLabel="View cartel network">
-          <GlassCard style={[styles.linkCard, { borderLeftColor: `${tokens.accent}60`, borderLeftWidth: 3 }]} noPadding>
-            <View style={styles.linkRow}>
-              <Zap size={18} color={tokens.accent} />
-              <View style={styles.linkInfo}>
-                <Text style={styles.linkLabel}>Cartel Network</Text>
-                {data.cartel_report.deployer_community.wallets != null && (
-                  <Text style={styles.linkMeta}>{data.cartel_report.deployer_community.wallets.length} deployers{data.cartel_report.deployer_community.estimated_extracted_usd != null ? ` · ${fmtMcap(data.cartel_report.deployer_community.estimated_extracted_usd)}` : ''}</Text>
-                )}
+      {/* Cartel — /cartel/[id] needs a base58 wallet, not the 12-char hex
+          community_id (which would 400 against /cartel/search). Pick the
+          first available wallet from query/root/community.wallets. */}
+      {data.cartel_report?.deployer_community?.community_id && (() => {
+        const focusWallet =
+          data.query_token?.deployer ||
+          data.root?.deployer ||
+          data.cartel_report?.deployer_community?.wallets?.[0];
+        if (!focusWallet) return null;
+        return (
+          <TouchableOpacity onPress={() => router.push(`/cartel/${focusWallet}` as any)} activeOpacity={0.75} accessibilityRole="button" accessibilityLabel="View cartel network">
+            <GlassCard style={[styles.linkCard, { borderLeftColor: `${tokens.accent}60`, borderLeftWidth: 3 }]} noPadding>
+              <View style={styles.linkRow}>
+                <Zap size={18} color={tokens.accent} />
+                <View style={styles.linkInfo}>
+                  <Text style={styles.linkLabel}>Cartel Network</Text>
+                  {data.cartel_report.deployer_community.wallets != null && (
+                    <Text style={styles.linkMeta}>{data.cartel_report.deployer_community.wallets.length} deployers{data.cartel_report.deployer_community.estimated_extracted_usd != null ? ` · ${fmtMcap(data.cartel_report.deployer_community.estimated_extracted_usd)}` : ''}</Text>
+                  )}
+                </View>
+                <ChevronRight size={18} color={tokens.textTertiary} />
               </View>
-              <ChevronRight size={18} color={tokens.textTertiary} />
-            </View>
-          </GlassCard>
-        </TouchableOpacity>
-      )}
+            </GlassCard>
+          </TouchableOpacity>
+        );
+      })()}
     </Animated.View>
   );
 }

@@ -151,6 +151,7 @@ export default function AgentScreen() {
   const watches = useAuthStore((s) => s.watches);
   const investigations = useHistoryStore((s) => s.investigations);
   const insights = useInsightsStore((s) => s.insights);
+  const insightsLoading = useInsightsStore((s) => s.loading);
   const fetchInsights = useInsightsStore((s) => s.fetchInsights);
   const unreadFlags = useSweepFlagsStore((s) => s.flags.filter((f) => !f.read).length);
 
@@ -239,7 +240,7 @@ export default function AgentScreen() {
             ) : (
               <View style={styles.emptySection}>
                 <Text style={styles.emptySectionText}>
-                  {useInsightsStore.getState().loading
+                  {insightsLoading
                     ? 'Analyzing cross-token patterns...'
                     : 'No cross-token patterns detected yet. Investigate more tokens to build intelligence.'}
                 </Text>

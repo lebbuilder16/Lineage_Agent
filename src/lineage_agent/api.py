@@ -41,6 +41,8 @@ from config import (
     API_HOST,
     API_PORT,
     CACHE_BACKEND,
+    CORS_ORIGINS,
+    PRIVY_APP_SECRET,
     RATE_LIMIT_LINEAGE,
     RATE_LIMIT_SEARCH,
     SENTRY_DSN,
@@ -169,8 +171,9 @@ async def _purge_legacy_forensic_cache_namespaces() -> None:
 
 
 async def _cartel_sweep_loop() -> None:
-    """Run cartel edge building: immediately on startup, then hourly."""
+    """Run cartel edge building: delayed 60s after startup, then hourly."""
     logger.info("Cartel sweep background task started (interval=3600s)")
+    await asyncio.sleep(60)  # stagger startup to avoid RPC rate-limit burst
     while True:
         try:
             await run_cartel_sweep()
@@ -347,6 +350,31 @@ async def lifespan(application: FastAPI):
     else:
         logger.info("WALLET_LABELS_CSV_URL not set — using static labels only")
 
+    # ── Optional twitter/ automation module ───────────────────────────────
+    # Self-contained and gated on twitter_module_enabled(): missing config
+    # simply logs a warning and leaves the module dormant (no crash).
+    try:
+        from config import twitter_module_enabled  # noqa: PLC0415
+        if twitter_module_enabled():
+            from twitter.agent import init_db as _twitter_init_db  # noqa: PLC0415
+            from twitter.scheduler import scheduler as _twitter_scheduler  # noqa: PLC0415
+            from twitter.scheduler import add_jitter as _twitter_add_jitter  # noqa: PLC0415
+            await _twitter_init_db()
+            if not _twitter_scheduler.running:
+                _twitter_scheduler.start()
+                # Spread first executions across 10–90s so all jobs don't burst
+                # X's 15-minute quota window simultaneously at startup.
+                _twitter_add_jitter()
+            logger.info("Twitter automation module: ENABLED (scheduler started)")
+        else:
+            logger.warning(
+                "Twitter automation module: DISABLED — set TWITTER_API_KEY, "
+                "TWITTER_API_SECRET, TWITTER_ACCESS_TOKEN, TWITTER_ACCESS_TOKEN_SECRET, "
+                "TELEGRAM_TOKEN, TELEGRAM_CHAT_ID, TELEGRAM_WEBHOOK_SECRET to enable"
+            )
+    except Exception as _tw_exc:
+        logger.warning("Twitter module failed to start: %s", _tw_exc)
+
     yield
 
     # -----------------------------------------------------------------------
@@ -367,6 +395,15 @@ async def lifespan(application: FastAPI):
     _cancel_wallet_monitor()
     _cancel_wallet_label_refresh()
     cancel_cron_sweep()
+
+    # Stop twitter scheduler if it was started
+    try:
+        from twitter.scheduler import scheduler as _twitter_scheduler  # noqa: PLC0415
+        if _twitter_scheduler.running:
+            _twitter_scheduler.shutdown(wait=False)
+    except Exception:
+        pass
+
     await close_clients()
 
 
@@ -384,10 +421,7 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 # CORS (so the Next.js frontend can call from localhost:3000 and Vercel)
 app.add_middleware(
     CORSMiddleware,
-    # Public API — no credentials involved, wildcard is safe and avoids
-    # maintaining a regex that breaks every time a new Vercel preview URL is
-    # generated or a custom domain is added.
-    allow_origins=["*"],
+    allow_origins=CORS_ORIGINS or ["*"],
     allow_credentials=False,
     allow_methods=["GET", "POST", "DELETE"],
     allow_headers=["Content-Type", "Accept", "X-API-Key"],
@@ -418,6 +452,19 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
 
 
 app.add_middleware(RequestIdMiddleware)
+
+
+# ── Optional twitter/ router (Telegram webhook + bot commands) ──────────────
+# Included only when the module is configured, so an unconfigured deployment
+# does not expose /twitter/telegram-webhook at all.
+try:
+    from config import twitter_module_enabled as _tw_enabled  # noqa: PLC0415
+    if _tw_enabled():
+        from twitter.routes import router as _twitter_router  # noqa: PLC0415
+        app.include_router(_twitter_router)
+        logger.info("Twitter router mounted at /twitter")
+except Exception as _tw_router_exc:
+    logger.warning("Twitter router not mounted: %s", _tw_router_exc)
 
 
 def _analysis_deployer_from_lineage(lineage_res: Optional[LineageResult]) -> str:
@@ -615,6 +662,187 @@ async def health() -> dict:
     }
 
 
+# ─── Legal pages (Apple App Store Connect requirement) ──────────────────────
+# These endpoints expose Privacy Policy and Terms of Service at public URLs.
+# Apple requires a publicly accessible Privacy Policy URL during submission.
+# Content mirrors mobile/app/legal/{privacy,terms}.tsx — keep in sync if edited.
+
+_PRIVACY_HTML = """<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Lineage Agent — Privacy Policy</title>
+<style>
+body{font-family:-apple-system,BlinkMacSystemFont,system-ui,sans-serif;max-width:720px;margin:40px auto;padding:0 20px;color:#1a1a1a;line-height:1.6}
+h1{font-size:28px;margin-bottom:8px}
+h2{font-size:18px;margin-top:32px;color:#2a2a2a}
+.updated{color:#888;font-size:13px;margin-bottom:24px}
+strong{color:#1a1a1a}
+ul{padding-left:24px}
+a{color:#5b5fc7}
+</style>
+</head>
+<body>
+<h1>Privacy Policy</h1>
+<p class="updated">Last updated: March 27, 2026</p>
+
+<h2>1. Information We Collect</h2>
+<p>Lineage Agent collects minimal data to provide its service:</p>
+<p><strong>Account Information:</strong> Email address (via Privy authentication), username, display name, and profile photo.</p>
+<p><strong>Wallet Information:</strong> Your Solana wallet address (public key only). Private keys are managed securely by Privy and are never stored on our servers in plaintext.</p>
+<p><strong>Usage Data:</strong> Token scan history, watchlist, investigation records, and alert preferences. This data is stored to provide personalized analysis.</p>
+<p><strong>Device Information:</strong> Push notification tokens (FCM/APNs) for delivering alerts. We do not collect device IDs, advertising identifiers, or location data.</p>
+
+<h2>2. How We Use Your Information</h2>
+<ul>
+<li>Provide on-chain token risk analysis</li>
+<li>Deliver real-time alerts and daily briefings</li>
+<li>Maintain your watchlist and investigation history</li>
+<li>Authenticate your account securely via Privy</li>
+<li>Send push notifications you have opted into</li>
+</ul>
+
+<h2>3. Data Storage &amp; Security</h2>
+<p>Sensitive data (API keys, authentication tokens) is stored using encrypted secure storage (Expo SecureStore). Your Solana wallet private keys are managed by Privy, a SOC 2 Type II certified provider, and are never exposed to our application code.</p>
+<p>Server-side data is stored on Fly.io infrastructure with encrypted connections (TLS).</p>
+
+<h2>4. Third-Party Services</h2>
+<ul>
+<li><strong>Privy</strong> &mdash; Authentication and embedded wallet management (SOC 2 Type II)</li>
+<li><strong>Firebase Cloud Messaging</strong> &mdash; Push notifications</li>
+<li><strong>Expo</strong> &mdash; App updates and build infrastructure</li>
+</ul>
+<p>We do not use any analytics, advertising, or tracking SDKs. We do not share your data with third parties for marketing purposes.</p>
+
+<h2>5. Data Retention &amp; Deletion</h2>
+<p>You can delete your account at any time from the Account screen. This permanently removes all your data from our servers, including your profile, watchlist, investigation history, and alert preferences.</p>
+<p>Signing out clears all locally cached data from your device.</p>
+
+<h2>6. Legal Basis for Processing (GDPR)</h2>
+<p>For users in the European Economic Area (EEA), United Kingdom, and Switzerland, we process your personal data under the following legal bases (Article 6 GDPR):</p>
+<ul>
+<li><strong>Contract (Art. 6(1)(b))</strong> &mdash; Processing necessary to provide the service you signed up for (authentication, watchlist, scan history).</li>
+<li><strong>Legitimate interest (Art. 6(1)(f))</strong> &mdash; Security, fraud prevention, and maintaining service integrity.</li>
+<li><strong>Consent (Art. 6(1)(a))</strong> &mdash; Push notifications and optional features, which you can withdraw at any time in your device settings or the Account screen.</li>
+</ul>
+
+<h2>7. Your Rights (GDPR / UK GDPR)</h2>
+<p>If you are located in the EEA, UK, or Switzerland, you have the following rights under the GDPR:</p>
+<ul>
+<li><strong>Right of access</strong> &mdash; Request a copy of the personal data we hold about you.</li>
+<li><strong>Right to rectification</strong> &mdash; Correct inaccurate or incomplete data.</li>
+<li><strong>Right to erasure</strong> &mdash; Delete your account and all associated data (available in-app on the Account screen, or by email request).</li>
+<li><strong>Right to data portability</strong> &mdash; Receive your data in a structured, machine-readable format.</li>
+<li><strong>Right to restrict processing</strong> &mdash; Limit how we use your data while a dispute is resolved.</li>
+<li><strong>Right to object</strong> &mdash; Object to processing based on legitimate interests.</li>
+<li><strong>Right to withdraw consent</strong> &mdash; Withdraw any consent you previously gave (e.g., push notifications) without affecting the lawfulness of prior processing.</li>
+<li><strong>Right to lodge a complaint</strong> &mdash; File a complaint with your local supervisory authority if you believe our processing violates the GDPR.</li>
+</ul>
+<p>To exercise any of these rights, contact us at <a href="mailto:privacy@lineage-agent.fly.dev">privacy@lineage-agent.fly.dev</a>. We will respond within 30 days.</p>
+
+<h2>8. Data Retention Periods</h2>
+<p>We retain your data only for as long as necessary to provide the service:</p>
+<ul>
+<li><strong>Account data</strong> (email, wallet address, profile): retained while your account is active.</li>
+<li><strong>Scan history &amp; watchlist</strong>: retained while your account is active.</li>
+<li><strong>Push notification tokens</strong>: retained while notifications are enabled.</li>
+<li><strong>Server logs</strong>: retained for up to 30 days for security and abuse monitoring.</li>
+</ul>
+<p>When you delete your account, all personal data is erased from our production systems within 7 days. Backups containing residual data are rotated out within 30 days.</p>
+
+<h2>9. International Data Transfers</h2>
+<p>Our servers are hosted on Fly.io infrastructure, which may process data in regions outside the EEA (including the United States). Where such transfers occur, we rely on the European Commission's Standard Contractual Clauses (SCCs) and equivalent safeguards to ensure your data receives an adequate level of protection.</p>
+<p>Privy (authentication) processes data in accordance with its own SOC 2 Type II controls and privacy policy.</p>
+
+<h2>10. Children's Privacy</h2>
+<p>Lineage Agent is not intended for users under 17 years of age. We do not knowingly collect data from minors. If you believe a minor has provided us with personal data, contact us and we will delete it.</p>
+
+<h2>11. Changes to This Policy</h2>
+<p>We may update this Privacy Policy from time to time. We will notify you of material changes via the app or email. Continued use of the service after changes take effect constitutes acceptance of the updated policy.</p>
+
+<h2>12. Contact</h2>
+<p><strong>Data controller:</strong> Lineage Agent<br>
+<strong>Privacy inquiries:</strong> <a href="mailto:privacy@lineage-agent.fly.dev">privacy@lineage-agent.fly.dev</a><br>
+<strong>Account &amp; data deletion requests:</strong> <a href="mailto:privacy@lineage-agent.fly.dev">privacy@lineage-agent.fly.dev</a></p>
+<p>For users in the EEA, you also have the right to lodge a complaint with your national data protection authority.</p>
+</body>
+</html>"""
+
+_TERMS_HTML = """<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Lineage Agent — Terms of Service</title>
+<style>
+body{font-family:-apple-system,BlinkMacSystemFont,system-ui,sans-serif;max-width:720px;margin:40px auto;padding:0 20px;color:#1a1a1a;line-height:1.6}
+h1{font-size:28px;margin-bottom:8px}
+h2{font-size:18px;margin-top:32px;color:#2a2a2a}
+.updated{color:#888;font-size:13px;margin-bottom:24px}
+strong{color:#1a1a1a}
+ul{padding-left:24px}
+a{color:#5b5fc7}
+</style>
+</head>
+<body>
+<h1>Terms of Service</h1>
+<p class="updated">Last updated: March 27, 2026</p>
+
+<h2>1. Acceptance of Terms</h2>
+<p>By using Lineage Agent, you agree to these Terms of Service. If you do not agree, please do not use the application.</p>
+
+<h2>2. Not Financial Advice</h2>
+<p><strong>Lineage Agent provides on-chain intelligence for informational purposes only.</strong> Token risk scores, rug pull analysis, deployer forensics, and all other data presented in this application do not constitute financial advice, investment recommendations, or trading signals.</p>
+<p>You are solely responsible for your own investment decisions. We make no guarantees about the accuracy, completeness, or reliability of any analysis. Past performance of risk detection does not guarantee future results.</p>
+<p>Always do your own research (DYOR) before making any financial decisions.</p>
+
+<h2>3. Wallet &amp; Transaction Risks</h2>
+<p><strong>Cryptocurrency transactions are irreversible.</strong> When using the Send feature, you are solely responsible for verifying recipient addresses. We cannot recover funds sent to incorrect addresses.</p>
+<p>Your wallet private keys are managed by Privy's secure infrastructure. We do not have access to your private keys and cannot execute transactions on your behalf without your explicit authorization.</p>
+
+<h2>4. Service Limitations</h2>
+<ul>
+<li>Risk analysis is based on on-chain data and heuristics, not guaranteed detection</li>
+<li>The service may experience downtime for maintenance</li>
+<li>Alert delivery depends on network connectivity and device settings</li>
+<li>Analysis results may be delayed during periods of high blockchain activity</li>
+</ul>
+
+<h2>5. Limitation of Liability</h2>
+<p>To the maximum extent permitted by law, Lineage Agent and its creators shall not be liable for any losses, damages, or claims arising from:</p>
+<ul>
+<li>Reliance on risk analysis results</li>
+<li>Failed or incorrect token analysis</li>
+<li>Missed alerts or delayed notifications</li>
+<li>Unauthorized access to your account</li>
+<li>Cryptocurrency transaction errors</li>
+</ul>
+
+<h2>6. Account Termination</h2>
+<p>You may delete your account at any time from the Account screen. We reserve the right to suspend or terminate accounts that violate these terms or engage in abusive behavior.</p>
+
+<h2>7. Changes to Terms</h2>
+<p>We may update these terms from time to time. Continued use of the application after changes constitutes acceptance of the updated terms.</p>
+
+<h2>8. Contact</h2>
+<p>For questions about these terms, contact us at <a href="mailto:legal@lineage-agent.fly.dev">legal@lineage-agent.fly.dev</a>.</p>
+</body>
+</html>"""
+
+
+@app.get("/privacy", tags=["legal"], response_class=HTMLResponse, include_in_schema=False)
+async def get_privacy_policy() -> HTMLResponse:
+    """Public Privacy Policy URL — required by Apple App Store Connect."""
+    return HTMLResponse(content=_PRIVACY_HTML)
+
+
+@app.get("/terms", tags=["legal"], response_class=HTMLResponse, include_in_schema=False)
+async def get_terms_of_service() -> HTMLResponse:
+    """Public Terms of Service URL — referenced from Privacy Policy."""
+    return HTMLResponse(content=_TERMS_HTML)
+
+
 @app.get("/config", tags=["system"])
 async def get_config() -> dict:
     """Return scoring weights and app configuration.
@@ -638,9 +866,18 @@ async def get_config() -> dict:
     }
 
 
+async def _require_admin(request: Request):
+    """Verify the caller is an admin user (plan == 'admin')."""
+    user = await _get_current_user(request)
+    if user.get("plan") != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return user
+
+
 @app.get("/admin/health", tags=["system"])
-async def admin_health() -> dict:
+async def admin_health(request: Request) -> dict:
     """Detailed health check including circuit breakers and cache stats."""
+    await _require_admin(request)
     from .data_sources._clients import cache
 
     uptime_s = round(time.monotonic() - _start_time, 1)
@@ -664,8 +901,9 @@ async def admin_health() -> dict:
 
 
 @app.get("/admin/sweep-status", tags=["system"])
-async def admin_sweep_status() -> dict:
+async def admin_sweep_status(request: Request) -> dict:
     """Sweep monitor status — intelligence_events counts and rug detection stats."""
+    await _require_admin(request)
     from .data_sources._clients import cache as _cache
     from .cache import SQLiteCache
 
@@ -708,8 +946,9 @@ async def admin_sweep_status() -> dict:
 
 
 @app.get("/admin/sweep-dashboard", tags=["system"])
-async def admin_sweep_dashboard() -> dict:
+async def admin_sweep_dashboard(request: Request) -> dict:
     """Aggregated sweep health, flag quality, and RPC provider stats."""
+    await _require_admin(request)
     from .data_sources._clients import cache as _cache  # noqa: PLC0415
     db = await _cache._get_conn()
     now = time.time()
@@ -763,8 +1002,9 @@ async def admin_sweep_dashboard() -> dict:
 
 
 @app.get("/admin/cartel-forensics/{deployer}", tags=["system"])
-async def admin_cartel_forensics(deployer: str) -> dict:
+async def admin_cartel_forensics(deployer: str, request: Request) -> dict:
     """Trigger forensic proof signals for a deployer (no full sweep needed)."""
+    await _require_admin(request)
     from .cartel_service import (
         _signal_profit_convergence,
         _signal_capital_recycling,
@@ -792,8 +1032,9 @@ async def admin_cartel_forensics(deployer: str) -> dict:
 
 
 @app.get("/admin/memory-stats", tags=["system"])
-async def admin_memory_stats() -> dict:
+async def admin_memory_stats(request: Request) -> dict:
     """Return enrichment state of the agent memory system."""
+    await _require_admin(request)
     from .data_sources._clients import cache as _cache
     from .cache import SQLiteCache
 
@@ -2379,6 +2620,7 @@ async def forensic_chat(
         messages = [
             {"role": msg.role, "content": msg.content}
             for msg in body.history[-8:]  # keep last 8 turns for context window
+            if msg.role in ("user", "assistant")
         ]
         messages.append({"role": "user", "content": body.message})
 
@@ -2552,14 +2794,26 @@ async def _enforce_daily_limit(user: dict, counter_key: str, limit_attr: str) ->
 
 
 @app.post("/auth/login", tags=["auth"])
+@limiter.limit("10/minute")
 async def auth_login(body: _LoginRequest, request: Request):
     """
     Upsert a user identified by their Privy ID.
     Returns the user record including the API key.
     Call this from the frontend after Privy.authenticate().
     """
-    if not body.privy_id or len(body.privy_id) < 5:
+    if not body.privy_id or len(body.privy_id) < 5 or len(body.privy_id) > 200:
         raise HTTPException(status_code=422, detail="privy_id is required")
+
+    # Verify Privy access token if provided (log-only mode — does not block login)
+    privy_token = request.headers.get("Authorization", "").replace("Bearer ", "").strip()
+    if privy_token:
+        from .auth_service import verify_privy_token  # noqa: PLC0415
+        _privy_ok = await verify_privy_token(privy_token, body.privy_id)
+        if not _privy_ok:
+            logger.warning("Privy token verification failed for %s (non-blocking)", body.privy_id[:20])
+    # Note: Privy verification is currently advisory-only.
+    # Enable enforcement once JWKS flow is validated end-to-end.
+
     from .data_sources._clients import cache as _cache  # noqa: PLC0415
     try:
         user = await create_or_get_user(
@@ -2570,7 +2824,7 @@ async def auth_login(body: _LoginRequest, request: Request):
         )
     except Exception as exc:
         logger.exception("auth_login failed: %s", exc)
-        raise HTTPException(status_code=500, detail=f"User creation failed: {exc}") from exc
+        raise HTTPException(status_code=500, detail="User creation failed") from exc
     # Sync briefing cron for this user on login
     from .cron_manager import ensure_briefing_cron  # noqa: PLC0415
 
@@ -2600,9 +2854,10 @@ async def auth_login(body: _LoginRequest, request: Request):
 @app.post("/auth/admin/upgrade", tags=["auth"])
 async def auth_admin_upgrade(request: Request):
     """Upgrade a user's plan. Requires admin secret in X-Admin-Secret header."""
-    import os
+    import os, hmac as _hmac
     admin_secret = os.environ.get("ADMIN_SECRET", "")
-    if not admin_secret or request.headers.get("X-Admin-Secret") != admin_secret:
+    provided = request.headers.get("X-Admin-Secret", "")
+    if not admin_secret or not _hmac.compare_digest(provided, admin_secret):
         raise HTTPException(status_code=403, detail="Forbidden")
     body = await request.json()
     email = body.get("email")
@@ -2620,10 +2875,150 @@ async def auth_admin_upgrade(request: Request):
     try:
         ok = await upgrade_user_plan(_cache, row[0], plan)
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Upgrade failed: {exc}") from exc
+        logger.exception("admin upgrade failed: %s", exc)
+        raise HTTPException(status_code=500, detail="Upgrade failed") from exc
     if not ok:
         raise HTTPException(status_code=400, detail=f"Invalid plan: {plan!r} for user_id={row[0]}")
     return {"email": email, "plan": plan, "upgraded": True}
+
+
+def _crypto_payments_enabled() -> bool:
+    """Whether direct on-chain USDC subscription/credit endpoints are live.
+
+    Defaults to False. Google Play and the App Store require digital content
+    purchases to flow through Google Play Billing / StoreKit respectively, so
+    these endpoints must remain disabled for any build that ships to a mobile
+    app store. They can be re-enabled for web or direct-distribution channels
+    by setting ALLOW_CRYPTO_PAYMENTS=true in the environment.
+    """
+    import os
+    return os.environ.get("ALLOW_CRYPTO_PAYMENTS", "").lower() in ("true", "1", "yes")
+
+
+@app.post("/auth/subscribe/usdc", tags=["auth"])
+async def auth_subscribe_usdc(request: Request):
+    """Verify an on-chain USDC transfer and upgrade the user's plan.
+
+    Body: {"plan": "pro"|"elite", "tx_signature": "..."}
+    The backend verifies that the transaction transferred the correct USDC
+    amount to the treasury wallet before upgrading.
+
+    Disabled by default — see _crypto_payments_enabled().
+    """
+    if not _crypto_payments_enabled():
+        raise HTTPException(
+            status_code=410,
+            detail="USDC subscriptions are not available. Use Google Play Billing or the App Store.",
+        )
+    import os
+    user = await _get_current_user(request)
+    body = await request.json()
+    plan = body.get("plan")
+    tx_sig = body.get("tx_signature")
+    if not plan or not tx_sig:
+        raise HTTPException(status_code=422, detail="plan and tx_signature required")
+
+    TREASURY = os.environ.get("USDC_TREASURY_WALLET", "")
+    if not TREASURY:
+        raise HTTPException(status_code=503, detail="USDC payments not configured")
+
+    from .helio_service import PLAN_PRICES_USDC, USDC_MINT  # noqa: PLC0415
+    expected_amount = PLAN_PRICES_USDC.get(plan)
+    if not expected_amount:
+        raise HTTPException(status_code=422, detail=f"Invalid plan: {plan}")
+
+    # Verify the transaction on-chain
+    from .data_sources._clients import get_rpc_client  # noqa: PLC0415
+    rpc = get_rpc_client()
+    try:
+        tx = await rpc._call(
+            "getTransaction",
+            [tx_sig, {"encoding": "jsonParsed", "maxSupportedTransactionVersion": 0}],
+        )
+    except Exception as exc:
+        logger.warning("subscribe/usdc RPC error: %s", exc)
+        raise HTTPException(status_code=502, detail="RPC error — try again") from exc
+
+    if not tx or not isinstance(tx, dict):
+        raise HTTPException(status_code=404, detail="Transaction not found — wait a few seconds and retry")
+
+    # Check tx was successful
+    meta = tx.get("meta", {})
+    if meta.get("err"):
+        raise HTTPException(status_code=400, detail="Transaction failed on-chain")
+
+    # Find the USDC transfer to treasury in the parsed instructions
+    verified = False
+
+    def _check_transfer(info: dict, require_mint: bool = True) -> bool:
+        """Verify a token transfer matches expected criteria."""
+        mint = info.get("mint", "")
+        if require_mint and mint != USDC_MINT:
+            return False
+        # Verify destination is the treasury wallet
+        destination = info.get("destination", "") or info.get("account", "")
+        if destination != TREASURY:
+            return False
+        # Verify amount
+        if "tokenAmount" in info:
+            amount = info["tokenAmount"].get("uiAmount", 0)
+        else:
+            raw = info.get("amount", 0)
+            if isinstance(raw, str):
+                try:
+                    amount = float(raw) / 1e6
+                except ValueError:
+                    return False
+            else:
+                amount = raw
+        return amount >= expected_amount * 0.99  # 1% tolerance
+
+    for ix in (meta.get("innerInstructions") or []):
+        for inner in (ix.get("instructions") or []):
+            parsed = inner.get("parsed", {})
+            if parsed.get("type") == "transferChecked":
+                if _check_transfer(parsed.get("info", {})):
+                    verified = True
+                    break
+        if verified:
+            break
+    # Also check top-level instructions
+    if not verified:
+        for ix in tx.get("transaction", {}).get("message", {}).get("instructions", []):
+            parsed = ix.get("parsed", {})
+            if parsed.get("type") in ("transfer", "transferChecked"):
+                if _check_transfer(parsed.get("info", {})):
+                    verified = True
+                    break
+
+    if not verified:
+        raise HTTPException(status_code=400, detail="USDC transfer not verified — wrong amount or recipient")
+
+    # Check tx signature not already used
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+    db = await _cache._get_conn()
+    cursor = await db.execute("SELECT 1 FROM subscriptions WHERE tx_signature = ?", (tx_sig,))
+    if await cursor.fetchone():
+        raise HTTPException(status_code=409, detail="Transaction already used")
+
+    # Upgrade
+    from .auth_service import upgrade_user_plan  # noqa: PLC0415
+    ok = await upgrade_user_plan(_cache, user["id"], plan)
+    if not ok:
+        raise HTTPException(status_code=500, detail="Upgrade failed")
+
+    # Store subscription record
+    import time as _time
+    await db.execute(
+        "INSERT OR REPLACE INTO subscriptions "
+        "(user_id, plan, payment_method, tx_signature, is_active, updated_at) "
+        "VALUES (?, ?, 'usdc_direct', ?, 1, ?)",
+        (user["id"], plan, tx_sig, _time.time()),
+    )
+    await db.commit()
+
+    logger.info("USDC subscribe: user_id=%s plan=%s tx=%s", user["id"], plan, tx_sig[:20])
+    return {"plan": plan, "upgraded": True}
 
 
 @app.get("/auth/me", tags=["auth"])
@@ -2681,6 +3076,7 @@ async def auth_update_profile(request: Request):
 
 
 @app.post("/auth/regenerate-key", tags=["auth"])
+@limiter.limit("5/minute")
 async def auth_regenerate_key(request: Request):
     """Regenerate the user's API key, invalidating the old one."""
     user = await _get_current_user(request)
@@ -2717,6 +3113,55 @@ async def auth_deregister_fcm_token(request: Request):
     await db.execute("UPDATE users SET fcm_token = NULL WHERE id = ?", (user["id"],))
     await db.commit()
     return {"ok": True}
+
+
+@app.delete("/auth/me", tags=["auth"])
+async def auth_delete_account(request: Request):
+    """Permanently delete the user account and all associated data.
+
+    Required by Apple App Store Guideline 5.1.1(v) (since June 2022): apps that
+    allow account creation must allow in-app account deletion. This endpoint
+    purges every user-scoped table in dependency order before removing the
+    user row itself. Irreversible.
+    """
+    user = await _get_current_user(request)
+    uid = user["id"]
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+    db = await _cache._get_conn()
+
+    # Purge all user-scoped tables. Order matters for tables that reference
+    # other user-scoped tables (e.g. flag_feedback → sweep_flags).
+    _USER_TABLES = [
+        "wallet_risk_history",
+        "wallet_monitor_log",
+        "wallet_holdings",
+        "monitored_wallets",
+        "investigation_feedback",
+        "investigations",
+        "agent_prefs",
+        "flag_feedback",
+        "sweep_flags",
+        "briefings",
+        "alert_prefs",
+        "user_webhooks",
+        "usage_counters",
+        "subscriptions",
+        "user_watches",
+        "user_crons",
+    ]
+    for table in _USER_TABLES:
+        try:
+            await db.execute(f"DELETE FROM {table} WHERE user_id = ?", (uid,))
+        except Exception as exc:
+            # Table may not exist on older DBs — log and continue
+            logger.warning("[delete_account] %s purge failed for uid=%s: %s", table, uid, exc)
+
+    # Finally, remove the user row itself
+    await db.execute("DELETE FROM users WHERE id = ?", (uid,))
+    await db.commit()
+
+    logger.info("[delete_account] user_id=%s purged successfully", uid)
+    return {"deleted": True}
 
 
 @app.get("/auth/watches", tags=["auth"])
@@ -3137,7 +3582,16 @@ async def purchase_credits(request: Request):
     """Add scan credits after payment verification.
 
     Body: {"pack": "single"|"five_pack"|"fifteen_pack", "tx_signature": "..."}
+
+    Disabled by default — see _crypto_payments_enabled(). Credit packs paid
+    on-chain bypass Google Play Billing / StoreKit and are not allowed in
+    store-distributed builds.
     """
+    if not _crypto_payments_enabled():
+        raise HTTPException(
+            status_code=410,
+            detail="On-chain credit purchases are not available. Use Google Play Billing or the App Store.",
+        )
     user = await _get_current_user(request)
     body = await request.json()
     pack_key = body.get("pack", "")
@@ -3152,8 +3606,77 @@ async def purchase_credits(request: Request):
     if not tx_sig:
         raise HTTPException(status_code=400, detail="tx_signature required")
 
-    # TODO: verify on-chain transaction via Helio webhook or RPC
-    # For now, trust the client — will be replaced with Helio webhook verification
+    # Replay protection: check tx_signature not already used
+    db = await _cache._get_conn()
+    cursor = await db.execute(
+        "SELECT 1 FROM subscriptions WHERE tx_signature = ?", (tx_sig,)
+    )
+    if await cursor.fetchone():
+        raise HTTPException(status_code=409, detail="Transaction already used")
+
+    # Verify on-chain transaction via Solana RPC
+    import os
+    TREASURY = os.environ.get("USDC_TREASURY_WALLET", "")
+    if not TREASURY:
+        raise HTTPException(status_code=503, detail="USDC payments not configured")
+
+    from .helio_service import USDC_MINT  # noqa: PLC0415
+    from .data_sources._clients import get_rpc_client  # noqa: PLC0415
+    expected_usd = pack["price_usd"]
+
+    try:
+        rpc = get_rpc_client()
+        tx_data = await rpc._call("getTransaction", [tx_sig, {"encoding": "jsonParsed", "maxSupportedTransactionVersion": 0}])
+        if not tx_data or not isinstance(tx_data, dict):
+            raise HTTPException(status_code=400, detail="Transaction not found on-chain")
+        meta = tx_data.get("meta", {})
+        if meta.get("err") is not None:
+            raise HTTPException(status_code=400, detail="Transaction failed on-chain")
+
+        # Verify USDC transfer to treasury with correct amount
+        verified = False
+        all_ixs = []
+        for ix_group in (meta.get("innerInstructions") or []):
+            all_ixs.extend(ix_group.get("instructions", []))
+        all_ixs.extend(tx_data.get("transaction", {}).get("message", {}).get("instructions", []))
+
+        for ix in all_ixs:
+            parsed = ix.get("parsed", {})
+            if parsed.get("type") not in ("transfer", "transferChecked"):
+                continue
+            info = parsed.get("info", {})
+            mint = info.get("mint", "")
+            if mint and mint != USDC_MINT:
+                continue
+            destination = info.get("destination", "") or info.get("account", "")
+            if destination != TREASURY:
+                continue
+            if "tokenAmount" in info:
+                amount = info["tokenAmount"].get("uiAmount", 0)
+            else:
+                raw = info.get("amount", 0)
+                amount = float(raw) / 1e6 if isinstance(raw, str) else raw
+            if amount >= expected_usd * 0.99:
+                verified = True
+                break
+
+        if not verified:
+            raise HTTPException(status_code=400, detail="USDC transfer not verified — wrong amount or recipient")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.warning("credits/purchase tx verification failed: %s", exc)
+        raise HTTPException(status_code=400, detail="Could not verify transaction") from exc
+
+    # Record tx to prevent replay
+    import time as _time
+    await db.execute(
+        "INSERT OR IGNORE INTO subscriptions (user_id, plan, payment_method, tx_signature, is_active, updated_at) "
+        "VALUES (?, 'credits', 'usdc', ?, 0, ?)",
+        (user["id"], tx_sig, _time.time()),
+    )
+    await db.commit()
+
     new_balance = await add_scan_credits(_cache, user["id"], pack["credits"])
     logger.info("credits/purchase: user=%s pack=%s +%d → %d (tx=%s)",
                 user["id"], pack_key, pack["credits"], new_balance, tx_sig[:20])
@@ -3472,7 +3995,13 @@ async def get_global_stats(request: Request) -> GlobalStats:
                 columns="mint, rug_mechanism, evidence_level",
             )
 
-        tokens_scanned = len(created_rows)
+        created_mints = {r.get("mint", "") for r in created_rows if r.get("mint")}
+        rugged_mints = {r.get("mint", "") for r in rugged_rows if r.get("mint")}
+        # Denominator: all unique mints that were either created OR rugged in the window.
+        # This prevents rug_rate > 100% when tokens created before the 24h window
+        # are rugged within it.
+        all_mints = created_mints | rugged_mints
+        tokens_scanned = len(all_mints)
         tokens_negative_outcomes = len(rugged_rows)
         tokens_rugged = sum(1 for row in rugged_rows if _is_confirmed_rug_stats_row(row))
         rug_rate = round((tokens_rugged / tokens_scanned * 100) if tokens_scanned > 0 else 0.0, 2)
@@ -3580,6 +4109,59 @@ async def get_token_meta(mint: str, request: Request):
         pass
 
     return result
+
+
+@app.get("/token-meta/batch", tags=["lineage"], summary="Batch token metadata for multiple mints")
+@limiter.limit("20/minute")
+async def get_token_meta_batch(
+    request: Request,
+    mints: str = Query(..., description="Comma-separated mint addresses (max 20)"),
+):
+    """Return name, symbol, image_uri for multiple tokens in a single call.
+
+    Much more efficient than calling /token-meta/{mint} individually.
+    """
+    mint_list = [m.strip() for m in mints.split(",") if m.strip() and _BASE58_RE.match(m.strip())][:20]
+    if not mint_list:
+        return []
+
+    # Resolve all mints concurrently
+    async def _resolve_one(mint: str) -> dict:
+        result = {"mint": mint, "name": "", "symbol": "", "image_uri": ""}
+        # DexScreener first
+        try:
+            from .data_sources._clients import get_dex_client
+            dex = get_dex_client()
+            pairs = await asyncio.wait_for(dex.get_token_pairs(mint), timeout=5.0)
+            if pairs:
+                meta = dex.pairs_to_metadata(mint, pairs)
+                if meta.name:
+                    result["name"] = meta.name
+                    result["symbol"] = meta.symbol or ""
+                    result["image_uri"] = meta.image_uri or ""
+                    return result
+        except Exception:
+            pass
+        # Fallback: intelligence_events cache
+        try:
+            from .data_sources._clients import cache as _cache
+            from .cache import SQLiteCache
+            if isinstance(_cache, SQLiteCache):
+                db = await _cache._get_conn()
+                cursor = await db.execute(
+                    "SELECT name, symbol FROM intelligence_events WHERE mint = ? AND name != '' LIMIT 1",
+                    (mint,),
+                )
+                row = await cursor.fetchone()
+                if row and row[0]:
+                    result["name"] = row[0]
+                    result["symbol"] = row[1] or ""
+        except Exception:
+            pass
+        return result
+
+    results = await asyncio.gather(*[_resolve_one(m) for m in mint_list], return_exceptions=True)
+    return [r for r in results if isinstance(r, dict)]
 
 
 @app.get("/graduations", tags=["intelligence"], summary="Recent Pump.fun tokens that graduated to DEX")
@@ -4193,6 +4775,38 @@ async def get_investigation_history(
     return results
 
 
+@app.post("/agent/webhook/helius", tags=["agent"])
+async def helius_webhook_endpoint(request: Request):
+    """Receive Helius Enhanced webhook events and trigger immediate rescans.
+
+    Public endpoint — auth is HMAC-SHA256 over the raw body (not X-API-Key).
+    The shared secret lives in ``HELIUS_WEBHOOK_SECRET``; when empty the
+    route returns 503 and the existing poll-based sweep remains the only
+    watchlist monitor.
+
+    Returns a fast 2xx ack — the actual rescans run as background tasks with
+    per-mint deduplication in ``trigger_immediate_rescan``.
+    """
+    from .webhook_helius import handle_helius_webhook, HeliusWebhookError
+    from .data_sources._clients import cache as _cache  # noqa: PLC0415
+
+    body = await request.body()
+    # Helius sets the value configured in authHeader on the "Authorization"
+    # request header. Accept both cases for resilience with proxies.
+    signature = (
+        request.headers.get("authorization")
+        or request.headers.get("Authorization")
+        or ""
+    )
+    try:
+        return await handle_helius_webhook(body, signature, _cache)
+    except HeliusWebhookError as exc:
+        return JSONResponse(
+            status_code=exc.status,
+            content={"error": exc.detail},
+        )
+
+
 @app.get("/agent/flags", tags=["agent"])
 async def get_sweep_flags(
     request: Request,
@@ -4268,6 +4882,20 @@ async def get_sweep_flags(
             "createdAt": r[6],
             "read": bool(r[7]),
         })
+
+    # Deduplicate: collapse consecutive same flagType per mint within 1h window.
+    # Guards against race-condition duplicates from concurrent pulse/sweep scans.
+    _deduped: list[dict] = []
+    _seen: dict[tuple, float] = {}  # (mint, flagType) → latest createdAt
+    _DEDUP_API_WINDOW = 3600  # 1 hour
+    for f in flags:
+        key = (f["mint"], f["flagType"])
+        prev_ts = _seen.get(key)
+        if prev_ts is not None and abs(prev_ts - f["createdAt"]) < _DEDUP_API_WINDOW:
+            continue  # skip duplicate
+        _seen[key] = f["createdAt"]
+        _deduped.append(f)
+    flags = _deduped
 
     # In multi-token mode, balance flags across tokens so no single token dominates
     if not mint and len(flags) > limit:
@@ -5279,36 +5907,34 @@ async def _watchlist_sweep_loop():
             cursor = await rdb.execute(
                 "SELECT uw.id, uw.user_id, uw.value, "
                 "COALESCE(ap.sweep_interval, 2700) as sweep_interval, "
-                "COALESCE(u.plan, 'free') as plan "
+                "COALESCE(u.plan, 'free') as plan, "
+                "MAX(ws.scanned_at) as last_scanned "
                 "FROM user_watches uw "
                 "LEFT JOIN agent_prefs ap ON uw.user_id = ap.user_id "
                 "LEFT JOIN users u ON uw.user_id = u.id "
-                "WHERE uw.sub_type IN ('mint', 'deployer')"
+                "LEFT JOIN watch_snapshots ws ON uw.id = ws.watch_id "
+                "WHERE uw.sub_type IN ('mint', 'deployer') "
+                "GROUP BY uw.id"
             )
             watches = await cursor.fetchall()
 
             # All watches are managed by this sweep loop (no cron skip)
             now = time.time()
             logger.info("[sweep] %d watches found", len(watches))
-            for _wi, (watch_id, user_id, _mint_val, user_sweep_interval, user_plan) in enumerate(watches):
-                # Check last sweep for this specific watch
-                cursor2 = await rdb.execute(
-                    "SELECT MAX(scanned_at) FROM watch_snapshots WHERE watch_id = ?",
-                    (watch_id,),
-                )
-                last_sweep_row = await cursor2.fetchone()
-                last_sweep = last_sweep_row[0] if last_sweep_row and last_sweep_row[0] else 0
+            _rescan_count = 0
+            for _wi, (watch_id, user_id, _mint_val, user_sweep_interval, user_plan, last_sweep) in enumerate(watches):
+                last_sweep = last_sweep or 0
                 if now - last_sweep < user_sweep_interval:
                     continue  # too soon for this user's preference
-                if _wi > 0:
-                    await asyncio.sleep(15)  # stagger rescans — 15s avoids RPC saturation
+                if _rescan_count > 0:
+                    await asyncio.sleep(5)  # stagger rescans — 5s between each
+                _rescan_count += 1
                 _heartbeat("sweep")  # keep watchdog alive between watches
                 try:
-                    from .task_queue import enqueue_task, task_rescan_watch  # noqa: PLC0415
-                    enqueued = await enqueue_task(task_rescan_watch, watch_id, user_id, user_plan)
-                    if not enqueued:
-                        # Redis unavailable — run inline (same behavior as before)
-                        await task_rescan_watch({}, watch_id, user_id, user_plan)
+                    # Run rescan inline (arq worker process not yet deployed —
+                    # enable enqueue_task when worker runs as separate Fly process)
+                    from .task_queue import task_rescan_watch  # noqa: PLC0415
+                    await task_rescan_watch({}, watch_id, user_id, user_plan)
                 except Exception as exc:
                     logger.warning("[sweep] watch %d failed: %s", watch_id, exc)
         except Exception as exc:
@@ -5469,6 +6095,7 @@ async def _market_pulse_loop():
             triggered = await run_market_pulse(_cache)
             if triggered:
                 # Broadcast pulse-triggered alerts via WebSocket
+                db = await _cache._get_conn()
                 for t in triggered:
                     try:
                         from .alert_service import _broadcast_web_alert, _send_fcm_push

@@ -1,6 +1,7 @@
 import { authLogin, getMe } from './api';
 import { useAuthStore } from '../store/auth';
 import { purgeUserData } from './purge-user-data';
+import { getAccessToken } from '@privy-io/expo';
 
 interface PrivyUser {
   id: string;
@@ -12,9 +13,13 @@ export async function syncPrivyUser(privyUser: PrivyUser): Promise<boolean> {
   const { setApiKey, setUser } = useAuthStore.getState();
 
   try {
+    // Get Privy access token for server-side verification
+    const privyToken = await getAccessToken().catch(() => null);
+
     const result = await authLogin(privyUser.id, {
       wallet_address: privyUser.wallet?.address,
       email: privyUser.email?.address,
+      privy_token: privyToken ?? undefined,
     });
 
     if (!result.api_key) return false;

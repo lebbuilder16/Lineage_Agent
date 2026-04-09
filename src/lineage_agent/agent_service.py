@@ -565,6 +565,27 @@ async def _execute_tool(name: str, args: dict, *, cache: Any) -> dict:
 # ── Agent system prompt ──────────────────────────────────────────────────────
 
 
+# Compact Helius data-model reference injected into the agent prompt.
+# Sourced from docs/helius/{das,enhanced-transactions}.md — kept terse on
+# purpose so it costs <250 tokens in every investigation.
+_HELIUS_DATA_REFERENCE = """\
+## Helius Data Reference (how the underlying data is sourced)
+
+- Transaction data comes from Helius Enhanced Transactions: fields `type` \
+(SWAP, TRANSFER, BURN, NFT_SALE…), `source` (JUPITER, RAYDIUM, PUMP_FUN, \
+MAGIC_EDEN…), `tokenTransfers[]` and `nativeTransfers[]` are already \
+decoded with proper decimals.
+- DAS `creators[]` metadata is Metaplex creators — **not the deployer \
+wallet** for pump.fun tokens. The real deployer is the feePayer of the \
+mint creation transaction. Trust the `deployer` field in scan_summary; \
+do not second-guess it from raw creators arrays.
+- SOL amounts in `nativeTransfers` are in lamports (1 SOL = 1e9 lamports).
+- When evidence references Jito bundles, they appear as multiple tx in \
+the same slot from the same signer cluster — scan_token already flags \
+this as `bundle_report`.
+"""
+
+
 def _build_agent_system_prompt(heuristic: int, *, scan_summary: dict | None = None) -> str:
     """Build the system prompt for the agent, reusing scoring guide from ai_analyst."""
     # Extract the scoring guide portion from _SYSTEM_PROMPT
@@ -610,6 +631,7 @@ Do NOT call scan_token or any individual tools — all data is already provided.
 Only call a tool if you need data about a DIFFERENT mint address (cross-reference).
 
 {scoring_section}
+{_HELIUS_DATA_REFERENCE}
 {_FEW_SHOT_EXAMPLES}
 
 CRITICAL RULES:
@@ -641,6 +663,7 @@ Your investigation loop:
 4. When you have enough evidence, deliver your verdict via forensic_report tool.
 
 {scoring_section}
+{_HELIUS_DATA_REFERENCE}
 {_FEW_SHOT_EXAMPLES}
 
 CRITICAL RULES:
@@ -705,6 +728,7 @@ async def run_agent(
 
     # ── Build memory brief (cross-investigation intelligence) ────────
     memory_brief = ""
+    memory_meta: dict = {"memory_depth": "first_encounter", "deployer_episode_count": 0}
     try:
         from .memory_service import build_memory_brief
         _deployer = scan_summary.get("token", {}).get("deployer") if scan_summary else None
@@ -716,11 +740,14 @@ async def run_agent(
             _op_fp = _op.get("fingerprint") if isinstance(_op, dict) else None
             _cr = _risk.get("cartel") or {}
             _community = _cr.get("community_id") if isinstance(_cr, dict) else None
-        memory_brief = await build_memory_brief(mint, _deployer, _op_fp, _community)
+        memory_brief, memory_meta = await build_memory_brief(mint, _deployer, _op_fp, _community)
         if memory_brief:
-            logger.info("[agent] memory brief: %d chars for %s", len(memory_brief), mint[:12])
-    except Exception:
-        pass
+            logger.info("[agent] memory injected for %s: depth=%s, episodes=%d, brief=%d chars",
+                        mint[:12], memory_meta.get("memory_depth"), memory_meta.get("deployer_episode_count", 0), len(memory_brief))
+        else:
+            logger.info("[agent] no memory for %s (first_encounter)", mint[:12])
+    except Exception as _mem_exc:
+        logger.warning("[agent] memory build failed for %s: %s", mint[:12], _mem_exc)
 
     # ── Build system prompt + conversation ───────────────────────────
     system_prompt = _build_agent_system_prompt(hscore, scan_summary=scan_summary)
@@ -1054,7 +1081,7 @@ async def run_agent(
             if scan_summary:
                 _cal_lineage = scan_summary  # dict-based, _build_calibration_context handles both
             cal_ctx = _build_calibration_context(verdict, _cal_lineage)
-            cal_offset = await get_calibration_offset(cal_ctx)
+            cal_offset, _cal_matched = await get_calibration_offset(cal_ctx)
             if cal_offset != 0:
                 pre_cal = verdict["risk_score"]
                 verdict["risk_score"] = max(0, min(100, int(pre_cal + cal_offset)))
@@ -1066,6 +1093,9 @@ async def run_agent(
                 )
         except Exception as cal_exc:
             logger.debug("[agent] calibration skipped: %s", cal_exc)
+
+        # Inject memory depth into verdict for mobile display
+        verdict["memory_depth"] = memory_meta.get("memory_depth", "first_encounter")
 
         await _cache_verdict(cache, mint, verdict)
 

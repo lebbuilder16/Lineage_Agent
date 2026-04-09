@@ -49,6 +49,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         console.error('[auth] SecureStore.deleteItem failed', e),
       );
     }
+    // Clear user-scoped sweep flags on logout or account switch
+    try {
+      const { useSweepFlagsStore } = require('./sweep-flags');
+      useSweepFlagsStore.getState().reset();
+    } catch { /* store may not be loaded yet */ }
+
     if (!key) {
       // Full reset on logout — clear all user-scoped data
       SecureStore.deleteItemAsync(LS_RECENT_KEY).catch(() => {});

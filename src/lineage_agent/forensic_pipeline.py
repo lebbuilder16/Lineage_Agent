@@ -28,7 +28,12 @@ logger = logging.getLogger(__name__)
 
 # SSE keepalive interval (seconds) — prevents Fly proxy idle timeout
 _KEEPALIVE_INTERVAL = 3.0
-_PIPELINE_TIMEOUT = 90.0
+# Budget for the parallel forensic branches. Set below the mobile
+# analyzeStream client timeout (180s) with enough headroom for the
+# AI verdict call that runs after the pipeline completes. Previous
+# value (90s) was too tight for fresh pump.fun tokens where sig-walks
+# on Helius take longer because the indexer is still catching up.
+_PIPELINE_TIMEOUT = 120.0
 
 # In-process cache for ForensicReport (avoids re-running pipeline on retry)
 _report_cache: dict[str, tuple[float, "ForensicReport"]] = {}
@@ -423,6 +428,16 @@ async def run_forensic_pipeline(
                     results["bundle_report"] = cached
                     _sub_step("bundle", "done", ms=int((time.monotonic() - t) * 1000))
                     return
+                # Skip if all RPC circuit breakers are open (would just timeout)
+                try:
+                    from .circuit_breaker import _registry as _cb_reg
+                    _rpc_cbs = [cb for name, cb in _cb_reg.items() if "solana_rpc" in name]
+                    if _rpc_cbs and all(cb.state.value == "open" for cb in _rpc_cbs):
+                        logger.info("[pipeline] skipping bundle — all RPC circuit breakers open for %s", mint[:12])
+                        _sub_step("bundle", "done", ms=int((time.monotonic() - t) * 1000), ok=False)
+                        return
+                except Exception:
+                    pass
                 if deployer:
                     results["bundle_report"] = await asyncio.wait_for(
                         analyze_bundle(mint, deployer), timeout=25.0,

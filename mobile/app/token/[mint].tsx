@@ -30,6 +30,7 @@ import { useLineage } from '../../src/lib/query';
 import { useAuthStore } from '../../src/store/auth';
 import { useHistoryStore } from '../../src/store/history';
 import { addWatch } from '../../src/lib/api';
+import { handleTierError } from '../../src/lib/tier-error';
 import { tokens } from '../../src/theme/tokens';
 import { RISK_COLOR, riskLevelToScore, type RiskLevel } from '../../src/lib/risk';
 import Animated, { FadeInDown } from 'react-native-reanimated';
@@ -43,6 +44,7 @@ import { FullReportSection } from '../../src/components/token-detail/FullReportS
 import { SweepAlertsBanner } from '../../src/components/token-detail/SweepAlertsBanner';
 import { LivePulseCard } from '../../src/components/token-detail/LivePulseCard';
 import { OperatorDamageCard } from '../../src/components/token-detail/OperatorDamageCard';
+import { DisclaimerFooter } from '../../src/components/ui/DisclaimerFooter';
 
 // ─── Main Screen ─────────────────────────────────────────────────────────────
 
@@ -66,8 +68,7 @@ export default function TokenScreen() {
   const previousInvestigation = useHistoryStore((s) => s.getByMint(mint ?? ''));
   const addWatchFn = useAuthStore((s) => s.addWatch);
   const watches = useAuthStore((s) => s.watches);
-  const alreadyWatched = watches.some((w) => w.value === mint);
-  const [watching, setWatching] = useState(alreadyWatched);
+  const watching = watches.some((w) => w.value === mint);
 
   const handleCopy = async (value: string, label = 'Address') => {
     await Clipboard.setStringAsync(value);
@@ -79,17 +80,16 @@ export default function TokenScreen() {
     if (!apiKey) { showToast('API key required — go to Settings'); return; }
     if (!mint || watching || submitting.current) return;
     submitting.current = true;
-    setWatching(true);
     try {
       const w = await addWatch(apiKey, 'mint', mint);
       addWatchFn(w);
       showToast('Token added to watchlist');
     } catch (err) {
-      setWatching(false); submitting.current = false;
+      submitting.current = false;
       const msg = err instanceof Error ? err.message : '';
-      if (msg.includes('409') || msg.includes('already')) { setWatching(true); return; }
+      if (msg.includes('409') || msg.includes('already')) return;
       // Tier-limit error → show message + navigate to paywall
-      const { handleTierError } = require('../../src/lib/tier-error');
+      // handleTierError imported at top level
       if (!handleTierError(err, showToast)) {
         showToast('Failed to watch token', 'error');
       }
@@ -252,6 +252,7 @@ export default function TokenScreen() {
             )}
           </Animated.View>
         )}
+        <DisclaimerFooter />
       </ScrollView>
       {toast}
     </View>

@@ -33,10 +33,10 @@ _MAX_TOKENS = int(os.getenv("AI_MAX_TOKENS", "800"))
 _MAX_TOKENS_TRINITY = int(os.getenv("AI_MAX_TOKENS_TRINITY", "4096"))
 _TIMEOUT = 55.0
 
-# Sweep model: Trinity via OpenRouter (4.5x cheaper than Haiku)
-_SWEEP_MODEL = os.getenv("SWEEP_AI_MODEL", "arcee-ai/trinity-large-thinking")
+# Sweep model: Gemini Flash via OpenRouter (fast + cheap for flag generation)
+_SWEEP_MODEL = os.getenv("SWEEP_AI_MODEL", "google/gemini-2.0-flash-001")
 _OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY") or os.getenv("ARCEE_API_KEY")
-_OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://api.arcee.ai/api/v1")
+_OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
 
 _AI_CACHE_PREFIX = "ai:forensic-v2"
 _CONFIRMED_EVIDENCE_LEVELS = {EvidenceLevel.MODERATE.value, EvidenceLevel.STRONG.value}
@@ -101,17 +101,13 @@ def _get_openrouter_client():
     except ImportError:
         logger.warning("[ai_analyst] openai package not installed — Trinity unavailable")
         return None
-    # Detect Arcee direct vs OpenRouter
-    if _OPENROUTER_API_KEY.startswith("rcai-"):
-        base_url = "https://api.arcee.ai/api/v1"
-    else:
-        base_url = "https://openrouter.ai/api/v1"
+    base_url = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
     _openrouter_client = AsyncOpenAI(
         base_url=base_url,
         api_key=_OPENROUTER_API_KEY,
-        timeout=90.0,
+        timeout=30.0,
     )
-    logger.info("[ai_analyst] Trinity client initialized (base=%s)", base_url)
+    logger.info("[ai_analyst] Sweep AI client initialized (base=%s, model=%s)", base_url, _SWEEP_MODEL)
     return _openrouter_client
 
 
@@ -568,8 +564,15 @@ async def analyze_token(
         _memory_brief, _memory_meta = await build_memory_brief(
             mint, deployer=_deployer, operator_fp=_op_fp, community_id=_comm_id
         )
-    except Exception:
-        pass  # memory unavailable — continue without
+        if _memory_brief:
+            logger.info(
+                "[ai_analyst] memory injected for %s: depth=%s, deployer_episodes=%d, brief=%d chars",
+                mint[:12], _memory_meta.get("memory_depth"), _memory_meta.get("deployer_episode_count", 0), len(_memory_brief),
+            )
+        else:
+            logger.info("[ai_analyst] no memory for %s (first_encounter)", mint[:12])
+    except Exception as _mem_exc:
+        logger.warning("[ai_analyst] memory build failed for %s: %s", mint[:12], _mem_exc)
 
     prompt = _build_prompt(mint, lineage_result, bundle_report, sol_flow_report,
                            deployer_history, behavioral_signals, heuristic_score=_hscore,
@@ -596,9 +599,8 @@ async def analyze_token(
                     '  key_findings (array of 3-6 strings),\n'
                     '  conviction_chain (string, 2-3 sentences)',
                 )
-                _trinity_model = "trinity-large-thinking" if _OPENROUTER_API_KEY.startswith("rcai-") else _SWEEP_MODEL
                 response = await or_client.chat.completions.create(
-                    model=_trinity_model,
+                    model=_SWEEP_MODEL,
                     max_tokens=_MAX_TOKENS_TRINITY,
                     temperature=0,
                     messages=[
@@ -606,7 +608,7 @@ async def analyze_token(
                         {"role": "user", "content": prompt},
                     ],
                 )
-                _call_model = _trinity_model
+                _call_model = _SWEEP_MODEL
                 _msg = response.choices[0].message
                 text_content = _msg.content or ""
                 # Trinity-thinking may put everything in reasoning_content
@@ -623,7 +625,7 @@ async def analyze_token(
                 _finish = response.choices[0].finish_reason or ""
                 logger.info(
                     "[ai_analyst] %s | model=%s input_tokens=%d output_tokens=%d finish=%s (Trinity)",
-                    mint[:12], _trinity_model,
+                    mint[:12], _SWEEP_MODEL,
                     _usage.prompt_tokens if _usage else 0,
                     _usage.completion_tokens if _usage else 0,
                     _finish,

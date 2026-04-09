@@ -26,35 +26,35 @@ def _extract_forensic_snapshot(lin: Any) -> dict:
     snapshot: dict[str, Any] = {}
 
     sf = getattr(lin, "sol_flow", None)
-    if sf:
-        snapshot["sol_extracted"] = getattr(sf, "total_extracted_sol", 0) or 0
-        snapshot["sol_hops"] = getattr(sf, "hop_count", 0) or 0
+    snapshot["sol_extracted"] = (getattr(sf, "total_extracted_sol", 0) or 0) if sf else 0
+    snapshot["sol_hops"] = (getattr(sf, "hop_count", 0) or 0) if sf else 0
 
     br = getattr(lin, "bundle_report", None)
+    snapshot["bundle_verdict"] = getattr(br, "overall_verdict", None) if br else None
+    snapshot["bundle_sol"] = (getattr(br, "total_sol_extracted_confirmed", 0) or 0) if br else 0
     if br:
-        snapshot["bundle_verdict"] = getattr(br, "overall_verdict", None)
-        snapshot["bundle_sol"] = getattr(br, "total_sol_extracted_confirmed", 0) or 0
         fw = getattr(br, "factory_sniper_wallets", None)
         snapshot["bundle_wallets"] = len(fw) if fw else 0
+    else:
+        snapshot["bundle_wallets"] = 0
 
     ins = getattr(lin, "insider_sell", None)
+    # Always include deployer_exited — even when insider_sell is None.
+    # Missing field causes false-positive DEPLOYER_EXITED flags on next rescan.
+    snapshot["deployer_exited"] = getattr(ins, "deployer_exited", False) if ins else False
     if ins:
         snapshot["insider_verdict"] = getattr(ins, "verdict", None)
-        snapshot["deployer_exited"] = getattr(ins, "deployer_exited", False)
         snapshot["sell_pressure_24h"] = getattr(ins, "sell_pressure_24h", None)
 
     cr = getattr(lin, "cartel_report", None)
+    snapshot["cartel_wallets"] = 0
     if cr:
         dc = getattr(cr, "deployer_community", None)
         if dc:
             wallets = getattr(dc, "wallets", None)
             snapshot["cartel_wallets"] = len(wallets) if wallets else 0
-            dc_comm = getattr(cr, "deployer_community", None) if cr else None
-            if dc_comm:
-                snapshot["cartel_narrative"] = getattr(dc_comm, "narrative", "") or ""
-                snapshot["cartel_sol_extracted"] = getattr(dc_comm, "total_sol_extracted", 0) or 0
-        else:
-            snapshot["cartel_wallets"] = 0
+            snapshot["cartel_narrative"] = getattr(dc, "narrative", "") or ""
+            snapshot["cartel_sol_extracted"] = getattr(dc, "total_sol_extracted", 0) or 0
 
     dc = getattr(lin, "death_clock", None)
     if dc:
@@ -62,9 +62,8 @@ def _extract_forensic_snapshot(lin: Any) -> dict:
         snapshot["rug_probability"] = getattr(dc, "rug_probability_pct", None)
 
     dp = getattr(lin, "deployer_profile", None)
-    if dp:
-        snapshot["rug_count"] = getattr(dp, "confirmed_rug_count", 0) or 0
-        snapshot["rug_rate"] = getattr(dp, "rug_rate_pct", 0) or 0
+    snapshot["rug_count"] = (getattr(dp, "confirmed_rug_count", 0) or 0) if dp else 0
+    snapshot["rug_rate"] = (getattr(dp, "rug_rate_pct", 0) or 0) if dp else 0
 
     # Market metrics (from LineageResult — zero extra API calls)
     qt = getattr(lin, "query_token", None) or getattr(lin, "root", None)
@@ -72,6 +71,9 @@ def _extract_forensic_snapshot(lin: Any) -> dict:
         snapshot["price_usd"] = getattr(qt, "price_usd", None)
         snapshot["mcap_usd"] = getattr(qt, "market_cap_usd", None)
         snapshot["liq_usd"] = getattr(qt, "liquidity_usd", None)
+        # Token identity — needed for push notification titles
+        snapshot["token_name"] = getattr(qt, "name", None) or ""
+        snapshot["token_symbol"] = getattr(qt, "symbol", None) or ""
     if ins:
         snapshot["sell_pressure_1h"] = getattr(ins, "sell_pressure_1h", None)
         snapshot["volume_spike_ratio"] = getattr(ins, "volume_spike_ratio", None)
@@ -503,19 +505,19 @@ def _cross_reference(deltas: dict, old: dict, new: dict, *, covered_types: set[s
 
 # ── Trinity AI flag generation ──────────────────────────────────────────────
 
-_TRINITY_FLAG_SYSTEM = """\
-You are a Solana token forensics analyst generating watchlist alerts for investors.
-You receive a delta between two forensic scans of a watched token.
-Output 0-5 flags as a JSON array. Each flag:
-  {"flag_type": "SCREAMING_SNAKE_CASE", "severity": "critical"|"warning"|"info", "title": "...", "detail": "..."}
+_TRINITY_ENRICH_SYSTEM = """\
+You are a Solana token forensics analyst writing watchlist alerts for crypto investors.
+You receive pre-detected flags with their raw data. Your job is to REWRITE the title
+and detail fields to be clear, actionable, and investor-readable.
+
 Rules:
-- flag_type: 2-4 words describing the signal (e.g. DEPLOYER_EXIT_WITH_DRAIN, CARTEL_NETWORK_GROWING)
-- title: 1 sentence, plain English, investor-readable, include key numbers ($, SOL, %)
-- detail: 1-2 sentences expanding context and implications for a non-technical investor
-- severity: critical = immediate danger/rug signal, warning = concerning change, info = notable but not urgent
-- Output [] (empty array) if nothing meaningful changed
-- Max 5 flags, prioritize by severity
-Respond with ONLY a JSON array. No markdown, no commentary, no explanation outside the JSON."""
+- You receive a JSON array of flags. Each has: flag_type, severity, title, detail (raw data).
+- Return the SAME array with the SAME flag_type and severity — only rewrite title and detail.
+- title: 1 punchy sentence, plain English, include key numbers ($, SOL, %).
+- detail: 1-2 sentences explaining implications for a non-technical investor.
+- Do NOT add, remove, or reorder flags. Do NOT change flag_type or severity.
+- If you cannot improve a flag, return it unchanged.
+Respond with ONLY a JSON array. No markdown, no commentary."""
 
 
 def _compute_compact_delta(old: dict, new: dict) -> str:
@@ -622,62 +624,81 @@ def _parse_trinity_flags(text: str) -> list[dict] | None:
     return flags
 
 
-async def _generate_flags_trinity(
+async def _enrich_flags_trinity(
+    flags: list[dict],
     old: dict, new: dict, mint: str,
     *,
-    ref: Optional[dict] = None,
     symbol: str = "",
     old_score: int = 0,
     new_score: int = 0,
-) -> list[dict] | None:
-    """Generate flags using Trinity AI. Returns flags on success, None on failure."""
+) -> list[dict]:
+    """Enrich deterministic flags with investor-readable titles/details via Gemini.
+
+    Returns enriched flags on success, original flags unchanged on failure.
+    The flag_type and severity are NEVER modified — only title and detail.
+    """
+    if not flags:
+        return flags
+
     try:
-        from .ai_analyst import _get_openrouter_client, _OPENROUTER_API_KEY  # noqa: PLC0415
+        from .ai_analyst import _get_openrouter_client, _SWEEP_MODEL  # noqa: PLC0415
 
         client = _get_openrouter_client()
         if not client:
-            return None
+            return flags
 
         delta_str = _compute_compact_delta(old, new)
 
-        # Build compact current state
+        # Build context: flags to enrich + current state
+        flags_for_ai = []
+        for f in flags:
+            # Parse detail back to dict for Gemini context
+            raw = f.get("detail", "{}")
+            try:
+                detail_dict = json.loads(raw) if isinstance(raw, str) else raw
+            except Exception:
+                detail_dict = {"raw": raw}
+            flags_for_ai.append({
+                "flag_type": f["flag_type"],
+                "severity": f["severity"],
+                "title": f["title"],
+                "detail": detail_dict,
+            })
+
         state_lines = [
             f"Token: {symbol or '?'} ({mint[:12]})",
             f"Risk score: {old_score} → {new_score}",
-            "",
-            f"Changes since last scan:",
-            delta_str,
-            "",
-            "Current state:",
-            f"- SOL extracted: {new.get('sol_extracted', 0):.1f} | Deployer exited: {new.get('deployer_exited', False)}",
-            f"- Bundle: {new.get('bundle_wallets', 0)} wallets ({new.get('bundle_holders', '?')} holding)",
-            f"- Cartel: {new.get('cartel_wallets', 0)} wallets | Risk: {new.get('risk_level', 'unknown')}",
+            f"Changes: {delta_str}",
+            f"SOL extracted: {new.get('sol_extracted', 0):.1f} | Deployer exited: {new.get('deployer_exited', False)}",
+            f"Bundle: {new.get('bundle_wallets', 0)} wallets ({new.get('bundle_holders', '?')} holding)",
+            f"Cartel: {new.get('cartel_wallets', 0)} wallets | Risk: {new.get('risk_level', 'unknown')}",
         ]
         price = new.get("price_usd")
         if price:
             h1 = new.get("price_change_h1") or 0
             h24 = new.get("price_change_h24") or 0
             liq = new.get("liq_usd") or 0
-            state_lines.append(f"- Price: ${price:.6f} (1h: {h1:+.1f}%, 24h: {h24:+.1f}%) | Liq: ${liq:,.0f}")
+            state_lines.append(f"Price: ${price:.6f} (1h: {h1:+.1f}%, 24h: {h24:+.1f}%) | Liq: ${liq:,.0f}")
         sp = new.get("sell_pressure_1h")
         if sp:
-            state_lines.append(f"- Sell pressure 1h: {sp * 100:.0f}%")
+            state_lines.append(f"Sell pressure 1h: {sp * 100:.0f}%")
 
-        user_msg = "\n".join(state_lines)
-
-        _trinity_model = "trinity-large-thinking" if _OPENROUTER_API_KEY and _OPENROUTER_API_KEY.startswith("rcai-") else "arcee-ai/trinity-large-thinking"
+        user_msg = (
+            "Context:\n" + "\n".join(state_lines) + "\n\n"
+            "Flags to enrich:\n" + json.dumps(flags_for_ai, indent=2, default=str)
+        )
 
         response = await asyncio.wait_for(
             client.chat.completions.create(
-                model=_trinity_model,
+                model=_SWEEP_MODEL,
                 max_tokens=512,
                 temperature=0,
                 messages=[
-                    {"role": "system", "content": _TRINITY_FLAG_SYSTEM},
+                    {"role": "system", "content": _TRINITY_ENRICH_SYSTEM},
                     {"role": "user", "content": user_msg},
                 ],
             ),
-            timeout=10.0,
+            timeout=15.0,
         )
 
         _msg = response.choices[0].message
@@ -690,51 +711,43 @@ async def _generate_flags_trinity(
 
         _usage = response.usage
         logger.info(
-            "[sweep] Trinity flags for %s | tokens=%d/%d | raw_len=%d",
+            "[sweep] Trinity enrich for %s | tokens=%d/%d | raw_len=%d",
             mint[:12],
             _usage.prompt_tokens if _usage else 0,
             _usage.completion_tokens if _usage else 0,
             len(text),
         )
 
-        flags = _parse_trinity_flags(text)
-        if flags is not None:
-            # Deduplicate Trinity flags within the batch: collapse flags whose
-            # types map to the same logical signal (e.g. SOL_DRAIN + EXTRACTION
-            # both describing the same SOL movement).
-            _TRINITY_DEDUP_KEYWORDS = {
-                "SOL": "sol_group",
-                "EXTRACT": "sol_group",
-                "DRAIN": "sol_group",
-                "DEPLOY": "deployer_group",
-                "CREATOR": "deployer_group",
-                "BUNDLE": "bundle_group",
-                "CARTEL": "cartel_group",
-                "INSIDER": "insider_group",
-                "DUMP": "insider_group",
-            }
-            seen_groups: set[str] = set()
-            deduped: list[dict] = []
-            for f in flags:
-                groups_hit = {g for kw, g in _TRINITY_DEDUP_KEYWORDS.items() if kw in f["flag_type"]}
-                if groups_hit and groups_hit & seen_groups:
-                    continue  # skip: same logical group already present
-                seen_groups |= groups_hit
-                deduped.append(f)
-            flags = deduped
-
-            logger.info("[sweep] Trinity generated %d flag(s) for %s", len(flags), mint[:12])
+        enriched = _parse_trinity_flags(text)
+        if enriched is None or len(enriched) != len(flags):
+            logger.warning(
+                "[sweep] Trinity enrich mismatch for %s: expected %d flags, got %s — using originals",
+                mint[:12], len(flags), len(enriched) if enriched else "None",
+            )
             return flags
 
-        logger.warning("[sweep] Trinity flag parse failed for %s, falling back", mint[:12])
-        return None
+        # Merge: keep original flag_type + severity, take enriched title + detail
+        result = []
+        for orig, enr in zip(flags, enriched):
+            merged = dict(orig)  # preserve flag_type, severity, original detail
+            # Only accept enriched title/detail if flag_type matches
+            enr_type = enr.get("flag_type", "")
+            if enr_type == orig["flag_type"]:
+                if enr.get("title"):
+                    merged["title"] = enr["title"]
+                if enr.get("detail"):
+                    merged["detail"] = enr["detail"] if isinstance(enr["detail"], str) else json.dumps(enr["detail"], default=str)
+            result.append(merged)
+
+        logger.info("[sweep] Trinity enriched %d flag(s) for %s", len(result), mint[:12])
+        return result
 
     except asyncio.TimeoutError:
-        logger.warning("[sweep] Trinity flag gen timed out for %s", mint[:12])
-        return None
+        logger.warning("[sweep] Trinity enrich timed out for %s — using originals", mint[:12])
+        return flags
     except Exception as exc:
-        logger.warning("[sweep] Trinity flag gen failed for %s: %s", mint[:12], exc)
-        return None
+        logger.warning("[sweep] Trinity enrich failed for %s: %s — using originals", mint[:12], exc)
+        return flags
 
 
 # ── Bundle wallet activity tracking ──────────────────────────────────────────
@@ -1000,6 +1013,15 @@ async def run_single_rescan(watch_id: int, user_id: int, cache, *, skip_ai: bool
         # Extract new forensic snapshot
         new_forensic = _extract_forensic_snapshot(lin)
 
+        # Preserve irreversible boolean states from old snapshot when data
+        # source is temporarily unavailable (e.g. RPC timeout → insider_sell=None).
+        # Without this, the snapshot "flickers" False→True→False→True, causing
+        # duplicate DEPLOYER_EXITED flags on every rescan that recovers data.
+        _STICKY_BOOLEANS = ["deployer_exited"]
+        for _key in _STICKY_BOOLEANS:
+            if old_forensic.get(_key) and not new_forensic.get(_key):
+                new_forensic[_key] = True
+
         # Compute heuristic score (the real risk indicator) — not death_clock's
         # rug_probability_pct which is often 0 for tokens with insufficient data.
         from .ai_analyst import _heuristic_score
@@ -1081,19 +1103,17 @@ async def run_single_rescan(watch_id: int, user_id: int, cache, *, skip_ai: bool
                 "detail": json.dumps({"snapshot": new_forensic, "risk_score": new_score}, default=str),
             })
         else:
-            flags = None
-            # Elite users: Trinity AI generates contextual flags
-            if plan == "elite":
-                flags = await _generate_flags_trinity(
-                    old_forensic, new_forensic, mint,
-                    ref=ref_forensic,
+            # Always run deterministic flags first — source of truth
+            flags = _generate_flags(old_forensic, new_forensic, mint, ref=ref_forensic)
+
+            # Elite users: Gemini enriches title/detail (flag_type stays canonical)
+            if plan == "elite" and flags:
+                flags = await _enrich_flags_trinity(
+                    flags, old_forensic, new_forensic, mint,
                     symbol=_token_symbol,
                     old_score=old_score,
                     new_score=new_score,
                 )
-            # Fallback: deterministic flags (Free/Pro, or Trinity failure)
-            if flags is None:
-                flags = _generate_flags(old_forensic, new_forensic, mint, ref=ref_forensic)
         now = time.time()
 
         # Enrich flag details with token name/symbol for mobile display
@@ -1113,15 +1133,32 @@ async def run_single_rescan(watch_id: int, user_id: int, cache, *, skip_ai: bool
                 detail_dict["image_uri"] = _image
             flag["detail"] = json.dumps(detail_dict, default=str)
 
-        # Deduplicate: skip flags of the same type created in the last hour,
+        # Deduplicate: skip flags of the same type created recently,
         # AND expand to logical groups so related flags don't repeat.
-        _dedup_window = 3600  # 1 hour
+        # Permanent/irreversible flags (deployer can't un-exit) use a 24h
+        # window; transient signals use 1h so genuine re-occurrences surface.
+        _DEDUP_WINDOW_DEFAULT = 3600       # 1 hour
+        _DEDUP_WINDOW_PERMANENT = 86400    # 24 hours
+        _PERMANENT_FLAGS = {
+            "DEPLOYER_EXITED", "CROSS_DEPLOYER_EXIT_BUNDLE_ACTIVE",
+            "CROSS_DEPLOYER_EXIT_CARTEL_ACTIVE", "CROSS_RUG_PATTERN",
+            "BUNDLE_WALLETS_ALL_EXITED", "CROSS_COORDINATED_EXTRACTION",
+            "CROSS_EXTRACTION_AND_EXIT", "INITIAL_ASSESSMENT",
+        }
+
+        # Query with the longer window — we'll filter per-flag below
         _recent_cursor = await db.execute(
-            "SELECT DISTINCT flag_type FROM sweep_flags "
-            "WHERE watch_id = ? AND created_at > ? AND flag_type NOT LIKE ?",
-            (watch_id, now - _dedup_window, "_%"),
+            "SELECT DISTINCT flag_type, MAX(created_at) FROM sweep_flags "
+            "WHERE watch_id = ? AND created_at > ? AND flag_type NOT LIKE ? "
+            "GROUP BY flag_type",
+            (watch_id, now - _DEDUP_WINDOW_PERMANENT, "_%"),
         )
-        _recent_types = {r[0] for r in await _recent_cursor.fetchall()}
+        _recent_rows = await _recent_cursor.fetchall()
+        _recent_types: set[str] = set()
+        for _ft, _ts in _recent_rows:
+            _window = _DEDUP_WINDOW_PERMANENT if _ft in _PERMANENT_FLAGS else _DEDUP_WINDOW_DEFAULT
+            if now - _ts < _window:
+                _recent_types.add(_ft)
 
         # Logical groups: if any member was recently emitted, suppress all members
         _DEDUP_GROUPS = [
@@ -1199,16 +1236,40 @@ async def run_single_rescan(watch_id: int, user_id: int, cache, *, skip_ai: bool
                 )
                 if critical_flags:
                     top = critical_flags[0]
-                    _token_name = detail_dict.get("token_name") or detail_dict.get("name") or mint[:12]
+                    # Parse token name from the top flag's detail (not stale loop var)
+                    try:
+                        _top_detail = json.loads(top["detail"]) if isinstance(top["detail"], str) else top.get("detail", {})
+                    except Exception:
+                        _top_detail = {}
+                    _push_name = (
+                        (_top_detail.get("token_name") if isinstance(_top_detail, dict) else None)
+                        or _token_name
+                        or mint[:12]
+                    )
+                    _push_symbol = (
+                        (_top_detail.get("symbol") if isinstance(_top_detail, dict) else None)
+                        or _token_symbol
+                        or ""
+                    )
+                    _push_label = f"{_push_name} ({_push_symbol})" if _push_symbol else _push_name
+                    _push_title = f"🔔 {_push_label}"
+                    _push_body = top["title"]
+                    logger.info(
+                        "[sweep] sending push for %s: title=%r body=%r",
+                        mint[:12], _push_title, _push_body,
+                    )
                     asyncio.create_task(
                         _push_fcm_to_watchers(
                             mint=mint,
-                            title=top["title"],
-                            body=f"{_token_name} — {top['flag_type'].replace('_', ' ')}",
+                            title=_push_title,
+                            body=_push_body,
                             alert_type="sweep_flag",
+                            token_name=_push_label,
                         ),
                         name=f"sweep_push_{mint[:8]}",
                     )
+                else:
+                    logger.debug("[sweep] %s: flags exist but none critical/warning — no push", mint[:12])
             except Exception as _push_exc:
                 logger.warning("[sweep] push notification failed for %s: %s", mint[:12], _push_exc)
 
@@ -1312,12 +1373,23 @@ async def _pulse_rescan_one(t: dict, cache) -> None:
                 try:
                     from .alert_service import _push_fcm_to_watchers
                     top_flag = result["flags"][0]
+                    # Extract token name from flag detail for notification
+                    _pf_name = t["mint"][:8]
+                    _pf_symbol = ""
+                    try:
+                        _pf_detail = json.loads(top_flag.get("detail", "{}")) if isinstance(top_flag.get("detail"), str) else (top_flag.get("detail") or {})
+                        _pf_name = _pf_detail.get("token_name") or _pf_detail.get("name") or _pf_name
+                        _pf_symbol = _pf_detail.get("symbol") or ""
+                    except Exception:
+                        pass
+                    _pf_label = f"{_pf_name} ({_pf_symbol})" if _pf_symbol else _pf_name
                     asyncio.create_task(
                         _push_fcm_to_watchers(
                             mint=t["mint"],
-                            title=top_flag["title"],
-                            body=f"Pulse: {t['trigger']}",
+                            title=f"🔔 {_pf_label}",
+                            body=top_flag["title"],
                             alert_type="pulse_flag",
+                            token_name=_pf_label,
                         ),
                         name=f"pulse_push_{t['mint'][:8]}",
                     )
@@ -1326,12 +1398,33 @@ async def _pulse_rescan_one(t: dict, cache) -> None:
             elif abs(t.get("now_price", 0)) > 0:
                 try:
                     from .alert_service import _push_fcm_to_watchers
+                    # Lookup token name from latest snapshot
+                    _pa_name = t["mint"][:8]
+                    try:
+                        _pa_db = await cache._get_conn()
+                        _pa_cursor = await _pa_db.execute(
+                            "SELECT detail FROM sweep_flags WHERE mint = ? AND flag_type = '_SNAPSHOT' "
+                            "ORDER BY created_at DESC LIMIT 1", (t["mint"],),
+                        )
+                        _pa_row = await _pa_cursor.fetchone()
+                        if _pa_row:
+                            _pa_snap = json.loads(_pa_row[0])
+                            _pa_name = _pa_snap.get("token_name") or _pa_name
+                    except Exception:
+                        pass
+                    _pa_symbol = ""
+                    try:
+                        _pa_symbol = _pa_snap.get("token_symbol") or "" if _pa_row else ""
+                    except Exception:
+                        pass
+                    _pa_label = f"{_pa_name} ({_pa_symbol})" if _pa_symbol else _pa_name
                     asyncio.create_task(
                         _push_fcm_to_watchers(
                             mint=t["mint"],
-                            title=f"Pulse: {t['trigger']}",
-                            body=f"Price: ${t['now_price']:.6f}",
+                            title=f"🔔 {_pa_label}",
+                            body=f"{t['trigger']} — Price: ${t['now_price']:.6f}",
                             alert_type="pulse_alert",
+                            token_name=_pa_name,
                         ),
                         name=f"pulse_alert_{t['mint'][:8]}",
                     )
@@ -1470,3 +1563,82 @@ async def run_market_pulse(cache) -> list[dict]:
     except Exception as exc:
         logger.warning("[pulse] market pulse failed: %s", exc)
         return []
+
+
+# ── Immediate rescan trigger (used by Helius webhook + ad-hoc callers) ───────
+
+# In-flight dedup: prevents a storm of events on the same mint from launching
+# parallel duplicate rescans. Each mint is locked while a rescan is running;
+# concurrent callers on the same mint short-circuit with a "skipped" result.
+_RESCAN_INFLIGHT: set[str] = set()
+_RESCAN_INFLIGHT_LOCK = asyncio.Lock()
+
+
+async def trigger_immediate_rescan(
+    mint: str,
+    reason: str,
+    cache,
+    *,
+    skip_ai: bool = True,
+) -> dict:
+    """Rescan every user_watch pointing at *mint* right now.
+
+    Used by the Helius webhook handler and any other component that needs to
+    bypass the 45-minute sweep cadence. Returns a summary dict:
+
+        {"mint": ..., "watches": N, "results": [...], "skipped": bool}
+
+    Concurrent calls for the same mint are deduplicated — the second caller
+    returns ``{"skipped": True}`` immediately without re-running the pipeline.
+
+    *skip_ai* defaults to True because event-driven rescans should be cheap
+    and fast; upgrade to False only for deliberate Elite paths.
+    """
+    if not mint:
+        return {"mint": "", "watches": 0, "results": [], "skipped": True}
+
+    async with _RESCAN_INFLIGHT_LOCK:
+        if mint in _RESCAN_INFLIGHT:
+            logger.info("[webhook] %s rescan already inflight — skipping (%s)", mint[:12], reason)
+            return {"mint": mint, "watches": 0, "results": [], "skipped": True}
+        _RESCAN_INFLIGHT.add(mint)
+
+    try:
+        db = await cache._get_conn()
+        cursor = await db.execute(
+            "SELECT id, user_id FROM user_watches WHERE sub_type = 'mint' AND value = ?",
+            (mint,),
+        )
+        rows = await cursor.fetchall()
+        if not rows:
+            logger.debug("[webhook] %s has no active watches — skip", mint[:12])
+            return {"mint": mint, "watches": 0, "results": [], "skipped": False}
+
+        logger.info(
+            "[webhook] immediate rescan for %s (%d watches) — reason=%s",
+            mint[:12], len(rows), reason,
+        )
+
+        results: list[dict] = []
+        for watch_id, user_id in rows:
+            try:
+                res = await run_single_rescan(
+                    int(watch_id), int(user_id), cache, skip_ai=skip_ai,
+                )
+                if res:
+                    results.append(res)
+            except Exception as exc:
+                logger.warning(
+                    "[webhook] rescan failed for watch=%s user=%s mint=%s: %s",
+                    watch_id, user_id, mint[:12], exc,
+                )
+        return {
+            "mint": mint,
+            "watches": len(rows),
+            "results": results,
+            "skipped": False,
+            "reason": reason,
+        }
+    finally:
+        async with _RESCAN_INFLIGHT_LOCK:
+            _RESCAN_INFLIGHT.discard(mint)

@@ -114,13 +114,13 @@ function buildTokenContext(mint: string, fetched: FetchedLineage | null): string
   }
 
   if (dc) {
-    parts.push(`\nDEATH CLOCK:`);
+    parts.push(`\nRISK TIMELINE:`);
     parts.push(`  Risk level: ${dc.risk_level}`);
-    parts.push(`  Historical rugs: ${dc.historical_rug_count}`);
-    if (dc.rug_probability_pct != null) parts.push(`  Rug probability: ${dc.rug_probability_pct}%`);
-    if (dc.median_rug_hours > 0) parts.push(`  Median rug timing: ${dc.median_rug_hours.toFixed(1)}h`);
+    parts.push(`  Historical incidents: ${dc.historical_rug_count}`);
+    if (dc.rug_probability_pct != null) parts.push(`  Lifecycle risk signal: ${dc.rug_probability_pct}%`);
+    if (dc.median_rug_hours > 0) parts.push(`  Median lifecycle event timing: ${dc.median_rug_hours.toFixed(1)}h`);
     parts.push(`  Elapsed: ${dc.elapsed_hours.toFixed(1)}h since launch`);
-    if (dc.predicted_window_start) parts.push(`  Rug window: ${dc.predicted_window_start} → ${dc.predicted_window_end}`);
+    if (dc.predicted_window_start) parts.push(`  Predicted risk window: ${dc.predicted_window_start} → ${dc.predicted_window_end}`);
     parts.push(`  Confidence: ${dc.confidence_level} (${dc.confidence_note})`);
     parts.push(`  Basis: ${dc.prediction_basis} (${dc.sample_count} samples)`);
     if (dc.basis_breakdown && Object.keys(dc.basis_breakdown).length > 0) {

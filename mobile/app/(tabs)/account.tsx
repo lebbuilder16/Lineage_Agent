@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import {
-  View, Text, StyleSheet, ScrollView, Alert, Pressable, Image, Modal,
+  View, Text, StyleSheet, ScrollView, Alert, Pressable, Image, Modal, ActivityIndicator,
 } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -9,7 +9,7 @@ import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import {
-  User, Crown, ChevronRight, LogOut, Key, Bell, RefreshCw, Shield, Scan, Eye, Award,
+  User, Crown, ChevronRight, LogOut, Key, Bell, RefreshCw, Shield, Scan, Eye, Award, Camera, Trash2,
 } from 'lucide-react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { GlassCard } from '../../src/components/ui/GlassCard';
@@ -109,22 +109,76 @@ export default function AccountScreen() {
     router.replace('/(auth)/welcome');
   };
 
+  const handleDeleteAccount = () => {
+    // Two-step confirmation per Apple Guideline 5.1.1(v) — make destructive action obvious
+    Alert.alert(
+      'Delete Account?',
+      'This permanently deletes your account, watchlist, alerts, investigations, and all related data. This action cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Continue',
+          style: 'destructive',
+          onPress: () => {
+            Alert.alert(
+              'Final confirmation',
+              'Are you absolutely sure? Your account and all data will be erased forever.',
+              [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                  text: 'Delete forever',
+                  style: 'destructive',
+                  onPress: async () => {
+                    if (!apiKey) return;
+                    try {
+                      const { deleteAccount } = await import('../../src/lib/api');
+                      await deleteAccount(apiKey);
+                      // Reuse the existing logout cleanup pipeline
+                      const { purgeUserData } = await import('../../src/lib/purge-user-data');
+                      await purgeUserData();
+                      setApiKey(null);
+                      router.replace('/(auth)/welcome');
+                    } catch (err) {
+                      const msg = err instanceof Error ? err.message : 'Could not delete account';
+                      Alert.alert('Delete failed', msg);
+                    }
+                  },
+                },
+              ],
+            );
+          },
+        },
+      ],
+    );
+  };
+
   const handlePickAvatar = async () => {
     if (!apiKey) return;
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images'],
       allowsEditing: true,
       aspect: [1, 1],
-      quality: 0.7,
+      quality: 0.3,
       base64: true,
     });
-    if (result.canceled || !result.assets?.[0]?.base64) return;
+    if (result.canceled || !result.assets?.[0]) return;
     setAvatarUploading(true);
     try {
-      const dataUri = `data:image/jpeg;base64,${result.assets[0].base64}`;
+      // Resize to small thumbnail to keep base64 under DB limit
+      const { manipulateAsync, SaveFormat } = await import('expo-image-manipulator');
+      const manipulated = await manipulateAsync(
+        result.assets[0].uri,
+        [{ resize: { width: 96, height: 96 } }],
+        { compress: 0.5, format: SaveFormat.JPEG, base64: true },
+      );
+      if (!manipulated.base64) throw new Error('No base64');
+      const dataUri = `data:image/jpeg;base64,${manipulated.base64}`;
       const updated = await updateProfile(apiKey, { avatar_url: dataUri });
       setUser(updated);
-    } catch { /* best-effort */ }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Upload failed';
+      Alert.alert('Avatar upload failed', msg);
+    }
     setAvatarUploading(false);
   };
 
@@ -194,7 +248,7 @@ export default function AccountScreen() {
           {/* ── Section 1: Profile Hero ──────────────────────────────────────── */}
           <Animated.View entering={FadeInDown.duration(400)}>
             <GlassCard style={styles.profileCard}>
-              <Pressable onPress={handlePickAvatar} disabled={avatarUploading}>
+              <Pressable onPress={handlePickAvatar} disabled={avatarUploading} style={styles.avatarWrapper}>
                 {user?.avatar_url ? (
                   <Image source={{ uri: user.avatar_url }} style={styles.avatarImg} />
                 ) : (
@@ -202,7 +256,19 @@ export default function AccountScreen() {
                     <Text style={[styles.avatarText, { color: bg1 }]}>{displayName[0]?.toUpperCase() ?? 'A'}</Text>
                   </View>
                 )}
+                {avatarUploading ? (
+                  <View style={[styles.cameraBadge, { backgroundColor: tokens.white20 }]}>
+                    <ActivityIndicator size={12} color={tokens.white} />
+                  </View>
+                ) : (
+                  <View style={styles.cameraBadge}>
+                    <Camera size={12} color={tokens.white} strokeWidth={2.5} />
+                  </View>
+                )}
               </Pressable>
+              {!user?.avatar_url && !avatarUploading && (
+                <Text style={styles.avatarHint}>Tap to add a photo</Text>
+              )}
 
               <Pressable onPress={() => setEditVisible(true)} style={styles.nameRow}>
                 <Text style={styles.profileName}>{displayName}</Text>
@@ -320,6 +386,29 @@ export default function AccountScreen() {
             </HapticButton>
           </Animated.View>
 
+          {/* Danger Zone — Delete Account (Apple Guideline 5.1.1(v)) */}
+          <Animated.View entering={FadeInDown.delay(350).duration(400)} style={styles.dangerZone}>
+            <Text style={styles.dangerZoneLabel}>DANGER ZONE</Text>
+            <Pressable style={styles.deleteAccountBtn} onPress={handleDeleteAccount}>
+              <Trash2 size={15} color={tokens.risk.critical} />
+              <Text style={styles.deleteAccountText}>Delete Account</Text>
+            </Pressable>
+            <Text style={styles.dangerZoneHint}>
+              Permanently erases your account, watchlist, alerts and history. Cannot be undone.
+            </Text>
+          </Animated.View>
+
+          {/* Legal links — required by Google Play / App Store for in-app access */}
+          <Animated.View entering={FadeInDown.delay(400).duration(400)} style={styles.legalRow}>
+            <Pressable onPress={() => router.push('/legal/privacy' as any)}>
+              <Text style={styles.legalLink}>Privacy Policy</Text>
+            </Pressable>
+            <Text style={styles.legalDot}>·</Text>
+            <Pressable onPress={() => router.push('/legal/terms' as any)}>
+              <Text style={styles.legalLink}>Terms of Service</Text>
+            </Pressable>
+          </Animated.View>
+
           <Text style={styles.appVersion}>Lineage Agent v1.0.0</Text>
 
         </ScrollView>
@@ -424,8 +513,16 @@ const styles = StyleSheet.create({
     width: 80, height: 80, borderRadius: 40,
     borderWidth: 2, alignItems: 'center', justifyContent: 'center', marginBottom: 12,
   },
-  avatarImg: { width: 80, height: 80, borderRadius: 40, marginBottom: 12 },
+  avatarImg: { width: 80, height: 80, borderRadius: 40 },
   avatarText: { fontFamily: 'Lexend-Bold', fontSize: 28 },
+  avatarWrapper: { position: 'relative' as const, marginBottom: 4 },
+  avatarHint: { fontFamily: 'Lexend-Regular', fontSize: 11, color: tokens.white40, marginBottom: 8 },
+  cameraBadge: {
+    position: 'absolute' as const, bottom: 0, right: 0,
+    width: 26, height: 26, borderRadius: 13,
+    backgroundColor: tokens.secondary, alignItems: 'center' as const, justifyContent: 'center' as const,
+    borderWidth: 2, borderColor: tokens.bg1,
+  },
   nameRow: { alignItems: 'center', gap: 2 },
   profileName: { fontFamily: 'Lexend-Bold', fontSize: tokens.font.sectionHeader, color: tokens.white100 },
   profileHandle: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.small, color: tokens.textTertiary },
@@ -476,7 +573,65 @@ const styles = StyleSheet.create({
   logoutText: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.body, color: tokens.accent },
   appVersion: {
     fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny,
-    color: tokens.white20, textAlign: 'center', marginTop: 8,
+    color: tokens.white20, textAlign: 'center', marginTop: 4,
+  },
+
+  // Legal links
+  legalRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: 16,
+  },
+  legalLink: {
+    fontFamily: 'Lexend-Regular',
+    fontSize: tokens.font.tiny,
+    color: tokens.textTertiary,
+    textDecorationLine: 'underline',
+  },
+  legalDot: {
+    fontFamily: 'Lexend-Regular',
+    fontSize: tokens.font.tiny,
+    color: tokens.white20,
+  },
+
+  // Danger Zone
+  dangerZone: {
+    marginTop: 24,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: `${tokens.risk.critical}20`,
+    gap: 8,
+  },
+  dangerZoneLabel: {
+    fontFamily: 'Lexend-SemiBold',
+    fontSize: 10,
+    color: tokens.risk.critical,
+    letterSpacing: 1.4,
+  },
+  deleteAccountBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    borderRadius: tokens.radius.sm,
+    borderWidth: 1,
+    borderColor: `${tokens.risk.critical}40`,
+    backgroundColor: `${tokens.risk.critical}10`,
+  },
+  deleteAccountText: {
+    fontFamily: 'Lexend-SemiBold',
+    fontSize: tokens.font.small,
+    color: tokens.risk.critical,
+  },
+  dangerZoneHint: {
+    fontFamily: 'Lexend-Regular',
+    fontSize: 10,
+    color: tokens.white40,
+    textAlign: 'center',
+    lineHeight: 14,
   },
 
   // Confirmation Modal

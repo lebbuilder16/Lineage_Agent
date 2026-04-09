@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -58,18 +58,22 @@ export default function ScanScreen() {
   // Enrich recent searches that only have a mint address (no name/symbol)
   const enrichedRef = useRef<Set<string>>(new Set());
   React.useEffect(() => {
-    const missing = recentSearches.filter(
-      (r) => !r.name && r.mint && !enrichedRef.current.has(r.mint),
-    ).slice(0, 3);
-    for (const r of missing) {
-      enrichedRef.current.add(r.mint);
-      searchTokens(r.mint, 0, 1).then((data) => {
+    const mints = recentSearches
+      .filter((r) => !r.name && r.mint && !enrichedRef.current.has(r.mint))
+      .slice(0, 3)
+      .map((r) => r.mint);
+    if (mints.length === 0) return;
+    // Mark as enriched immediately to prevent re-trigger
+    for (const m of mints) enrichedRef.current.add(m);
+    for (const m of mints) {
+      searchTokens(m, 0, 1).then((data) => {
         if (data.length > 0 && (data[0].name || data[0].symbol)) {
           addRecentSearch(data[0].mint, data[0].name, data[0].symbol, data[0].image_uri);
         }
       }).catch(() => {});
     }
-  }, [recentSearches]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recentSearches.length]);
 
   const handleChange = useCallback((text: string) => {
     setQuery(text);
@@ -98,6 +102,11 @@ export default function ScanScreen() {
       }
     }, 250);
   }, [addRecentSearch]);
+
+  // Cleanup debounce timer on unmount
+  useEffect(() => {
+    return () => { if (debounceTimer.current) clearTimeout(debounceTimer.current); };
+  }, []);
 
   const handleClear = () => { setQuery(''); setResults([]); };
 

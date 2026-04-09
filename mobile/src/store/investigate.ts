@@ -8,7 +8,7 @@
  */
 import { create } from 'zustand';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import type { AgentVerdict } from '../lib/investigate-streaming';
+import type { AgentVerdict, ForensicSnapshotEvent } from '../lib/investigate-streaming';
 import type { PlanTier } from '../lib/tier-limits';
 import type { ChatMessage } from '../lib/investigate-streaming';
 
@@ -59,6 +59,9 @@ interface InvestigateState {
     boost_count?: number | null;
   } | null;
 
+  // Forensic snapshot (raw data from pipeline)
+  forensicSnapshot: ForensicSnapshotEvent | null;
+
   // Agent phase (Pro+ only)
   agentSteps: AgentStep[];
 
@@ -86,6 +89,7 @@ interface InvestigateState {
   setScanningDone: () => void;
   setAnalyzing: () => void;
   setReasoning: () => void;
+  setForensicSnapshot: (snapshot: ForensicSnapshotEvent) => void;
   setHeuristicComplete: (score: number, riskLevel?: string, findings?: string[]) => void;
   addAgentStep: (step: AgentStep) => void;
   setVerdict: (verdict: AgentVerdict, turnsUsed: number, tokensUsed: number) => void;
@@ -108,6 +112,7 @@ const INITIAL_STATE = {
   riskLevel: null as InvestigateState['riskLevel'],
   findings: [] as string[],
   marketData: null as InvestigateState['marketData'],
+  forensicSnapshot: null as ForensicSnapshotEvent | null,
   agentSteps: [] as AgentStep[],
   verdict: null as AgentVerdict | null,
   turnsUsed: 0,
@@ -151,6 +156,9 @@ export const useInvestigateStore = create<InvestigateState>((set, get) => ({
 
   setReasoning: () =>
     set({ status: 'reasoning' }),
+
+  setForensicSnapshot: (snapshot) =>
+    set({ forensicSnapshot: snapshot }),
 
   setHeuristicComplete: (score, riskLevel, findings) => {
     set({

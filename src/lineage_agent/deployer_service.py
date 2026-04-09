@@ -53,6 +53,7 @@ def _is_confirmed_rug(row: dict) -> bool:
 
 # Simple in-process TTL cache: {address: (expires_at, DeployerProfile)}
 _profile_cache: dict[str, tuple[float, Optional[DeployerProfile]]] = {}
+_PROFILE_CACHE_MAX = 5000  # LRU eviction threshold
 _cache_lock: Optional[asyncio.Lock] = None
 
 
@@ -101,9 +102,14 @@ async def compute_deployer_profile(deployer: str) -> Optional[DeployerProfile]:
         logger.debug("compute_deployer_profile failed for %s: %s", deployer, exc)
         profile = None
 
-    # Store in L1 + L2
+    # Store in L1 + L2 (with LRU eviction)
     async with lock:
         _profile_cache[deployer] = (time.monotonic() + _CACHE_TTL_SECONDS, profile)
+        if len(_profile_cache) > _PROFILE_CACHE_MAX:
+            # Evict oldest 20% by expiry time
+            sorted_keys = sorted(_profile_cache, key=lambda k: _profile_cache[k][0])
+            for k in sorted_keys[:len(sorted_keys) // 5]:
+                del _profile_cache[k]
     if profile is not None:
         try:
             from .redis_cache import redis_setjson, is_redis_enabled

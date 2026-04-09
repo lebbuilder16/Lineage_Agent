@@ -5,7 +5,6 @@ import {
   ScrollView,
   StyleSheet,
   TouchableOpacity,
-  Platform,
   ActivityIndicator,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -25,8 +24,6 @@ import {
 } from '../src/lib/revenuecat';
 import type { PurchasesPackage } from 'react-native-purchases';
 
-const isAndroid = Platform.OS === 'android';
-
 // ── Plan definitions ────────────────────────────────────────────────────────
 
 interface PlanDef {
@@ -35,8 +32,6 @@ interface PlanDef {
   color: string;
   monthlyPrice: number;
   yearlyPrice: number;
-  monthlyUsdc: number;
-  yearlyUsdc: number;
   popular?: boolean;
   features: { label: string; included: boolean }[];
 }
@@ -48,8 +43,6 @@ const PLANS: PlanDef[] = [
     color: '#CFE6E4',
     monthlyPrice: 9.99,
     yearlyPrice: 89.99,
-    monthlyUsdc: 9.99,
-    yearlyUsdc: 89.99,
     features: [
       { label: '50 scans/day', included: true },
       { label: 'AI Verdict (Haiku)', included: true },
@@ -70,8 +63,6 @@ const PLANS: PlanDef[] = [
     color: '#FFD666',
     monthlyPrice: 34.99,
     yearlyPrice: 279.99,
-    monthlyUsdc: 34.99,
-    yearlyUsdc: 279.99,
     popular: true,
     features: [
       { label: '100 scans/day', included: true },
@@ -98,7 +89,6 @@ export default function PaywallScreen() {
   const [rcPackages, setRcPackages] = useState<PurchasesPackage[]>([]);
   const { showToast, toast } = useToast();
   const setPlan = useSubscriptionStore((s) => s.setPlan);
-
   // Fetch RevenueCat offerings on mount
   useEffect(() => {
     if (!isRCReady()) return;
@@ -258,62 +248,9 @@ export default function PaywallScreen() {
                 )}
               </HapticButton>
 
-              {/* CTA: Pay with USDC (Android only) */}
-              {isAndroid && (
-                <View style={styles.usdcRow}>
-                  <HapticButton
-                    variant="ghost"
-                    fullWidth
-                    onPress={() => showToast('USDC payments coming soon')}
-                  >
-                    <Text style={styles.usdcBtnText}>Pay with USDC</Text>
-                    <Text style={styles.usdcPrice}>
-                      ${yearly
-                        ? plan.yearlyUsdc.toFixed(2)
-                        : plan.monthlyUsdc.toFixed(2)}
-                      {yearly ? '/yr' : '/mo'}
-                    </Text>
-                    <View style={styles.discountBadge}>
-                      <Text style={styles.discountBadgeText}>-10%</Text>
-                    </View>
-                  </HapticButton>
-                </View>
-              )}
             </GlassCard>
           </Animated.View>
         ))}
-
-        {/* ── Scan Credit Packs ─────────────────────────────────────────── */}
-        <Animated.View
-          entering={FadeInDown.duration(350).delay(200).springify()}
-        >
-          <GlassCard style={styles.creditCard}>
-            <Text style={styles.creditTitle}>Pay Per Scan</Text>
-            <Text style={styles.creditSubtitle}>
-              Out of free scans? Buy credits with LINEAGE token.
-            </Text>
-            <View style={styles.creditPacks}>
-              {[
-                { label: '1 Scan', price: '$0.30', key: 'single' },
-                { label: '5 Scans', price: '$1.29', sub: '$0.26/scan', key: 'five_pack' },
-                { label: '15 Scans', price: '$3.49', sub: '$0.23/scan', key: 'fifteen_pack' },
-              ].map((pack) => (
-                <TouchableOpacity
-                  key={pack.key}
-                  style={styles.creditPack}
-                  onPress={() => showToast('LINEAGE token payments coming soon')}
-                  activeOpacity={0.7}
-                >
-                  <Text style={styles.creditPackLabel}>{pack.label}</Text>
-                  <Text style={styles.creditPackPrice}>{pack.price}</Text>
-                  {pack.sub && (
-                    <Text style={styles.creditPackSub}>{pack.sub}</Text>
-                  )}
-                </TouchableOpacity>
-              ))}
-            </View>
-          </GlassCard>
-        </Animated.View>
 
         {/* ── Footer ───────────────────────────────────────────────────── */}
         <Animated.View
@@ -475,20 +412,6 @@ const styles = StyleSheet.create({
     color: tokens.white100,
   },
 
-  // USDC
-  usdcRow: {
-    marginTop: -4,
-  },
-  usdcBtnText: {
-    fontFamily: 'Lexend-SemiBold',
-    fontSize: tokens.font.small,
-    color: tokens.white80,
-  },
-  usdcPrice: {
-    fontFamily: 'Lexend-Regular',
-    fontSize: tokens.font.small,
-    color: tokens.white60,
-  },
   discountBadge: {
     backgroundColor: tokens.success,
     borderRadius: tokens.radius.pill,
@@ -528,50 +451,4 @@ const styles = StyleSheet.create({
     color: tokens.textTertiary,
   },
 
-  // Credit packs
-  creditCard: {
-    gap: 12,
-    borderColor: tokens.borderSubtle,
-    borderWidth: 1,
-  },
-  creditTitle: {
-    fontFamily: 'Lexend-Bold',
-    fontSize: tokens.font.heading,
-    color: tokens.white100,
-  },
-  creditSubtitle: {
-    fontFamily: 'Lexend-Regular',
-    fontSize: tokens.font.small,
-    color: tokens.textTertiary,
-    marginTop: -4,
-  },
-  creditPacks: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  creditPack: {
-    flex: 1,
-    backgroundColor: tokens.bgGlass8,
-    borderRadius: tokens.radius.md,
-    borderWidth: 1,
-    borderColor: tokens.borderSubtle,
-    padding: 12,
-    alignItems: 'center',
-    gap: 4,
-  },
-  creditPackLabel: {
-    fontFamily: 'Lexend-SemiBold',
-    fontSize: tokens.font.body,
-    color: tokens.white100,
-  },
-  creditPackPrice: {
-    fontFamily: 'Lexend-Bold',
-    fontSize: tokens.font.body,
-    color: tokens.success,
-  },
-  creditPackSub: {
-    fontFamily: 'Lexend-Regular',
-    fontSize: tokens.font.tiny,
-    color: tokens.textTertiary,
-  },
 });

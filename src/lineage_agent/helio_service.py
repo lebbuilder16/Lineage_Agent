@@ -71,8 +71,8 @@ async def create_payment_link(plan: str, user_id: int) -> dict | None:
 async def verify_helio_webhook(body: bytes, signature: str | None) -> bool:
     """Verify Helio webhook HMAC-SHA256 signature."""
     if not HELIO_WEBHOOK_SECRET:
-        logger.warning("HELIO_WEBHOOK_SECRET not set — accepting all webhooks")
-        return True
+        logger.warning("HELIO_WEBHOOK_SECRET not set — rejecting all webhooks")
+        return False
     if not signature:
         return False
     expected = hmac.new(

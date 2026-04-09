@@ -30,7 +30,7 @@ const SCAN_STEPS: Record<string, { label: string; Icon: React.ElementType; color
   deployer_forensics:   { label: 'Deployer Forensics',    Icon: User,           color: tokens.step.deployer_profile },
   chain_traces:         { label: 'Chain Traces',          Icon: ArrowRightLeft, color: tokens.cyan },
   deployer_profile:     { label: 'Deployer Profile',      Icon: User,           color: tokens.step.deployer_profile },
-  death_clock:          { label: 'Death Clock',           Icon: Clock,          color: tokens.step.death_clock },
+  death_clock:          { label: 'Risk Timeline',         Icon: Clock,          color: tokens.step.death_clock },
   factory_rhythm:       { label: 'Factory Rhythm',        Icon: Network,        color: tokens.step.factory_rhythm },
   operator_fingerprint: { label: 'Operator Fingerprint',  Icon: Fingerprint,    color: tokens.step.operator_fingerprint },
   cartel:               { label: 'Cartel Detection',      Icon: Network,        color: tokens.step.cartel },

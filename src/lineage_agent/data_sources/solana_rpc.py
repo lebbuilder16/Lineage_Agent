@@ -126,6 +126,59 @@ _MAX_RETRIES = 3
 _MAX_RETRIES_WITH_FALLBACK = 1  # fewer retries when fallback endpoints exist
 _BACKOFF_BASE = 2.0  # seconds (increased from 1.5 to reduce 429 cascades)
 
+# Global concurrency + rate limiter — prevents 429 cascades.
+# Helius free (beta) ≈ 10 req/s; we target 8 req/s total with 5 max concurrent.
+_rpc_semaphore: asyncio.Semaphore | None = None
+_RPC_MAX_CONCURRENT = 5
+
+def _get_rpc_semaphore() -> asyncio.Semaphore:
+    global _rpc_semaphore
+    if _rpc_semaphore is None:
+        _rpc_semaphore = asyncio.Semaphore(_RPC_MAX_CONCURRENT)
+    return _rpc_semaphore
+
+
+class _TokenBucket:
+    """Simple async token-bucket rate limiter."""
+    __slots__ = ("_rate", "_max_tokens", "_tokens", "_last", "_lock")
+
+    def __init__(self, rate: float, burst: int = 1) -> None:
+        self._rate = rate           # tokens per second
+        self._max_tokens = burst
+        self._tokens = float(burst)
+        self._last = 0.0
+        self._lock: asyncio.Lock | None = None
+
+    async def acquire(self) -> None:
+        import time as _time
+        if self._lock is None:
+            self._lock = asyncio.Lock()
+        async with self._lock:
+            now = _time.monotonic()
+            if self._last:
+                self._tokens = min(
+                    self._max_tokens,
+                    self._tokens + (now - self._last) * self._rate,
+                )
+            self._last = now
+            if self._tokens < 1.0:
+                wait = (1.0 - self._tokens) / self._rate
+                await asyncio.sleep(wait)
+                self._tokens = 0.0
+                self._last = _time.monotonic()
+            else:
+                self._tokens -= 1.0
+
+
+_rpc_rate_limiter: _TokenBucket | None = None
+_RPC_RATE_PER_SEC = 8  # target 8 req/s (Helius beta free ≈ 10)
+
+def _get_rate_limiter() -> _TokenBucket:
+    global _rpc_rate_limiter
+    if _rpc_rate_limiter is None:
+        _rpc_rate_limiter = _TokenBucket(rate=_RPC_RATE_PER_SEC, burst=_RPC_RATE_PER_SEC)
+    return _rpc_rate_limiter
+
 
 # Addresses that are programs / burned authorities, NOT user wallets.
 # When extracting the deployer from a transaction's accountKeys we skip these
@@ -975,6 +1028,113 @@ class SolanaRpcClient:
             return []
 
     # ------------------------------------------------------------------
+    # Helius webhook management (Enhanced webhooks)
+    # https://www.helius.dev/docs/webhooks
+    # ------------------------------------------------------------------
+    _WEBHOOKS_BASE = "https://api.helius.xyz/v0/webhooks"
+
+    async def create_helius_webhook(
+        self,
+        *,
+        webhook_url: str,
+        account_addresses: list[str],
+        transaction_types: list[str] | None = None,
+        webhook_type: str = "enhanced",
+        auth_header: str = "",
+    ) -> dict:
+        """Register a new Helius webhook.
+
+        Returns the full webhook record (including ``webhookID``) on success.
+        Raises ``RuntimeError`` on any non-2xx response so the caller can
+        surface a clear error (missing API key, invalid address, etc.).
+        """
+        api_key = self.helius_api_key
+        if not api_key:
+            raise RuntimeError("Helius API key missing — cannot create webhook")
+
+        payload: dict = {
+            "webhookURL": webhook_url,
+            "transactionTypes": transaction_types or ["ANY"],
+            "accountAddresses": list(dict.fromkeys(account_addresses)),
+            "webhookType": webhook_type,
+        }
+        if auth_header:
+            payload["authHeader"] = auth_header
+
+        client = await self._get_client_for(self._endpoints[0])
+        resp = await client.post(
+            self._WEBHOOKS_BASE,
+            params={"api-key": api_key},
+            json=payload,
+            timeout=15.0,
+        )
+        if resp.status_code // 100 != 2:
+            raise RuntimeError(
+                f"Helius create_webhook failed: {resp.status_code} {resp.text[:200]}"
+            )
+        data = resp.json()
+        return data if isinstance(data, dict) else {}
+
+    async def update_helius_webhook(
+        self,
+        webhook_id: str,
+        *,
+        account_addresses: list[str] | None = None,
+        transaction_types: list[str] | None = None,
+        webhook_url: str | None = None,
+        auth_header: str | None = None,
+    ) -> dict:
+        """Patch an existing Helius webhook. Only provided fields are updated."""
+        api_key = self.helius_api_key
+        if not api_key:
+            raise RuntimeError("Helius API key missing — cannot update webhook")
+        if not webhook_id:
+            raise ValueError("webhook_id is required")
+
+        payload: dict = {}
+        if account_addresses is not None:
+            payload["accountAddresses"] = list(dict.fromkeys(account_addresses))
+        if transaction_types is not None:
+            payload["transactionTypes"] = transaction_types
+        if webhook_url is not None:
+            payload["webhookURL"] = webhook_url
+        if auth_header is not None:
+            payload["authHeader"] = auth_header
+
+        client = await self._get_client_for(self._endpoints[0])
+        resp = await client.put(
+            f"{self._WEBHOOKS_BASE}/{webhook_id}",
+            params={"api-key": api_key},
+            json=payload,
+            timeout=15.0,
+        )
+        if resp.status_code // 100 != 2:
+            raise RuntimeError(
+                f"Helius update_webhook failed: {resp.status_code} {resp.text[:200]}"
+            )
+        data = resp.json()
+        return data if isinstance(data, dict) else {}
+
+    async def get_helius_webhook(self, webhook_id: str) -> dict:
+        """Fetch a single webhook by ID. Returns {} if not found."""
+        api_key = self.helius_api_key
+        if not api_key or not webhook_id:
+            return {}
+        client = await self._get_client_for(self._endpoints[0])
+        try:
+            resp = await client.get(
+                f"{self._WEBHOOKS_BASE}/{webhook_id}",
+                params={"api-key": api_key},
+                timeout=10.0,
+            )
+        except Exception:
+            return {}
+        if resp.status_code == 200:
+            data = resp.json()
+            return data if isinstance(data, dict) else {}
+        return {}
+
+    # ------------------------------------------------------------------
     # DAS methods — only work on endpoints that support DAS
     # ------------------------------------------------------------------
     _DAS_METHODS = frozenset({"getAsset", "getAssetsByOwner", "searchAssets"})
@@ -1025,6 +1185,25 @@ class SolanaRpcClient:
             "params": params,
         }
 
+        await _get_rate_limiter().acquire()
+        sem = _get_rpc_semaphore()
+        await sem.acquire()
+        try:
+            return await self._call_inner(
+                method, payload, endpoints, retries, circuit_protect, _cache_sig,
+            )
+        finally:
+            sem.release()
+
+    async def _call_inner(
+        self,
+        method: str,
+        payload: dict,
+        endpoints: list[RpcEndpoint],
+        retries: int,
+        circuit_protect: bool,
+        _cache_sig: str | None,
+    ) -> Any:
         for i, ep in enumerate(endpoints):
             client = await self._get_client_for(ep)
             is_last = i == len(endpoints) - 1

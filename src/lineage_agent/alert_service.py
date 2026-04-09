@@ -230,8 +230,22 @@ async def _send_fcm_push(fcm_token: str, title: str, body: str, data: dict) -> b
             "android": {
                 "priority": "high",
                 "notification": {
-                    "channel_id": "critical" if data.get("urgency") == "high" else "default",
+                    # Explicitly set title/body so Android always uses our values
+                    # (some Android versions ignore top-level notification fields
+                    # when android.notification is present)
+                    "title": title,
+                    "body": body,
+                    # Use the channel the mobile app actually creates ("alerts")
+                    "channel_id": "alerts",
                     "color": "#00FF9D",
+                },
+            },
+            "apns": {
+                "payload": {
+                    "aps": {
+                        "alert": {"title": title, "body": body},
+                        "sound": "default",
+                    },
                 },
             },
         }
@@ -366,6 +380,8 @@ async def _push_fcm_to_watchers(
     title: str,
     body: str,
     alert_type: str,
+    *,
+    token_name: str = "",
 ) -> None:
     """Fetch FCM tokens for all users watching *mint* and send them a push.
 
@@ -397,7 +413,7 @@ async def _push_fcm_to_watchers(
                     token,
                     title=title,
                     body=body,
-                    data={"type": alert_type, "mint": mint or ""},
+                    data={"type": alert_type, "mint": mint or "", "token_name": token_name},
                 )
     except Exception as exc:
         logger.debug("[FCM] push_to_watchers error: %s", exc)
@@ -617,6 +633,32 @@ def _get_alert_queue() -> asyncio.Queue:
     return _alert_dispatch_queue
 
 
+async def _is_quiet_hours(user_id: int | None) -> bool:
+    """Check if the user has quiet hours configured and we're currently in them."""
+    if not user_id:
+        return False
+    try:
+        from .data_sources._clients import cache as _cache  # noqa: PLC0415
+        db = await _cache._get_conn()
+        cur = await db.execute(
+            "SELECT quiet_hours_start, quiet_hours_end FROM agent_prefs WHERE user_id = ?",
+            (user_id,),
+        )
+        row = await cur.fetchone()
+        if not row or row[0] is None or row[1] is None:
+            return False
+        start_h, end_h = row[0], row[1]
+        from datetime import datetime, timezone  # noqa: PLC0415
+        now_h = datetime.now(timezone.utc).hour
+        if start_h <= end_h:
+            # Non-wrapping: e.g. 9-17 → quiet if 9 <= hour < 17
+            return start_h <= now_h < end_h
+        # Wrapping case: e.g. 22 to 7 → quiet if hour >= 22 OR hour < 7
+        return now_h >= start_h or now_h < end_h
+    except Exception:
+        return False
+
+
 async def enqueue_alert(payload: dict, user_id: int | None = None, fcm_token: str | None = None) -> None:
     """Non-blocking: push alert to dispatch queue for async delivery."""
     q = _get_alert_queue()
@@ -639,8 +681,8 @@ async def _alert_consumer_loop() -> None:
             # WebSocket + OpenClaw + FCM (to watchers)
             await _broadcast_web_alert(payload, user_id=user_id)
 
-            # Direct FCM push to specific user (if token provided)
-            if fcm_token:
+            # Direct FCM push to specific user (if token provided + not in quiet hours)
+            if fcm_token and not await _is_quiet_hours(user_id):
                 title = payload.get("title", "Lineage Alert")
                 body = payload.get("body", "")
                 data = {

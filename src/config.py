@@ -66,6 +66,44 @@ TELEGRAM_WEBHOOK_URL: str = os.getenv("TELEGRAM_WEBHOOK_URL", "")
 TELEGRAM_WEBHOOK_SECRET: str = os.getenv("TELEGRAM_WEBHOOK_SECRET", "")
 
 # ---------------------------------------------------------------------------
+# Twitter automation module (twitter/)
+# ---------------------------------------------------------------------------
+# These are consumed by the optional `twitter/` package (agent, scheduler,
+# routes). The module is self-contained and auto-disables at startup when
+# any of the required values below are missing.
+TWITTER_API_KEY: str = os.getenv("TWITTER_API_KEY", "")
+TWITTER_API_SECRET: str = os.getenv("TWITTER_API_SECRET", "")
+TWITTER_ACCESS_TOKEN: str = os.getenv("TWITTER_ACCESS_TOKEN", "")
+TWITTER_ACCESS_TOKEN_SECRET: str = os.getenv("TWITTER_ACCESS_TOKEN_SECRET", "")
+
+# Telegram human-in-the-loop bot for draft approvals (separate from the
+# existing TELEGRAM_BOT_TOKEN used by the core alerting system). Falls back to
+# TELEGRAM_BOT_TOKEN so a single bot can serve both purposes if the operator
+# prefers.
+TELEGRAM_TOKEN: str = os.getenv("TELEGRAM_TOKEN", "") or TELEGRAM_BOT_TOKEN
+TELEGRAM_CHAT_ID: str = os.getenv("TELEGRAM_CHAT_ID", "")
+
+# Birdeye — optional token discovery source (DexScreener trending is primary)
+BIRDEYE_API_KEY: str = os.getenv("BIRDEYE_API_KEY", "")
+
+
+def twitter_module_enabled() -> bool:
+    """Return True when every secret required by the twitter/ module is set.
+
+    The module is optional and must degrade silently when not configured,
+    so `api.py` can skip router inclusion and scheduler start.
+    """
+    return bool(
+        TWITTER_API_KEY
+        and TWITTER_API_SECRET
+        and TWITTER_ACCESS_TOKEN
+        and TWITTER_ACCESS_TOKEN_SECRET
+        and TELEGRAM_TOKEN
+        and TELEGRAM_CHAT_ID
+        and TELEGRAM_WEBHOOK_SECRET
+    )
+
+# ---------------------------------------------------------------------------
 # Solana RPC
 # ---------------------------------------------------------------------------
 SOLANA_RPC_ENDPOINT: str = os.getenv(
@@ -74,6 +112,21 @@ SOLANA_RPC_ENDPOINT: str = os.getenv(
 )
 # Comma-separated fallback RPC endpoints (tried in order when primary is down)
 SOLANA_RPC_FALLBACKS: str = os.getenv("SOLANA_RPC_FALLBACKS", "")
+
+# ---------------------------------------------------------------------------
+# Helius Enhanced Webhooks (push-based watchlist monitoring)
+# ---------------------------------------------------------------------------
+# When HELIUS_WEBHOOK_SECRET is empty the POST /agent/webhook/helius endpoint
+# is disabled (returns 503) and the sweep poll loop remains the sole monitor.
+# Rotate the secret via `fly secrets set HELIUS_WEBHOOK_SECRET=...` and update
+# the webhook auth header in Helius dashboard/API accordingly.
+HELIUS_WEBHOOK_SECRET: str = os.getenv("HELIUS_WEBHOOK_SECRET", "")
+# Public HTTPS URL that Helius should POST events to. Used by the registration
+# script only — the API server does not need it to handle incoming events.
+HELIUS_WEBHOOK_URL: str = os.getenv("HELIUS_WEBHOOK_URL", "")
+# Webhook ID returned by Helius after creation, persisted here so updates can
+# target the existing hook instead of creating duplicates.
+HELIUS_WEBHOOK_ID: str = os.getenv("HELIUS_WEBHOOK_ID", "")
 
 # ---------------------------------------------------------------------------
 # DexScreener
@@ -193,7 +246,16 @@ LOG_FORMAT: str = os.getenv("LOG_FORMAT", "text")  # "text" or "json"
 # Auth — Privy + JWT
 # ---------------------------------------------------------------------------
 PRIVY_APP_ID: str = os.getenv("PRIVY_APP_ID", "")
-JWT_SECRET: str = os.getenv("JWT_SECRET", "change-me-in-production-use-fly-secrets")
+PRIVY_APP_SECRET: str = os.getenv("PRIVY_APP_SECRET", "")
+JWT_SECRET: str = os.getenv("JWT_SECRET", "")
+if not JWT_SECRET:
+    import warnings
+    warnings.warn(
+        "JWT_SECRET is not set — using random secret (tokens will not survive restarts)",
+        stacklevel=1,
+    )
+    import secrets as _sec
+    JWT_SECRET = _sec.token_hex(32)
 
 # ---------------------------------------------------------------------------
 # Anthropic LLM

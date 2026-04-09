@@ -34,6 +34,7 @@ from typing import Literal, Optional
 from .constants import estimate_extraction_rate
 from .data_sources._clients import (
     cartel_edge_upsert,
+    cartel_edge_upsert_batch,
     cartel_edges_query,
     cartel_edges_query_all,
     community_lookup_upsert,
@@ -345,18 +346,17 @@ async def _signal_dna_match_all() -> int:
         for row in all_mappings:
             by_fp[row["fingerprint"]].append(row["wallet"])
 
+        batch: list[tuple[str, str, str, float, dict]] = []
         for fp, wallets in by_fp.items():
             if len(wallets) < 2:
                 continue
             ws = sorted(wallets)
             for i in range(len(ws)):
                 for j in range(i + 1, len(ws)):
-                    await cartel_edge_upsert(
-                        ws[i], ws[j],
-                        "dna_match", 0.95,
-                        {"fingerprint": fp},
-                    )
+                    batch.append((ws[i], ws[j], "dna_match", 0.95, {"fingerprint": fp}))
                     count += 1
+        if batch:
+            await cartel_edge_upsert_batch(batch)
     except Exception:
         logger.exception("_signal_dna_match_all failed")
     return count

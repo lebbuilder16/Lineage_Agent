@@ -83,7 +83,7 @@ export default function HistoryScreen() {
 
         <FlatList
           data={investigations}
-          keyExtractor={(item) => item.mint}
+          keyExtractor={(item) => `${item.mint}-${item.timestamp}`}
           renderItem={renderItem}
           contentContainerStyle={[styles.list, { paddingBottom: Math.max(insets.bottom + 80, 120) }]}
           showsVerticalScrollIndicator={false}

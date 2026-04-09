@@ -114,7 +114,7 @@ export async function getHealth(): Promise<HealthStatus> {
 // auth (schema returns `unknown` for auth endpoints -- cast manually)
 export async function authLogin(
   privyId: string,
-  opts?: { wallet_address?: string; email?: string },
+  opts?: { wallet_address?: string; email?: string; privy_token?: string },
 ): Promise<{ api_key: string; wallet_address?: string; email?: string; plan?: string }> {
   const BASE = (process.env.EXPO_PUBLIC_API_URL ?? 'https://lineage-agent.fly.dev').replace(/\/$/, '');
   const body = {
@@ -122,14 +122,18 @@ export async function authLogin(
     wallet_address: opts?.wallet_address ?? null,
     email: opts?.email ?? null,
   };
-  console.log('[api] authLogin →', BASE, JSON.stringify(body));
+  console.log('[api] authLogin →', BASE);
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (opts?.privy_token) {
+    headers['Authorization'] = `Bearer ${opts.privy_token}`;
+  }
   const res = await fetch(`${BASE}/auth/login`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: JSON.stringify(body),
   });
   const json = await res.json().catch(() => null);
-  console.log('[api] authLogin ←', res.status, JSON.stringify(json));
+  console.log('[api] authLogin ←', res.status);
   if (!res.ok) {
     throw new Error(json?.detail ?? `HTTP ${res.status}`);
   }
@@ -226,6 +230,22 @@ export async function getGraduations(limit = 20): Promise<Graduation[]> {
   const res = await fetch(`${BASE}/graduations?limit=${limit}`);
   if (!res.ok) return [];
   return res.json() as Promise<Graduation[]>;
+}
+
+/**
+ * Permanently delete the user account and all associated data.
+ * Required by Apple App Store Guideline 5.1.1(v).
+ */
+export async function deleteAccount(apiKey: string): Promise<void> {
+  const BASE = (process.env.EXPO_PUBLIC_API_URL ?? 'https://lineage-agent.fly.dev').replace(/\/$/, '');
+  const res = await fetch(`${BASE}/auth/me`, {
+    method: 'DELETE',
+    headers: { 'X-API-Key': apiKey },
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: `Delete failed (HTTP ${res.status})` }));
+    throw new Error(err.detail ?? `Delete failed (HTTP ${res.status})`);
+  }
 }
 
 export async function regenerateApiKey(apiKey: string): Promise<string> {

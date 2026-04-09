@@ -11,13 +11,15 @@ import {
 } from 'react-native';
 import { router } from 'expo-router';
 import Animated, { FadeInDown, LinearTransition } from 'react-native-reanimated';
-import { Bookmark, Plus, Search, X } from 'lucide-react-native';
+import { Bookmark, Plus, Search, X, BarChart3 } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useIsFocused } from '@react-navigation/native';
 import { GlassCard } from '../../src/components/ui/GlassCard';
 import { SkeletonBlock } from '../../src/components/ui/SkeletonLoader';
 import { ScreenHeader } from '../../src/components/ui/ScreenHeader';
+import { DisclaimerFooter } from '../../src/components/ui/DisclaimerFooter';
 import { useToast } from '../../src/components/ui/Toast';
+import { handleTierError } from '../../src/lib/tier-error';
 import { useWatches, useDeleteWatch, useAddWatch } from '../../src/lib/query';
 import { getWatchTimeline } from '../../src/lib/api';
 import { useAuthStore } from '../../src/store/auth';
@@ -110,22 +112,24 @@ export default function WatchlistScreen() {
       setTokenMeta((prev) => ({ ...prev, ...meta }));
     }
 
-    // 3. Fetch missing from /token-meta endpoint (DAS + DexScreener, lightweight)
+    // 3. Batch fetch missing from /token-meta/batch endpoint
     if (missing.length > 0) {
       const BASE = (process.env.EXPO_PUBLIC_API_URL ?? 'https://lineage-agent.fly.dev').replace(/\/$/, '');
-      for (const mint of missing) {
-        fetch(`${BASE}/token-meta/${mint}`)
-          .then((r) => r.ok ? r.json() : null)
-          .then((data: any) => {
-            if (data && (data.name || data.symbol || data.image_uri)) {
-              setTokenMeta((prev) => ({
-                ...prev,
-                [mint]: { name: data.name, symbol: data.symbol, image: data.image_uri },
-              }));
+      fetch(`${BASE}/token-meta/batch?mints=${missing.join(',')}`)
+        .then((r) => r.ok ? r.json() : [])
+        .then((results: any[]) => {
+          if (!results?.length) return;
+          const batch: Record<string, { name?: string; symbol?: string; image?: string }> = {};
+          for (const data of results) {
+            if (data?.mint && (data.name || data.symbol || data.image_uri)) {
+              batch[data.mint] = { name: data.name, symbol: data.symbol, image: data.image_uri };
             }
-          })
-          .catch(() => {});
-      }
+          }
+          if (Object.keys(batch).length > 0) {
+            setTokenMeta((prev) => ({ ...prev, ...batch }));
+          }
+        })
+        .catch(() => {});
     }
   }, [apiKey, effectiveWatches, flags]);
 
@@ -208,6 +212,24 @@ export default function WatchlistScreen() {
     });
   }, [urgentMints, flags]);
 
+  // Pre-compute flags by mint for O(1) lookup in renderItem
+  const flagsByMint = useMemo(() => {
+    const map = new Map<string, typeof flags>();
+    for (const f of flags) {
+      if (!f.mint) continue;
+      const arr = map.get(f.mint) ?? [];
+      arr.push(f);
+      map.set(f.mint, arr);
+    }
+    return map;
+  }, [flags]);
+
+  // Stable extraData reference for FlatList
+  const extraDataMemo = useMemo(
+    () => ({ expandedIds, timelineData, timelineLoading, flags, tokenMeta }),
+    [expandedIds, timelineData, timelineLoading, flags, tokenMeta],
+  );
+
   const handleToggleExpand = useCallback((id: string) => {
     setExpandedIds((prev) => {
       const next = new Set(prev);
@@ -240,7 +262,7 @@ export default function WatchlistScreen() {
       },
       onError: (err: any) => {
         setAddOpen(false);
-        const { handleTierError } = require('../../src/lib/tier-error');
+        // handleTierError imported at top level
         setTimeout(() => {
           if (!handleTierError(err, showToast)) {
             const msg = err?.message || err?.detail || 'Failed to add watch';
@@ -308,6 +330,15 @@ export default function WatchlistScreen() {
           rightAction={
             <View style={styles.headerActions}>
               <Text style={styles.count}>{effectiveWatches?.length ?? 0}</Text>
+              <TouchableOpacity
+                onPress={() => router.push('/sweep-dashboard' as any)}
+                hitSlop={tokens.hitSlop}
+                style={styles.headerBtn}
+                accessibilityRole="button"
+                accessibilityLabel="Sweep dashboard"
+              >
+                <BarChart3 size={18} color={tokens.textTertiary} />
+              </TouchableOpacity>
               <TouchableOpacity
                 onPress={() => setSearchOpen(!searchOpen)}
                 hitSlop={tokens.hitSlop}
@@ -419,18 +450,19 @@ export default function WatchlistScreen() {
             ref={flatListRef}
             data={effectiveWatches}
             keyExtractor={(item) => item.id}
-            extraData={[expandedIds, timelineData, timelineLoading, flags, tokenMeta]}
+            extraData={extraDataMemo}
             contentContainerStyle={[styles.listContent, { paddingBottom: Math.max(insets.bottom + 100, 120) }]}
             showsVerticalScrollIndicator={false}
             removeClippedSubviews
             windowSize={7}
             maxToRenderPerBatch={8}
             initialNumToRender={6}
+            ListFooterComponent={<DisclaimerFooter />}
             refreshControl={
               <RefreshControl refreshing={isLoading} onRefresh={handleRefresh} tintColor={tokens.secondary} />
             }
             renderItem={({ item, index }) => {
-              const mintFlags = flags.filter((f) => f.mint === item.value);
+              const mintFlags = flagsByMint.get(item.value) ?? [];
               const isExpanded = expandedIds.has(item.id);
               const isUrgent = urgentMints.includes(item.value);
               const timeline = timelineData[item.value];

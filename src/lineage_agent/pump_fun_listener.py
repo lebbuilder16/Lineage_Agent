@@ -470,6 +470,9 @@ async def _poll_loop() -> None:
         _POLL_INTERVAL, _HELIUS_API_KEY[:8],
     )
 
+    # Stagger startup to avoid RPC rate-limit burst with other background tasks
+    await asyncio.sleep(15)
+
     # Warm up: get the latest signature to avoid processing old data
     initial = await _fetch_recent_graduations()
     if initial:

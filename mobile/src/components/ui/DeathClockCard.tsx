@@ -106,10 +106,10 @@ export function DeathClockCard({ dc, riskColor, insiderSell, solExtracted, bundl
           style={styles.headerRow}
           accessible={true}
           accessibilityRole="summary"
-          accessibilityLabel={`Death Clock: ${effectiveRiskLabel} risk${dc?.rug_probability_pct != null ? `, ${dc.rug_probability_pct.toFixed(0)}% rug probability` : ''}`}
+          accessibilityLabel={`Risk Timeline: ${effectiveRiskLabel} risk${dc?.rug_probability_pct != null ? `, ${dc.rug_probability_pct.toFixed(0)}% lifecycle risk signal` : ''}`}
         >
           <View style={styles.headerLeft}>
-            <Text style={styles.title}>DEATH CLOCK</Text>
+            <Text style={styles.title}>RISK TIMELINE</Text>
             {dc?.rug_probability_pct != null && (
               <Text style={[styles.probValue, { color: effectiveBadgeColor }]}>
                 {dc.rug_probability_pct.toFixed(0)}%

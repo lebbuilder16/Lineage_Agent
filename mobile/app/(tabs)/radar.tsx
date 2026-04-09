@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
-import { View, Text, ScrollView, StyleSheet, TouchableOpacity, RefreshControl, Pressable } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, TouchableOpacity, RefreshControl, Pressable, Image } from 'react-native';
 import { router } from 'expo-router';
 import { TrendingUp, AlertTriangle, Bell, Zap, Skull, BookMarked, ChevronRight, User, Shield } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -43,18 +43,6 @@ const ALERT_ICONS: Record<AlertItem['type'], React.ReactNode> = {
   wallet_risk: <AlertTriangle size={14} color={tokens.risk.high} />,
 };
 
-function EmptyFeed() {
-  return (
-    <Animated.View entering={FadeIn.duration(600)} style={styles.emptyContainer}>
-      <SonarSweep />
-      <Text style={styles.emptyTitle}>Listening to the blockchain...</Text>
-      <Text style={styles.emptySubtitle}>
-        Live alerts will appear here as threats are detected on-chain.
-      </Text>
-    </Animated.View>
-  );
-}
-
 // ─── Main Screen ─────────────────────────────────────────────────────────────
 
 export default function RadarScreen() {
@@ -82,7 +70,7 @@ export default function RadarScreen() {
 
   const apiKey = useAuthStore((s) => s.apiKey);
   const user = useAuthStore((s) => s.user);
-  const [wsStatus, setWsStatus] = useState<'connected' | 'reconnecting' | 'offline'>('offline');
+  const wsStatus = wsConnected ? 'connected' : 'offline';
   const insets = useSafeAreaInsets();
 
   const briefing = useBriefingStore((s) => s.latest);
@@ -91,10 +79,7 @@ export default function RadarScreen() {
   const briefingUnread = useBriefingStore((s) => s.unread);
   const markBriefingRead = useBriefingStore((s) => s.markRead);
 
-  useEffect(() => {
-    const unsubBriefing = startBriefingListener(apiKey ?? undefined);
-    return () => { unsubBriefing(); };
-  }, [apiKey]);
+  // Briefing listener managed in _layout.tsx — no duplicate here
 
   const refreshing = statsLoading || topLoading;
   const onRefresh = () => { refetchStats(); refetchTopTokens(); };
@@ -124,7 +109,11 @@ export default function RadarScreen() {
             </View>
           </View>
           <Pressable onPress={() => router.push('/(tabs)/account' as any)} hitSlop={8} style={styles.avatarBtn}>
-            <User size={18} color={tokens.white60} strokeWidth={2} />
+            {user?.avatar_url ? (
+              <Image source={{ uri: user.avatar_url }} style={styles.avatarImg} />
+            ) : (
+              <User size={18} color={tokens.white60} strokeWidth={2} />
+            )}
           </Pressable>
         </View>
 
@@ -250,7 +239,8 @@ const styles = StyleSheet.create({
   statusRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   statusDot: { width: 6, height: 6, borderRadius: 3 },
   statusText: { fontFamily: 'Lexend-Regular', fontSize: tokens.font.tiny, color: tokens.textTertiary },
-  avatarBtn: { width: 36, height: 36, borderRadius: 10, backgroundColor: tokens.bgGlass8, borderWidth: 1, borderColor: tokens.borderSubtle, alignItems: 'center', justifyContent: 'center' },
+  avatarBtn: { width: 36, height: 36, borderRadius: 10, backgroundColor: tokens.bgGlass8, borderWidth: 1, borderColor: tokens.borderSubtle, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  avatarImg: { width: 36, height: 36, borderRadius: 10 },
   statsBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around', backgroundColor: tokens.bgGlass8, borderRadius: tokens.radius.md, borderWidth: 1, borderColor: tokens.borderSubtle, paddingVertical: 14, paddingHorizontal: 8 },
   statItem: { alignItems: 'center', flex: 1 },
   statValue: { fontFamily: 'Lexend-Bold', fontSize: tokens.font.subheading, color: tokens.white80 },

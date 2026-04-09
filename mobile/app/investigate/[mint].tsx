@@ -8,6 +8,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Linking,
+  AppState,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router, Stack } from 'expo-router';
@@ -35,10 +36,12 @@ import { tokens } from '../../src/theme/tokens';
 import { VerdictHero } from '../../src/components/investigate/VerdictHero';
 import { AgentMemoryCard } from '../../src/components/investigate/AgentMemoryCard';
 import { ForensicScanSection } from '../../src/components/investigate/ForensicScanSection';
+import { ForensicSnapshotCard } from '../../src/components/investigate/ForensicSnapshotCard';
 import { MarketDataStrip } from '../../src/components/investigate/MarketDataStrip';
 import { AgentReasoningSection } from '../../src/components/investigate/AgentReasoningSection';
 import { ChatPanel } from '../../src/components/investigate/ChatPanel';
 import { VerdictFeedback } from '../../src/components/investigate/VerdictFeedback';
+import { DisclaimerFooter } from '../../src/components/ui/DisclaimerFooter';
 import { VerdictSkeleton, HeuristicCard, ElapsedTimer } from '../../src/components/investigate/InvestigateHelpers';
 
 // ─── Main screen ─────────────────────────────────────────────────────────────
@@ -54,6 +57,7 @@ export default function InvestigateScreen() {
   const scanSteps = useInvestigateStore((s) => s.scanSteps);
   const agentSteps = useInvestigateStore((s) => s.agentSteps);
   const heuristicScore = useInvestigateStore((s) => s.heuristicScore);
+  const forensicSnapshot = useInvestigateStore((s) => s.forensicSnapshot);
   const verdict = useInvestigateStore((s) => s.verdict);
   const chatAvailable = useInvestigateStore((s) => s.chatAvailable);
   const error = useInvestigateStore((s) => s.error);
@@ -89,6 +93,9 @@ export default function InvestigateScreen() {
           price_change_24h: event.data.price_change_24h,
           boost_count: event.data.boost_count,
         });
+        break;
+      case 'forensic_snapshot':
+        s.setForensicSnapshot(event.data as any);
         break;
       case 'heuristic_complete':
         s.setHeuristicComplete(event.data.heuristic_score, event.data.risk_level, event.data.findings);
@@ -170,6 +177,35 @@ export default function InvestigateScreen() {
     return () => { cancelled = true; cancelRef.current?.(); if (retryTimerRef.current) clearTimeout(retryTimerRef.current); };
   }, [mint]);
 
+  // ── Resume on foreground return ──────────────────────────────────────────
+  // When the app goes to background, the OS kills the XHR/SSE connection.
+  // On return, if a scan was running, try to load the cached result (backend
+  // may have finished), otherwise silently relaunch the stream.
+  const appStateRef = useRef(AppState.currentState);
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (nextState) => {
+      if (appStateRef.current.match(/inactive|background/) && nextState === 'active') {
+        const s = useInvestigateStore.getState();
+        if (s.status === 'error' && s.mint) {
+          // Backend may have finished while we were in background — check cache
+          s.loadCached(s.mint).then((loaded) => {
+            if (!loaded) {
+              // No cached result — silently relaunch the stream
+              cancelRef.current?.();
+              useInvestigateStore.setState({ status: 'scanning', error: null });
+              cancelRef.current = investigateStream(
+                s.mint!, apiKey ?? '',
+                { onEvent: handleEvent, onDone: handleDone, onError: handleError },
+              );
+            }
+          });
+        }
+      }
+      appStateRef.current = nextState;
+    });
+    return () => sub.remove();
+  }, [apiKey, handleEvent, handleDone, handleError]);
+
   const handleAbort = () => { cancelRef.current?.(); useInvestigateStore.getState().cancel(); };
   const handleRetry = () => {
     cancelRef.current?.();
@@ -245,6 +281,7 @@ export default function InvestigateScreen() {
       <ScrollView ref={scrollRef} style={styles.timeline} showsVerticalScrollIndicator={false} contentContainerStyle={styles.timelineContent}>
         {status === 'done' && verdict && <VerdictHero />}
         {status === 'done' && verdict && <AgentMemoryCard />}
+        {status === 'done' && forensicSnapshot && <ForensicSnapshotCard snapshot={forensicSnapshot} mint={mint ?? ''} />}
         {status === 'done' && verdict && <VerdictFeedback />}
         {status === 'done' && heuristicScore != null && !verdict && (<><HeuristicCard score={heuristicScore} /><UpgradePrompt feature="AI Analysis" requiredPlan="pro" /></>)}
         {isRunning && <VerdictSkeleton />}
@@ -278,6 +315,7 @@ export default function InvestigateScreen() {
             </GlassCard>
           </Animated.View>
         )}
+        <DisclaimerFooter />
       </ScrollView>
 
       {status === 'done' && chatAvailable && mint && (

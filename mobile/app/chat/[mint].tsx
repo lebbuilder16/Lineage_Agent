@@ -92,7 +92,7 @@ export default function ChatScreen() {
 
   const sendMessage = useCallback(async () => {
     const text = input.trim();
-    if (!text || busy) return;
+    if (!text || busy || !mint) return;
 
     setInput('');
 

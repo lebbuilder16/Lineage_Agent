@@ -563,6 +563,7 @@ async def _run_rug_sweep() -> int:
 async def _sweep_loop() -> None:
     """Infinite loop that runs rug sweeps periodically."""
     logger.info("Rug sweep background task started (interval=%ds)", _SWEEP_INTERVAL_SECONDS)
+    await asyncio.sleep(30)  # stagger startup to avoid RPC rate-limit burst
     while True:
         try:
             count = await _run_rug_sweep()

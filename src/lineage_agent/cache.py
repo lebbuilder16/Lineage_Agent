@@ -192,6 +192,12 @@ class TTLCache:
     ) -> None:
         pass
 
+    async def cartel_edge_upsert_batch(
+        self, edges: list[tuple[str, str, str, float, dict]],
+    ) -> None:
+        for wa, wb, st, ss, ev in edges:
+            await self.cartel_edge_upsert(wa, wb, st, ss, ev)
+
     async def cartel_edges_query(self, wallet: str) -> list[dict]:
         return []
 
@@ -1036,6 +1042,15 @@ class SQLiteCache:
             except Exception:
                 pass  # column already exists
 
+        # Unique index on username (case-insensitive) for race-condition-free uniqueness
+        try:
+            await db.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username_lower "
+                "ON users(LOWER(username)) WHERE username IS NOT NULL"
+            )
+        except Exception:
+            pass
+
         # Migrate legacy tier names to new structure
         try:
             await db.execute(
@@ -1603,6 +1618,32 @@ class SQLiteCache:
             await db.commit()
         except Exception:
             logger.warning("cartel_edge_upsert failed", exc_info=True)
+
+    async def cartel_edge_upsert_batch(
+        self,
+        edges: list[tuple[str, str, str, float, dict]],
+    ) -> None:
+        """Batch upsert cartel edges — single transaction, much faster than individual calls."""
+        if not edges:
+            return
+        try:
+            db = await self._get_conn()
+            now = time.time()
+            for wallet_a, wallet_b, signal_type, signal_strength, evidence in edges:
+                ev_json = json.dumps(evidence, default=str)
+                w_a, w_b = (wallet_a, wallet_b) if wallet_a < wallet_b else (wallet_b, wallet_a)
+                await db.execute(
+                    "INSERT INTO cartel_edges "
+                    "(wallet_a, wallet_b, signal_type, signal_strength, evidence_json, first_seen, last_seen) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?) "
+                    "ON CONFLICT(wallet_a, wallet_b, signal_type) DO UPDATE SET "
+                    "signal_strength = MAX(excluded.signal_strength, cartel_edges.signal_strength), "
+                    "evidence_json = excluded.evidence_json, last_seen = excluded.last_seen",
+                    (w_a, w_b, signal_type, signal_strength, ev_json, now, now),
+                )
+            await db.commit()
+        except Exception:
+            logger.warning("cartel_edge_upsert_batch failed", exc_info=True)
 
     async def cartel_edges_query(self, wallet: str) -> list[dict]:
         """Return all cartel edges involving a wallet (as either endpoint)."""

@@ -16,6 +16,8 @@ import { DeathClockCard } from '../../src/components/ui/DeathClockCard';
 import { HapticButton } from '../../src/components/ui/HapticButton';
 import { SkeletonBlock } from '../../src/components/ui/SkeletonLoader';
 import { ScreenHeader } from '../../src/components/ui/ScreenHeader';
+import { DisclaimerFooter } from '../../src/components/ui/DisclaimerFooter';
+import { useToast } from '../../src/components/ui/Toast';
 import { useLineage } from '../../src/lib/query';
 import { useAuthStore } from '../../src/store/auth';
 import { tokens } from '../../src/theme/tokens';
@@ -47,6 +49,7 @@ export default function DeathClockScreen() {
   const insets = useSafeAreaInsets();
   const pendingClockMint = useAuthStore((s) => s.pendingClockMint);
   const setPendingClockMint = useAuthStore((s) => s.setPendingClockMint);
+  const { showToast, toast } = useToast();
 
   const [mint, setMint] = useState(pendingClockMint ?? '');
   const [submitted, setSubmitted] = useState(pendingClockMint ?? '');
@@ -59,7 +62,22 @@ export default function DeathClockScreen() {
   const { data, isLoading, error } = useLineage(submitted, !!submitted);
 
   const handleSubmit = () => {
-    if (mint.trim().length >= 32) setSubmitted(mint.trim());
+    const trimmed = mint.trim();
+    if (!trimmed) {
+      showToast('Enter a token mint address');
+      return;
+    }
+    if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(trimmed)) {
+      showToast('Invalid Solana mint address');
+      return;
+    }
+    // If user re-clicks PREDICT with same mint, force a refetch
+    if (trimmed === submitted) {
+      setSubmitted('');
+      setTimeout(() => setSubmitted(trimmed), 0);
+    } else {
+      setSubmitted(trimmed);
+    }
   };
 
   const riskLevel = deriveRiskLevel(data);
@@ -76,8 +94,8 @@ export default function DeathClockScreen() {
           <ScreenHeader
             icon={<Skull size={26} color={tokens.accent} strokeWidth={2.5} />}
             glowColor={tokens.accent}
-            title="Death Clock"
-            subtitle="Predict rug probability & timeline"
+            title="Risk Timeline"
+            subtitle="Lifecycle risk signals & timeline"
             paddingBottom={12}
             style={{ paddingHorizontal: 0 }}
           />
@@ -115,7 +133,7 @@ export default function DeathClockScreen() {
             onPress={handleSubmit}
             style={styles.cta}
             accessibilityRole="button"
-            accessibilityLabel="Predict rug probability"
+            accessibilityLabel="Analyze risk signals"
           >
             <Text style={styles.ctaText}>PREDICT</Text>
           </HapticButton>
@@ -161,7 +179,7 @@ export default function DeathClockScreen() {
                 <FactoryBanner operatorSamples={data.death_clock.operator_sample_count ?? 0} />
               )}
 
-              {/* Full Death Clock analysis */}
+              {/* Full Risk Timeline analysis */}
               {(data?.death_clock || data?.insider_sell) && (
                 <DeathClockCard
                   dc={data.death_clock ?? null}
@@ -187,8 +205,10 @@ export default function DeathClockScreen() {
               </TouchableOpacity>
             </>
           )}
+          <DisclaimerFooter />
         </ScrollView>
       </View>
+      {toast}
     </View>
   );
 }

@@ -326,6 +326,13 @@ async def cartel_edge_upsert(
     await cache.cartel_edge_upsert(wallet_a, wallet_b, signal_type, signal_strength, evidence)
 
 
+async def cartel_edge_upsert_batch(
+    edges: list[tuple[str, str, str, float, dict]],
+) -> None:
+    """Batch upsert cartel coordination edges."""
+    await cache.cartel_edge_upsert_batch(edges)
+
+
 async def cartel_edges_query(wallet: str) -> list[dict]:
     """Return all cartel edges involving a wallet."""
     return await cache.cartel_edges_query(wallet)

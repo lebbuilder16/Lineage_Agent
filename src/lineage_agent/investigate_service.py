@@ -93,6 +93,9 @@ async def run_investigation(
     bundle_res = report.bundle_report
     sol_res = report.sol_flow
 
+    # ── Emit forensic snapshot so mobile can display raw data ─────
+    yield _evtN("forensic_snapshot", _build_forensic_snapshot(report))
+
     # Compute heuristic pre-score
     hscore = _heuristic_score(lineage_res, bundle_res, sol_res)
 
@@ -104,7 +107,7 @@ async def run_investigation(
             from .ai_analyst import _build_calibration_context  # noqa: PLC0415
             _hv = _build_heuristic_verdict(hscore, mint)
             _cal_ctx = _build_calibration_context(_hv, lineage_res)
-            _cal_off = await get_calibration_offset(_cal_ctx)
+            _cal_off, _cal_matched = await get_calibration_offset(_cal_ctx)
             if _cal_off != 0:
                 calibrated_hscore = max(0, min(100, int(hscore + _cal_off)))
                 logger.info("[investigate] heuristic calibration: %+.0f (%d → %d) for %s",
@@ -248,6 +251,120 @@ async def run_investigation(
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
+
+
+def _build_forensic_snapshot(report: Any) -> dict:
+    """Extract key forensic data from the pipeline report for mobile display."""
+    snapshot: dict = {}
+
+    # ── Collect known wallet sets for attribution ───────────────────────
+    deployer_addr = getattr(report.deployer_profile, "address", None) if report.deployer_profile else None
+
+    br = report.bundle_report
+    bundle_confirmed: list[str] = list(getattr(br, "confirmed_team_wallets", []) or []) if br else []
+    bundle_suspected: list[str] = list(getattr(br, "suspected_team_wallets", []) or []) if br else []
+    bundle_coordinated: list[str] = list(getattr(br, "coordinated_dump_wallets", []) or []) if br else []
+    bundle_wallets_set = set(bundle_confirmed + bundle_suspected + bundle_coordinated)
+
+    cr = report.cartel_report
+    cartel_wallets_set: set[str] = set()
+    if cr:
+        dc = getattr(cr, "deployer_community", None)
+        if dc:
+            cartel_wallets_set = set(getattr(dc, "wallets", []) or [])
+            cartel_wallets_set.discard(deployer_addr)  # deployer counted separately
+
+    # ── SOL flow with per-category attribution ──────────────────────────
+    sf = report.sol_flow
+    if sf:
+        flows = getattr(sf, "flows", []) or []
+        deployer_sol = 0.0
+        bundle_sol = 0.0
+        cartel_sol = 0.0
+        other_sol = 0.0
+        for edge in flows:
+            amt = getattr(edge, "amount_sol", 0.0) or 0.0
+            src = getattr(edge, "from_address", "")
+            if src == deployer_addr:
+                deployer_sol += amt
+            elif src in bundle_wallets_set:
+                bundle_sol += amt
+            elif src in cartel_wallets_set:
+                cartel_sol += amt
+            else:
+                other_sol += amt
+
+        snapshot["sol_flow"] = {
+            "total_extracted_sol": getattr(sf, "total_extracted_sol", None),
+            "total_extracted_usd": getattr(sf, "total_extracted_usd", None),
+            "hop_count": len(flows),
+            "known_cex_detected": getattr(sf, "known_cex_detected", None),
+            "by_deployer_sol": round(deployer_sol, 4),
+            "by_bundle_sol": round(bundle_sol, 4),
+            "by_cartel_sol": round(cartel_sol, 4),
+            "by_other_sol": round(other_sol, 4),
+        }
+
+    # Bundle report
+    if br:
+        snapshot["bundle_report"] = {
+            "overall_verdict": getattr(br, "overall_verdict", None),
+            "bundle_count": getattr(br, "bundle_count", None),
+            "total_extracted_sol": getattr(br, "total_sol_extracted_confirmed", None),
+            "total_extracted_usd": getattr(br, "total_usd_extracted", None),
+            "coordinated_sell_detected": getattr(br, "coordinated_sell_detected", None),
+            "confirmed_team_wallets": len(bundle_confirmed),
+            "suspected_team_wallets": len(bundle_suspected),
+            "evidence_chain": getattr(br, "evidence_chain", None),
+        }
+
+    # Deployer profile
+    dp = report.deployer_profile
+    if dp:
+        snapshot["deployer_profile"] = {
+            "address": getattr(dp, "address", None),
+            "total_tokens_launched": getattr(dp, "total_tokens_launched", None),
+            "confirmed_rug_count": getattr(dp, "confirmed_rug_count", None),
+            "rug_rate_pct": getattr(dp, "rug_rate_pct", None),
+        }
+
+    # Cartel report
+    if cr:
+        dc = getattr(cr, "deployer_community", None)
+        if dc:
+            snapshot["cartel_report"] = {
+                "deployer_community": {
+                    "community_id": getattr(dc, "community_id", None),
+                    "member_count": len(getattr(dc, "wallets", []) or []),
+                    "wallets": getattr(dc, "wallets", None),
+                    "total_rugs": getattr(dc, "total_rugs", None),
+                    "total_sol_extracted": getattr(dc, "total_sol_extracted", None),
+                    "estimated_extracted_usd": getattr(dc, "estimated_extracted_usd", None),
+                    "strongest_signal": getattr(dc, "strongest_signal", None),
+                },
+            }
+
+    # Death clock
+    dck = report.death_clock
+    if dck:
+        snapshot["death_clock"] = {
+            "risk_level": getattr(dck, "risk_level", None),
+            "rug_probability_pct": getattr(dck, "rug_probability_pct", None),
+            "median_rug_hours": getattr(dck, "median_rug_hours", None),
+            "elapsed_hours": getattr(dck, "elapsed_hours", None),
+        }
+
+    # Insider sell
+    ins = report.insider_sell
+    if ins:
+        snapshot["insider_sell"] = {
+            "deployer_exited": getattr(ins, "deployer_exited", None),
+            "sell_pressure_1h": getattr(ins, "sell_pressure_1h", None),
+            "verdict": getattr(ins, "verdict", None),
+            "flags": getattr(ins, "flags", None),
+        }
+
+    return snapshot
 
 
 async def _record_memory_episode(mint: str, verdict: dict, lineage_res: Any) -> None:
