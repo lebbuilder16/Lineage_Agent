@@ -34,8 +34,18 @@ export function AgentSuggestions({ data, mint }: AgentSuggestionsProps) {
       s.push({ Icon: ShieldAlert, text: `Deployer rugged ${dp.confirmed_rug_count ?? '?'} tokens (${confirmedRate.toFixed(0)}%)`, why: `Rug rate is ${confirmedRate.toFixed(0)}% — well above the 15% average`, route: `/investigate/${mint}`, priority: 1 });
     if (br?.overall_verdict?.includes('confirmed'))
       s.push({ Icon: Zap, text: 'Bundle extraction confirmed', why: 'Coordinated wallets extracted SOL post-launch', route: `/sol-trace/${mint}`, priority: 1 });
-    if ((cr?.deployer_community?.wallets?.length ?? 0) > 2)
-      s.push({ Icon: Users, text: `${cr.deployer_community.wallets.length} linked deployers`, why: 'Network of deployers share funding or metadata patterns', route: `/cartel/${(data.query_token?.deployer || data.root?.deployer || cr.deployer_community?.community_id)}`, priority: 2 });
+    if ((cr?.deployer_community?.wallets?.length ?? 0) > 2) {
+      // /cartel/[id] expects a base58 wallet, not a 12-char hex community_id —
+      // fall back to the first wallet in the community rather than community_id
+      // to avoid 400 "Invalid Solana address" from /cartel/search.
+      const focusWallet =
+        data.query_token?.deployer ||
+        data.root?.deployer ||
+        cr.deployer_community?.wallets?.[0];
+      if (focusWallet) {
+        s.push({ Icon: Users, text: `${cr.deployer_community.wallets.length} linked deployers`, why: 'Network of deployers share funding or metadata patterns', route: `/cartel/${focusWallet}`, priority: 2 });
+      }
+    }
     if (sf?.total_extracted_sol != null && sf.total_extracted_sol > 10)
       s.push({ Icon: ArrowUpRight, text: `${sf.total_extracted_sol.toFixed(1)} SOL extracted`, why: `${sf.hop_count ?? '?'}-hop chain traced from deployer to exit wallets`, route: `/sol-trace/${mint}`, priority: 1 });
 

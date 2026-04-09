@@ -81,23 +81,35 @@ export function ForensicSnapshotCard({ snapshot, mint }: Props) {
           </TouchableOpacity>
         )}
 
-        {cartel_report?.deployer_community?.community_id && (
-          <TouchableOpacity
-            style={styles.row}
-            onPress={() => router.push(`/cartel/${cartel_report.deployer_community.community_id}` as any)}
-            activeOpacity={0.7}
-          >
-            <ShieldAlert size={14} color={tokens.accent} />
-            <View style={styles.rowInfo}>
-              <Text style={styles.rowLabel}>Cartel Network</Text>
-              <Text style={styles.rowValue}>
-                {cartel_report.deployer_community.wallets?.length ?? '?'} deployers
-                {cartel_report.deployer_community.total_rugs != null ? ` · ${cartel_report.deployer_community.total_rugs} rugs` : ''}
-              </Text>
-            </View>
-            <ArrowUpRight size={14} color={tokens.textTertiary} />
-          </TouchableOpacity>
-        )}
+        {cartel_report?.deployer_community?.community_id && (() => {
+          // The /cartel/[id] screen calls GET /cartel/search?deployer=<id>, which
+          // requires a base58 Solana wallet (32-44 chars). Passing a 12-char hex
+          // community_id here returns 400 "Invalid Solana address" — so navigate
+          // with the actual deployer wallet instead. Fall back to the first
+          // wallet in the cartel community when the deployer profile is missing.
+          const focusWallet =
+            deployer_profile?.address ||
+            cartel_report.deployer_community.wallets?.[0] ||
+            null;
+          if (!focusWallet) return null;
+          return (
+            <TouchableOpacity
+              style={styles.row}
+              onPress={() => router.push(`/cartel/${focusWallet}` as any)}
+              activeOpacity={0.7}
+            >
+              <ShieldAlert size={14} color={tokens.accent} />
+              <View style={styles.rowInfo}>
+                <Text style={styles.rowLabel}>Cartel Network</Text>
+                <Text style={styles.rowValue}>
+                  {cartel_report.deployer_community.wallets?.length ?? '?'} deployers
+                  {cartel_report.deployer_community.total_rugs != null ? ` · ${cartel_report.deployer_community.total_rugs} rugs` : ''}
+                </Text>
+              </View>
+              <ArrowUpRight size={14} color={tokens.textTertiary} />
+            </TouchableOpacity>
+          );
+        })()}
 
         {insider_sell && (insider_sell.deployer_exited || (insider_sell.flags?.length ?? 0) > 0) && (
           <View style={styles.row}>

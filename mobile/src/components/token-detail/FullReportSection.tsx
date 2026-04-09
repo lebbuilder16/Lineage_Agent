@@ -199,23 +199,32 @@ export function FullReportSection({
         </TouchableOpacity>
       )}
 
-      {/* Cartel */}
-      {data.cartel_report?.deployer_community?.community_id && (
-        <TouchableOpacity onPress={() => router.push(`/cartel/${data.query_token?.deployer || data.root?.deployer || data.cartel_report?.deployer_community?.community_id}` as any)} activeOpacity={0.75} accessibilityRole="button" accessibilityLabel="View cartel network">
-          <GlassCard style={[styles.linkCard, { borderLeftColor: `${tokens.accent}60`, borderLeftWidth: 3 }]} noPadding>
-            <View style={styles.linkRow}>
-              <Zap size={18} color={tokens.accent} />
-              <View style={styles.linkInfo}>
-                <Text style={styles.linkLabel}>Cartel Network</Text>
-                {data.cartel_report.deployer_community.wallets != null && (
-                  <Text style={styles.linkMeta}>{data.cartel_report.deployer_community.wallets.length} deployers{data.cartel_report.deployer_community.estimated_extracted_usd != null ? ` · ${fmtMcap(data.cartel_report.deployer_community.estimated_extracted_usd)}` : ''}</Text>
-                )}
+      {/* Cartel — /cartel/[id] needs a base58 wallet, not the 12-char hex
+          community_id (which would 400 against /cartel/search). Pick the
+          first available wallet from query/root/community.wallets. */}
+      {data.cartel_report?.deployer_community?.community_id && (() => {
+        const focusWallet =
+          data.query_token?.deployer ||
+          data.root?.deployer ||
+          data.cartel_report?.deployer_community?.wallets?.[0];
+        if (!focusWallet) return null;
+        return (
+          <TouchableOpacity onPress={() => router.push(`/cartel/${focusWallet}` as any)} activeOpacity={0.75} accessibilityRole="button" accessibilityLabel="View cartel network">
+            <GlassCard style={[styles.linkCard, { borderLeftColor: `${tokens.accent}60`, borderLeftWidth: 3 }]} noPadding>
+              <View style={styles.linkRow}>
+                <Zap size={18} color={tokens.accent} />
+                <View style={styles.linkInfo}>
+                  <Text style={styles.linkLabel}>Cartel Network</Text>
+                  {data.cartel_report.deployer_community.wallets != null && (
+                    <Text style={styles.linkMeta}>{data.cartel_report.deployer_community.wallets.length} deployers{data.cartel_report.deployer_community.estimated_extracted_usd != null ? ` · ${fmtMcap(data.cartel_report.deployer_community.estimated_extracted_usd)}` : ''}</Text>
+                  )}
+                </View>
+                <ChevronRight size={18} color={tokens.textTertiary} />
               </View>
-              <ChevronRight size={18} color={tokens.textTertiary} />
-            </View>
-          </GlassCard>
-        </TouchableOpacity>
-      )}
+            </GlassCard>
+          </TouchableOpacity>
+        );
+      })()}
     </Animated.View>
   );
 }
