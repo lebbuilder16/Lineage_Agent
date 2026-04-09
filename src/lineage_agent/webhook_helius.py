@@ -1,8 +1,16 @@
 """Helius Enhanced webhook handler.
 
-Validates incoming Helius events (HMAC-SHA256 over the raw body), extracts
-impacted mints from ``tokenTransfers``, and dispatches immediate rescans via
+Validates incoming Helius events (shared-secret bearer in the Authorization
+header), extracts impacted mints from ``tokenTransfers``, filters them to
+the mints actually in ``user_watches`` (via a 60s in-memory cache), and
+dispatches immediate rescans via
 ``watchlist_monitor_service.trigger_immediate_rescan``.
+
+Filtering is critical: pump.fun/Raydium swaps always include Wrapped SOL
+and often USDC/USDT in their ``tokenTransfers``. Without the filter we
+fan out one background task per collateral mint, flooding the event loop
+and starving concurrent forensic scans (proxy PU02 errors on Fly, 90s
+pipeline cancellations, etc.).
 
 The endpoint is disabled when ``HELIUS_WEBHOOK_SECRET`` is empty — in that
 case the API layer returns 503 and Lineage Agent keeps using its existing
@@ -14,11 +22,100 @@ import asyncio
 import hmac
 import json
 import logging
+import time
 from typing import Any
 
 import config as _config
 
 logger = logging.getLogger(__name__)
+
+# Common collateral / quote mints that appear in nearly every swap tx but
+# are never legitimate watchlist targets. Always dropped before dispatch,
+# even if the watched-mints cache lookup fails.
+_NOISE_MINTS: frozenset[str] = frozenset({
+    "So11111111111111111111111111111111111111112",  # Wrapped SOL
+    "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",  # USDC
+    "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",  # USDT
+})
+
+# In-memory cache of mints currently in user_watches (sub_type='mint').
+# Refreshed opportunistically from handle_helius_webhook — never blocks
+# the hot path. Stale-on-error: if a refresh fails, we keep the last
+# known set rather than dropping all events.
+_watched_mints_cache: set[str] = set()
+_watched_mints_expiry: float = 0.0
+_WATCHED_MINTS_TTL = 60.0  # seconds
+_watched_mints_lock = asyncio.Lock()
+
+
+async def _refresh_watched_mints(cache: Any) -> set[str]:
+    """Reload the watched-mints set from the ``user_watches`` table.
+
+    Safe to call concurrently — an asyncio lock prevents duplicate queries.
+    Returns the current set (possibly stale) on any error.
+    """
+    global _watched_mints_cache, _watched_mints_expiry  # noqa: PLW0603
+    async with _watched_mints_lock:
+        # Double-checked — another coroutine may have refreshed while we waited
+        if time.monotonic() < _watched_mints_expiry:
+            return _watched_mints_cache
+        try:
+            db = await cache._get_conn()
+            cursor = await db.execute(
+                "SELECT DISTINCT value FROM user_watches WHERE sub_type = 'mint'"
+            )
+            rows = await cursor.fetchall()
+            _watched_mints_cache = {r[0] for r in rows if r[0]}
+            _watched_mints_expiry = time.monotonic() + _WATCHED_MINTS_TTL
+            logger.debug(
+                "[helius_webhook] watched-mints cache refreshed: %d mints",
+                len(_watched_mints_cache),
+            )
+        except Exception as exc:
+            logger.warning(
+                "[helius_webhook] failed to refresh watched-mints cache: %s "
+                "(keeping %d stale entries)",
+                exc, len(_watched_mints_cache),
+            )
+        return _watched_mints_cache
+
+
+async def _filter_to_watched(mints: list[str], cache: Any) -> list[str]:
+    """Keep only mints that are currently in ``user_watches``.
+
+    Always drops known noise mints (Wrapped SOL, USDC, USDT) as a safety
+    net — even if the watched-mints cache is empty (e.g. on cold start)
+    we never want to fan out rescans for those.
+
+    If the cache is still empty after a refresh attempt (legitimately no
+    watches, or DB unreachable), we fall back to the noise-blocklist only
+    and dispatch nothing — correct behaviour on fresh deploys with zero
+    watches, and fail-safe on DB failures.
+    """
+    if not mints:
+        return []
+    # Cheap synchronous prefilter — strip obvious noise before we touch the DB.
+    prefiltered = [m for m in mints if m not in _NOISE_MINTS]
+    if not prefiltered:
+        return []
+    # Refresh cache if expired (non-blocking for other callers via the lock)
+    if time.monotonic() >= _watched_mints_expiry:
+        await _refresh_watched_mints(cache)
+    if not _watched_mints_cache:
+        # No active watches → nothing legitimate to dispatch for
+        return []
+    return [m for m in prefiltered if m in _watched_mints_cache]
+
+
+def invalidate_watched_mints_cache() -> None:
+    """Force the next webhook call to reload ``user_watches``.
+
+    Call this from any code path that adds or removes a mint watch so
+    the webhook starts/stops dispatching for it within one request
+    instead of waiting up to ``_WATCHED_MINTS_TTL`` seconds.
+    """
+    global _watched_mints_expiry  # noqa: PLW0603
+    _watched_mints_expiry = 0.0
 
 
 class HeliusWebhookError(Exception):
@@ -127,14 +224,32 @@ async def handle_helius_webhook(
         logger.info("[helius_webhook] empty payload — ack")
         return {"status": "ok", "mints": 0, "dispatched": 0}
 
-    mints = extract_mints(events)
-    if not mints:
+    raw_mints = extract_mints(events)
+    if not raw_mints:
         logger.info("[helius_webhook] %d event(s) with no mints — ack", len(events))
         return {"status": "ok", "mints": 0, "dispatched": 0}
 
+    # Filter down to mints actually in the watchlist. This is the hot-path
+    # optimisation that prevents the event-loop storm described in the
+    # module docstring. Collateral mints like Wrapped SOL are dropped here.
+    mints = await _filter_to_watched(raw_mints, cache)
+    if not mints:
+        logger.debug(
+            "[helius_webhook] %d event(s) / %d mint(s) — none watched, ack",
+            len(events), len(raw_mints),
+        )
+        return {
+            "status": "ok",
+            "events": len(events),
+            "mints": 0,
+            "dispatched": 0,
+            "filtered": len(raw_mints),
+        }
+
     logger.info(
-        "[helius_webhook] %d event(s) → %d unique mint(s): %s",
-        len(events), len(mints), ", ".join(m[:12] for m in mints[:5]),
+        "[helius_webhook] %d event(s) → %d watched mint(s) (from %d raw): %s",
+        len(events), len(mints), len(raw_mints),
+        ", ".join(m[:12] for m in mints[:5]),
     )
 
     # Dispatch as background tasks — Helius expects a fast ack.
@@ -165,4 +280,5 @@ __all__ = [
     "verify_signature",
     "extract_mints",
     "handle_helius_webhook",
+    "invalidate_watched_mints_cache",
 ]

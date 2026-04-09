@@ -28,7 +28,12 @@ logger = logging.getLogger(__name__)
 
 # SSE keepalive interval (seconds) — prevents Fly proxy idle timeout
 _KEEPALIVE_INTERVAL = 3.0
-_PIPELINE_TIMEOUT = 90.0
+# Budget for the parallel forensic branches. Set below the mobile
+# analyzeStream client timeout (180s) with enough headroom for the
+# AI verdict call that runs after the pipeline completes. Previous
+# value (90s) was too tight for fresh pump.fun tokens where sig-walks
+# on Helius take longer because the indexer is still catching up.
+_PIPELINE_TIMEOUT = 120.0
 
 # In-process cache for ForensicReport (avoids re-running pipeline on retry)
 _report_cache: dict[str, tuple[float, "ForensicReport"]] = {}
