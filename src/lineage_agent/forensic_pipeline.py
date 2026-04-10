@@ -406,11 +406,11 @@ async def run_forensic_pipeline(
                 if deployer:
                     results["sol_flow"] = await asyncio.wait_for(
                         trace_sol_flow(mint, deployer, token_created_at=identity.created_at),
-                        timeout=15.0,
+                        timeout=55.0,
                     )
                 _sub_step("sol_flow", "done", ms=int((time.monotonic() - t) * 1000))
             except asyncio.TimeoutError:
-                logger.info("[pipeline] sol_flow timeout at 15s for %s — continuing in background", mint[:12])
+                logger.info("[pipeline] sol_flow timeout at 55s for %s — continuing in background", mint[:12])
                 asyncio.create_task(
                     _safe_background(trace_sol_flow(mint, deployer, token_created_at=identity.created_at), "sol_flow", mint),
                 )
@@ -440,11 +440,11 @@ async def run_forensic_pipeline(
                     pass
                 if deployer:
                     results["bundle_report"] = await asyncio.wait_for(
-                        analyze_bundle(mint, deployer), timeout=25.0,
+                        analyze_bundle(mint, deployer), timeout=55.0,
                     )
                 _sub_step("bundle", "done", ms=int((time.monotonic() - t) * 1000))
             except asyncio.TimeoutError:
-                logger.info("[pipeline] bundle timeout at 25s for %s — continuing in background", mint[:12])
+                logger.info("[pipeline] bundle timeout at 55s for %s — continuing in background", mint[:12])
                 asyncio.create_task(
                     _safe_background(analyze_bundle(mint, deployer), "bundle", mint),
                 )
@@ -461,7 +461,7 @@ async def run_forensic_pipeline(
             try:
                 from .cartel_service import compute_cartel_report
                 results["cartel_report"] = await asyncio.wait_for(
-                    compute_cartel_report(mint, deployer), timeout=20.0
+                    compute_cartel_report(mint, deployer), timeout=55.0
                 )
                 _sub_step("cartel", "done", ms=int((time.monotonic() - t) * 1000))
             except Exception as e:
@@ -486,7 +486,7 @@ async def run_forensic_pipeline(
                         created_at=identity.created_at,
                         pairs=identity.pairs,
                     ),
-                    timeout=15.0,
+                    timeout=40.0,
                 )
                 _sub_step("sniper", "done", ms=int((time.monotonic() - t) * 1000))
             except Exception as e:
@@ -501,7 +501,7 @@ async def run_forensic_pipeline(
             try:
                 from .cluster_scoring_service import compute_cluster_score
                 results["cluster_score"] = await asyncio.wait_for(
-                    compute_cluster_score(mint, deployer), timeout=12.0,
+                    compute_cluster_score(mint, deployer), timeout=30.0,
                 )
                 _sub_step("cluster_score", "done", ms=int((time.monotonic() - t) * 1000))
             except Exception as e:
@@ -675,6 +675,25 @@ async def run_forensic_pipeline(
     # Insider sell from Branch D (ran in parallel, not sequential)
     if insider_result is not None and not isinstance(insider_result, Exception):
         report.insider_sell = insider_result
+
+    # ── Late cache re-check ─────────────────────────────────────────────
+    # If a critical enrichment returned None (timeout or error), its
+    # background task may have finished while other branches were still
+    # running. Re-check the DB cache before declaring the data missing.
+    if report.bundle_report is None or report.sol_flow is None:
+        try:
+            from .sol_flow_service import get_sol_flow_report as _late_sf
+            from .bundle_tracker_service import get_cached_bundle_report as _late_br
+            if report.bundle_report is None:
+                report.bundle_report = await _late_br(mint)
+                if report.bundle_report:
+                    logger.info("[pipeline] late cache hit: bundle for %s", mint[:12])
+            if report.sol_flow is None:
+                report.sol_flow = await _late_sf(mint)
+                if report.sol_flow:
+                    logger.info("[pipeline] late cache hit: sol_flow for %s", mint[:12])
+        except Exception:
+            pass  # non-critical — best effort
 
     report.timings["fork"] = fork_ms
 
